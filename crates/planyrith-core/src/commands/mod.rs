@@ -14,6 +14,7 @@
 //! Owner key: `later` (first consumer: milestone 0.1 commands).
 
 pub mod annotate;
+pub(crate) mod common;
 pub mod draw;
 pub mod edit;
 pub mod file;

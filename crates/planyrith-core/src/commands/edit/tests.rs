@@ -157,3 +157,89 @@ fn select_sets_the_engine_selection_without_history() {
     );
     assert_eq!(out["solid_after"], json!(true));
 }
+
+fn faces(e: &Engine) -> usize {
+    e.document().model.mesh().face_count()
+}
+
+#[test]
+fn erase_merges_and_deletes_by_the_edge_rules() {
+    let mut e = engine();
+    run(
+        &mut e,
+        "rectangle",
+        json!({ "corner_a": [0,0,0], "corner_b": [100,50,0] }),
+    );
+    run(&mut e, "line", json!({ "points": [[40,0,0],[40,50,0]] }));
+    assert_eq!(faces(&e), 2);
+    // The chord: the only edge with x = 40 at both ends.
+    let out = run(
+        &mut e,
+        "erase",
+        json!({ "targets": "edge & last & length=50" }),
+    );
+    assert_eq!(out["faces_merged"], json!(1));
+    assert_eq!(faces(&e), 1);
+    // Faces are not erased by the eraser.
+    let out = run(&mut e, "erase", json!({ "targets": "face" }));
+    assert_eq!(out["erased"], json!(0));
+    assert_eq!(faces(&e), 1);
+    // Soften mode changes flags only.
+    run(
+        &mut e,
+        "erase",
+        json!({ "targets": "edge", "mode": "hide" }),
+    );
+    assert!(
+        e.document()
+            .model
+            .mesh()
+            .edges()
+            .all(|(_, x)| x.flags.contains(crate::geom::EdgeFlags::HIDDEN))
+    );
+    e.undo().unwrap();
+    assert!(
+        e.document()
+            .model
+            .mesh()
+            .edges()
+            .all(|(_, x)| x.flags.bits() == 0)
+    );
+}
+
+#[test]
+fn delete_removes_faces_but_keeps_their_edges() {
+    let mut e = engine();
+    run(
+        &mut e,
+        "rectangle",
+        json!({ "corner_a": [0,0,0], "corner_b": [100,50,0] }),
+    );
+    let out = run(&mut e, "delete", json!({ "targets": "face" }));
+    assert_eq!(out["deleted"], json!(1));
+    assert_eq!(faces(&e), 0);
+    assert_eq!(e.document().model.mesh().edge_count(), 4);
+    let out = run(&mut e, "delete", json!({ "targets": "all" }));
+    assert_eq!(out["deleted"], json!(4));
+    assert!(e.document().model.is_empty());
+    e.undo().unwrap();
+    e.undo().unwrap();
+    assert_eq!(faces(&e), 1);
+}
+
+#[test]
+fn hide_and_unhide_round_trip() {
+    let mut e = engine();
+    run(
+        &mut e,
+        "rectangle",
+        json!({ "corner_a": [0,0,0], "corner_b": [100,50,0] }),
+    );
+    let out = run(&mut e, "hide", json!({ "targets": "face" }));
+    assert_eq!(out["changed"], json!(1));
+    let out = run(&mut e, "select", json!({ "query": "hidden" }));
+    assert_eq!(out["count"], json!(1));
+    run(&mut e, "unhide", json!({ "targets": "hidden" }));
+    let out = run(&mut e, "select", json!({ "query": "hidden" }));
+    assert_eq!(out["count"], json!(0));
+}

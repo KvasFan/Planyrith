@@ -9,9 +9,14 @@
 
 #![warn(unused_variables, dead_code)]
 
+mod erase;
 mod push_pull;
 mod select;
 
+pub use erase::{
+    Delete, DeleteOutput, DeleteParams, Erase, EraseMode, EraseOutput, EraseParams, Hide, Lock,
+    StateOutput, StateParams, Unhide, Unlock,
+};
 pub use push_pull::{PushPull, PushPullOutput, PushPullParams};
 pub use select::{Select, SelectOutput, SelectParams};
 
@@ -20,6 +25,12 @@ use crate::commands::CommandRegistry;
 /// Registers this category's commands (called by
 /// [`CommandRegistry::with_builtins`]).
 pub fn register(registry: &mut CommandRegistry) {
+    registry.register(Erase);
+    registry.register(Delete);
+    registry.register(Hide);
+    registry.register(Unhide);
+    registry.register(Lock);
+    registry.register(Unlock);
     registry.register(PushPull);
     registry.register(Select);
 }
