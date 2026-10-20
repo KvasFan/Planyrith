@@ -22,8 +22,8 @@ use crate::document::entities::{
 };
 use crate::geom::{Edge, Face, HalfEdgeMesh};
 use crate::ids::{
-    DefinitionId, DimensionId, EntityId, EntityKind, GroupId, GuideId, ImageId, InstanceId, Pid,
-    SectionPlaneId, TagId, TextId,
+    DefinitionId, DimensionId, EdgeId, EntityId, EntityKind, FaceId, GroupId, GuideId, ImageId,
+    InstanceId, Pid, SectionPlaneId, TagId, TextId,
 };
 use crate::math::Aabb;
 
@@ -143,7 +143,12 @@ pub enum HierarchyError {
 /// One container of entities (docs/04 §3): the model root or a definition's
 /// contents. Insertion order across all kinds is kept in `order` and MUST be
 /// preserved by save/load and undo/redo (docs/04 §2).
+///
+/// Serialized through [`EntitiesSer`] (docs/09 §2): the mesh in indexed form
+/// ordered by `order`, mesh entities referenced by index, so the file does
+/// not depend on slot layout.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(into = "EntitiesSer", try_from = "EntitiesSer")]
 pub struct Entities {
     mesh: HalfEdgeMesh,
     groups: StableMap<GroupId, Group>,
@@ -155,17 +160,186 @@ pub struct Entities {
     section_planes: StableMap<SectionPlaneId, SectionPlane>,
     /// Insertion order across all kinds (edges and faces included once bound).
     order: Vec<EntityId>,
-    #[serde(with = "crate::document::serde_seq")]
     pids: BTreeMap<EntityId, Pid>,
     by_pid: BTreeMap<Pid, EntityId>,
-    #[serde(with = "crate::document::serde_seq")]
     attrs: BTreeMap<EntityId, AttributeDictionaries>,
     /// Tag per entity; absent = `Tags::untagged()` (docs/04 §5).
-    #[serde(with = "crate::document::serde_seq")]
     tag_of: BTreeMap<EntityId, TagId>,
     hidden: BTreeSet<EntityId>,
     /// Groups/instances only.
     locked: BTreeSet<EntityId>,
+}
+
+/// A reference to an entity in the file form: mesh elements by their index
+/// in [`EntitiesSer::mesh`], everything else by its (stable) id.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum SerKey {
+    /// Edge by index.
+    Edge(u32),
+    /// Face by index.
+    Face(u32),
+    /// Any non-mesh entity.
+    Entity(EntityId),
+}
+
+/// File form of [`Entities`] (docs/09 §2 `EntitiesSer`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EntitiesSer {
+    /// Geometry; edges and faces in the container's order.
+    pub mesh: crate::geom::IndexedMesh,
+    /// Groups.
+    pub groups: StableMap<GroupId, Group>,
+    /// Instances.
+    pub instances: StableMap<InstanceId, ComponentInstance>,
+    /// Guides.
+    pub guides: StableMap<GuideId, Guide>,
+    /// Dimensions.
+    pub dimensions: StableMap<DimensionId, Dimension>,
+    /// Texts.
+    pub texts: StableMap<TextId, Text>,
+    /// Images.
+    pub images: StableMap<ImageId, ImageEntity>,
+    /// Section planes.
+    pub section_planes: StableMap<SectionPlaneId, SectionPlane>,
+    /// Insertion order with pids.
+    pub order: Vec<(SerKey, Pid)>,
+    /// Attributes, sorted by key.
+    pub attrs: Vec<(SerKey, AttributeDictionaries)>,
+    /// Tags, sorted by key.
+    pub tag_of: Vec<(SerKey, TagId)>,
+    /// Hidden entities, sorted.
+    pub hidden: Vec<SerKey>,
+    /// Locked groups/instances.
+    pub locked: Vec<EntityId>,
+}
+
+impl From<Entities> for EntitiesSer {
+    fn from(e: Entities) -> Self {
+        let edge_order: Vec<EdgeId> = e
+            .order
+            .iter()
+            .filter_map(|id| match id {
+                EntityId::Edge(x) => Some(*x),
+                _ => None,
+            })
+            .collect();
+        let face_order: Vec<FaceId> = e
+            .order
+            .iter()
+            .filter_map(|id| match id {
+                EntityId::Face(x) => Some(*x),
+                _ => None,
+            })
+            .collect();
+        let (mesh, ids) = e.mesh.to_indexed_ordered(&edge_order, &face_order);
+        let edge_index: BTreeMap<EdgeId, u32> = ids
+            .edges
+            .iter()
+            .enumerate()
+            .map(|(i, &x)| (x, i as u32))
+            .collect();
+        let face_index: BTreeMap<FaceId, u32> = ids
+            .faces
+            .iter()
+            .enumerate()
+            .map(|(i, &x)| (x, i as u32))
+            .collect();
+        let key = |id: &EntityId| -> Option<SerKey> {
+            Some(match id {
+                EntityId::Edge(x) => SerKey::Edge(*edge_index.get(x)?),
+                EntityId::Face(x) => SerKey::Face(*face_index.get(x)?),
+                other => SerKey::Entity(*other),
+            })
+        };
+        let order = e
+            .order
+            .iter()
+            .filter_map(|id| Some((key(id)?, *e.pids.get(id)?)))
+            .collect();
+        let mut attrs: Vec<(SerKey, AttributeDictionaries)> = e
+            .attrs
+            .iter()
+            .filter_map(|(id, a)| Some((key(id)?, a.clone())))
+            .collect();
+        attrs.sort_by_key(|a| a.0);
+        let mut tag_of: Vec<(SerKey, TagId)> = e
+            .tag_of
+            .iter()
+            .filter_map(|(id, t)| Some((key(id)?, *t)))
+            .collect();
+        tag_of.sort_by_key(|a| a.0);
+        let mut hidden: Vec<SerKey> = e.hidden.iter().filter_map(key).collect();
+        hidden.sort();
+        EntitiesSer {
+            mesh,
+            groups: e.groups,
+            instances: e.instances,
+            guides: e.guides,
+            dimensions: e.dimensions,
+            texts: e.texts,
+            images: e.images,
+            section_planes: e.section_planes,
+            order,
+            attrs,
+            tag_of,
+            hidden,
+            locked: e.locked.into_iter().collect(),
+        }
+    }
+}
+
+impl TryFrom<EntitiesSer> for Entities {
+    type Error = String;
+
+    fn try_from(s: EntitiesSer) -> Result<Self, String> {
+        let mesh = HalfEdgeMesh::from_indexed_lenient(&s.mesh).map_err(|e| e.to_string())?;
+        let edges: Vec<EdgeId> = mesh.edges().map(|(x, _)| x).collect();
+        let faces: Vec<FaceId> = mesh.faces().map(|(x, _)| x).collect();
+        let id = |k: SerKey| -> Result<EntityId, String> {
+            Ok(match k {
+                SerKey::Edge(i) => EntityId::Edge(
+                    *edges
+                        .get(i as usize)
+                        .ok_or_else(|| format!("edge index {i} out of range"))?,
+                ),
+                SerKey::Face(i) => EntityId::Face(
+                    *faces
+                        .get(i as usize)
+                        .ok_or_else(|| format!("face index {i} out of range"))?,
+                ),
+                SerKey::Entity(other) => other,
+            })
+        };
+        let mut e = Entities {
+            mesh,
+            groups: s.groups,
+            instances: s.instances,
+            guides: s.guides,
+            dimensions: s.dimensions,
+            texts: s.texts,
+            images: s.images,
+            section_planes: s.section_planes,
+            ..Entities::default()
+        };
+        for (k, pid) in s.order {
+            let x = id(k)?;
+            if e.by_pid.insert(pid, x).is_some() || e.pids.insert(x, pid).is_some() {
+                return Err(format!("{pid} bound twice"));
+            }
+            e.order.push(x);
+        }
+        for (k, a) in s.attrs {
+            e.attrs.insert(id(k)?, a);
+        }
+        for (k, t) in s.tag_of {
+            e.tag_of.insert(id(k)?, t);
+        }
+        for k in s.hidden {
+            e.hidden.insert(id(k)?);
+        }
+        e.locked = s.locked.into_iter().collect();
+        Ok(e)
+    }
 }
 
 impl Entities {
@@ -1023,11 +1197,49 @@ mod tests {
     }
 
     #[test]
-    fn container_serializes_with_pair_sequences() {
+    fn container_file_form_is_indexed_and_round_trips() {
         let e = Entities::new();
         let json = serde_json::to_value(&e).unwrap();
-        assert!(json["pids"].is_array());
+        assert!(json["order"].is_array() && json["mesh"]["vertices"].is_array());
         let back: Entities = serde_json::from_value(json).unwrap();
         assert!(back.is_empty());
+
+        // Geometry with pids, a tag and a hidden face survives msgpack.
+        let tol = crate::tolerance::Tolerances::default();
+        let mut e = Entities::new();
+        let pts = [
+            glam::DVec3::ZERO,
+            glam::DVec3::X * 10.0,
+            glam::DVec3::new(10.0, 10.0, 0.0),
+            glam::DVec3::Y * 10.0,
+        ];
+        for i in 0..4 {
+            e.mesh_mut()
+                .add_edge(pts[i], pts[(i + 1) % 4], &tol, &mut crate::geom::NoDeltas)
+                .unwrap();
+        }
+        let ids: Vec<EntityId> = e
+            .mesh()
+            .edges()
+            .map(|(x, _)| EntityId::Edge(x))
+            .chain(e.mesh().faces().map(|(x, _)| EntityId::Face(x)))
+            .collect();
+        for (k, id) in ids.iter().enumerate() {
+            e.bind_pid(*id, Pid(100 + k as u64), None).unwrap();
+        }
+        let face = ids[4];
+        e.set_tag(face, Some(TagId::default())).unwrap();
+        e.set_hidden(face, true).unwrap();
+        let bytes = rmp_serde::to_vec_named(&e).unwrap();
+        let back: Entities = rmp_serde::from_slice(&bytes).unwrap();
+        assert_eq!(back.len(), 5);
+        let f = back.id_of(Pid(104)).unwrap();
+        assert!(matches!(f, EntityId::Face(_)));
+        assert!(back.is_hidden(f) && back.tag_of(f).is_some());
+        assert_eq!(
+            rmp_serde::to_vec_named(&back).unwrap(),
+            bytes,
+            "stable re-encoding"
+        );
     }
 }

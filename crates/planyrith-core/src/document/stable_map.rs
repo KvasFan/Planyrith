@@ -18,11 +18,13 @@ use slotmap::{Key, SecondaryMap, SlotMap};
 
 /// A slot map with reserved keys (see the module documentation). Iteration is
 /// in slot order, which is deterministic for a given history.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "K: Serialize, V: Serialize",
-    deserialize = "K: Deserialize<'de>, V: Deserialize<'de>"
-))]
+///
+/// Serialized as the sequence of live `(key, value)` pairs in slot order:
+/// reserved keys of removed values are not saved (the undo history that could
+/// restore them is not saved either), so a document whose changes were undone
+/// writes the same bytes as before them (docs/12 §2). Loading rebuilds the
+/// allocator so every saved key keeps its exact index and generation.
+#[derive(Debug, Clone)]
 pub struct StableMap<K: Key, V> {
     /// Every key ever handed out (values removed or not). The marker is a
     /// `u8`, not `()`: a unit value serializes like a vacant slot and would
@@ -125,6 +127,50 @@ impl<K: Key, V> StableMap<K, V> {
     }
 }
 
+impl<K: Key + Serialize, V: Serialize> Serialize for StableMap<K, V> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_seq(self.values.iter())
+    }
+}
+
+impl<'de, K: Key + Deserialize<'de>, V: Deserialize<'de>> Deserialize<'de> for StableMap<K, V> {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let pairs: Vec<(K, V)> = Vec::deserialize(deserializer)?;
+        StableMap::from_pairs(pairs).map_err(serde::de::Error::custom)
+    }
+}
+
+impl<K: Key, V> StableMap<K, V> {
+    /// Rebuilds a map whose live keys are exactly `pairs`' keys. The key
+    /// allocator is reconstructed through `slotmap`'s own serialized form
+    /// (one slot per index, occupied slots carrying their odd generation).
+    fn from_pairs(pairs: Vec<(K, V)>) -> Result<Self, String> {
+        let mut slots: Vec<serde_json::Value> =
+            vec![serde_json::json!({ "value": null, "version": 0 })];
+        for (k, _) in &pairs {
+            let ffi = k.data().as_ffi();
+            let (idx, version) = ((ffi & 0xffff_ffff) as usize, (ffi >> 32) as u32);
+            if idx == 0 || version % 2 == 0 {
+                return Err(format!("invalid key (slot {idx}, version {version})"));
+            }
+            if slots.len() <= idx {
+                slots.resize(idx + 1, serde_json::json!({ "value": null, "version": 0 }));
+            }
+            if !slots[idx]["value"].is_null() {
+                return Err(format!("key for slot {idx} given twice"));
+            }
+            slots[idx] = serde_json::json!({ "value": 0, "version": version });
+        }
+        let keys: SlotMap<K, u8> =
+            serde_json::from_value(serde_json::Value::Array(slots)).map_err(|e| e.to_string())?;
+        let mut values = SecondaryMap::new();
+        for (k, v) in pairs {
+            values.insert(k, v);
+        }
+        Ok(StableMap { keys, values })
+    }
+}
+
 impl<'a, K: Key, V> IntoIterator for &'a StableMap<K, V> {
     type Item = (K, &'a V);
     type IntoIter = slotmap::secondary::Iter<'a, K, V>;
@@ -191,5 +237,16 @@ mod tests {
         let back: StableMap<TagId, String> = serde_json::from_str(&json).unwrap();
         assert_eq!(back.len(), 3);
         assert_eq!(back.get(a).map(String::as_str), Some("a"));
+        assert_eq!(back.get(c).map(String::as_str), Some("c"));
+        // Removed-but-reserved keys are not saved: removing and restoring a
+        // value gives the same bytes.
+        let before = serde_json::to_string(&m).unwrap();
+        let x = m.insert("x");
+        m.remove(x);
+        assert_eq!(serde_json::to_string(&m).unwrap(), before);
+        // New keys after a load never collide with saved ones.
+        let mut back = back;
+        let d = back.insert("d".to_string());
+        assert!(![a, b, c].contains(&d));
     }
 }

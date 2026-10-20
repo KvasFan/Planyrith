@@ -76,3 +76,8 @@ humans or GUI automation before releases, with expected screenshots.
   `planyrith-core` only until `planyrith-render` and `planyrith-gui` contain wasm-ready code;
   `cargo doc` and `cargo deny` run in the lint job; render, fuzz, bench and release jobs are
   added with their milestones.
+- 2026-10-20 — **Undo/redo byte equality and the pid counter.** `next_pid` only moves forward
+  (docs/04 §2), so after apply → undo the counter differs from the original file. The §2 check
+  writes both documents with the same counter; everything else must be byte-identical. Implemented
+  for every 0.1 command in `commands::undo_tests` (drawing, editing and organizing sequences, each
+  step undone and redone in place).

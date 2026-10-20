@@ -901,6 +901,24 @@ impl HalfEdgeMesh {
         indexed::to_indexed(self)
     }
 
+    /// The indexed form in a canonical order independent of slot layout:
+    /// `edge_order`/`face_order` first (e.g. a container's order list), the
+    /// rest in slot order; vertices by first use (docs/09 §2, docs/12 §2).
+    pub fn to_indexed_ordered(
+        &self,
+        edge_order: &[EdgeId],
+        face_order: &[FaceId],
+    ) -> (IndexedMesh, IndexedIds) {
+        indexed::to_indexed_ordered(self, edge_order, face_order)
+    }
+
+    /// [`HalfEdgeMesh::from_indexed`] without the final validation and with
+    /// planarity relaxed, for loading before the document tolerances are
+    /// known; `planyrith validate` checks the result with the real ones.
+    pub(crate) fn from_indexed_lenient(indexed: &IndexedMesh) -> Result<Self, GeometryError> {
+        indexed::from_indexed_lenient(indexed)
+    }
+
     /// Importer fast path: builds a mesh from triangles, merging coplanar
     /// neighbors and softening edges below `opts.soften_angle` (docs/09 §6).
     pub fn from_triangles_merged(

@@ -13,7 +13,7 @@ use super::{
 };
 use crate::geom::planar::boundary_cycles;
 use crate::geom::{FaceSides, GeometryError, NoDeltas};
-use crate::ids::{CurveId, EdgeId, HalfEdgeId, VertexId};
+use crate::ids::{CurveId, EdgeId, FaceId, HalfEdgeId, VertexId};
 use crate::math::{Plane, polygon};
 use crate::tolerance::Tolerances;
 
@@ -22,6 +22,14 @@ use crate::tolerance::Tolerances;
 pub(super) fn from_indexed(
     indexed: &IndexedMesh,
     tol: &Tolerances,
+) -> Result<HalfEdgeMesh, GeometryError> {
+    build_from_indexed(indexed, tol, true)
+}
+
+fn build_from_indexed(
+    indexed: &IndexedMesh,
+    tol: &Tolerances,
+    check: bool,
 ) -> Result<HalfEdgeMesh, GeometryError> {
     let mut mesh = HalfEdgeMesh::new();
     let d = &mut NoDeltas;
@@ -96,7 +104,11 @@ pub(super) fn from_indexed(
         mesh.create_face(outer, holes, plane, face.sides.clone(), tol, d)?;
     }
 
-    let violations = mesh.validate(tol);
+    let violations = if check {
+        mesh.validate(tol)
+    } else {
+        Vec::new()
+    };
     if let Some(first) = violations.first() {
         return Err(broken(format!(
             "loaded mesh violates invariant {}: {} ({} violation(s))",
@@ -167,27 +179,124 @@ fn chain_order(mesh: &HalfEdgeMesh, members: &[EdgeId]) -> Result<Vec<EdgeId>, G
     }
 }
 
+/// Builds without the final `validate` and with planarity relaxed, for
+/// loading documents whose own tolerances are not known yet (the file form
+/// of `Entities`). Structural errors (bad indices, open loops, inverted
+/// orientation) still fail.
+pub(crate) fn from_indexed_lenient(indexed: &IndexedMesh) -> Result<HalfEdgeMesh, GeometryError> {
+    let tol = Tolerances {
+        planarity: 1e6,
+        ..Tolerances::default()
+    };
+    build_from_indexed(indexed, &tol, false)
+}
+
+/// docs/09 §2 in a canonical order independent of slot layout: edges listed
+/// in `edge_order` first, then the remaining edges in slot order; faces
+/// likewise; vertices in order of first use by those edges, then isolated
+/// vertices in slot order; curves in order of their first member edge.
+pub(crate) fn to_indexed_ordered(
+    mesh: &HalfEdgeMesh,
+    edge_order: &[EdgeId],
+    face_order: &[FaceId],
+) -> (IndexedMesh, IndexedIds) {
+    let mut edges: Vec<EdgeId> = Vec::with_capacity(mesh.edges.len());
+    let mut seen = BTreeSet::new();
+    for &e in edge_order
+        .iter()
+        .chain(mesh.edges.keys().collect::<Vec<_>>().iter())
+    {
+        if mesh.edges.contains_key(e) && seen.insert(e) {
+            edges.push(e);
+        }
+    }
+    let mut faces: Vec<FaceId> = Vec::with_capacity(mesh.faces.len());
+    let mut seen_faces = BTreeSet::new();
+    for &f in face_order
+        .iter()
+        .chain(mesh.faces.keys().collect::<Vec<_>>().iter())
+    {
+        if mesh.faces.contains_key(f) && seen_faces.insert(f) {
+            faces.push(f);
+        }
+    }
+    let mut vertices: Vec<VertexId> = Vec::with_capacity(mesh.vertices.len());
+    let mut seen_vertices = BTreeSet::new();
+    for &e in &edges {
+        if let Ok((a, b)) = mesh.edge_endpoints(e) {
+            for v in [a, b] {
+                if seen_vertices.insert(v) {
+                    vertices.push(v);
+                }
+            }
+        }
+    }
+    for v in mesh.vertices.keys() {
+        if seen_vertices.insert(v) {
+            vertices.push(v);
+        }
+    }
+    let mut curves: Vec<CurveId> = Vec::new();
+    for &e in &edges {
+        if let Some(c) = mesh.edges.get(e).and_then(|x| x.curve)
+            && !curves.contains(&c)
+        {
+            curves.push(c);
+        }
+    }
+    for c in mesh.curves.keys() {
+        if !curves.contains(&c) {
+            curves.push(c);
+        }
+    }
+    emit_indexed(mesh, &vertices, &edges, &faces, &curves)
+}
+
 /// docs/09 §2: slot order for vertices, edges, faces and curves.
 pub(super) fn to_indexed(mesh: &HalfEdgeMesh) -> (IndexedMesh, IndexedIds) {
+    let vertices: Vec<VertexId> = mesh.vertices.keys().collect();
+    let edges: Vec<EdgeId> = mesh.edges.keys().collect();
+    let faces: Vec<FaceId> = mesh.faces.keys().collect();
+    let curves: Vec<CurveId> = mesh.curves.keys().collect();
+    emit_indexed(mesh, &vertices, &edges, &faces, &curves)
+}
+
+/// The indexed form for explicit element orders.
+fn emit_indexed(
+    mesh: &HalfEdgeMesh,
+    vertex_order: &[VertexId],
+    edge_order: &[EdgeId],
+    face_order: &[FaceId],
+    curve_order: &[CurveId],
+) -> (IndexedMesh, IndexedIds) {
     let mut ids = IndexedIds::default();
     let mut out = IndexedMesh::default();
 
     let mut vertex_index: SecondaryMap<VertexId, u32> = SecondaryMap::new();
-    for (v, vert) in &mesh.vertices {
+    for &v in vertex_order {
+        let Some(vert) = mesh.vertices.get(v) else {
+            continue;
+        };
         vertex_index.insert(v, out.vertices.len() as u32);
         out.vertices.push(vert.position);
         ids.vertices.push(v);
     }
 
     let mut curve_index: SecondaryMap<CurveId, u32> = SecondaryMap::new();
-    for (c, descriptor) in &mesh.curves {
+    for &c in curve_order {
+        let Some(descriptor) = mesh.curves.get(c) else {
+            continue;
+        };
         curve_index.insert(c, out.curves.len() as u32);
         out.curves.push(descriptor.clone());
         ids.curves.push(c);
     }
 
     let mut edge_index: SecondaryMap<EdgeId, u32> = SecondaryMap::new();
-    for (e, edge) in &mesh.edges {
+    for &e in edge_order {
+        let Some(edge) = mesh.edges.get(e) else {
+            continue;
+        };
         let (Some(he), Some(twin)) = (
             mesh.half_edges.get(edge.he),
             mesh.half_edges
@@ -210,7 +319,10 @@ pub(super) fn to_indexed(mesh: &HalfEdgeMesh) -> (IndexedMesh, IndexedIds) {
         ids.edges.push(e);
     }
 
-    for (f, face) in &mesh.faces {
+    for &f in face_order {
+        let Some(face) = mesh.faces.get(f) else {
+            continue;
+        };
         let mut loops = Vec::with_capacity(1 + face.holes.len());
         for &l in std::iter::once(&face.outer).chain(face.holes.iter()) {
             let Ok(cycle) = mesh.loop_half_edges(l) else {

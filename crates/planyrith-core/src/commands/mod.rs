@@ -21,6 +21,8 @@ pub mod file;
 pub mod organize;
 pub mod params;
 pub mod transaction;
+#[cfg(test)]
+mod undo_tests;
 pub mod view;
 
 pub use transaction::{
@@ -783,7 +785,13 @@ impl Engine {
             .cloned()
             .ok_or_else(|| CommandError::NotApplicable("nothing to redo".into()))?;
         let applied = self.replay_entry(&entry, false)?;
-        self.after_history_move(entry.label, applied);
+        self.after_history_move(entry.label.clone(), applied);
+        // `last` names what the redone step created (docs/08 §2).
+        self.last_created = entry
+            .transactions
+            .iter()
+            .flat_map(|t| t.created.iter().copied())
+            .collect();
         Ok(())
     }
 

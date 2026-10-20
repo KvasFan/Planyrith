@@ -154,3 +154,12 @@ save unless `--no-thumbnail`. `manifest.json` carries `title`, `author`, `descri
   is skipped by serde and written as `images/<hash>.<ext>` parts.
 - 2026-10-20 — Migrations (§4) operate on a `serde_json::Value` intermediate tree
   (`io::native::migrate::migrate(tree, from)`), applied one version step at a time.
+- 2026-10-20 — **Containers use the indexed `EntitiesSer` form.** `document.msgpack` stores each
+  `Entities` as its mesh in indexed form (`HalfEdgeMesh::to_indexed_ordered`) with edges and faces
+  in the container's order list and vertices by first use, plus the non-mesh entity maps, the
+  order as `(key, pid)` pairs and the side tables, where mesh entities are referenced by index
+  (`SerKey`). Collections with stable ids (`StableMap`) store only their live `(id, value)` pairs.
+  The file therefore does not depend on slot layout: a document whose changes were undone saves to
+  the same bytes, and a re-saved file is byte-identical. On load meshes are rebuilt leniently
+  (structure and orientation checked, planarity left to `planyrith validate`, which knows the
+  document's tolerances). Format version stays 1 (no file of the earlier draft form was released).
