@@ -275,3 +275,13 @@ tags, non-invertible transforms, `next_pid` monotonicity. `repair` fixes what it
   `EntityKey = Id(EntityId) | Pid(Pid)`; `EditContext { path: InstancePath }`; `Selection` is an
   `IndexSet<EntityPath>`. `ComponentDefinition::new(uuid, name)` takes the UUID from the caller so
   the document layer stays deterministic.
+- 2026-10-20 — **Stable ids for everything but mesh elements.** Non-mesh entities (groups,
+  instances, guides, dimensions, texts, images, section planes), definitions, materials, tags, tag
+  folders, scenes and styles live in a `StableMap` (a slot map whose removed keys stay reserved):
+  removal keeps the key, and undo puts the value back under the same id with `restore`. Deltas and
+  records (a group's `definition`, a face's materials, a tag's folder) can therefore hold plain ids
+  across undo/redo. Mesh edges and faces are re-created by position-based replay and get new ids;
+  their pids are re-bound by the transaction and id-only references are resolved through
+  `geom::ReplayIds`, kept per container across undo/redo (docs/03 Decisions). This refines the
+  "EntityId values are not stable across undo/redo" entry above: that now only holds for edges and
+  faces. Reserved keys cost one small slot each and are never handed out again.

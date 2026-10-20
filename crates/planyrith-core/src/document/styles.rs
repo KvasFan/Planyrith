@@ -2,7 +2,6 @@
 //! for edges, faces, background, watermarks, modeling colors and fog.
 
 use serde::{Deserialize, Serialize};
-use slotmap::SlotMap;
 
 use crate::document::materials::{ImageRef, Rgba8};
 use crate::ids::StyleId;
@@ -209,14 +208,14 @@ impl Default for Style {
 /// active one)").
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Styles {
-    items: SlotMap<StyleId, Style>,
+    items: crate::document::StableMap<StyleId, Style>,
     order: Vec<StyleId>,
     active: StyleId,
 }
 
 impl Default for Styles {
     fn default() -> Self {
-        let mut items = SlotMap::with_key();
+        let mut items = crate::document::StableMap::with_key();
         let active = items.insert(Style::default());
         Styles {
             items,
@@ -293,7 +292,23 @@ impl Styles {
             .map(|slot| std::mem::replace(slot, style))
     }
 
-    /// Removes a non-active style.
+    /// Position of a style in the insertion order.
+    pub fn position(&self, id: StyleId) -> Option<usize> {
+        self.order.iter().position(|s| *s == id)
+    }
+
+    /// Puts a removed style back under its id at `index` (undo of a
+    /// removal); `false` when `id` is not a removed style of this list.
+    pub(crate) fn restore(&mut self, id: StyleId, style: Style, index: usize) -> bool {
+        if self.items.restore(id, style).is_err() {
+            return false;
+        }
+        self.order.insert(index.min(self.order.len()), id);
+        true
+    }
+
+    /// Removes a non-active style; its id stays reserved for
+    /// [`Styles::restore`].
     pub(crate) fn remove(&mut self, id: StyleId) -> Option<Style> {
         if id == self.active {
             return None;

@@ -13,8 +13,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use glam::DAffine3;
 use serde::{Deserialize, Serialize};
-use slotmap::SlotMap;
 
+use crate::document::StableMap;
 use crate::document::attributes::AttributeDictionaries;
 use crate::document::entities::{
     ComponentDefinition, ComponentInstance, Dimension, Group, Guide, ImageEntity, SectionPlane,
@@ -146,13 +146,13 @@ pub enum HierarchyError {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Entities {
     mesh: HalfEdgeMesh,
-    groups: SlotMap<GroupId, Group>,
-    instances: SlotMap<InstanceId, ComponentInstance>,
-    guides: SlotMap<GuideId, Guide>,
-    dimensions: SlotMap<DimensionId, Dimension>,
-    texts: SlotMap<TextId, Text>,
-    images: SlotMap<ImageId, ImageEntity>,
-    section_planes: SlotMap<SectionPlaneId, SectionPlane>,
+    groups: StableMap<GroupId, Group>,
+    instances: StableMap<InstanceId, ComponentInstance>,
+    guides: StableMap<GuideId, Guide>,
+    dimensions: StableMap<DimensionId, Dimension>,
+    texts: StableMap<TextId, Text>,
+    images: StableMap<ImageId, ImageEntity>,
+    section_planes: StableMap<SectionPlaneId, SectionPlane>,
     /// Insertion order across all kinds (edges and faces included once bound).
     order: Vec<EntityId>,
     #[serde(with = "crate::document::serde_seq")]
@@ -279,8 +279,50 @@ impl Entities {
         Ok(id)
     }
 
+    /// Puts a removed non-mesh entity back under its old id, pid and order
+    /// position (undo of [`Entities::remove`]; ids are stable, docs/04
+    /// Decisions).
+    pub(crate) fn restore(
+        &mut self,
+        id: EntityId,
+        record: EntityRecord,
+        pid: Pid,
+        order_index: usize,
+    ) -> Result<(), HierarchyError> {
+        if self.by_pid.contains_key(&pid) {
+            return Err(HierarchyError::PidInUse(pid));
+        }
+        let restored = match (id, record) {
+            (EntityId::Group(k), EntityRecord::Group(v)) => self.groups.restore(k, v).is_ok(),
+            (EntityId::Instance(k), EntityRecord::Instance(v)) => {
+                self.instances.restore(k, v).is_ok()
+            }
+            (EntityId::Guide(k), EntityRecord::Guide(v)) => self.guides.restore(k, v).is_ok(),
+            (EntityId::Dimension(k), EntityRecord::Dimension(v)) => {
+                self.dimensions.restore(k, v).is_ok()
+            }
+            (EntityId::Text(k), EntityRecord::Text(v)) => self.texts.restore(k, v).is_ok(),
+            (EntityId::Image(k), EntityRecord::Image(v)) => self.images.restore(k, v).is_ok(),
+            (EntityId::SectionPlane(k), EntityRecord::SectionPlane(v)) => {
+                self.section_planes.restore(k, v).is_ok()
+            }
+            (EntityId::Edge(_) | EntityId::Face(_), _) => {
+                return Err(HierarchyError::MeshEntity(id));
+            }
+            _ => return Err(HierarchyError::KindMismatch(id)),
+        };
+        if !restored {
+            return Err(HierarchyError::NotFound(id));
+        }
+        self.order.insert(order_index.min(self.order.len()), id);
+        self.pids.insert(id, pid);
+        self.by_pid.insert(pid, id);
+        Ok(())
+    }
+
     /// Removes a non-mesh entity with all its side-table rows; returns the
-    /// record, its pid and its former order index.
+    /// record, its pid and its former order index. The id stays reserved for
+    /// [`Entities::restore`].
     pub(crate) fn remove(
         &mut self,
         id: EntityId,
@@ -333,7 +375,7 @@ impl Entities {
         record: EntityRecord,
     ) -> Result<EntityRecord, HierarchyError> {
         fn swap<K: slotmap::Key, T>(
-            map: &mut SlotMap<K, T>,
+            map: &mut StableMap<K, T>,
             key: K,
             value: T,
             id: EntityId,
@@ -461,37 +503,37 @@ impl Entities {
     }
 
     /// Groups in slot order.
-    pub fn groups(&self) -> slotmap::basic::Iter<'_, GroupId, Group> {
+    pub fn groups(&self) -> impl Iterator<Item = (GroupId, &Group)> + '_ {
         self.groups.iter()
     }
 
     /// Instances in slot order.
-    pub fn instances(&self) -> slotmap::basic::Iter<'_, InstanceId, ComponentInstance> {
+    pub fn instances(&self) -> impl Iterator<Item = (InstanceId, &ComponentInstance)> + '_ {
         self.instances.iter()
     }
 
     /// Guides in slot order.
-    pub fn guides(&self) -> slotmap::basic::Iter<'_, GuideId, Guide> {
+    pub fn guides(&self) -> impl Iterator<Item = (GuideId, &Guide)> + '_ {
         self.guides.iter()
     }
 
     /// Dimensions in slot order.
-    pub fn dimensions(&self) -> slotmap::basic::Iter<'_, DimensionId, Dimension> {
+    pub fn dimensions(&self) -> impl Iterator<Item = (DimensionId, &Dimension)> + '_ {
         self.dimensions.iter()
     }
 
     /// Texts in slot order.
-    pub fn texts(&self) -> slotmap::basic::Iter<'_, TextId, Text> {
+    pub fn texts(&self) -> impl Iterator<Item = (TextId, &Text)> + '_ {
         self.texts.iter()
     }
 
     /// Images in slot order.
-    pub fn images(&self) -> slotmap::basic::Iter<'_, ImageId, ImageEntity> {
+    pub fn images(&self) -> impl Iterator<Item = (ImageId, &ImageEntity)> + '_ {
         self.images.iter()
     }
 
     /// Section planes in slot order.
-    pub fn section_planes(&self) -> slotmap::basic::Iter<'_, SectionPlaneId, SectionPlane> {
+    pub fn section_planes(&self) -> impl Iterator<Item = (SectionPlaneId, &SectionPlane)> + '_ {
         self.section_planes.iter()
     }
 
@@ -659,7 +701,7 @@ impl Entities {
     /// `definitions`), excluding guides and hidden entities when `visible_only`.
     pub fn local_aabb(
         &self,
-        definitions: &SlotMap<DefinitionId, ComponentDefinition>,
+        definitions: &StableMap<DefinitionId, ComponentDefinition>,
         visible_only: bool,
     ) -> Aabb {
         self.aabb_at_depth(definitions, visible_only, 0)
@@ -667,7 +709,7 @@ impl Entities {
 
     fn aabb_at_depth(
         &self,
-        definitions: &SlotMap<DefinitionId, ComponentDefinition>,
+        definitions: &StableMap<DefinitionId, ComponentDefinition>,
         visible_only: bool,
         depth: usize,
     ) -> Aabb {
@@ -740,7 +782,7 @@ impl Entities {
     /// docs/04 §13).
     pub fn nesting_depth(
         &self,
-        definitions: &SlotMap<DefinitionId, ComponentDefinition>,
+        definitions: &StableMap<DefinitionId, ComponentDefinition>,
     ) -> Result<usize, HierarchyError> {
         let mut memo = BTreeMap::new();
         let mut stack = Vec::new();
@@ -751,7 +793,7 @@ impl Entities {
     /// current definition chain for cycle detection.
     fn depth_below(
         &self,
-        definitions: &SlotMap<DefinitionId, ComponentDefinition>,
+        definitions: &StableMap<DefinitionId, ComponentDefinition>,
         memo: &mut BTreeMap<DefinitionId, usize>,
         stack: &mut Vec<DefinitionId>,
     ) -> Result<usize, HierarchyError> {
@@ -871,7 +913,7 @@ mod tests {
 
     #[test]
     fn nesting_depth_detects_cycles() {
-        let mut defs: SlotMap<DefinitionId, ComponentDefinition> = SlotMap::with_key();
+        let mut defs: StableMap<DefinitionId, ComponentDefinition> = StableMap::with_key();
         let inner = defs.insert(ComponentDefinition::new(uuid::Uuid::nil(), "inner"));
         let outer = defs.insert(ComponentDefinition::new(uuid::Uuid::nil(), "outer"));
         defs[outer].entities.insert(group(inner), Pid(1)).unwrap();
@@ -889,7 +931,7 @@ mod tests {
     #[test]
     fn local_aabb_includes_transformed_nested_geometry() {
         let tol = crate::tolerance::Tolerances::default();
-        let mut defs: SlotMap<DefinitionId, ComponentDefinition> = SlotMap::with_key();
+        let mut defs: StableMap<DefinitionId, ComponentDefinition> = StableMap::with_key();
         let d = defs.insert(ComponentDefinition::new(uuid::Uuid::nil(), "d"));
         defs[d]
             .entities

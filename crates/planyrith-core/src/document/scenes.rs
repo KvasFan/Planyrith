@@ -4,7 +4,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
-use slotmap::SlotMap;
 
 use crate::document::camera::Camera;
 use crate::document::shadows::ShadowSettings;
@@ -60,7 +59,7 @@ impl Scene {
 /// The ordered scene list (docs/04 §1 "Scenes: ordered list of Scene").
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Scenes {
-    items: SlotMap<SceneId, Scene>,
+    items: crate::document::StableMap<SceneId, Scene>,
     order: Vec<SceneId>,
 }
 
@@ -115,11 +114,14 @@ impl Scenes {
         id
     }
 
-    /// Inserts at `index` (undo of a removal).
-    pub(crate) fn insert_at(&mut self, index: usize, scene: Scene) -> SceneId {
-        let id = self.items.insert(scene);
+    /// Puts a removed scene back under its id at `index` (undo of a removal);
+    /// `false` when `id` is not a removed scene of this list.
+    pub(crate) fn restore(&mut self, id: SceneId, scene: Scene, index: usize) -> bool {
+        if self.items.restore(id, scene).is_err() {
+            return false;
+        }
         self.order.insert(index.min(self.order.len()), id);
-        id
+        true
     }
 
     /// Removes a scene, returning it and its former index.
@@ -167,8 +169,9 @@ mod tests {
         assert_eq!(scenes.index_of(c), Some(0));
         let (removed, idx) = scenes.remove(b).unwrap();
         assert_eq!((removed.name.as_str(), idx), ("b", 2));
-        scenes.insert_at(idx, removed);
+        assert!(scenes.restore(b, removed, idx));
         assert_eq!(scenes.len(), 3);
+        assert_eq!(scenes.index_of(b), Some(2));
         assert_eq!(scenes.by_name("a"), Some(a));
     }
 }

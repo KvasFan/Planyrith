@@ -3,8 +3,8 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use slotmap::SlotMap;
 
+use crate::document::StableMap;
 use crate::document::materials::Rgba8;
 use crate::ids::{TagFolderId, TagId};
 
@@ -91,8 +91,8 @@ pub enum TagError {
 /// The document's tag tree (docs/04 §1 "Tags").
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tags {
-    tags: SlotMap<TagId, Tag>,
-    folders: SlotMap<TagFolderId, TagFolder>,
+    tags: StableMap<TagId, Tag>,
+    folders: StableMap<TagFolderId, TagFolder>,
     order: Vec<TagId>,
     folder_order: Vec<TagFolderId>,
     untagged: TagId,
@@ -100,11 +100,11 @@ pub struct Tags {
 
 impl Default for Tags {
     fn default() -> Self {
-        let mut tags = SlotMap::with_key();
+        let mut tags = StableMap::with_key();
         let untagged = tags.insert(Tag::new(Tag::UNTAGGED_NAME, Rgba8::rgb(0x80, 0x80, 0x80)));
         Tags {
             tags,
-            folders: SlotMap::with_key(),
+            folders: StableMap::with_key(),
             order: vec![untagged],
             folder_order: Vec::new(),
             untagged,
@@ -189,29 +189,41 @@ impl Tags {
     }
 
     /// Position of a tag in the insertion order (captured before removal so
-    /// undo can restore it with [`Tags::insert_at`]).
+    /// undo can restore it with [`Tags::restore`]).
     pub fn position(&self, id: TagId) -> Option<usize> {
         self.order.iter().position(|x| *x == id)
     }
 
     /// Adds a tag with a unique name.
     pub(crate) fn insert(&mut self, tag: Tag) -> Result<TagId, TagError> {
-        self.insert_at(tag, self.order.len())
+        self.check_new(&tag)?;
+        let id = self.tags.insert(tag);
+        self.order.push(id);
+        Ok(id)
     }
 
-    /// Adds a tag at `index` in the order (undo of a removal; the id is new).
-    pub(crate) fn insert_at(&mut self, tag: Tag, index: usize) -> Result<TagId, TagError> {
+    /// Puts a removed tag back under its id at `index` in the order (undo of
+    /// [`Tags::remove`]).
+    pub(crate) fn restore(&mut self, id: TagId, tag: Tag, index: usize) -> Result<(), TagError> {
+        self.check_new(&tag)?;
+        self.tags
+            .restore(id, tag)
+            .map_err(|_| TagError::NotFound(id))?;
+        self.order.insert(index.min(self.order.len()), id);
+        Ok(())
+    }
+
+    /// Name uniqueness and folder existence for a tag being added.
+    fn check_new(&self, tag: &Tag) -> Result<(), TagError> {
         if self.by_name(&tag.name).is_some() {
-            return Err(TagError::DuplicateName(tag.name));
+            return Err(TagError::DuplicateName(tag.name.clone()));
         }
         if let Some(f) = tag.folder
             && !self.folders.contains_key(f)
         {
             return Err(TagError::FolderNotFound(f));
         }
-        let id = self.tags.insert(tag);
-        self.order.insert(index.min(self.order.len()), id);
-        Ok(id)
+        Ok(())
     }
 
     /// Replaces a tag's data; hiding `Untagged` is refused.
@@ -234,7 +246,8 @@ impl Tags {
         Ok(std::mem::replace(slot, tag))
     }
 
-    /// Removes a tag (entities using it are re-tagged by the caller).
+    /// Removes a tag (entities using it are re-tagged by the caller); its id
+    /// stays reserved for [`Tags::restore`].
     pub(crate) fn remove(&mut self, id: TagId) -> Result<Tag, TagError> {
         if id == self.untagged {
             return Err(TagError::UntaggedProtected);
@@ -255,6 +268,32 @@ impl Tags {
         let id = self.folders.insert(folder);
         self.folder_order.push(id);
         Ok(id)
+    }
+
+    /// Puts a removed folder back under its id (undo of
+    /// [`Tags::remove_folder`]); `index` is its former position.
+    pub(crate) fn restore_folder(
+        &mut self,
+        id: TagFolderId,
+        folder: TagFolder,
+        index: usize,
+    ) -> Result<(), TagError> {
+        if let Some(parent) = folder.parent
+            && !self.folders.contains_key(parent)
+        {
+            return Err(TagError::FolderNotFound(parent));
+        }
+        self.folders
+            .restore(id, folder)
+            .map_err(|_| TagError::FolderNotFound(id))?;
+        self.folder_order
+            .insert(index.min(self.folder_order.len()), id);
+        Ok(())
+    }
+
+    /// Position of a folder in the folder order.
+    pub fn folder_position(&self, id: TagFolderId) -> Option<usize> {
+        self.folder_order.iter().position(|x| *x == id)
     }
 
     /// Removes an empty folder.
@@ -319,7 +358,7 @@ mod tests {
 
         let index = tags.position(id).unwrap();
         let removed = tags.remove(id).unwrap();
-        let back = tags.insert_at(removed, index).unwrap();
-        assert_eq!(tags.position(back), Some(index));
+        tags.restore(id, removed, index).unwrap();
+        assert_eq!(tags.position(id), Some(index));
     }
 }

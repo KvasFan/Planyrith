@@ -21,6 +21,7 @@ pub mod materials;
 pub mod scenes;
 pub mod selection;
 pub mod shadows;
+pub mod stable_map;
 pub mod styles;
 pub mod tags;
 
@@ -41,6 +42,7 @@ pub use selection::{
     QueryError, QueryExpr, QueryKey, QueryKeyword, SelectMode, Selection,
 };
 pub use shadows::{Date, ShadowSettings, SunModel, TimeOfDay};
+pub use stable_map::StableMap;
 pub use styles::{
     Background, EdgeColorMode, EdgeStyle, FaceMode, FaceStyle, Fog, ModelingStyle, Style, Styles,
     Watermark, WatermarkPlacement,
@@ -49,7 +51,6 @@ pub use tags::{LineStyle, Tag, TagError, TagFolder, Tags};
 
 use glam::DAffine3;
 use serde::{Deserialize, Serialize};
-use slotmap::SlotMap;
 
 use crate::ids::{DefinitionId, EntityId, Pid, PidAllocator};
 use crate::math::Aabb;
@@ -271,7 +272,7 @@ pub struct Document {
     /// The root container ("model space").
     pub model: Entities,
     /// Component definitions.
-    pub definitions: SlotMap<DefinitionId, ComponentDefinition>,
+    pub definitions: StableMap<DefinitionId, ComponentDefinition>,
     /// Definition insertion order (file order, docs/09 §2).
     pub definition_order: Vec<DefinitionId>,
     /// Materials.
@@ -298,7 +299,7 @@ impl Default for Document {
         Document {
             info: ModelInfo::default(),
             model: Entities::new(),
-            definitions: SlotMap::with_key(),
+            definitions: StableMap::with_key(),
             definition_order: Vec::new(),
             materials: Materials::default(),
             tags: Tags::default(),
@@ -377,7 +378,25 @@ impl Document {
         id
     }
 
-    /// Removes a definition (callers ensure no instance references it).
+    /// Puts a removed definition back under its id at `index` in the order
+    /// (undo of [`Document::remove_definition`]); `false` if the id is not a
+    /// removed definition of this document.
+    pub(crate) fn restore_definition(
+        &mut self,
+        id: DefinitionId,
+        def: ComponentDefinition,
+        index: usize,
+    ) -> bool {
+        if self.definitions.restore(id, def).is_err() {
+            return false;
+        }
+        self.definition_order
+            .insert(index.min(self.definition_order.len()), id);
+        true
+    }
+
+    /// Removes a definition (callers ensure no instance references it). The
+    /// id stays reserved for [`Document::restore_definition`].
     pub(crate) fn remove_definition(
         &mut self,
         id: DefinitionId,

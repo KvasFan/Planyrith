@@ -8,8 +8,8 @@ use std::fmt;
 use glam::{DAffine2, DMat3, DVec2};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use slotmap::SlotMap;
 
+use crate::document::StableMap;
 use crate::document::attributes::AttributeDictionaries;
 use crate::ids::{MaterialId, VertexId};
 use crate::io::IoError;
@@ -212,7 +212,7 @@ pub enum MaterialError {
 /// Insertion order is kept in `order` for deterministic listing.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Materials {
-    items: SlotMap<MaterialId, Material>,
+    items: StableMap<MaterialId, Material>,
     order: Vec<MaterialId>,
     default_front: MaterialId,
     default_back: MaterialId,
@@ -220,7 +220,7 @@ pub struct Materials {
 
 impl Default for Materials {
     fn default() -> Self {
-        let mut items = SlotMap::with_key();
+        let mut items = StableMap::with_key();
         let mut front = Material::solid(Material::DEFAULT_FRONT_NAME, Rgba8::WHITE);
         front.is_default_for = Some(FrontOrBack::Front);
         let mut back = Material::solid(Material::DEFAULT_BACK_NAME, Rgba8::rgb(0xA0, 0xB4, 0xC8));
@@ -286,30 +286,39 @@ impl Materials {
     }
 
     /// Position of a material in the insertion order (captured before
-    /// removal so undo can restore it with [`Materials::insert_at`]).
+    /// removal so undo can restore it with [`Materials::restore`]).
     pub fn position(&self, id: MaterialId) -> Option<usize> {
         self.order.iter().position(|x| *x == id)
     }
 
     /// Adds a material; names must be unique.
-    pub(crate) fn insert(&mut self, material: Material) -> Result<MaterialId, MaterialError> {
-        self.insert_at(material, self.order.len())
-    }
-
-    /// Adds a material at `index` in the order (undo of a removal; the id is new).
-    pub(crate) fn insert_at(
-        &mut self,
-        mut material: Material,
-        index: usize,
-    ) -> Result<MaterialId, MaterialError> {
+    pub(crate) fn insert(&mut self, mut material: Material) -> Result<MaterialId, MaterialError> {
         if self.by_name(&material.name).is_some() {
             return Err(MaterialError::DuplicateName(material.name));
         }
         // Only the two built-ins carry the default marker.
         material.is_default_for = None;
         let id = self.items.insert(material);
-        self.order.insert(index.min(self.order.len()), id);
+        self.order.push(id);
         Ok(id)
+    }
+
+    /// Puts a removed material back under its id at `index` in the order
+    /// (undo of [`Materials::remove`]).
+    pub(crate) fn restore(
+        &mut self,
+        id: MaterialId,
+        material: Material,
+        index: usize,
+    ) -> Result<(), MaterialError> {
+        if self.by_name(&material.name).is_some() {
+            return Err(MaterialError::DuplicateName(material.name));
+        }
+        self.items
+            .restore(id, material)
+            .map_err(|_| MaterialError::NotFound(id))?;
+        self.order.insert(index.min(self.order.len()), id);
+        Ok(())
     }
 
     /// Replaces a material's data (same id). The default marker of the
@@ -331,7 +340,8 @@ impl Materials {
         Ok(std::mem::replace(slot, material))
     }
 
-    /// Removes a non-default material.
+    /// Removes a non-default material; its id stays reserved for
+    /// [`Materials::restore`].
     pub(crate) fn remove(&mut self, id: MaterialId) -> Result<Material, MaterialError> {
         if id == self.default_front || id == self.default_back {
             return Err(MaterialError::DefaultProtected);
@@ -508,9 +518,10 @@ mod tests {
         );
         let index = m.position(oak).unwrap();
         let removed = m.remove(oak).unwrap();
-        let back = m.insert_at(removed, index).unwrap();
-        assert_eq!(m.position(back), Some(2));
-        assert_eq!(m.get(back).unwrap().name, "Oak");
+        assert!(m.get(oak).is_none());
+        m.restore(oak, removed, index).unwrap();
+        assert_eq!(m.position(oak), Some(2));
+        assert_eq!(m.get(oak).unwrap().name, "Oak");
     }
 
     #[test]
