@@ -194,6 +194,10 @@ pub struct HistoryEntry {
     pub group: Option<String>,
     /// RFC 3339 timestamp, absent under `--deterministic`.
     pub timestamp: Option<String>,
+    /// Pids the command created, so a later session can resolve `last`
+    /// (docs/08 §2). Absent in older journals.
+    #[serde(default)]
+    pub created: Vec<crate::ids::Pid>,
 }
 
 /// Result of reading a container.
@@ -850,12 +854,14 @@ mod tests {
                 params: serde_json::json!({ "from": [0.0, 0.0, 0.0], "to": [1000.0, 0.0, 0.0] }),
                 group: None,
                 timestamp: Some("2026-10-20T10:00:00Z".to_string()),
+                created: vec![crate::ids::Pid(1)],
             },
             HistoryEntry {
                 command: "push-pull".to_string(),
                 params: serde_json::json!({ "face": "pid:7", "distance": 2700 }),
                 group: Some("extrude wall".to_string()),
                 timestamp: Some("2026-10-20T10:01:00Z".to_string()),
+                created: Vec::new(),
             },
         ];
         (doc, history)

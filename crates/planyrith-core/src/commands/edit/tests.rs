@@ -132,3 +132,28 @@ fn push_pull_accepts_queries() {
         .unwrap_err();
     assert_eq!(err.code(), "E1102");
 }
+
+#[test]
+fn select_sets_the_engine_selection_without_history() {
+    let mut e = engine();
+    run(
+        &mut e,
+        "rectangle",
+        json!({ "corner_a": [0,0,0], "corner_b": [100,100,0] }),
+    );
+    let before = e.history().applied();
+    let out = run(&mut e, "select", json!({ "query": "face" }));
+    assert_eq!(out["count"], json!(1));
+    assert_eq!(out["kinds"]["face"], json!(1));
+    assert_eq!(e.selection().len(), 1);
+    let out = run(&mut e, "select", json!({ "query": "edge", "mode": "add" }));
+    assert_eq!(out["count"], json!(5));
+    assert_eq!(e.history().applied(), before);
+    // `selection` in a later query refers to it.
+    let out = run(
+        &mut e,
+        "push-pull",
+        json!({ "face": { "Query": "selection & face" }, "distance": 10.0 }),
+    );
+    assert_eq!(out["solid_after"], json!(true));
+}

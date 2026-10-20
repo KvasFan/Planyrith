@@ -10,8 +10,10 @@
 #![warn(unused_variables, dead_code)]
 
 mod push_pull;
+mod select;
 
 pub use push_pull::{PushPull, PushPullOutput, PushPullParams};
+pub use select::{Select, SelectOutput, SelectParams};
 
 use crate::commands::CommandRegistry;
 
@@ -19,6 +21,7 @@ use crate::commands::CommandRegistry;
 /// [`CommandRegistry::with_builtins`]).
 pub fn register(registry: &mut CommandRegistry) {
     registry.register(PushPull);
+    registry.register(Select);
 }
 
 #[cfg(test)]

@@ -1039,8 +1039,8 @@ impl HalfEdgeMesh {
             .collect()
     }
 
-    /// Bounding box of a face's outer loop.
-    pub(crate) fn face_aabb(&self, f: FaceId) -> Result<Aabb, GeometryError> {
+    /// Bounding box of a face's outer loop (local coordinates).
+    pub fn face_aabb(&self, f: FaceId) -> Result<Aabb, GeometryError> {
         let outer = self.face_ref(f)?.outer;
         Ok(Aabb::from_points(self.loop_positions(outer)?))
     }

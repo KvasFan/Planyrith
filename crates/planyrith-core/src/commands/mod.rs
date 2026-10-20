@@ -610,6 +610,12 @@ impl Engine {
         &self.last_created
     }
 
+    /// Restores `last` for a resumed session (the CLI reads it from the
+    /// journal of the file it opens).
+    pub fn set_last_created(&mut self, pids: Vec<Pid>) {
+        self.last_created = pids;
+    }
+
     /// Monotonic counter bumped on every committed, undone or redone transaction
     /// (docs/08 §7 `document.generation`).
     pub fn generation(&self) -> u64 {

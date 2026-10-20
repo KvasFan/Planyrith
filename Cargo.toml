@@ -60,7 +60,7 @@ rayon = "1.12"
 tracing = "0.1"
 
 # ---- cli -------------------------------------------------------------------
-clap = { version = "4.6", features = ["derive", "env"] }
+clap = { version = "4.6", features = ["derive", "env", "string"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = "1.0"
 

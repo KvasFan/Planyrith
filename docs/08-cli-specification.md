@@ -304,3 +304,19 @@ On failure: `{"ok": false, "error": {"code": "E1002", "message": "...", "param":
   `@`, or contain whitespace or `/ [ ] " \ | & ( )` are written double-quoted; entities without
   a name (empty names included) are written `@pid`. `display_with` output parses back to the same
   pid-keyed path.
+- 2026-10-20 — **CLI draft (0.1).** `tool` options are built at run time from the command's
+  `Params` schema: semantic types are recognised by their `$defs` name (`Length`, `Angle`,
+  `Point`, `Vector`, `Plane`, `Transform`, `Query`, `EntityRef`), booleans get `--flag` /
+  `--no-flag`, `Vec<T>` options repeat or take `;`-separated values, `--params-json` /
+  `--params-file` give the whole object (options override its fields), and `--help`, `--schema`,
+  `--steps`, `--example` describe the tool. Global options are accepted before or after the verb
+  (and after the tool name). `tool` on a path that does not exist starts a new document there;
+  `new` refuses to overwrite. `--dry-run` validates and prints `{"dry_run": true, "valid": true}`.
+- 2026-10-20 — `Point` values do not accept `@pid` in 0.1 (vertices have no pid); give `x,y,z`.
+- 2026-10-20 — **`last` across invocations.** Each journal row (`history.msgpack`) records the
+  pids its command created (`created`, absent in older files); opening a document restores `last`
+  from the final row, so `tool rectangle …` followed by `tool push-pull --face '{face & last}'`
+  works as two separate invocations, like two lines of a batch.
+- 2026-10-20 — The `render` verb and the `planyrith-render` dependency are behind the CLI's
+  optional `render` feature until milestone 0.2, so 0.1 builds do not compile the GPU stack.
+  `export` writes `json` only in 0.1 (`E1401`-class error, exit code 4, for other formats).
