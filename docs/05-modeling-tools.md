@@ -471,3 +471,12 @@ UI hints are generated from one source.
   `add_edge` (merging with what is there), applies an instance's `material_override` to faces with
   the default material, re-creates nested occurrences and guides, and removes the occurrence (a
   group's private definition goes with it).
+- 2026-10-20 — **Tags and materials (0.1).** Tags, folders and materials are named by their unique
+  names in params; colors are `#RRGGBB[AA]` strings (default tag color mid gray). Renaming or
+  hiding `Untagged`, deleting it or a default material, and deleting a non-empty tag folder are
+  `E1201`. `material-apply` stores the two default materials as "no material" so faces keep
+  following the document defaults; `fill` is `single | connected | same-material | all`
+  (`connected` spreads across shared edges to faces with the same material on that side).
+  Instances get `material_override`; groups have none, so painting a group paints the
+  default-material faces of its private definition. Material color alpha mirrors `opacity`.
+  Textures (`material-edit` texture fields, `texture-position`) arrive with milestone 0.4.

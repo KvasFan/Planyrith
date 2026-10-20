@@ -10,10 +10,23 @@
 #![warn(unused_variables, dead_code)]
 
 mod groups;
+mod materials;
+mod tags;
 
 pub use groups::{
     Explode, ExplodeOutput, ExplodeParams, MakeComponent, MakeComponentOutput, MakeComponentParams,
     MakeGroup, MakeGroupOutput, MakeGroupParams,
+};
+pub use materials::{
+    Fill, MaterialApply, MaterialApplyOutput, MaterialApplyParams, MaterialCreate,
+    MaterialCreateParams, MaterialDelete, MaterialDeleteParams, MaterialEdit, MaterialEditParams,
+    MaterialOutput, MaterialPurge, MaterialPurgeOutput, MaterialPurgeParams, Side,
+};
+pub use tags::{
+    TagAssign, TagAssignOutput, TagAssignParams, TagCreate, TagCreateParams, TagDelete,
+    TagDeleteOutput, TagDeleteParams, TagFolderCreate, TagFolderCreateParams, TagFolderDelete,
+    TagFolderDeleteParams, TagOutput, TagRename, TagRenameParams, TagSetVisible,
+    TagSetVisibleParams,
 };
 
 use crate::commands::CommandRegistry;
@@ -24,6 +37,18 @@ pub fn register(registry: &mut CommandRegistry) {
     registry.register(MakeGroup);
     registry.register(MakeComponent);
     registry.register(Explode);
+    registry.register(TagCreate);
+    registry.register(TagRename);
+    registry.register(TagSetVisible);
+    registry.register(TagDelete);
+    registry.register(TagAssign);
+    registry.register(TagFolderCreate);
+    registry.register(TagFolderDelete);
+    registry.register(MaterialCreate);
+    registry.register(MaterialEdit);
+    registry.register(MaterialDelete);
+    registry.register(MaterialApply);
+    registry.register(MaterialPurge);
 }
 
 #[cfg(test)]

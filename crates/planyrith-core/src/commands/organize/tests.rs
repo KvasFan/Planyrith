@@ -148,3 +148,145 @@ fn grouping_one_face_keeps_the_shared_edge_on_both_sides() {
     let _ = ContainerRef::Model;
     assert_valid(&e);
 }
+
+fn tag_count(e: &mut Engine, tag: &str) -> u64 {
+    run(e, "select", json!({ "query": format!("tag:{tag}") }))["count"]
+        .as_u64()
+        .unwrap()
+}
+
+#[test]
+fn tags_create_assign_rename_hide_and_delete_with_undo() {
+    let mut e = engine();
+    boxed(&mut e, 0.0, 0.0, 100.0);
+    run(&mut e, "tag-folder-create", json!({ "name": "Building" }));
+    run(
+        &mut e,
+        "tag-create",
+        json!({ "name": "Walls", "color": "#A0522D", "folder": "Building" }),
+    );
+    run(&mut e, "tag-create", json!({ "name": "Floors" }));
+    let out = run(
+        &mut e,
+        "tag-assign",
+        json!({ "targets": "face & !normal:z & !normal:-z", "tag": "Walls" }),
+    );
+    assert_eq!(out["assigned"], json!(4));
+    run(
+        &mut e,
+        "tag-assign",
+        json!({ "targets": "face & normal:-z", "tag": "Floors" }),
+    );
+    assert_eq!(tag_count(&mut e, "Walls"), 4);
+    run(
+        &mut e,
+        "tag-rename",
+        json!({ "tag": "Walls", "new_name": "Exterior" }),
+    );
+    assert_eq!(tag_count(&mut e, "Exterior"), 4);
+    run(
+        &mut e,
+        "tag-set-visible",
+        json!({ "tag": "Exterior", "visible": false }),
+    );
+    let hidden = run(&mut e, "select", json!({ "query": "hidden" }))["count"]
+        .as_u64()
+        .unwrap();
+    assert_eq!(hidden, 4);
+    let out = run(
+        &mut e,
+        "tag-delete",
+        json!({ "tag": "Exterior", "reassign_to": "Floors" }),
+    );
+    assert_eq!(out["reassigned"], json!(4));
+    assert_eq!(tag_count(&mut e, "Floors"), 5);
+    e.undo().unwrap();
+    assert_eq!(tag_count(&mut e, "Exterior"), 4);
+    assert_eq!(tag_count(&mut e, "Floors"), 1);
+    let err = e
+        .execute_erased(
+            "tag-set-visible",
+            json!({ "tag": "Untagged", "visible": false }),
+        )
+        .unwrap_err();
+    assert_eq!(err.code(), "E1201");
+    let err = e
+        .execute_erased("tag-assign", json!({ "targets": "face", "tag": "Nope" }))
+        .unwrap_err();
+    assert_eq!(err.code(), "E1001");
+    assert_eq!(
+        e.execute_erased("tag-folder-delete", json!({ "name": "Building" }))
+            .unwrap_err()
+            .code(),
+        "E1201",
+        "a folder with tags is not empty"
+    );
+    assert_valid(&e);
+}
+
+#[test]
+fn materials_create_apply_fill_delete_and_purge() {
+    let mut e = engine();
+    boxed(&mut e, 0.0, 0.0, 100.0);
+    run(
+        &mut e,
+        "material-create",
+        json!({ "name": "Oak", "color": "#A0522D" }),
+    );
+    run(
+        &mut e,
+        "material-create",
+        json!({ "name": "Glass", "color": "#88CCEE", "opacity": 0.4 }),
+    );
+    let out = run(
+        &mut e,
+        "material-apply",
+        json!({ "targets": "face & normal:z", "material": "Oak" }),
+    );
+    assert_eq!(out["faces"], json!(1));
+    assert_eq!(
+        run(&mut e, "select", json!({ "query": "material:Oak" }))["count"],
+        json!(1)
+    );
+    // Connected spreads over the default-material neighbors only.
+    let out = run(
+        &mut e,
+        "material-apply",
+        json!({ "targets": "face & normal:x", "material": "Glass", "fill": "connected" }),
+    );
+    assert_eq!(out["faces"], json!(5));
+    let out = run(
+        &mut e,
+        "material-apply",
+        json!({ "targets": "face & normal:x", "material": "Oak", "fill": "same-material" }),
+    );
+    assert_eq!(out["faces"], json!(5));
+    assert_eq!(
+        run(&mut e, "select", json!({ "query": "material:Oak" }))["count"],
+        json!(6)
+    );
+    run(
+        &mut e,
+        "material-edit",
+        json!({ "material": "Oak", "color": "#000000", "name": "Ebony" }),
+    );
+    assert!(e.document().materials.by_name("Ebony").is_some());
+    run(&mut e, "material-delete", json!({ "material": "Ebony" }));
+    assert_eq!(
+        run(&mut e, "select", json!({ "query": "material:Default" }))["count"],
+        json!(6)
+    );
+    let out = run(&mut e, "material-purge", json!({}));
+    assert_eq!(out["removed"], json!(["Glass"]));
+    e.undo().unwrap();
+    e.undo().unwrap();
+    assert_eq!(
+        run(&mut e, "select", json!({ "query": "material:Ebony" }))["count"],
+        json!(6)
+    );
+    let err = e
+        .execute_erased("material-delete", json!({ "material": "Default" }))
+        .unwrap_err();
+    assert_eq!(err.code(), "E1201");
+    assert_valid(&e);
+}
