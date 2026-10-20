@@ -7,7 +7,10 @@
 //! container's order list and unbinds the ones it removed (docs/04 §2). A face
 //! recorded as `FaceRemoved { id }` + `FaceAdded { id }` (a reshape, docs/03
 //! Decisions) keeps its pid. New pieces of a split face or edge inherit the
-//! tag and hidden state of the original. Undo never rewinds `next_pid`.
+//! tag and hidden state of the original; the longest piece of a split edge
+//! takes over its pid, order slot and attributes, and the other pieces are not
+//! reported as created (docs/08 Decisions, `last`). Undo never rewinds
+//! `next_pid`.
 //!
 //! Recorded order of one mesh operation: side-table clears and `PidUnbound` of
 //! vanished elements, then the `Mesh` deltas, then `PidBound` (and inherited
@@ -1231,6 +1234,8 @@ impl<'a> Transaction<'a> {
             );
         }
         let mut inherit: BTreeMap<EntityId, (Option<TagId>, bool)> = BTreeMap::new();
+        // Pieces of a vanished edge: (piece, length, starts at the old start).
+        let mut pieces: BTreeMap<EntityId, Vec<(EntityId, f64, bool)>> = BTreeMap::new();
         for &id in &appeared {
             match id {
                 EntityId::Face(f) => {
@@ -1244,15 +1249,47 @@ impl<'a> Transaction<'a> {
                     let parent = removed_edges.iter().find(|(_, s)| {
                         tol.point_on_segment(seg.a, s) && tol.point_on_segment(seg.b, s)
                     });
-                    if let Some((old, _)) = parent
+                    if let Some((old, s)) = parent
                         && let Some(r) = rows.get(old)
                     {
                         inherit.insert(id, (r.tag, r.hidden));
+                        let at_start = tol.same_point(seg.a, s.a) || tol.same_point(seg.b, s.a);
+                        pieces
+                            .entry(*old)
+                            .or_default()
+                            .push((id, seg.length(), at_start));
                     }
                 }
                 _ => {}
             }
         }
+        // The longest piece of a split edge keeps its pid and attributes (ties:
+        // the piece at the old start); the other pieces are fragments of an
+        // existing edge, not something the command created (docs/08 Decisions).
+        let mut keeps: BTreeMap<EntityId, EntityId> = BTreeMap::new();
+        let mut fragments: BTreeSet<EntityId> = BTreeSet::new();
+        for (old, list) in &pieces {
+            let mut best: Option<(EntityId, f64, bool)> = None;
+            for &(piece, len, at_start) in list {
+                let better = match best {
+                    None => true,
+                    Some((_, best_len, best_start)) => {
+                        tol.definitely_lt_len(best_len, len)
+                            || (tol.approx_eq_len(len, best_len) && at_start && !best_start)
+                    }
+                };
+                if better {
+                    best = Some((piece, len, at_start));
+                }
+            }
+            if let Some((keeper, _, _)) = best {
+                keeps.insert(keeper, *old);
+                fragments.extend(list.iter().map(|p| p.0).filter(|p| *p != keeper));
+            }
+        }
+        // Old edge → (unbind sequence, pid, order index, attributes).
+        type KeptRow = (usize, Pid, usize, Option<AttributeDictionaries>);
+        let mut kept_rows: BTreeMap<EntityId, KeptRow> = BTreeMap::new();
 
         // 1. Clears and unbinds of vanished elements (recorded first).
         let mut pre = Vec::new();
@@ -1293,6 +1330,10 @@ impl<'a> Transaction<'a> {
             let (pid, order_index) = container_mut(self.doc, container)?
                 .unbind_pid(id)
                 .map_err(hierarchy)?;
+            if keeps.values().any(|old| *old == id) {
+                let seq = kept_rows.len();
+                kept_rows.insert(id, (seq, pid, order_index, r.attrs.clone()));
+            }
             pre.push(Delta::PidUnbound {
                 container,
                 id,
@@ -1310,18 +1351,42 @@ impl<'a> Transaction<'a> {
         );
 
         // 3. Binds of new elements, then inherited rows.
+        // Pieces that keep a pid go back to their order slots first, in reverse
+        // unbind order, so the order list is restored exactly.
+        let unbind_seq = |id: &EntityId| {
+            keeps
+                .get(id)
+                .and_then(|old| kept_rows.get(old))
+                .map(|row| row.0)
+        };
+        let mut appeared = appeared;
+        appeared.sort_by_key(|id| std::cmp::Reverse(unbind_seq(id)));
         for id in appeared {
-            let pid = self.doc.allocate_pid();
+            let kept = keeps.get(&id).and_then(|old| kept_rows.remove(old));
+            let (pid, order_index, attrs) = match kept {
+                Some((_, pid, index, attrs)) => (pid, index, attrs),
+                None => (self.doc.allocate_pid(), usize::MAX, None),
+            };
             let entities = container_mut(self.doc, container)?;
-            entities.bind_pid(id, pid, None).map_err(hierarchy)?;
-            let order_index = entities.len() - 1;
+            let order_index = order_index.min(entities.len());
+            entities
+                .bind_pid(id, pid, Some(order_index))
+                .map_err(hierarchy)?;
             self.deltas.push(Delta::PidBound {
                 container,
                 id,
                 pid,
                 order_index,
             });
-            self.created.push(pid);
+            if !keeps.contains_key(&id) && !fragments.contains(&id) {
+                self.created.push(pid);
+            }
+            for (dict, entries) in attrs.iter().flat_map(|a| a.0.iter()) {
+                for (key, value) in entries {
+                    let target = AttrTarget::Entity { container, id };
+                    self.set_attribute(target, dict, key, Some(value.clone()))?;
+                }
+            }
             if let Some((tag, hidden)) = inherit.remove(&id) {
                 if tag.is_some() {
                     self.set_tag(container, id, tag)?;

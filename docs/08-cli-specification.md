@@ -317,6 +317,11 @@ On failure: `{"ok": false, "error": {"code": "E1002", "message": "...", "param":
   pids its command created (`created`, absent in older files); opening a document restores `last`
   from the final row, so `tool rectangle …` followed by `tool push-pull --face '{face & last}'`
   works as two separate invocations, like two lines of a batch.
+- 2026-10-21 — **What `last` contains.** The entities that received a *new* pid in the previous
+  command, except the extra pieces of existing edges it split: those are fragments of an edge the
+  user already had (docs/03 Decisions, edge identity), not something the command made. After a
+  line drawn as a chord across a face, `last` is the chord's edges and the face split off by it,
+  so `erase --targets 'edge & last'` removes just the chord.
 - 2026-10-20 — The `render` verb and the `planyrith-render` dependency are behind the CLI's
   optional `render` feature until milestone 0.2, so 0.1 builds do not compile the GPU stack.
   `export` writes `json` only in 0.1 (`E1401`-class error, exit code 4, for other formats).

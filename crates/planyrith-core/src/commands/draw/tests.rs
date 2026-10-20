@@ -213,3 +213,63 @@ fn builtins_expose_schemas_with_semantic_types() {
     );
     assert_eq!(schema["properties"]["segments"]["default"], json!(24));
 }
+
+/// docs/08 Decisions (`last`, edge identity): a chord keeps the pids of the
+/// edges it splits on their longer pieces; `last` names only what was drawn.
+#[test]
+fn a_chord_keeps_split_edge_pids_and_last_names_the_drawn_entities() {
+    let mut e = engine();
+    run(
+        &mut e,
+        "rectangle",
+        json!({ "corner_a": [0, 0, 0], "corner_b": [1000, 600, 0] }),
+    );
+    let edge_pids = |e: &Engine| -> Vec<(Pid, f64)> {
+        let model = &e.document().model;
+        model
+            .order()
+            .iter()
+            .filter_map(|&id| match id {
+                EntityId::Edge(edge) => Some((
+                    model.pid_of(id).unwrap(),
+                    model.mesh().edge_segment(edge).unwrap().length(),
+                )),
+                _ => None,
+            })
+            .collect()
+    };
+    let before = edge_pids(&e);
+    let out = run(
+        &mut e,
+        "line",
+        json!({ "points": [[400, 0, 0], [400, 600, 0]] }),
+    );
+    let after = edge_pids(&e);
+    // The four original pids survive in their order slots; the 1000 mm edges
+    // keep their 600 mm pieces.
+    for (i, (pid, _)) in before.iter().enumerate() {
+        assert_eq!(after[i].0, *pid);
+    }
+    assert_eq!(after[0].1, 600.0);
+    // `last`: the chord and the face split off by it, not the 400 mm pieces.
+    let model = &e.document().model;
+    let last = e.last_created();
+    let chord: Vec<Pid> = out["edges"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| Pid(p.as_u64().unwrap()))
+        .collect();
+    assert_eq!(chord.len(), 1);
+    assert_eq!(last.len(), 2, "{last:?}");
+    assert!(last.contains(&chord[0]));
+    assert!(
+        last.iter()
+            .any(|&p| matches!(model.id_of(p), Some(EntityId::Face(_))))
+    );
+    e.undo().unwrap();
+    assert_eq!(edge_pids(&e), before);
+    e.redo().unwrap();
+    assert_eq!(edge_pids(&e), after);
+    assert_valid(&e);
+}

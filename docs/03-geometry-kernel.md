@@ -351,6 +351,12 @@ within `tolerances.length`.
   `FaceSplit { old, new: [old, other] }` is emitted (this refines §4.4 "delete F, create F1, F2").
   On erase-edge merges the **larger** face survives (ties: the face left of `edge.he`), so healing an
   opening drawn on a wall keeps the wall's id and material (refines §4.6 "keeps F1's id").
+- 2026-10-21 — **Edge identity across splits.** The kernel records an edge split as
+  `EdgeRemoved` plus one `EdgeAdded` per piece; the transaction recognises the pieces (both
+  endpoints on the removed segment) and gives the removed edge's pid, order slot and attributes to
+  the **longest** piece (ties: the piece at the old start point). Every piece inherits the tag and
+  hidden state; the other pieces get new pids. This mirrors the face rule above, so a pid named in
+  a script keeps pointing at (most of) the same edge after unrelated drawing.
 - 2026-10-20 — **Orientation of new faces.** A half-edge carries one face, so faces sharing an edge
   always have consistent orientation. A new face takes the default front of §4.3 step 3 when those
   half-edges are free, otherwise the opposite front; when both are taken (the last side of a box
