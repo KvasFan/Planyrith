@@ -1,0 +1,3 @@
+# Arcs from a chord: by sagitta, and through a point in a vertical plane.
+arc-bulge --start 0,0,0 --end 1000,0,0 --bulge 250 --segments 8
+arc-bulge --start 0,0,500 --end 0,0,1500 --through 0,300,1000 --segments 6

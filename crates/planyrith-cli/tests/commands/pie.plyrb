@@ -1,0 +1,2 @@
+# A quarter pie.
+pie --center 0,0,0 --start 1000,0,0 --end-angle 90 --segments 6

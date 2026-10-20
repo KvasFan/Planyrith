@@ -1,0 +1,6 @@
+# Lock then unlock a group.
+rectangle --corner-a 0,0,0 --corner-b 1000,600,0
+push-pull --face '{face & last}' --distance 400
+make-group --targets all --name Box
+lock --targets group
+unlock --targets group

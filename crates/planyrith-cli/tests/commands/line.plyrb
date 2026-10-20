@@ -1,0 +1,3 @@
+# An open polyline, then a closed one that forms a face.
+line --points 0,0,0 --points 1000,0,0 --points 1000,0,1000
+line --points 2000,0,0 --points 3000,0,0 --points 3000,1000,0 --close

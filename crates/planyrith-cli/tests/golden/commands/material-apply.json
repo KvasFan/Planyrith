@@ -1,0 +1,687 @@
+{
+  "attrs": {},
+  "camera": {
+    "aspect": 1.7777777777777777,
+    "eye": [
+      5000.0,
+      -5000.0,
+      4000.0
+    ],
+    "projection": {
+      "perspective": {
+        "fov_y_deg": 35.0
+      }
+    },
+    "target": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "up": [
+      0.0,
+      0.0,
+      1.0
+    ]
+  },
+  "definition_order": [],
+  "definitions": [],
+  "images": [],
+  "info": {
+    "angle_precision": 1,
+    "angle_snap": null,
+    "attrs": {},
+    "author": "",
+    "description": "",
+    "display_units": "millimeter",
+    "format_version": 1,
+    "geo": null,
+    "length_snap": null,
+    "next_pid": 19,
+    "precision": 1,
+    "title": "",
+    "tolerances": {
+      "angle": 1e-6,
+      "length": 0.001,
+      "length_sq": 1e-6,
+      "parametric": 1e-9,
+      "planarity": 0.01
+    }
+  },
+  "materials": {
+    "default_back": {
+      "idx": 2,
+      "version": 1
+    },
+    "default_front": {
+      "idx": 1,
+      "version": 1
+    },
+    "items": [
+      [
+        {
+          "idx": 1,
+          "version": 1
+        },
+        {
+          "attrs": {},
+          "color": {
+            "a": 255,
+            "b": 255,
+            "g": 255,
+            "r": 255
+          },
+          "is_default_for": "front",
+          "name": "Default",
+          "opacity": 1.0,
+          "texture": null
+        }
+      ],
+      [
+        {
+          "idx": 2,
+          "version": 1
+        },
+        {
+          "attrs": {},
+          "color": {
+            "a": 255,
+            "b": 200,
+            "g": 180,
+            "r": 160
+          },
+          "is_default_for": "back",
+          "name": "Default Back",
+          "opacity": 1.0,
+          "texture": null
+        }
+      ],
+      [
+        {
+          "idx": 3,
+          "version": 1
+        },
+        {
+          "attrs": {},
+          "color": {
+            "a": 255,
+            "b": 45,
+            "g": 82,
+            "r": 160
+          },
+          "is_default_for": null,
+          "name": "Oak",
+          "opacity": 1.0,
+          "texture": null
+        }
+      ]
+    ],
+    "order": [
+      {
+        "idx": 1,
+        "version": 1
+      },
+      {
+        "idx": 2,
+        "version": 1
+      },
+      {
+        "idx": 3,
+        "version": 1
+      }
+    ]
+  },
+  "model": {
+    "attrs": [],
+    "dimensions": [],
+    "groups": [],
+    "guides": [],
+    "hidden": [],
+    "images": [],
+    "instances": [],
+    "locked": [],
+    "mesh": {
+      "curves": [],
+      "edges": [
+        {
+          "a": 0,
+          "b": 1,
+          "curve": null,
+          "flags": 0
+        },
+        {
+          "a": 1,
+          "b": 2,
+          "curve": null,
+          "flags": 0
+        },
+        {
+          "a": 2,
+          "b": 3,
+          "curve": null,
+          "flags": 0
+        },
+        {
+          "a": 3,
+          "b": 0,
+          "curve": null,
+          "flags": 0
+        },
+        {
+          "a": 0,
+          "b": 4,
+          "curve": null,
+          "flags": 0
+        },
+        {
+          "a": 1,
+          "b": 5,
+          "curve": null,
+          "flags": 0
+        },
+        {
+          "a": 2,
+          "b": 6,
+          "curve": null,
+          "flags": 0
+        },
+        {
+          "a": 3,
+          "b": 7,
+          "curve": null,
+          "flags": 0
+        },
+        {
+          "a": 4,
+          "b": 5,
+          "curve": null,
+          "flags": 0
+        },
+        {
+          "a": 5,
+          "b": 6,
+          "curve": null,
+          "flags": 0
+        },
+        {
+          "a": 6,
+          "b": 7,
+          "curve": null,
+          "flags": 0
+        },
+        {
+          "a": 7,
+          "b": 4,
+          "curve": null,
+          "flags": 0
+        }
+      ],
+      "faces": [
+        {
+          "loops": [
+            [
+              2147483651,
+              2147483650,
+              2147483649,
+              2147483648
+            ]
+          ],
+          "plane": {
+            "d": 0.0,
+            "normal": [
+              0.0,
+              0.0,
+              -1.0
+            ]
+          },
+          "sides": {
+            "material_back": {
+              "idx": 3,
+              "version": 1
+            },
+            "material_front": null,
+            "uv_back": null,
+            "uv_front": null
+          }
+        },
+        {
+          "loops": [
+            [
+              0,
+              5,
+              2147483656,
+              2147483652
+            ]
+          ],
+          "plane": {
+            "d": 0.0,
+            "normal": [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          },
+          "sides": {
+            "material_back": null,
+            "material_front": null,
+            "uv_back": null,
+            "uv_front": null
+          }
+        },
+        {
+          "loops": [
+            [
+              1,
+              6,
+              2147483657,
+              2147483653
+            ]
+          ],
+          "plane": {
+            "d": -1000.0,
+            "normal": [
+              1.0,
+              0.0,
+              0.0
+            ]
+          },
+          "sides": {
+            "material_back": null,
+            "material_front": null,
+            "uv_back": null,
+            "uv_front": null
+          }
+        },
+        {
+          "loops": [
+            [
+              2,
+              7,
+              2147483658,
+              2147483654
+            ]
+          ],
+          "plane": {
+            "d": -600.0,
+            "normal": [
+              0.0,
+              1.0,
+              0.0
+            ]
+          },
+          "sides": {
+            "material_back": null,
+            "material_front": null,
+            "uv_back": null,
+            "uv_front": null
+          }
+        },
+        {
+          "loops": [
+            [
+              4,
+              2147483659,
+              2147483655,
+              3
+            ]
+          ],
+          "plane": {
+            "d": 0.0,
+            "normal": [
+              -1.0,
+              0.0,
+              0.0
+            ]
+          },
+          "sides": {
+            "material_back": null,
+            "material_front": null,
+            "uv_back": null,
+            "uv_front": null
+          }
+        },
+        {
+          "loops": [
+            [
+              8,
+              9,
+              10,
+              11
+            ]
+          ],
+          "plane": {
+            "d": -400.0,
+            "normal": [
+              0.0,
+              0.0,
+              1.0
+            ]
+          },
+          "sides": {
+            "material_back": null,
+            "material_front": {
+              "idx": 3,
+              "version": 1
+            },
+            "uv_back": null,
+            "uv_front": null
+          }
+        }
+      ],
+      "vertices": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          1000.0,
+          0.0,
+          0.0
+        ],
+        [
+          1000.0,
+          600.0,
+          0.0
+        ],
+        [
+          0.0,
+          600.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          400.0
+        ],
+        [
+          1000.0,
+          0.0,
+          400.0
+        ],
+        [
+          1000.0,
+          600.0,
+          400.0
+        ],
+        [
+          0.0,
+          600.0,
+          400.0
+        ]
+      ]
+    },
+    "order": [
+      [
+        {
+          "Edge": 0
+        },
+        1
+      ],
+      [
+        {
+          "Edge": 1
+        },
+        2
+      ],
+      [
+        {
+          "Edge": 2
+        },
+        3
+      ],
+      [
+        {
+          "Edge": 3
+        },
+        4
+      ],
+      [
+        {
+          "Face": 0
+        },
+        5
+      ],
+      [
+        {
+          "Edge": 4
+        },
+        6
+      ],
+      [
+        {
+          "Edge": 5
+        },
+        7
+      ],
+      [
+        {
+          "Edge": 6
+        },
+        8
+      ],
+      [
+        {
+          "Edge": 7
+        },
+        9
+      ],
+      [
+        {
+          "Edge": 8
+        },
+        10
+      ],
+      [
+        {
+          "Face": 1
+        },
+        11
+      ],
+      [
+        {
+          "Edge": 9
+        },
+        12
+      ],
+      [
+        {
+          "Face": 2
+        },
+        13
+      ],
+      [
+        {
+          "Edge": 10
+        },
+        14
+      ],
+      [
+        {
+          "Face": 3
+        },
+        15
+      ],
+      [
+        {
+          "Edge": 11
+        },
+        16
+      ],
+      [
+        {
+          "Face": 4
+        },
+        17
+      ],
+      [
+        {
+          "Face": 5
+        },
+        18
+      ]
+    ],
+    "section_planes": [],
+    "tag_of": [],
+    "texts": []
+  },
+  "rendering": {
+    "fog_enabled": false,
+    "section": {
+      "cuts_visible": true,
+      "fills_visible": true,
+      "planes_visible": true
+    },
+    "shadows": {
+      "dark": 45,
+      "enabled": false,
+      "from_edges": false,
+      "light": 80,
+      "on_faces": true,
+      "on_ground": true,
+      "sun": {
+        "manual": {
+          "altitude": 0.7853981633974483,
+          "azimuth": 2.356194490192345
+        }
+      }
+    }
+  },
+  "scenes": {
+    "items": [],
+    "order": []
+  },
+  "styles": {
+    "active": {
+      "idx": 1,
+      "version": 1
+    },
+    "items": [
+      [
+        {
+          "idx": 1,
+          "version": 1
+        },
+        {
+          "background": {
+            "color": {
+              "a": 255,
+              "b": 255,
+              "g": 255,
+              "r": 255
+            },
+            "ground": null,
+            "show_ground_from_below": false,
+            "sky": {
+              "a": 255,
+              "b": 242,
+              "g": 225,
+              "r": 206
+            }
+          },
+          "edges": {
+            "back_edges": false,
+            "color": "all",
+            "depth_cue": null,
+            "endpoints": null,
+            "extension": null,
+            "jitter": false,
+            "profiles": 2,
+            "show": true
+          },
+          "faces": {
+            "back_default": {
+              "a": 255,
+              "b": 200,
+              "g": 180,
+              "r": 160
+            },
+            "front_default": {
+              "a": 255,
+              "b": 255,
+              "g": 255,
+              "r": 255
+            },
+            "mode": "shaded-textured"
+          },
+          "fog": null,
+          "modeling": {
+            "guide_color": {
+              "a": 255,
+              "b": 64,
+              "g": 64,
+              "r": 64
+            },
+            "inactive_fade": 0.5,
+            "locked_color": {
+              "a": 255,
+              "b": 48,
+              "g": 48,
+              "r": 208
+            },
+            "section_fill": {
+              "a": 255,
+              "b": 64,
+              "g": 64,
+              "r": 64
+            },
+            "section_line_color": {
+              "a": 255,
+              "b": 0,
+              "g": 0,
+              "r": 0
+            },
+            "section_line_width_px": 3.0,
+            "selection_color": {
+              "a": 255,
+              "b": 255,
+              "g": 144,
+              "r": 30
+            }
+          },
+          "name": "Default",
+          "watermarks": []
+        }
+      ]
+    ],
+    "order": [
+      {
+        "idx": 1,
+        "version": 1
+      }
+    ]
+  },
+  "tags": {
+    "folder_order": [],
+    "folders": [],
+    "order": [
+      {
+        "idx": 1,
+        "version": 1
+      }
+    ],
+    "tags": [
+      [
+        {
+          "idx": 1,
+          "version": 1
+        },
+        {
+          "color": {
+            "a": 255,
+            "b": 128,
+            "g": 128,
+            "r": 128
+          },
+          "folder": null,
+          "line_style": "solid",
+          "name": "Untagged",
+          "visible": true
+        }
+      ]
+    ],
+    "untagged": {
+      "idx": 1,
+      "version": 1
+    }
+  }
+}

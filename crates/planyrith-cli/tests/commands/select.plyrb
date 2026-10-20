@@ -1,0 +1,4 @@
+# Selecting does not change the document.
+rectangle --corner-a 0,0,0 --corner-b 1000,600,0
+push-pull --face '{face & last}' --distance 400
+select --query 'face & normal:z'

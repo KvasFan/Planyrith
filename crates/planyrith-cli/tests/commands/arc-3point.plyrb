@@ -1,0 +1,2 @@
+# An arc through three points.
+arc-3point --a 0,0,0 --b 500,200,0 --c 1000,0,0 --segments 8

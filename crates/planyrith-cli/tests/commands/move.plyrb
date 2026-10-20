@@ -1,0 +1,6 @@
+# Stretch a box by moving its top face, then copy it as a group in a row.
+rectangle --corner-a 0,0,0 --corner-b 1000,600,0
+push-pull --face '{face & last}' --distance 400
+move --targets 'face & normal:z' --delta 0,0,200
+make-group --targets all --name Box
+move --targets group --delta 1500,0,0 --copy --copies 2

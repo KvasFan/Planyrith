@@ -1,0 +1,6 @@
+# Scale loose geometry per axis, then a group uniformly about its center.
+rectangle --corner-a 0,0,0 --corner-b 1000,600,0
+push-pull --face '{face & last}' --distance 400
+scale --targets all --factors 2,1,1 --pivot 0,0,0
+make-group --targets all --name Box
+scale --targets group --factor 0.5 --about center

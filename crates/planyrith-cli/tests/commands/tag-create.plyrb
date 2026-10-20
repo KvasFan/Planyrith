@@ -1,0 +1,4 @@
+# Tags with and without a folder.
+tag-folder-create --name Building
+tag-create --name Walls --color '#C8B8A0' --folder Building
+tag-create --name Furniture

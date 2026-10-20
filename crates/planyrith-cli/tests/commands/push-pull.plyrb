@@ -1,0 +1,6 @@
+# Pull a rectangle into a box, push a hole through its top, stretch it.
+rectangle --corner-a 0,0,0 --corner-b 1000,600,0
+push-pull --face '{face & last}' --distance 400
+rectangle --corner-a 200,200,400 --corner-b 400,400,400
+push-pull --face '{face & last}' --distance -400
+push-pull --face '{face & normal:-z & plane:xy@0}' --distance 100

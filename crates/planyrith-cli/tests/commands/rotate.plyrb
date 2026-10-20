@@ -1,0 +1,6 @@
+# Rotate loose geometry, then a radial array of a group.
+rectangle --corner-a 0,0,0 --corner-b 1000,600,0
+push-pull --face '{face & last}' --distance 400
+rotate --targets all --center 0,0,0 --angle 90
+make-group --targets all --name Box
+rotate --targets group --center 0,0,0 --angle 90 --copy --copies 3

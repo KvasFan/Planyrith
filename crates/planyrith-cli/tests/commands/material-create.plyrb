@@ -1,0 +1,3 @@
+# Two materials.
+material-create --name Oak --color '#A0522D'
+material-create --name Glass --color '#88CCEE' --opacity 0.3

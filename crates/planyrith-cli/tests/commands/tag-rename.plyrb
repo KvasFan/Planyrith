@@ -1,0 +1,3 @@
+# Rename a tag.
+tag-create --name Walls
+tag-rename --tag Walls --new-name Partitions

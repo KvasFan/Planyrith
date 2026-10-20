@@ -300,8 +300,12 @@ pub fn collect(
         let values: Vec<&String> = values.collect();
         let value = if spec.repeated {
             let mut items = Vec::new();
+            // Numbers never contain commas, so numeric lists also accept the
+            // `2,1.5,1` form of a vector.
+            let numeric = matches!(spec.kind, ParamKind::Number | ParamKind::Integer);
             for v in values {
-                for piece in v.split(';').map(str::trim).filter(|p| !p.is_empty()) {
+                let pieces = v.split(|c| c == ';' || (numeric && c == ','));
+                for piece in pieces.map(str::trim).filter(|p| !p.is_empty()) {
                     items.push(convert(spec, piece, unit)?);
                 }
             }

@@ -1,0 +1,3 @@
+# Inscribed and circumscribed hexagons.
+polygon --center 0,0,0 --radius 500
+polygon --center 2000,0,0 --radius 500 --sides 5 --no-inscribed

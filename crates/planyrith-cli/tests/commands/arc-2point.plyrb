@@ -1,0 +1,3 @@
+# A quarter arc about the origin, then a half arc given by its end point.
+arc-2point --center 0,0,0 --start 1000,0,0 --end-angle 90 --segments 6
+arc-2point --center 0,2000,0 --start 1000,2000,0 --end -1000,2000,0 --segments 8

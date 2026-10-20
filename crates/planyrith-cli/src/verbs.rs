@@ -355,9 +355,10 @@ fn tool(global: &Global, name: Option<String>, raw: Vec<String>) -> Result<(), C
                 started,
             );
         } else {
+            let width = list.iter().map(|c| c.name.len()).max().unwrap_or(0);
             for c in list {
                 println!(
-                    "{:<16} {:<10} {}",
+                    "{:<width$} {:<10} {}",
                     c.name,
                     format!("{:?}", c.category).to_lowercase(),
                     c.label

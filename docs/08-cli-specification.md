@@ -69,7 +69,7 @@ every field is a `--kebab-case` option; types map as:
 | `bool` | flag / `--no-flag` | `--copy`, `--no-auto-fold` |
 | enum | lowercase variant | `--mode add` |
 | `Transform` | `t=x,y,z;r=axis,angle;s=sx,sy,sz` | `--placement 't=0,0,0;r=z,90'` |
-| `Vec<T>` | repeat the option or `;`-separate | `--points 0,0,0 --points 1m,0,0` |
+| `Vec<T>` | repeat the option or `;`-separate (lists of numbers also `,`) | `--points 0,0,0 --points 1m,0,0`, `--factors 2,1.5,1` |
 | struct | JSON | `--behavior '{"glue_to":"horizontal"}'` |
 
 Alternative: `--params-json '<json>'` or `--params-file p.json` for the whole `Params`.

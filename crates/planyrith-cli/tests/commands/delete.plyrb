@@ -1,0 +1,4 @@
+# Delete the top face of a box.
+rectangle --corner-a 0,0,0 --corner-b 1000,600,0
+push-pull --face '{face & last}' --distance 400
+delete --targets 'face & normal:z'

@@ -1,0 +1,4 @@
+# Turn a box into a component with a description.
+rectangle --corner-a 0,0,0 --corner-b 1000,600,0
+push-pull --face '{face & last}' --distance 400
+make-component --targets all --name Crate --description 'A wooden crate'

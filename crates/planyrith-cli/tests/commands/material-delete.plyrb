@@ -1,0 +1,6 @@
+# Delete a material in use; faces fall back to the default.
+rectangle --corner-a 0,0,0 --corner-b 1000,600,0
+push-pull --face '{face & last}' --distance 400
+material-create --name Oak --color '#A0522D'
+material-apply --targets 'face & normal:z' --material Oak
+material-delete --material Oak

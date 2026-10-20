@@ -1,0 +1,4 @@
+# A horizontal rectangle, a vertical one and a square on a plane.
+rectangle --corner-a 0,0,0 --corner-b 2000,1000,0
+rectangle --corner-a 3000,0,0 --corner-b 4000,0,1000
+rectangle --corner-a 0,0,2000 --corner-b 500,800,2000 --aspect-lock square

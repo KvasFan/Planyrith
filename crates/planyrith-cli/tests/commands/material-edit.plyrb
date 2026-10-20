@@ -1,0 +1,3 @@
+# Rename and recolor a material.
+material-create --name Oak --color '#A0522D'
+material-edit --material Oak --name Walnut --color '#5C4033'

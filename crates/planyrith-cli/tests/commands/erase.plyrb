@@ -1,0 +1,6 @@
+# Erase a chord (the faces merge) and soften the vertical box edges.
+rectangle --corner-a 0,0,0 --corner-b 1000,600,0
+push-pull --face '{face & last}' --distance 400
+line --points 500,0,400 --points 500,600,400
+erase --targets 'edge & last'
+erase --targets 'edge & !plane:xy@0 & !plane:xy@400' --mode soften

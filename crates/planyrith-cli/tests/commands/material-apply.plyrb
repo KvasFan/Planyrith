@@ -1,0 +1,6 @@
+# Paint the top of a box, and the back of its bottom.
+rectangle --corner-a 0,0,0 --corner-b 1000,600,0
+push-pull --face '{face & last}' --distance 400
+material-create --name Oak --color '#A0522D'
+material-apply --targets 'face & normal:z' --material Oak
+material-apply --targets 'face & normal:-z' --material Oak --side back

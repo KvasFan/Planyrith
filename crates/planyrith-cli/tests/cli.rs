@@ -352,3 +352,76 @@ fn furnished_room_acceptance() {
         std::fs::read(&again).unwrap()
     );
 }
+
+/// AGENTS.md §4 step 4: every registered command has a batch under
+/// `tests/commands/<name>.plyrb` whose result validates clean and whose
+/// canonical export matches `tests/golden/commands/<name>.json`
+/// (`PLANYRITH_UPDATE_GOLDEN=1` accepts changes).
+#[test]
+fn every_command_matches_its_golden_file() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
+    let listing = json_of(
+        &planyrith()
+            .args(["tool", "--json"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout,
+    );
+    let names: Vec<String> = listing["output"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["name"].as_str().unwrap().to_string())
+        .collect();
+    let mut batches: Vec<String> = std::fs::read_dir(root.join("commands"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|p| p.extension().is_some_and(|x| x == "plyrb"))
+        .map(|p| p.file_stem().unwrap().to_string_lossy().into_owned())
+        .collect();
+    batches.sort();
+    let mut expected = names.clone();
+    expected.sort();
+    assert_eq!(batches, expected, "one batch per registered command");
+
+    let update = std::env::var_os("PLANYRITH_UPDATE_GOLDEN").is_some();
+    let dir = scratch("commands");
+    let mut mismatches = Vec::new();
+    for name in &names {
+        let batch = root.join("commands").join(format!("{name}.plyrb"));
+        let doc = dir.join(format!("{name}.plyr"));
+        let out = dir.join(format!("{name}.json"));
+        let d = doc.to_str().unwrap();
+        planyrith()
+            .args(["batch", batch.to_str().unwrap(), "-f", d, "--deterministic"])
+            .assert()
+            .success();
+        planyrith().args(["validate", "-f", d]).assert().success();
+        planyrith()
+            .args([
+                "export",
+                "-f",
+                d,
+                out.to_str().unwrap(),
+                "--canonical",
+                "--pretty",
+            ])
+            .assert()
+            .success();
+        let got = std::fs::read_to_string(&out).unwrap();
+        let golden = root.join("golden/commands").join(format!("{name}.json"));
+        if update || !golden.exists() {
+            std::fs::create_dir_all(golden.parent().unwrap()).unwrap();
+            std::fs::write(&golden, &got).unwrap();
+        }
+        if std::fs::read_to_string(&golden).unwrap() != got {
+            mismatches.push(name.clone());
+        }
+    }
+    assert!(
+        mismatches.is_empty(),
+        "exports differ from tests/golden/commands for {mismatches:?} \
+         (set PLANYRITH_UPDATE_GOLDEN=1 to accept)"
+    );
+}

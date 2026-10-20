@@ -1,0 +1,3 @@
+# A horizontal circle (a face) and a vertical one.
+circle --center 0,0,0 --radius 500 --segments 12
+circle --center 2000,0,500 --radius 300 --normal x --segments 8

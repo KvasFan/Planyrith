@@ -1,0 +1,5 @@
+# Tag the side faces of a box.
+rectangle --corner-a 0,0,0 --corner-b 1000,600,0
+push-pull --face '{face & last}' --distance 400
+tag-create --name Walls
+tag-assign --targets 'face & !normal:z & !normal:-z' --tag Walls

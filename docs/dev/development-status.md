@@ -5,7 +5,7 @@ implementation stands, what is done, what remains, and how to resume. Update it 
 every working session. Ground truth for *what to build* stays in `docs/00`–`docs/15`; this file
 is only *progress state*.
 
-_Last updated: 2026-10-20 (0.1 draft complete)._
+_Last updated: 2026-10-21 (0.1 hardening: fuzzing, per-command goldens, deterministic math)._
 
 ## 1. Where we are
 
@@ -15,7 +15,11 @@ complete as a draft**: every 0.1 command exists, and the acceptance test of docs
 and a window, a table group and four chairs as instances of one component; the file validates
 clean and re-saves byte-identically). Undo/redo is byte-exact for every 0.1 command
 (`commands::undo_tests`). A randomized kernel test (`geom/mesh/tests.rs`,
-`random_operation_sequences_keep_the_mesh_valid`) stands in for cargo-fuzz.
+`random_operation_sequences_keep_the_mesh_valid`: random edges, rectangles, erasures, vertex
+moves, push/pull and offsets) stands in for cargo-fuzz; 100 000 cases ran clean on 2026-10-21.
+Every registered command has a CLI golden test (`tests/commands/<name>.plyrb` →
+`tests/golden/commands/<name>.json`). Transcendental math goes through `libm` so output is
+bit-identical across OSes (docs/02 Decisions).
 
 Build/test commands used in this project (do not build the GUI/render crates while working on
 the core — they pull heavy GPU deps; the CLI does not depend on render unless built with
@@ -54,9 +58,11 @@ Frontends:
 
 ## 3. What next
 
-1. **Review and harden 0.1**: run the long fuzz (`PLANYRITH_FUZZ_CASES`), fix what it finds; add
-   CLI golden tests per command (AGENTS.md §4 step 4) — today the furnished-room and table batches
-   cover most commands.
+1. **Keep hardening 0.1**: rerun the long fuzz after kernel changes; extend it with moves of
+   several vertices, rotations and copies. `cargo deny check` reports four "unmaintained"
+   advisories in GUI-side transitive dependencies (`ttf-parser`, `zbus_names`, `zvariant`,
+   `zvariant_derive`), new in the advisory database since 2026-10-20 — review them with the
+   0.2 GUI work (replace, or add dated `deny.toml` ignores with a reason).
 2. **`serve` / `repl`** (docs/08 §3): JSON-RPC over stdio on top of `Engine::execute_erased` — the
    GUI-attach protocol; not required by the 0.1 acceptance but cheap now.
 3. **Milestone 0.2** (docs/13): `io/render_mesh.rs` extraction, `planyrith-render` passes and
@@ -79,7 +85,10 @@ Frontends:
   edges (seed rule); see the docs/03 decision for the full algorithm.
 - **Ids:** everything except mesh edges/faces keeps its id across undo/redo (`StableMap`);
   edge/face ids named by deltas resolve through the engine's session-wide `MeshAliases`.
-  Commands address entities by pid or query; never store mesh ids in persistent data.
+  Commands address entities by pid or query; never store mesh ids in persistent data. A split
+  face or edge keeps its pid on one piece (docs/03 Decisions); `last` skips edge fragments.
+- **Math in the core:** call `libm::sin` etc., never `f64::sin` (`crates/planyrith-core/clippy.toml`
+  rejects it) — cross-platform byte-identical output depends on it.
 - **New commands:** follow `commands/edit/push_pull.rs` (EntityRef) or
   `commands/organize/tags.rs` (Sel): resolve with `commands::params::target_container` and
   `commands::common::targets_in`, mutate only through `Transaction`, run multi-step kernel work in

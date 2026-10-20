@@ -5,8 +5,9 @@
 //! Draft decisions (docs/09 Decisions, 2026-10-20):
 //! - The dump has the same shape as `document.msgpack` (the `Document` type's
 //!   derived `serde` form) plus an `images` array listing each stored image's
-//!   hash, format, pixel size and byte count; image bytes are excluded. The
-//!   index-based mesh form arrives with `HalfEdgeMesh::to_indexed`.
+//!   hash, format, pixel size and byte count; image bytes are excluded.
+//!   Containers appear in their file form (`EntitiesSer`: indexed mesh in
+//!   canonical order, mesh entities by index).
 //! - The canonical form sorts object keys recursively, prints floats with the
 //!   shortest round-trip representation (`serde_json`'s fixed formatting),
 //!   folds `-0.0` to `0.0`, and never contains NaN or infinities (they become

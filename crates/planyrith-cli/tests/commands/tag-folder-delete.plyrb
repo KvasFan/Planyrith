@@ -1,0 +1,4 @@
+# Create and delete an empty folder.
+tag-folder-create --name Building
+tag-folder-create --name Upper --parent Building
+tag-folder-delete --name Upper
