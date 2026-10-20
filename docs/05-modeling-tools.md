@@ -434,8 +434,6 @@ UI hints are generated from one source.
 - 2026-10-20 — Solid tool results are groups unless `keep_component` (§8).
 - 2026-10-20 — View commands are commands (scriptable) but not undoable (§9).
 
-## Decisions
-
 - 2026-10-20 — **Coordinates in params are world coordinates.** Commands convert points and
   directions into the edit context's container (the group or instance opened with `context` or the
   engine's edit context) with the inverse of its world transform, like clicks in the GUI.
