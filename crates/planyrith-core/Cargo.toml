@@ -11,16 +11,45 @@ authors.workspace = true
 [lib]
 path = "src/lib.rs"
 
-# No dependencies at 0.0.0. Planned (see docs/02-technology-stack.md):
-#   glam, parry3d-f64, serde, rmp-serde, zip, thiserror, rayon (desktop),
-#   truck-* (feature "brep"), image, gltf, tobj, dxf, earcutr, rhai (feature "scripting")
+# Allowed dependencies are listed in docs/01-architecture.md §1.1. This crate
+# must never depend on a GUI toolkit, a GPU API or a windowing library.
 [dependencies]
+glam = { workspace = true }
+parry3d-f64 = { workspace = true }
+earcutr = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+rmp-serde = { workspace = true }
+zip = { workspace = true }
+flate2 = { workspace = true }
+schemars = { workspace = true }
+thiserror = { workspace = true }
+slotmap = { workspace = true }
+indexmap = { workspace = true }
+bytemuck = { workspace = true }
+blake3 = { workspace = true }
+uuid = { workspace = true }
+image = { workspace = true }
+tracing = { workspace = true }
+rayon = { workspace = true, optional = true }
+
+# Random UUIDs in the browser go through the JavaScript crypto API.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+uuid = { workspace = true, features = ["js"] }
+
+[dev-dependencies]
+proptest = { workspace = true }
 
 [features]
 default = []
-brep = []        # exact B-rep kernel integration (truck)
-scripting = []   # embedded scripting runtime (rhai)
-parallel = []    # rayon-based parallelism (desktop targets)
+# Exact B-rep kernel integration (truck family). No-op until the milestone that
+# introduces it (docs/13-roadmap.md); the truck crates are not pinned yet.
+brep = []
+# Embedded scripting runtime (rhai). No-op until milestone 0.6; rhai is not
+# pinned yet.
+scripting = []
+# rayon-based data parallelism on desktop targets (docs/01 §6).
+parallel = ["dep:rayon"]
 
 [lints]
 workspace = true

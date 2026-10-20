@@ -28,15 +28,16 @@
   contributes nothing to document semantics; it only collects parameters and dispatches
   commands.
 
-A fourth crate, **`planyrith-render`** (wgpu renderer without UI), is introduced at
-milestone 0.2 so that both the GUI viewport and the CLI's headless `render` subcommand share
-one renderer. It depends on `planyrith-core` and `wgpu` only.
+A fourth crate, **`planyrith-render`** (wgpu renderer without UI), exists as a scaffold from
+the start and receives its first renderer at milestone 0.2, so that both the GUI viewport and
+the CLI's headless `render` subcommand share one renderer. It depends on `planyrith-core`,
+`wgpu` and GPU-data helpers only.
 
 ### 1.1 Dependency rules (enforced by CI)
 
 | Crate | May depend on | Must not depend on |
 |---|---|---|
-| `planyrith-core` | `glam`, `parry3d-f64`, `serde`, `rmp-serde`, `zip`, `thiserror`, importers, `truck-*` (feature), `rhai` (feature), `rayon` (feature) | `egui`, `wgpu`, `winit`, `eframe`, `web-sys`, `std::fs` outside `io::storage::native` |
+| `planyrith-core` | `glam`, `parry3d-f64`, `earcutr`, `serde`, `serde_json`, `rmp-serde`, `zip` + `flate2` (pure-Rust deflate), `schemars`, `thiserror`, `slotmap`, `indexmap`, `bytemuck`, `blake3`, `uuid`, `image` (decoders only), `tracing`, importers, `truck-*` (feature), `rhai` (feature), `rayon` (feature) | `egui`, `wgpu`, `winit`, `eframe`, `web-sys`, `std::fs` outside `io::storage::native` |
 | `planyrith-render` | `planyrith-core`, `wgpu`, `glam`, `bytemuck`, `image` | `egui`, `winit` |
 | `planyrith-cli` | `planyrith-core`, `planyrith-render`, `clap`, `serde_json`, `tracing` | `egui`, `wgpu` directly |
 | `planyrith-gui` | everything above, `egui`, `eframe`, `egui-wgpu`, `egui_tiles`, `web-sys` (wasm) | — |
@@ -241,3 +242,6 @@ Frontends and the RPC server fan events out to subscribers. Event kinds:
   without depending on the GUI crate. The user-proposed three-way split is preserved
   conceptually: `render` is part of the "GUI tier" but has no UI.
 - 2026-10-20 — GUI links the core in-process by default; RPC attach is optional.
+- 2026-10-20 — `planyrith-render` is scaffolded at 0.1 (empty library with its dependency
+  table wired) rather than created at 0.2, so the CLI and GUI manifests can depend on it from
+  the first commit and the boundary check in CI covers all four crates from the start.

@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/planyrith-core",
+    "crates/planyrith-render",
     "crates/planyrith-cli",
     "crates/planyrith-gui",
 ]
@@ -9,7 +10,9 @@ members = [
 [workspace.package]
 version = "0.0.0"
 edition = "2024"
-rust-version = "1.85"
+# MSRV follows the egui/eframe/egui-wgpu release line in use (0.36 requires 1.95).
+# See docs/02-technology-stack.md §4 and its Decisions list.
+rust-version = "1.95"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/KvasFan/Planyrith"
 homepage = "https://github.com/KvasFan/Planyrith"
@@ -17,10 +20,68 @@ authors = ["Planyrith contributors"]
 keywords = ["cad", "3d", "modeling", "architecture", "wgpu"]
 categories = ["graphics", "rendering", "command-line-utilities"]
 
-# Shared dependency versions are declared here once the implementation starts.
-# Nothing is pulled in at version 0.0.0 on purpose: this tag is specification-only.
-# See docs/02-technology-stack.md for the approved crate list and licenses.
+# Every dependency is declared here once and referenced from the crates with
+# `workspace = true`. Versions were pinned on 2026-10-20 against crates.io; the
+# approved crate list and the licensing policy live in docs/02-technology-stack.md.
+#
+# Lockstep groups (upgrade together, see docs/02 §4):
+#   * egui, eframe, egui-wgpu, egui_tiles, egui-file-dialog, wgpu
+#   * glam is held at the line parry3d-f64 uses (via glamx) so the core and the
+#     picking kernel share one set of vector types
+#
+# Not added yet on purpose: the `truck-*` family (feature `brep`) and `rhai`
+# (feature `scripting`). Both features stay declared but are no-ops until the
+# milestone that needs them (docs/13-roadmap.md).
 [workspace.dependencies]
+# ---- core: math, geometry, spatial queries --------------------------------
+glam = { version = "0.33", features = ["serde", "bytemuck"] }
+parry3d-f64 = "0.31"
+earcutr = "0.5"
+
+# ---- core: serialization, schemas, containers -----------------------------
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+rmp-serde = "1.3"
+# Pure-Rust deflate only: no zlib/zlib-ng/zstd/bzip2 C backends.
+zip = { version = "9.0", default-features = false, features = ["deflate-flate2"] }
+# zip declares flate2 without a backend; select the miniz_oxide one explicitly.
+flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
+schemars = { version = "1.2", features = ["derive", "indexmap2", "uuid1"] }
+
+# ---- core: errors, collections, ids, hashing, images, diagnostics ----------
+thiserror = "2.0"
+slotmap = { version = "1.1", features = ["serde"] }
+indexmap = { version = "2.14", features = ["serde"] }
+bytemuck = { version = "1.25", features = ["derive"] }
+blake3 = { version = "1.8", features = ["pure"] }
+uuid = { version = "1.28", features = ["v4", "serde"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
+rayon = "1.12"
+tracing = "0.1"
+
+# ---- cli -------------------------------------------------------------------
+clap = { version = "4.6", features = ["derive", "env"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = "1.0"
+
+# ---- render / gui ------------------------------------------------------------
+wgpu = "30.0"
+egui = "0.36"
+eframe = { version = "0.36", features = ["persistence"] }
+egui-wgpu = "0.36"
+egui_tiles = "0.17"
+egui-file-dialog = "0.15"
+pollster = "1.0"
+
+# ---- dev -----------------------------------------------------------------------
+proptest = "1.12"
+assert_cmd = "2.2"
+predicates = "3.1"
+criterion = "0.8"
+
+# ---- internal --------------------------------------------------------------------
+planyrith-core = { path = "crates/planyrith-core", version = "0.0.0" }
+planyrith-render = { path = "crates/planyrith-render", version = "0.0.0" }
 
 [workspace.lints.rust]
 unsafe_code = "deny"
@@ -28,7 +89,8 @@ missing_docs = "warn"
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
-pedantic = { level = "warn", priority = -1 }
+# Pedantic lints are silenced for the first draft; re-enable at 0.2.
+pedantic = { level = "allow", priority = -1 }
 unwrap_used = "warn"
 expect_used = "warn"
 module_name_repetitions = "allow"

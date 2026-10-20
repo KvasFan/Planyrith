@@ -12,10 +12,20 @@ authors.workspace = true
 name = "planyrith-gui"
 path = "src/main.rs"
 
-# No dependencies at 0.0.0. Planned (see docs/02-technology-stack.md):
-#   planyrith-core, egui, eframe, egui-wgpu, egui_tiles, wgpu, glam, image,
-#   wasm-bindgen / web-sys / rexie (target wasm32)
+# Allowed dependencies are listed in docs/01-architecture.md §1.1.
+# wasm-bindgen / web-sys / rexie are added with the web build (docs/11).
 [dependencies]
+planyrith-core = { workspace = true }
+planyrith-render = { workspace = true }
+egui = { workspace = true }
+eframe = { workspace = true }
+egui-wgpu = { workspace = true }
+egui_tiles = { workspace = true }
+egui-file-dialog = { workspace = true }
+wgpu = { workspace = true }
+glam = { workspace = true }
+image = { workspace = true }
+pollster = { workspace = true }
 
 [lints]
 workspace = true

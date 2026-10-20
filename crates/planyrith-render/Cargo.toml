@@ -1,0 +1,24 @@
+[package]
+name = "planyrith-render"
+description = "Planyrith wgpu renderer without UI: shared by the GUI viewport and the CLI's headless render subcommand"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+# Allowed dependencies are listed in docs/01-architecture.md §1.1. This crate
+# must never depend on egui or winit.
+[dependencies]
+planyrith-core = { workspace = true }
+wgpu = { workspace = true }
+glam = { workspace = true }
+bytemuck = { workspace = true }
+image = { workspace = true }
+
+[lints]
+workspace = true

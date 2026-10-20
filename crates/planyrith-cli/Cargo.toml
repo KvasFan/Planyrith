@@ -12,9 +12,21 @@ authors.workspace = true
 name = "planyrith"
 path = "src/main.rs"
 
-# No dependencies at 0.0.0. Planned (see docs/02-technology-stack.md):
-#   planyrith-core, clap, serde_json, tracing, tracing-subscriber, anyhow
+# Allowed dependencies are listed in docs/01-architecture.md §1.1. This crate
+# must never depend on egui, or on wgpu directly (it goes through
+# planyrith-render).
 [dependencies]
+planyrith-core = { workspace = true }
+planyrith-render = { workspace = true }
+clap = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+
+[dev-dependencies]
+assert_cmd = { workspace = true }
+predicates = { workspace = true }
 
 [lints]
 workspace = true

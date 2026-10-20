@@ -6,8 +6,8 @@ entirely in Rust, runs on Linux, macOS, Windows and in the browser (WebAssembly)
 built *CLI-first*: every modeling tool exists as a command before it gets a button.
 
 > **Status: version 0.0.0 — specification only.**
-> This repository currently contains the complete design documents and an empty
-> workspace scaffold. No feature is implemented yet. Implementation follows the
+> This repository currently contains the complete design documents and a workspace
+> scaffold with pinned dependencies. No feature is implemented yet. Implementation follows the
 > milestones in [`docs/13-roadmap.md`](docs/13-roadmap.md).
 
 ## What Planyrith will be
@@ -31,10 +31,12 @@ built *CLI-first*: every modeling tool exists as a command before it gets a butt
 |---|---|
 | `docs/` | The specification. Start with [`docs/00-overview.md`](docs/00-overview.md). |
 | `crates/planyrith-core` | Document model, geometry kernel, commands, file I/O. No GUI or GPU dependencies. |
+| `crates/planyrith-render` | `wgpu` renderer without UI, shared by the GUI viewport and the CLI's headless `render` subcommand. |
 | `crates/planyrith-cli` | `planyrith` binary: every tool as a subcommand, scripting, headless export, JSON-RPC server. |
 | `crates/planyrith-gui` | `planyrith-gui` binary: egui/eframe shell with a wgpu viewport; desktop and WebAssembly. |
 | `AGENTS.md` | Working instructions for AI agents and contributors implementing the spec. |
 | `deny.toml` | Licensing and "pure Rust" dependency policy enforced by `cargo-deny`. |
+| `.github/workflows/ci.yml` | Lint, test and WebAssembly jobs from `docs/12-testing-and-quality.md`. |
 
 ## Design principles
 

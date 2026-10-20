@@ -14,6 +14,7 @@ high-frequency interaction**.
 | GUI toolkit (desktop + web) | **egui + eframe** | MIT/Apache-2.0 | Dioxus, iced, Slint | See §2.1. Immediate-mode fits tool/viewport interaction; first-class wgpu integration; mature wasm. |
 | GUI ↔ GPU integration | **egui-wgpu** (+ `egui-winit` via eframe) | MIT/Apache-2.0 | custom glue | Official, maintained with egui. |
 | Docking / panel layout | **egui_tiles** | MIT/Apache-2.0 | egui_dock | Simpler model (tree of tiles), maintained by egui's author; supports tabs, splits, drag. |
+| File open/save dialogs | **egui-file-dialog** | MIT | rfd (native dialogs), own widget | Pure egui, so it renders identically on desktop and in the browser and needs no platform dialog bindings. |
 | 3D rendering | **wgpu** | MIT/Apache-2.0 | glow (OpenGL), vulkano, ash | Portable (Vulkan/Metal/DX12/GL/WebGPU/WebGL2), pure Rust, the standard. |
 | Windowing/input | **winit** (via eframe) | Apache-2.0 | sdl2 (C) | Pure Rust, wasm support. |
 | Linear algebra | **glam** (`f64` types `DVec3/DMat4/DAffine3` in core; `f32` in render) | MIT/Apache-2.0 | nalgebra, cgmath | SIMD-fast, simple API, both precisions, serde support. `nalgebra` only if a solver is needed (feature-gated). |
@@ -23,7 +24,7 @@ high-frequency interaction**.
 | Picking / spatial queries | **parry3d-f64** (ray casts, AABB, `Qbvh`) | Apache-2.0 | bvh crate, own BVH | Battle-tested, f64 variant, queries we need (ray/AABB/segment/triangle). |
 | Serialization | **serde** | MIT/Apache-2.0 | — | Standard. |
 | Native binary encoding | **rmp-serde** (MessagePack) | MIT | bincode, postcard, CBOR | Self-describing (forward-compatible field skipping), compact, fast, many tools can inspect it. |
-| Native container | **zip** crate (store/deflate via `miniz_oxide`) | MIT | tar, custom | Random access to parts, textures as separate members, previews readable by any zip tool. |
+| Native container | **zip** crate (`deflate-flate2` feature + `flate2` `rust_backend`, i.e. `miniz_oxide`) | MIT | tar, custom | Random access to parts, textures as separate members, previews readable by any zip tool. |
 | JSON (CLI output, RPC, schemas) | **serde_json**, **schemars** | MIT/Apache-2.0 | — | Standard. |
 | CLI parsing | **clap** (derive) | MIT/Apache-2.0 | argh, lexopt | Rich help, shell completions, mirrors `Params` structs. |
 | Logging/diagnostics | **tracing**, **tracing-subscriber** | MIT | log | Structured spans for profiling commands. |
@@ -140,7 +141,7 @@ powerful but add ~10 MB and do not run inside the web build; they are a post-1.0
 
 - Project license: **MIT OR Apache-2.0**.
 - Allowed dependency licenses: MIT, Apache-2.0 (with or without LLVM exception), BSD-2-Clause,
-  BSD-3-Clause, ISC, Zlib, CC0-1.0, Unicode-3.0/Unicode-DFS-2016, MPL-2.0 (file-level
+  BSD-3-Clause, ISC, Zlib, BSL-1.0, CC0-1.0, Unicode-3.0/Unicode-DFS-2016, MPL-2.0 (file-level
   copyleft; acceptable), OFL-1.1 and Ubuntu Font License for bundled fonts.
 - **GPL, LGPL, AGPL**: not allowed in `planyrith-core`, `planyrith-render`, `planyrith-cli` or
   `planyrith-gui`. They may be used only in optional, separately distributed plugins and only
@@ -155,7 +156,8 @@ powerful but add ~10 MB and do not run inside the web build; they are a post-1.0
 
 - Use caret requirements (`"0.x"`) in `Cargo.toml` and commit `Cargo.lock` for binaries.
 - Upgrade `wgpu`/`egui` together (they are released in lockstep) at most once per milestone.
-- MSRV: Rust 1.85 (edition 2024). Bump only at minor releases.
+- MSRV: Rust 1.95 (edition 2024), dictated by the egui 0.36 release line. Bump only at minor
+  releases, together with the egui/wgpu upgrade.
 
 ## 5. Platform notes
 
@@ -174,3 +176,17 @@ powerful but add ~10 MB and do not run inside the web build; they are a post-1.0
 - 2026-10-20 — rmp-serde inside a zip container for `.plyr` (§2.4).
 - 2026-10-20 — rhai for scripting; WASM plugins post-1.0 (§2.6).
 - 2026-10-20 — Copyleft dependencies excluded from all shipped crates (§3).
+- 2026-10-20 — First pinned GUI line is egui/eframe/egui-wgpu 0.36 with wgpu 30, egui_tiles 0.17
+  and egui-file-dialog 0.15. egui 0.37 was current but egui-file-dialog had not yet followed it;
+  both lines use wgpu 30, so the upgrade to 0.37 is a lockstep bump with no renderer change.
+- 2026-10-20 — glam is pinned to the 0.33 line because parry3d-f64 0.31 reaches glam through
+  `glamx` ^0.3 (glam ^0.33); one glam copy lets the core pass vectors to the picking kernel
+  without conversions. Move to 0.34 when parry does.
+- 2026-10-20 — MSRV raised from 1.85 to 1.95 (§4): every egui 0.36/0.37 crate requires it.
+- 2026-10-20 — `flate2` is a direct dependency of the core with `rust_backend` only, because the
+  zip crate declares flate2 without a backend and its default `deflate` feature selects
+  `zlib-rs` plus `zopfli`; the explicit feature keeps the container on `miniz_oxide`.
+- 2026-10-20 — BSL-1.0 (Boost Software License, permissive) added to the allow-list: eframe's
+  Windows clipboard path pulls `clipboard-win` and `error-code` under it (§3).
+- 2026-10-20 — `truck-*` and `rhai` are not pinned yet; the `brep` and `scripting` features are
+  declared as no-ops until their milestones.

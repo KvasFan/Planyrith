@@ -72,3 +72,7 @@ humans or GUI automation before releases, with expected screenshots.
 
 - 2026-10-20 — Undo/redo byte-equality is a required test for every command.
 - 2026-10-20 — Render snapshots are blocking on real-GPU runners, advisory on software adapters.
+- 2026-10-20 — The first CI workflow implements the lint, test and wasm jobs. The wasm job checks
+  `planyrith-core` only until `planyrith-render` and `planyrith-gui` contain wasm-ready code;
+  `cargo doc` and `cargo deny` run in the lint job; render, fuzz, bench and release jobs are
+  added with their milestones.
