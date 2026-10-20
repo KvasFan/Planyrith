@@ -4,7 +4,11 @@
 //! storage (docs/11 §1), the native container (docs/09 §1–§4), interchange
 //! (docs/09 §5–§6) and render-mesh extraction (docs/06 §2).
 //!
-//! Owner key: `io-native` for this file.
+//! Owner key: `io-native` for this file. The `#![warn(unused_variables,
+//! dead_code)]` opt-out of the skeleton allowance lives in the leaf modules
+//! this owner implements (`storage`, `native`, `export::json`), not here,
+//! because an attribute on this file would cascade into `render_mesh` and
+//! `import`, which still carry `todo!()` bodies.
 
 pub mod export;
 pub mod import;
@@ -132,6 +136,15 @@ pub trait Progress {
     fn report(&self, fraction: f32, message: &str);
     /// `true` when the operation should stop (`IoError::Cancelled`).
     fn is_cancelled(&self) -> bool;
+    /// `Err(IoError::Cancelled)` when [`Progress::is_cancelled`] is `true`;
+    /// long operations call it between steps.
+    fn check_cancelled(&self) -> Result<(), IoError> {
+        if self.is_cancelled() {
+            Err(IoError::Cancelled)
+        } else {
+            Ok(())
+        }
+    }
 }
 
 /// A `Progress` that ignores reports and never cancels.
@@ -163,10 +176,13 @@ mod tests {
         let t = CancelToken::new();
         let shared = t.clone();
         assert!(t.check().is_ok());
+        assert!(Progress::check_cancelled(&t).is_ok());
         shared.cancel();
         assert!(t.is_cancelled());
         assert_eq!(t.check(), Err(IoError::Cancelled));
         assert!(Progress::is_cancelled(&t));
+        assert_eq!(Progress::check_cancelled(&t), Err(IoError::Cancelled));
+        assert!(NoProgress.check_cancelled().is_ok());
     }
 
     #[test]
@@ -177,5 +193,11 @@ mod tests {
         );
         assert_eq!(IoError::NotFound("x".into()).code(), "E1403");
         assert_eq!(IoError::ReadOnly("session".into()).code(), "E1501");
+        assert_eq!(
+            IoError::UnsupportedVersion { found: 2, max: 1 }.code(),
+            "E1401"
+        );
+        assert_eq!(IoError::LimitExceeded("x".into()).code(), "E1402");
+        assert_eq!(IoError::Cancelled.code(), "E1701");
     }
 }
