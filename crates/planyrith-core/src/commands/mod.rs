@@ -18,6 +18,7 @@ pub mod draw;
 pub mod edit;
 pub mod file;
 pub mod organize;
+pub mod params;
 pub mod transaction;
 pub mod view;
 

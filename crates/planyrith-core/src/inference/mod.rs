@@ -50,6 +50,23 @@ pub enum InferenceKind {
 }
 
 impl InferenceKind {
+    /// Every kind in priority order.
+    pub const ALL: [InferenceKind; 13] = [
+        InferenceKind::Endpoint,
+        InferenceKind::Midpoint,
+        InferenceKind::Intersection,
+        InferenceKind::Center,
+        InferenceKind::OnEdge,
+        InferenceKind::OnFace,
+        InferenceKind::Tangent,
+        InferenceKind::Perpendicular,
+        InferenceKind::Parallel,
+        InferenceKind::FromPoint,
+        InferenceKind::OnAxis,
+        InferenceKind::OnPlane,
+        InferenceKind::Free,
+    ];
+
     /// Numeric priority (0 = highest), docs/03 §7 order.
     pub const fn priority(self) -> u8 {
         self as u8

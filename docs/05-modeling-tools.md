@@ -433,3 +433,21 @@ UI hints are generated from one source.
 - 2026-10-20 — `make-group` duplicates shared boundary edges rather than stealing them (§5.1).
 - 2026-10-20 — Solid tool results are groups unless `keep_component` (§8).
 - 2026-10-20 — View commands are commands (scriptable) but not undoable (§9).
+
+## Decisions
+
+- 2026-10-20 — **Coordinates in params are world coordinates.** Commands convert points and
+  directions into the edit context's container (the group or instance opened with `context` or the
+  engine's edit context) with the inverse of its world transform, like clicks in the GUI.
+- 2026-10-20 — **Curve member edges stay visible.** §3.5/§3.7 "member edges `SOFT|SMOOTH`" is read
+  with docs/03 §3.3: it is the *inter-segment* edges of faces built along a curve (the sides of an
+  extruded circle) that become `SOFT | SMOOTH`; the outline of a drawn circle or arc is plain.
+- 2026-10-20 — Shape outputs report pids: `line` → `{edges, faces_created, faces_split}`;
+  `rectangle` → `{edges, face, faces_split}`; `circle`, `polygon`, `arc-*`, `pie` →
+  `{edges, face, faces_split, segments}` (curves have no pid, so `curve` is reported as the
+  segment count). `faces_split` lists the *new* pieces of split faces (the original keeps its pid).
+- 2026-10-20 — `rectangle` without `plane` uses the axis-aligned plane through both corners
+  (ground-parallel when they share Z, else the vertical plane they share) and fails with `E1001`
+  otherwise. `arc-bulge` measures the signed bulge to the left of the chord seen from `normal`
+  (default +Z, or +Y for a vertical chord). `arc-2point` with `end` sweeps counter-clockwise
+  about `normal` from the start to the end direction.
