@@ -2,8 +2,10 @@
 
 > **Progress:** for which parts of this contract are now implemented and what to do next, see
 > [`development-status.md`](development-status.md). As of 2026-10-20 the `foundations`,
-> `spatial` and `io-native` owner keys are implemented; `mesh` is partial (tessellation done,
-> topology operations still `todo!()`); `document` and `later` are not started.
+> `spatial`, `io-native` and `mesh` owner keys are implemented, as is `geom/planar.rs` (face
+> finding); `document` and the rest of `later` are not started. The mesh added
+> `MeshDelta::VerticesMoved`, `MeshDelta::inverse`, `HalfEdgeMesh::replay`/`replay_all` and
+> `ReplayIds` to this contract (additive).
 
 **Audience:** the engineers implementing milestone 0.1 in parallel. This document freezes the
 public types, traits and function signatures of `planyrith-core` as committed on 2026-10-20 so

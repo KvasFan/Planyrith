@@ -310,16 +310,11 @@ impl ContainerIndex {
                     vertices.insert(*id);
                 }
                 MeshDelta::VertexMoved { id, .. } => {
-                    vertices.insert(*id);
-                    for he in mesh.vertex_star(*id) {
-                        let Some(h) = mesh.half_edge(*he) else {
-                            continue;
-                        };
-                        edges.insert(h.edge);
-                        faces.extend(h.face);
-                        if let Some(twin) = mesh.half_edge(h.twin) {
-                            faces.extend(twin.face);
-                        }
+                    moved_vertex(mesh, *id, &mut vertices, &mut edges, &mut faces);
+                }
+                MeshDelta::VerticesMoved { moves } => {
+                    for (id, _, _) in moves {
+                        moved_vertex(mesh, *id, &mut vertices, &mut edges, &mut faces);
                     }
                 }
                 MeshDelta::EdgeAdded { id, .. } | MeshDelta::EdgeRemoved { id, .. } => {
@@ -645,6 +640,27 @@ fn face_aabb(mesh: &HalfEdgeMesh, id: FaceId, tol: &Tolerances) -> Option<Aabb> 
     let points = geometry::loop_positions(mesh, face.outer).ok()?;
     let aabb = Aabb::from_points(points);
     (!aabb.is_empty()).then(|| aabb.expanded(tol.length))
+}
+
+/// Records a moved vertex and every edge and face around it as changed.
+fn moved_vertex(
+    mesh: &HalfEdgeMesh,
+    id: VertexId,
+    vertices: &mut BTreeSet<VertexId>,
+    edges: &mut BTreeSet<EdgeId>,
+    faces: &mut BTreeSet<FaceId>,
+) {
+    vertices.insert(id);
+    for he in mesh.vertex_star(id) {
+        let Some(h) = mesh.half_edge(*he) else {
+            continue;
+        };
+        edges.insert(h.edge);
+        faces.extend(h.face);
+        if let Some(twin) = mesh.half_edge(h.twin) {
+            faces.extend(twin.face);
+        }
+    }
 }
 
 /// Inserts/updates the leaf of `id` when `aabb` is `Some`, removes it otherwise.

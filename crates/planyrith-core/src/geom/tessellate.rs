@@ -4,6 +4,8 @@
 //!
 //! Owner key: `mesh`.
 
+#![warn(unused_variables, dead_code)]
+
 use std::collections::BTreeMap;
 
 use glam::{DVec2, DVec3};
@@ -76,7 +78,28 @@ pub fn tessellate_face(
         holes2d.push(ring);
     }
 
-    let triangles = tessellate_polygon_2d(&outer2d, &holes2d)?;
+    // Front-facing counter-clockwise in the plane frame (whose normal is the
+    // face normal); zero-area slivers from collinear boundary vertices are
+    // dropped (docs/03 §2 degeneracy threshold).
+    let all2d: Vec<DVec2> = outer2d
+        .iter()
+        .chain(holes2d.iter().flatten())
+        .copied()
+        .collect();
+    let triangles = tessellate_polygon_2d(&outer2d, &holes2d)?
+        .into_iter()
+        .filter_map(|mut t| {
+            let [a, b, c] = t.map(|i| all2d[i as usize]);
+            let twice_area = (b - a).perp_dot(c - a);
+            if twice_area.abs() * 0.5 <= tol.length_sq {
+                return None;
+            }
+            if twice_area < 0.0 {
+                t.swap(1, 2);
+            }
+            Some(t)
+        })
+        .collect();
     Ok(FaceTessellation {
         vertices,
         positions,
@@ -114,7 +137,9 @@ pub fn tessellate_polygon_2d(
     let flat = earcutr::earcut(&data, &hole_indices, 2)
         .map_err(|e| GeometryError::Degenerate(format!("ear clipping failed: {e:?}")))?;
     Ok(flat
-        .chunks_exact(3)
+        .as_chunks::<3>()
+        .0
+        .iter()
         .map(|c| [c[0] as u32, c[1] as u32, c[2] as u32])
         .collect())
 }
@@ -143,7 +168,7 @@ pub fn positions_hash(mesh: &HalfEdgeMesh, f: FaceId) -> Result<u64, GeometryErr
         .ok_or_else(|| GeometryError::NotFound(f.to_string()))?;
     // FNV-1a over the little-endian bit patterns of every loop coordinate.
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-    let mut mix = |value: f64, h: &mut u64| {
+    let mix = |value: f64, h: &mut u64| {
         // Normalize -0.0 to 0.0 so equal geometry hashes equally.
         let bits = if value == 0.0 { 0u64 } else { value.to_bits() };
         for byte in bits.to_le_bytes() {
@@ -193,7 +218,10 @@ impl TessellationCache {
             let tess = tessellate_face(mesh, f, tol)?;
             self.entries.insert(f, (hash, tess));
         }
-        Ok(&self.entries.get(&f).expect("just inserted").1)
+        self.entries
+            .get(&f)
+            .map(|(_, tess)| tess)
+            .ok_or_else(|| GeometryError::Invariant(format!("{f} missing from the cache")))
     }
 
     /// Drops one face's entry.

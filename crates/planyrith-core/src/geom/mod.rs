@@ -27,7 +27,8 @@ pub mod tessellate;
 
 pub use mesh::{
     AddEdgeResult, CurveDescriptor, Edge, EdgeFlags, EraseEdgeResult, EraseFaceResult, Face,
-    HalfEdge, HalfEdgeMesh, IndexedMesh, Loop, TransformOptions, TransformResult, Vertex,
+    HalfEdge, HalfEdgeMesh, IndexedMesh, Loop, ReplayIds, TransformOptions, TransformResult,
+    Vertex,
 };
 
 use glam::DVec3;
@@ -133,6 +134,15 @@ pub enum MeshDelta {
         /// New position.
         to: DVec3,
     },
+    /// Several vertices moved at once (docs/03 §4.8). Recorded as one delta
+    /// because a sequence of single moves can pass through states where two
+    /// vertices share a position (e.g. rotating a square by 90°), which would
+    /// make position-based replay ambiguous. Before and after the batch no two
+    /// vertices are within `tolerances.length` (invariant 3).
+    VerticesMoved {
+        /// `(id at the time of the change, from, to)` per moved vertex.
+        moves: Vec<(VertexId, DVec3, DVec3)>,
+    },
     /// An edge was created between two vertex positions.
     EdgeAdded {
         /// Id at the time of the change.
@@ -223,6 +233,86 @@ pub enum MeshDelta {
         /// Former member edges in order.
         members: Vec<EdgeId>,
     },
+}
+
+impl MeshDelta {
+    /// The delta that undoes this one. Composite markers (`FaceSplit`,
+    /// `FacesMerged`) carry no state change and are their own inverse;
+    /// [`HalfEdgeMesh::replay`] ignores them.
+    pub fn inverse(&self) -> MeshDelta {
+        match self.clone() {
+            MeshDelta::VertexAdded { id, position } => MeshDelta::VertexRemoved { id, position },
+            MeshDelta::VertexRemoved { id, position } => MeshDelta::VertexAdded { id, position },
+            MeshDelta::VertexMoved { id, from, to } => MeshDelta::VertexMoved {
+                id,
+                from: to,
+                to: from,
+            },
+            MeshDelta::VerticesMoved { moves } => MeshDelta::VerticesMoved {
+                moves: moves
+                    .into_iter()
+                    .map(|(v, from, to)| (v, to, from))
+                    .collect(),
+            },
+            MeshDelta::EdgeAdded {
+                id,
+                a,
+                b,
+                flags,
+                curve,
+            } => MeshDelta::EdgeRemoved {
+                id,
+                a,
+                b,
+                flags,
+                curve,
+            },
+            MeshDelta::EdgeRemoved {
+                id,
+                a,
+                b,
+                flags,
+                curve,
+            } => MeshDelta::EdgeAdded {
+                id,
+                a,
+                b,
+                flags,
+                curve,
+            },
+            MeshDelta::EdgeFlagsChanged { id, from, to } => MeshDelta::EdgeFlagsChanged {
+                id,
+                from: to,
+                to: from,
+            },
+            MeshDelta::FaceAdded { id, snapshot } => MeshDelta::FaceRemoved { id, snapshot },
+            MeshDelta::FaceRemoved { id, snapshot } => MeshDelta::FaceAdded { id, snapshot },
+            MeshDelta::FaceSidesChanged { id, from, to } => MeshDelta::FaceSidesChanged {
+                id,
+                from: to,
+                to: from,
+            },
+            marker @ (MeshDelta::FaceSplit { .. } | MeshDelta::FacesMerged { .. }) => marker,
+            MeshDelta::CurveAdded {
+                id,
+                descriptor,
+                members,
+            } => MeshDelta::CurveRemoved {
+                id,
+                descriptor,
+                members,
+            },
+            MeshDelta::CurveRemoved {
+                id,
+                descriptor,
+                members,
+            } => MeshDelta::CurveAdded {
+                id,
+                descriptor,
+                members,
+            },
+        }
+    }
 }
 
 /// Receiver of [`MeshDelta`]s. `commands::Transaction` implements it to wrap

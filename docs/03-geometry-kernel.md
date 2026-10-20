@@ -330,3 +330,59 @@ within `tolerances.length`.
 - 2026-10-20 — `add_vertex` returns `Result` (it can fail with `OutOfRange`); `erase_edge_keep_faces`
   is exposed as `set_edge_flags`. The file form of a mesh is `IndexedMesh` with
   `DirectedEdgeIndex` (bit 31 = reversed), produced by `to_indexed` / consumed by `from_indexed`.
+- 2026-10-20 — **Face finding is computed on the planar arrangement** (§4.3–§4.5, implemented in
+  `geom::planar`). For each candidate plane (stored planes of faces holding a new edge first, then
+  planes spanned by edge pairs at touched vertices): collect the in-plane edges connected to the
+  touched vertices, the coplanar faces that use or contain them (with all their loops) and any
+  in-plane geometry enclosed by a bounded region; trace every half-edge cycle with the "next edge
+  clockwise from the twin" rule; drop edges whose two half-edges fall in the same cycle (antennae,
+  bridges, wire edges lying on a face) until none remain; counter-clockwise cycles bound regions,
+  each clockwise cycle is a hole of the smallest region strictly containing it. Every region is
+  mapped to the existing face containing an interior sample point (centroid of its largest
+  ear-clipping triangle). Unchanged faces are left alone; a face covering several regions is split;
+  a region no face covers becomes a new face **only when its outer boundary uses an edge the caller
+  just drew or re-drew** (a "seed"), so adding an unrelated edge never re-creates a face the user
+  erased, while re-drawing an edge of a face-less loop does. Chords, holes, door openings that touch
+  a face boundary, bridges and dangling edges all follow from this one rule.
+- 2026-10-20 — **Face identity across edits.** A face whose region survives keeps its `FaceId`; the
+  change is recorded as `FaceRemoved { id }` followed by `FaceAdded { id }` with the *same* id
+  ("reshape"), which the transaction treats as "keep the pid". On a split the piece that keeps the
+  whole old outer boundary (hole situation) or else the largest piece keeps the id, and
+  `FaceSplit { old, new: [old, other] }` is emitted (this refines §4.4 "delete F, create F1, F2").
+  On erase-edge merges the **larger** face survives (ties: the face left of `edge.he`), so healing an
+  opening drawn on a wall keeps the wall's id and material (refines §4.6 "keeps F1's id").
+- 2026-10-20 — **Orientation of new faces.** A half-edge carries one face, so faces sharing an edge
+  always have consistent orientation. A new face takes the default front of §4.3 step 3 when those
+  half-edges are free, otherwise the opposite front; when both are taken (the last side of a box
+  whose floor and top both face +Z) the smaller edge-connected group of conflicting faces is
+  reversed first (front/back appearance swapped so each side keeps its material). Consequence for
+  `reverse-faces` (0.4): reversing one face of a connected group is not representable under
+  invariant 2; that tool must reverse whole groups, or invariant 2 must be relaxed to decouple the
+  front from the loop direction. Open question, to be decided with that tool.
+- 2026-10-20 — **Wire edges lying on a face** (dangling edges, bridges between a face boundary and
+  a hole, the remaining pieces of a partly erased chord) are allowed; they are not part of any loop.
+  `validate` checks the edge–edge half of invariant 4 only.
+- 2026-10-20 — **Curves.** The mesh stores each curve's member edges in order (rebuilt by a chain
+  walk on load). Splitting or deleting a member edge drops the descriptor. "Intact" is tested
+  topologically: the member edges together border at most two distinct faces, which survives
+  unrelated splits of a neighboring face and fails once the curve is extruded.
+- 2026-10-20 — **Moves are batch deltas.** `transform_vertices` records one `MeshDelta::VerticesMoved`
+  instead of per-vertex moves: a sequence of single moves can pass through states where two vertices
+  coincide (rotating a square by 90°), which would make position-based replay ambiguous. Merging
+  vertices lose their edges and are removed *before* the batch move. Replay locates vertices, edges
+  and faces by position and resolves id-only deltas through `ReplayIds` (alias classes: recorded id
+  → id that replay re-created), which must persist per container across undo/redo.
+- 2026-10-20 — **Auto-fold** (§4.8): quads fold along the shorter valid diagonal; other faces are
+  ear-clipped in their best-fit plane and the triangles regrown into maximal planar groups; the
+  largest piece keeps the face id, fold edges are `SOFT | SMOOTH | HIDDEN`. Without auto-fold a move
+  that would bend a face fails and rolls back.
+- 2026-10-20 — **Draft performance trade-offs**, to revisit before importers (0.5): public mesh
+  operations roll back by restoring a snapshot taken on entry (replaying inverse deltas is the
+  planned optimization); proximity lookups (vertex at a position, edges near a segment, coplanar
+  faces near a box) are linear scans with bounding-box rejection; face finding recomputes the
+  arrangement of the whole coplanar region it touches. A 12×12 grid of squares drawn line by line
+  takes well under a second in a debug build.
+- 2026-10-20 — `from_triangles_merged` welds input positions by tolerance (grid hashing), flips
+  triangles whose winding contradicts an already accepted neighbor, drops (and counts) triangles
+  that would make an edge non-manifold, merges coplanar edge-connected triangles whose boundary is
+  one planar region, and softens edges between faces meeting below `soften_angle`.

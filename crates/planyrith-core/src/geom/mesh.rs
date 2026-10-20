@@ -4,14 +4,48 @@
 //! (`from_triangles_merged`, docs/09 §6).
 //!
 //! Owner key: `mesh` (docs/dev/skeleton-contract.md).
+//!
+//! Layout: this file holds the element types, the accessors, the private
+//! topology primitives (make/remove edge, attach/detach face, split edge) and
+//! the public operation signatures. The operations themselves live in child
+//! modules: `edit` (docs/03 §4.2–§4.8), `indexed` (docs/09 §2, §6),
+//! `analysis` (§3.1 validation, §4.13) and `replay` (undo/redo of recorded
+//! deltas, docs/01 §3.1).
+//!
+//! Implementation notes (recorded as decisions in docs/03):
+//! - Loop connectivity (`next`/`prev`) is authoritative only for half-edges
+//!   that belong to a face loop. Free half-edges point `next`/`prev` at their
+//!   twin. Loops are re-wired from geometry whenever a face is created, split
+//!   or merged; there is no global rotation system.
+//! - A face whose region survives an operation keeps its [`FaceId`]: the change
+//!   is recorded as `FaceRemoved { id }` followed by `FaceAdded { id }` with the
+//!   same id ("reshape"). Splits keep the old id for one piece
+//!   (`FaceSplit { old, new: [old, other] }`).
+//! - Public operations are transactional: they work on the live mesh and
+//!   restore a snapshot taken on entry when they fail, and forward their
+//!   deltas to the sink only on success.
 
-use glam::{DAffine3, DVec3};
+#![warn(unused_variables, dead_code)]
+
+mod analysis;
+mod edit;
+mod indexed;
+mod replay;
+#[cfg(test)]
+mod tests;
+
+pub use replay::ReplayIds;
+
+use std::collections::BTreeSet;
+
+use glam::{DAffine3, DVec2, DVec3};
 use serde::{Deserialize, Serialize};
-use slotmap::{SecondaryMap, SlotMap};
+use slotmap::{Key, SecondaryMap, SlotMap};
 
-use crate::geom::{DeltaSink, FaceSides, FaceSnapshot, GeometryError};
+use crate::geom::planar;
+use crate::geom::{DeltaSink, FaceSides, FaceSnapshot, GeometryError, MeshDelta};
 use crate::ids::{CurveId, EdgeId, FaceId, HalfEdgeId, LoopId, VertexId};
-use crate::math::{Aabb, Plane, Segment};
+use crate::math::{Aabb, Plane, PlaneFrame, Segment, polygon};
 use crate::tolerance::Tolerances;
 use crate::units::Angle;
 
@@ -368,6 +402,19 @@ pub struct HalfEdgeMesh {
     curves: SlotMap<CurveId, CurveDescriptor>,
     /// Outgoing half-edges per vertex (the star), angularly unsorted.
     vertex_edges: SecondaryMap<VertexId, Vec<HalfEdgeId>>,
+    /// Member edges of every curve, in curve order (docs/03 §3.3).
+    #[serde(default)]
+    curve_members: SecondaryMap<CurveId, Vec<EdgeId>>,
+}
+
+/// `NotFound` for an id that is not in the mesh.
+fn not_found(id: impl std::fmt::Display) -> GeometryError {
+    GeometryError::NotFound(id.to_string())
+}
+
+/// `Invariant` with a message (structural breakage or a violated rule).
+fn broken(msg: impl Into<String>) -> GeometryError {
+    GeometryError::Invariant(msg.into())
 }
 
 impl HalfEdgeMesh {
@@ -497,37 +544,75 @@ impl HalfEdgeMesh {
 
     /// The faces bordering an edge: `(left of he, left of twin)`.
     pub fn edge_faces(&self, e: EdgeId) -> Result<[Option<FaceId>; 2], GeometryError> {
-        todo!("docs/03 §3.1 edge faces")
+        let edge = self.edges.get(e).ok_or_else(|| not_found(e))?;
+        let he = self.he(edge.he)?;
+        let twin = self.he(he.twin)?;
+        Ok([he.face, twin.face])
     }
 
     /// Half-edges of a loop in cycle order starting at `Loop::start`.
     pub fn loop_half_edges(&self, l: LoopId) -> Result<Vec<HalfEdgeId>, GeometryError> {
-        todo!("docs/03 §3.1 loop walk")
+        let lp = self.loops.get(l).ok_or_else(|| not_found(l))?;
+        let limit = self.half_edges.len();
+        let mut out = Vec::new();
+        let mut h = lp.start;
+        loop {
+            out.push(h);
+            h = self.he(h)?.next;
+            if h == lp.start {
+                return Ok(out);
+            }
+            if out.len() > limit {
+                return Err(broken(format!("{l} does not close")));
+            }
+        }
     }
 
     /// Vertices of a loop in cycle order.
     pub fn loop_vertices(&self, l: LoopId) -> Result<Vec<VertexId>, GeometryError> {
-        todo!("docs/03 §3.1 loop vertices")
+        self.loop_half_edges(l)?
+            .into_iter()
+            .map(|h| self.he(h).map(|he| he.origin))
+            .collect()
     }
 
     /// Edges of a loop in cycle order.
     pub fn loop_edges(&self, l: LoopId) -> Result<Vec<EdgeId>, GeometryError> {
-        todo!("docs/03 §3.1 loop edges")
+        self.loop_half_edges(l)?
+            .into_iter()
+            .map(|h| self.he(h).map(|he| he.edge))
+            .collect()
     }
 
     /// Outer-loop vertices of a face in counter-clockwise order.
     pub fn face_vertices(&self, f: FaceId) -> Result<Vec<VertexId>, GeometryError> {
-        todo!("docs/03 §3.1 face vertices")
+        let outer = self.face_ref(f)?.outer;
+        self.loop_vertices(outer)
     }
 
     /// All edges bounding a face (outer loop then holes).
     pub fn face_edges(&self, f: FaceId) -> Result<Vec<EdgeId>, GeometryError> {
-        todo!("docs/03 §3.1 face edges")
+        let mut out = Vec::new();
+        for l in self.face_loops(f)? {
+            out.extend(self.loop_edges(l)?);
+        }
+        Ok(out)
     }
 
     /// Faces adjacent to `f` across its boundary edges (deduplicated, ordered by id).
     pub fn face_neighbors(&self, f: FaceId) -> Result<Vec<FaceId>, GeometryError> {
-        todo!("docs/03 §4.9 coplanar adjacency")
+        let mut out = BTreeSet::new();
+        for cycle in self.face_cycles(f)? {
+            for h in cycle {
+                let twin = self.he(self.twin_of(h)?)?;
+                if let Some(g) = twin.face
+                    && g != f
+                {
+                    out.insert(g);
+                }
+            }
+        }
+        Ok(out.into_iter().collect())
     }
 
     /// Unit normal of a face (`plane.normal`).
@@ -540,12 +625,30 @@ impl HalfEdgeMesh {
 
     /// Area of a face in mm² (outer loop minus holes).
     pub fn face_area(&self, f: FaceId) -> Result<f64, GeometryError> {
-        todo!("docs/03 §2 face area (degeneracy threshold length²)")
+        let face = self.face_ref(f)?;
+        let frame = face.plane.frame();
+        let mut area = polygon::area(&self.loop_points_2d(face.outer, &frame)?);
+        for hole in &face.holes {
+            area -= polygon::area(&self.loop_points_2d(*hole, &frame)?);
+        }
+        Ok(area)
     }
 
     /// Snapshot of a face for deltas and undo.
     pub fn face_snapshot(&self, f: FaceId) -> Result<FaceSnapshot, GeometryError> {
-        todo!("docs/03 §4 face snapshot")
+        let face = self.face_ref(f)?;
+        let outer = self.loop_positions(face.outer)?;
+        let holes = face
+            .holes
+            .iter()
+            .map(|&h| self.loop_positions(h))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(FaceSnapshot {
+            outer,
+            holes,
+            plane: face.plane,
+            sides: face.sides.clone(),
+        })
     }
 
     /// Bounding box of all vertices (local coordinates).
@@ -555,13 +658,37 @@ impl HalfEdgeMesh {
 
     /// Edges that belong to curve `c`, in curve order.
     pub fn curve_edges(&self, c: CurveId) -> Result<Vec<EdgeId>, GeometryError> {
-        todo!("docs/03 §3.3 curve members")
+        if !self.curves.contains_key(c) {
+            return Err(not_found(c));
+        }
+        Ok(self.curve_members.get(c).cloned().unwrap_or_default())
     }
 
     /// `true` while all member edges exist and no member edge is used by a face
     /// other than the two the curve was created with (docs/03 §3.3).
+    ///
+    /// The draft tests the rule topologically: the member edges together border
+    /// at most two distinct faces (one per side of the curve), so splitting or
+    /// merging an unrelated part of a neighboring face keeps the curve intact,
+    /// while extruding it (one side face per segment) does not (docs/03
+    /// Decisions).
     pub fn curve_is_intact(&self, c: CurveId) -> Result<bool, GeometryError> {
-        todo!("docs/03 §3.3 curve intactness")
+        if !self.curves.contains_key(c) {
+            return Err(not_found(c));
+        }
+        let members = self.curve_members.get(c).map(Vec::as_slice).unwrap_or(&[]);
+        if members.is_empty() {
+            return Ok(false);
+        }
+        let mut faces = BTreeSet::new();
+        for &e in members {
+            match self.edges.get(e) {
+                Some(edge) if edge.curve == Some(c) => {}
+                _ => return Ok(false),
+            }
+            faces.extend(self.edge_faces(e)?.into_iter().flatten());
+        }
+        Ok(faces.len() <= 2)
     }
 
     // ----- fundamental operations (docs/03 §4) --------------------------------
@@ -574,12 +701,15 @@ impl HalfEdgeMesh {
         tol: &Tolerances,
         sink: &mut dyn DeltaSink,
     ) -> Result<VertexId, GeometryError> {
-        todo!("docs/03 §4.1 add_vertex")
+        self.find_or_add_vertex(p, tol, sink)
     }
 
     /// Adds a straight edge, splitting against existing geometry and running
     /// face finding on every touched vertex (docs/03 §4.2). `a ≈ b` is
     /// `Degenerate`.
+    ///
+    /// `AddEdgeResult::edges` is the chain covering `[a, b]` in order from `a`
+    /// to `b`, including pre-existing edges that already covered part of it.
     pub fn add_edge(
         &mut self,
         a: DVec3,
@@ -587,18 +717,20 @@ impl HalfEdgeMesh {
         tol: &Tolerances,
         sink: &mut dyn DeltaSink,
     ) -> Result<AddEdgeResult, GeometryError> {
-        todo!("docs/03 §4.2 add_edge")
+        self.transact(tol, sink, |m, d| m.add_edge_inner(a, b, tol, d))
     }
 
     /// Erases an edge with the face merge/delete rules of docs/03 §4.6 and
-    /// removes vertices that became isolated.
+    /// removes vertices that became isolated. When two coplanar faces merge,
+    /// the larger one keeps its id and appearance (`faces_merged` is
+    /// `(kept, removed)`).
     pub fn erase_edge(
         &mut self,
         e: EdgeId,
         tol: &Tolerances,
         sink: &mut dyn DeltaSink,
     ) -> Result<EraseEdgeResult, GeometryError> {
-        todo!("docs/03 §4.6 erase_edge")
+        self.transact(tol, sink, |m, d| m.erase_edge_inner(e, tol, d))
     }
 
     /// Changes flags only (the `erase_edge_keep_faces` variant of docs/03 §4.6
@@ -609,7 +741,17 @@ impl HalfEdgeMesh {
         flags: EdgeFlags,
         sink: &mut dyn DeltaSink,
     ) -> Result<(), GeometryError> {
-        todo!("docs/03 §4.6 flag-only variant")
+        let edge = self.edges.get_mut(e).ok_or_else(|| not_found(e))?;
+        if edge.flags != flags {
+            let from = edge.flags;
+            edge.flags = flags;
+            sink.record(MeshDelta::EdgeFlagsChanged {
+                id: e,
+                from,
+                to: flags,
+            });
+        }
+        Ok(())
     }
 
     /// Deletes a face; its edges stay unless `erase_orphans` (docs/03 §4.7).
@@ -620,7 +762,7 @@ impl HalfEdgeMesh {
         tol: &Tolerances,
         sink: &mut dyn DeltaSink,
     ) -> Result<EraseFaceResult, GeometryError> {
-        todo!("docs/03 §4.7 erase_face")
+        self.transact(tol, sink, |m, d| m.erase_face_inner(f, erase_orphans, d))
     }
 
     /// Replaces a face's materials/UVs.
@@ -630,7 +772,16 @@ impl HalfEdgeMesh {
         sides: FaceSides,
         sink: &mut dyn DeltaSink,
     ) -> Result<(), GeometryError> {
-        todo!("docs/03 §3.1 face sides")
+        let face = self.faces.get_mut(f).ok_or_else(|| not_found(f))?;
+        if face.sides != sides {
+            let from = std::mem::replace(&mut face.sides, sides.clone());
+            sink.record(MeshDelta::FaceSidesChanged {
+                id: f,
+                from,
+                to: sides,
+            });
+        }
+        Ok(())
     }
 
     /// Moves a set of vertices by `t`, merging by tolerance and auto-folding
@@ -643,12 +794,15 @@ impl HalfEdgeMesh {
         tol: &Tolerances,
         sink: &mut dyn DeltaSink,
     ) -> Result<TransformResult, GeometryError> {
-        todo!("docs/03 §4.8 transform_vertices")
+        self.transact(tol, sink, |m, d| {
+            m.transform_vertices_inner(set, t, opts, tol, d)
+        })
     }
 
     /// Splits face `f` by a chord (a chain of existing interior edges whose
     /// endpoints lie on the face boundary); returns the two new faces with
-    /// `[0]` inheriting the pid (docs/03 §4.4).
+    /// `[0]` inheriting the pid (docs/03 §4.4). `[0]` is `f` itself, reshaped
+    /// in place (docs/03 Decisions).
     pub fn split_face_by_chord(
         &mut self,
         f: FaceId,
@@ -656,7 +810,9 @@ impl HalfEdgeMesh {
         tol: &Tolerances,
         sink: &mut dyn DeltaSink,
     ) -> Result<[FaceId; 2], GeometryError> {
-        todo!("docs/03 §4.4 split_face_by_chord")
+        self.transact(tol, sink, |m, d| {
+            m.split_face_by_chord_inner(f, chord, tol, d)
+        })
     }
 
     /// Merges two coplanar faces sharing at least one edge into `kept`
@@ -668,7 +824,7 @@ impl HalfEdgeMesh {
         tol: &Tolerances,
         sink: &mut dyn DeltaSink,
     ) -> Result<FaceId, GeometryError> {
-        todo!("docs/03 §4.6 merge_faces")
+        self.transact(tol, sink, |m, d| m.merge_faces_inner(kept, removed, tol, d))
     }
 
     /// Creates a face from an existing closed edge cycle (plus optional hole
@@ -682,18 +838,25 @@ impl HalfEdgeMesh {
         tol: &Tolerances,
         sink: &mut dyn DeltaSink,
     ) -> Result<FaceId, GeometryError> {
-        todo!("docs/03 §4.3 face creation from loops")
+        // `create_face` validates everything before it mutates, so it is
+        // atomic without a snapshot.
+        self.create_face(outer, holes, plane, sides, tol, sink)
     }
 
     /// Attaches a curve descriptor to consecutive edges (docs/03 §3.3); marks
     /// inter-segment edges `SOFT | SMOOTH`.
+    ///
+    /// "Inter-segment edges" are the non-member edges that leave a vertex
+    /// between two members and separate two faces that both contain a member
+    /// edge (the side faces of an extruded curve). A curve drawn on a plane has
+    /// none.
     pub fn add_curve(
         &mut self,
         descriptor: CurveDescriptor,
         members: &[EdgeId],
         sink: &mut dyn DeltaSink,
     ) -> Result<CurveId, GeometryError> {
-        todo!("docs/03 §3.3 add_curve")
+        self.add_curve_inner(descriptor, members, true, sink)
     }
 
     /// Drops a descriptor; member edges become plain (docs/03 §3.3).
@@ -702,25 +865,25 @@ impl HalfEdgeMesh {
         c: CurveId,
         sink: &mut dyn DeltaSink,
     ) -> Result<(), GeometryError> {
-        todo!("docs/03 §3.3 drop_curve")
+        self.drop_curve_inner(c, sink)
     }
 
     // ----- analysis -----------------------------------------------------------
 
     /// Checks every invariant of docs/03 §3.1; empty on success.
     pub fn validate(&self, tol: &Tolerances) -> Vec<MeshViolation> {
-        todo!("docs/03 §3.1 validate")
+        self.validate_inner(tol, true)
     }
 
     /// `true` when the mesh is a closed, consistently oriented 2-manifold with
     /// no wire edges (docs/03 §4.13).
     pub fn is_solid(&self) -> bool {
-        todo!("docs/03 §4.13 is_solid")
+        self.is_solid_inner()
     }
 
     /// Signed volume in mm³ for a solid (`NotApplicable` otherwise).
     pub fn volume(&self) -> Result<f64, GeometryError> {
-        todo!("docs/03 §4.13 solid volume")
+        self.volume_inner()
     }
 
     // ----- bulk conversion ---------------------------------------------------
@@ -728,14 +891,14 @@ impl HalfEdgeMesh {
     /// Rebuilds the half-edge structure from the indexed form (docs/09 §2),
     /// recomputing missing planes and validating invariants.
     pub fn from_indexed(indexed: &IndexedMesh, tol: &Tolerances) -> Result<Self, GeometryError> {
-        todo!("docs/09 §2 HalfEdgeMesh::from_indexed")
+        indexed::from_indexed(indexed, tol)
     }
 
     /// Converts to the indexed form. Vertex, edge and face order follow slot
     /// order; the returned maps give the local index of every id so the
     /// container can attach pids (docs/09 §2).
     pub fn to_indexed(&self) -> (IndexedMesh, IndexedIds) {
-        todo!("docs/09 §2 HalfEdgeMesh::to_indexed")
+        indexed::to_indexed(self)
     }
 
     /// Importer fast path: builds a mesh from triangles, merging coplanar
@@ -746,15 +909,798 @@ impl HalfEdgeMesh {
         opts: TriangleMergeOptions,
         tol: &Tolerances,
     ) -> Result<TriangleMergeResult, GeometryError> {
-        todo!("docs/09 §6 from_triangles_merged")
+        indexed::from_triangles_merged(positions, triangles, opts, tol)
     }
 
-    /// Transforms every vertex (bulk, no merging; used by explode/make-unique
-    /// when re-parenting whole containers).
+    /// Transforms every vertex and face plane (bulk, no merging; used by
+    /// explode/make-unique when re-parenting whole containers).
     pub fn transform_all(&mut self, t: &DAffine3) {
         for v in self.vertices.values_mut() {
             v.position = t.transform_point3(v.position);
         }
+        for face in self.faces.values_mut() {
+            face.plane = face.plane.transformed(t);
+        }
+    }
+}
+
+// ----- internal primitives ------------------------------------------------------
+
+impl HalfEdgeMesh {
+    /// Half-edge by id, or `Invariant` (a dangling reference is structural breakage).
+    pub(crate) fn he(&self, h: HalfEdgeId) -> Result<&HalfEdge, GeometryError> {
+        self.half_edges
+            .get(h)
+            .ok_or_else(|| broken(format!("missing {h}")))
+    }
+
+    fn he_mut(&mut self, h: HalfEdgeId) -> Result<&mut HalfEdge, GeometryError> {
+        self.half_edges
+            .get_mut(h)
+            .ok_or_else(|| broken(format!("missing {h}")))
+    }
+
+    /// Face by id, or `NotFound`.
+    pub(crate) fn face_ref(&self, f: FaceId) -> Result<&Face, GeometryError> {
+        self.faces.get(f).ok_or_else(|| not_found(f))
+    }
+
+    /// Twin of a half-edge.
+    pub(crate) fn twin_of(&self, h: HalfEdgeId) -> Result<HalfEdgeId, GeometryError> {
+        Ok(self.he(h)?.twin)
+    }
+
+    /// End vertex of a half-edge (origin of its twin).
+    pub(crate) fn dest(&self, h: HalfEdgeId) -> Result<VertexId, GeometryError> {
+        let twin = self.he(h)?.twin;
+        Ok(self.he(twin)?.origin)
+    }
+
+    /// The half-edge running `a → b`, if the edge exists.
+    pub(crate) fn half_edge_from_to(&self, a: VertexId, b: VertexId) -> Option<HalfEdgeId> {
+        self.vertex_star(a)
+            .iter()
+            .copied()
+            .find(|&h| self.dest(h).ok() == Some(b))
+    }
+
+    /// The edge between two vertices, if any.
+    pub(crate) fn edge_between(&self, a: VertexId, b: VertexId) -> Option<EdgeId> {
+        self.half_edge_from_to(a, b)
+            .and_then(|h| self.half_edges.get(h))
+            .map(|he| he.edge)
+    }
+
+    /// The half-edge of `e` whose origin is `edge.he`'s origin (`a → b`).
+    pub(crate) fn edge_half_edges(
+        &self,
+        e: EdgeId,
+    ) -> Result<(HalfEdgeId, HalfEdgeId), GeometryError> {
+        let edge = self.edges.get(e).ok_or_else(|| not_found(e))?;
+        Ok((edge.he, self.twin_of(edge.he)?))
+    }
+
+    /// The vertex closest to `p` within `tol.length` (ties: first in slot
+    /// order). A linear scan; a per-mesh grid replaces it once importers need
+    /// it (docs/03 Decisions).
+    pub(crate) fn find_vertex_near(&self, p: DVec3, tol: &Tolerances) -> Option<VertexId> {
+        let mut best: Option<(f64, VertexId)> = None;
+        for (v, vert) in &self.vertices {
+            let d2 = vert.position.distance_squared(p);
+            if d2 <= tol.length_sq && best.is_none_or(|(bd, _)| d2 < bd) {
+                best = Some((d2, v));
+            }
+        }
+        best.map(|(_, v)| v)
+    }
+
+    /// Loops of a face, outer first.
+    pub(crate) fn face_loops(&self, f: FaceId) -> Result<Vec<LoopId>, GeometryError> {
+        let face = self.face_ref(f)?;
+        let mut out = Vec::with_capacity(1 + face.holes.len());
+        out.push(face.outer);
+        out.extend(face.holes.iter().copied());
+        Ok(out)
+    }
+
+    /// Half-edge cycles of a face, outer first.
+    pub(crate) fn face_cycles(&self, f: FaceId) -> Result<Vec<Vec<HalfEdgeId>>, GeometryError> {
+        self.face_loops(f)?
+            .into_iter()
+            .map(|l| self.loop_half_edges(l))
+            .collect()
+    }
+
+    /// Vertex positions of a loop in cycle order.
+    pub(crate) fn loop_positions(&self, l: LoopId) -> Result<Vec<DVec3>, GeometryError> {
+        self.loop_vertices(l)?
+            .into_iter()
+            .map(|v| self.position(v))
+            .collect()
+    }
+
+    /// Loop positions in a plane frame.
+    pub(crate) fn loop_points_2d(
+        &self,
+        l: LoopId,
+        frame: &PlaneFrame,
+    ) -> Result<Vec<DVec2>, GeometryError> {
+        Ok(frame.project_all(&self.loop_positions(l)?))
+    }
+
+    /// Origin positions of a half-edge cycle.
+    pub(crate) fn cycle_positions(
+        &self,
+        cycle: &[HalfEdgeId],
+    ) -> Result<Vec<DVec3>, GeometryError> {
+        cycle
+            .iter()
+            .map(|&h| self.position(self.he(h)?.origin))
+            .collect()
+    }
+
+    /// Bounding box of a face's outer loop.
+    pub(crate) fn face_aabb(&self, f: FaceId) -> Result<Aabb, GeometryError> {
+        let outer = self.face_ref(f)?.outer;
+        Ok(Aabb::from_points(self.loop_positions(outer)?))
+    }
+
+    /// Runs `op` as one atomic operation: on failure the mesh is restored to
+    /// its state on entry and no delta reaches `sink`; on success the deltas
+    /// are forwarded in application order (docs/03 §4 "apply-or-rollback").
+    ///
+    /// The draft snapshots the whole mesh; replaying the inverse deltas is the
+    /// planned optimization (docs/03 Decisions).
+    pub(crate) fn transact<R>(
+        &mut self,
+        tol: &Tolerances,
+        sink: &mut dyn DeltaSink,
+        op: impl FnOnce(&mut Self, &mut Vec<MeshDelta>) -> Result<R, GeometryError>,
+    ) -> Result<R, GeometryError> {
+        let backup = self.clone();
+        let mut local: Vec<MeshDelta> = Vec::new();
+        let outcome = op(self, &mut local).and_then(|r| self.debug_check(tol).map(|()| r));
+        match outcome {
+            Ok(r) => {
+                for delta in local {
+                    sink.record(delta);
+                }
+                Ok(r)
+            }
+            Err(err) => {
+                *self = backup;
+                Err(err)
+            }
+        }
+    }
+
+    /// Test builds validate the structural invariants after every
+    /// transactional operation.
+    #[cfg(test)]
+    fn debug_check(&self, tol: &Tolerances) -> Result<(), GeometryError> {
+        let violations = self.validate_inner(tol, false);
+        if violations.is_empty() {
+            Ok(())
+        } else {
+            Err(broken(format!(
+                "post-operation check failed: {violations:?}"
+            )))
+        }
+    }
+
+    #[cfg(not(test))]
+    fn debug_check(&self, _tol: &Tolerances) -> Result<(), GeometryError> {
+        Ok(())
+    }
+
+    // ----- vertices -------------------------------------------------------------
+
+    /// Inserts a vertex without merging (callers checked for neighbors).
+    pub(crate) fn new_vertex(&mut self, p: DVec3, d: &mut dyn DeltaSink) -> VertexId {
+        let v = self.vertices.insert(Vertex { position: p });
+        self.vertex_edges.insert(v, Vec::new());
+        d.record(MeshDelta::VertexAdded { id: v, position: p });
+        v
+    }
+
+    /// docs/03 §4.1: the vertex within tolerance of `p`, or a new one.
+    pub(crate) fn find_or_add_vertex(
+        &mut self,
+        p: DVec3,
+        tol: &Tolerances,
+        d: &mut dyn DeltaSink,
+    ) -> Result<VertexId, GeometryError> {
+        if !tol.in_range(p) {
+            return Err(GeometryError::OutOfRange);
+        }
+        Ok(match self.find_vertex_near(p, tol) {
+            Some(v) => v,
+            None => self.new_vertex(p, d),
+        })
+    }
+
+    /// Removes an isolated vertex.
+    pub(crate) fn delete_vertex(
+        &mut self,
+        v: VertexId,
+        d: &mut dyn DeltaSink,
+    ) -> Result<(), GeometryError> {
+        let position = self.position(v)?;
+        if !self.vertex_star(v).is_empty() {
+            return Err(broken(format!("{v} still has edges")));
+        }
+        self.vertices.remove(v);
+        self.vertex_edges.remove(v);
+        d.record(MeshDelta::VertexRemoved { id: v, position });
+        Ok(())
+    }
+
+    /// Removes `v` when it exists and has no edges; `true` when removed.
+    pub(crate) fn delete_if_isolated(
+        &mut self,
+        v: VertexId,
+        d: &mut dyn DeltaSink,
+    ) -> Result<bool, GeometryError> {
+        if self.vertices.contains_key(v) && self.vertex_star(v).is_empty() {
+            self.delete_vertex(v, d)?;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
+    /// Sets a position without recording (batch moves record one
+    /// `VerticesMoved`).
+    pub(crate) fn set_position_raw(&mut self, v: VertexId, p: DVec3) -> Result<(), GeometryError> {
+        let vert = self.vertices.get_mut(v).ok_or_else(|| not_found(v))?;
+        vert.position = p;
+        Ok(())
+    }
+
+    // ----- edges ----------------------------------------------------------------
+
+    /// Creates a free edge `a → b` (no faces). Fails if the edge exists.
+    pub(crate) fn new_edge(
+        &mut self,
+        a: VertexId,
+        b: VertexId,
+        flags: EdgeFlags,
+        d: &mut dyn DeltaSink,
+    ) -> Result<EdgeId, GeometryError> {
+        let pa = self.position(a)?;
+        let pb = self.position(b)?;
+        if a == b {
+            return Err(GeometryError::Degenerate("edge endpoints coincide".into()));
+        }
+        if !self.vertex_edges.contains_key(a) || !self.vertex_edges.contains_key(b) {
+            return Err(broken("vertex without a star"));
+        }
+        if self.half_edge_from_to(a, b).is_some() {
+            return Err(broken(format!("an edge {a}–{b} already exists")));
+        }
+        let e = self.edges.insert(Edge {
+            he: HalfEdgeId::null(),
+            flags,
+            curve: None,
+        });
+        let h = self.half_edges.insert(HalfEdge {
+            origin: a,
+            twin: HalfEdgeId::null(),
+            next: HalfEdgeId::null(),
+            prev: HalfEdgeId::null(),
+            edge: e,
+            face: None,
+        });
+        let t = self.half_edges.insert(HalfEdge {
+            origin: b,
+            twin: h,
+            next: h,
+            prev: h,
+            edge: e,
+            face: None,
+        });
+        let he = self.he_mut(h)?;
+        he.twin = t;
+        he.next = t;
+        he.prev = t;
+        if let Some(edge) = self.edges.get_mut(e) {
+            edge.he = h;
+        }
+        if let Some(star) = self.vertex_edges.get_mut(a) {
+            star.push(h);
+        }
+        if let Some(star) = self.vertex_edges.get_mut(b) {
+            star.push(t);
+        }
+        d.record(MeshDelta::EdgeAdded {
+            id: e,
+            a: pa,
+            b: pb,
+            flags,
+            curve: None,
+        });
+        Ok(e)
+    }
+
+    /// Removes an edge that borders no face; drops its curve first.
+    pub(crate) fn delete_edge(
+        &mut self,
+        e: EdgeId,
+        d: &mut dyn DeltaSink,
+    ) -> Result<(), GeometryError> {
+        let (h, t) = self.edge_half_edges(e)?;
+        if self.he(h)?.face.is_some() || self.he(t)?.face.is_some() {
+            return Err(broken(format!("{e} still borders a face")));
+        }
+        if let Some(c) = self.edges.get(e).and_then(|edge| edge.curve) {
+            self.drop_curve_inner(c, d)?;
+        }
+        let a = self.he(h)?.origin;
+        let b = self.he(t)?.origin;
+        let (pa, pb) = (self.position(a)?, self.position(b)?);
+        let flags = self.edges.get(e).map(|edge| edge.flags).unwrap_or_default();
+        if let Some(star) = self.vertex_edges.get_mut(a) {
+            star.retain(|&x| x != h);
+        }
+        if let Some(star) = self.vertex_edges.get_mut(b) {
+            star.retain(|&x| x != t);
+        }
+        self.half_edges.remove(h);
+        self.half_edges.remove(t);
+        self.edges.remove(e);
+        d.record(MeshDelta::EdgeRemoved {
+            id: e,
+            a: pa,
+            b: pb,
+            flags,
+            curve: None,
+        });
+        Ok(())
+    }
+
+    /// Splits edge `e` at `p` (strictly inside it, reusing a vertex already
+    /// at `p`). Faces on either side keep their ids and gain the new vertex.
+    /// Returns the split vertex and the two pieces `[a → m, m → b]` where
+    /// `a → b` is the direction of `edge.he`.
+    pub(crate) fn split_edge_at(
+        &mut self,
+        e: EdgeId,
+        p: DVec3,
+        tol: &Tolerances,
+        d: &mut dyn DeltaSink,
+    ) -> Result<(VertexId, [EdgeId; 2]), GeometryError> {
+        let (h, t) = self.edge_half_edges(e)?;
+        let flags = self.edges.get(e).map(|edge| edge.flags).unwrap_or_default();
+        let a = self.he(h)?.origin;
+        let b = self.he(t)?.origin;
+        let seg = Segment::new(self.position(a)?, self.position(b)?);
+        if !tol.point_inside_segment(p, &seg) {
+            return Err(broken(format!("split point is not inside {e}")));
+        }
+        let existing = self.find_vertex_near(p, tol);
+
+        let mut faces: Vec<FaceId> = Vec::new();
+        for side in [h, t] {
+            if let Some(f) = self.he(side)?.face
+                && !faces.contains(&f)
+            {
+                faces.push(f);
+            }
+        }
+        faces.sort();
+        let mut saved = Vec::with_capacity(faces.len());
+        for f in faces {
+            let cycles = self.face_cycles(f)?;
+            let face = self.face_ref(f)?;
+            let (plane, sides) = (face.plane, face.sides.clone());
+            self.detach_face(f, d)?;
+            saved.push((f, cycles, plane, sides));
+        }
+
+        self.delete_edge(e, d)?;
+        let m = match existing {
+            Some(v) => v,
+            None => self.new_vertex(p, d),
+        };
+        let e1 = self.new_edge(a, m, flags, d)?;
+        let e2 = self.new_edge(m, b, flags, d)?;
+        let (h1, t1) = self.edge_half_edges(e1)?;
+        let (h2, t2) = self.edge_half_edges(e2)?;
+
+        for (f, cycles, plane, sides) in saved {
+            let cycles: Vec<Vec<HalfEdgeId>> = cycles
+                .into_iter()
+                .map(|cycle| {
+                    cycle
+                        .into_iter()
+                        .flat_map(|x| {
+                            if x == h {
+                                vec![h1, h2]
+                            } else if x == t {
+                                vec![t2, t1]
+                            } else {
+                                vec![x]
+                            }
+                        })
+                        .collect()
+                })
+                .collect();
+            let (outer, holes) = cycles
+                .split_first()
+                .ok_or_else(|| broken(format!("{f} had no loops")))?;
+            self.attach_face(f, outer, holes, plane, sides, tol, d)?;
+        }
+        Ok((m, [e1, e2]))
+    }
+
+    // ----- faces ----------------------------------------------------------------
+
+    /// Checks that `cycle` is a closed chain of existing half-edges that border
+    /// no face and are not used twice.
+    fn check_cycle(
+        &self,
+        cycle: &[HalfEdgeId],
+        seen: &mut BTreeSet<HalfEdgeId>,
+    ) -> Result<(), GeometryError> {
+        if cycle.len() < 3 {
+            return Err(GeometryError::Degenerate(
+                "a face loop needs at least three edges".into(),
+            ));
+        }
+        for (i, &h) in cycle.iter().enumerate() {
+            let he = self.he(h)?;
+            if let Some(f) = he.face {
+                return Err(broken(format!("{h} already borders {f}")));
+            }
+            if !seen.insert(h) {
+                return Err(broken(format!("{h} appears twice in the face loops")));
+            }
+            let next = cycle[(i + 1) % cycle.len()];
+            if self.dest(h)? != self.he(next)?.origin {
+                return Err(broken("face loop is not a closed chain"));
+            }
+        }
+        Ok(())
+    }
+
+    /// Planarity and orientation of face loops against `plane` (docs/03 §3.1
+    /// invariant 2): outer counter-clockwise seen from the front, holes
+    /// clockwise, every vertex within `planarity`, no zero-area loop.
+    fn check_face_geometry(
+        &self,
+        outer: &[HalfEdgeId],
+        holes: &[Vec<HalfEdgeId>],
+        plane: &Plane,
+        tol: &Tolerances,
+    ) -> Result<(), GeometryError> {
+        if (plane.normal.length() - 1.0).abs() > 1e-9 {
+            return Err(GeometryError::Degenerate(
+                "face plane normal is not a unit vector".into(),
+            ));
+        }
+        let frame = plane.frame();
+        let check_loop = |cycle: &[HalfEdgeId], want_ccw: bool| -> Result<(), GeometryError> {
+            let points = self.cycle_positions(cycle)?;
+            if !tol.points_on_plane(plane, &points) {
+                return Err(GeometryError::NotApplicable(
+                    "face loop is not planar within tolerance".into(),
+                ));
+            }
+            let area = polygon::signed_area(&frame.project_all(&points));
+            if area.abs() <= tol.length_sq {
+                return Err(GeometryError::Degenerate("face loop has zero area".into()));
+            }
+            if (area > 0.0) != want_ccw {
+                return Err(broken(if want_ccw {
+                    "outer loop must be counter-clockwise seen from the front"
+                } else {
+                    "hole loops must be clockwise seen from the front"
+                }));
+            }
+            Ok(())
+        };
+        check_loop(outer, true)?;
+        for hole in holes {
+            check_loop(hole, false)?;
+        }
+        Ok(())
+    }
+
+    /// Wires a validated cycle as a loop of face `f`.
+    fn wire_loop(&mut self, f: FaceId, cycle: &[HalfEdgeId]) -> Result<LoopId, GeometryError> {
+        let n = cycle.len();
+        for i in 0..n {
+            let next = cycle[(i + 1) % n];
+            let prev = cycle[(i + n - 1) % n];
+            let he = self.he_mut(cycle[i])?;
+            he.next = next;
+            he.prev = prev;
+            he.face = Some(f);
+        }
+        Ok(self.loops.insert(Loop {
+            start: cycle[0],
+            face: f,
+        }))
+    }
+
+    /// Gives the detached face `f` new loops, plane and sides, recording
+    /// `FaceAdded { id: f }`. Validates before mutating.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn attach_face(
+        &mut self,
+        f: FaceId,
+        outer: &[HalfEdgeId],
+        holes: &[Vec<HalfEdgeId>],
+        plane: Plane,
+        sides: FaceSides,
+        tol: &Tolerances,
+        d: &mut dyn DeltaSink,
+    ) -> Result<(), GeometryError> {
+        match self.faces.get(f) {
+            Some(face) if face.outer.is_null() => {}
+            Some(_) => return Err(broken(format!("{f} is already attached"))),
+            None => return Err(not_found(f)),
+        }
+        let mut seen = BTreeSet::new();
+        self.check_cycle(outer, &mut seen)?;
+        for hole in holes {
+            self.check_cycle(hole, &mut seen)?;
+        }
+        self.check_face_geometry(outer, holes, &plane, tol)?;
+        let outer_loop = self.wire_loop(f, outer)?;
+        let mut hole_loops = Vec::with_capacity(holes.len());
+        for hole in holes {
+            hole_loops.push(self.wire_loop(f, hole)?);
+        }
+        let face = self.faces.get_mut(f).ok_or_else(|| not_found(f))?;
+        face.outer = outer_loop;
+        face.holes = hole_loops;
+        face.plane = plane;
+        face.sides = sides;
+        let snapshot = self.face_snapshot(f)?;
+        d.record(MeshDelta::FaceAdded { id: f, snapshot });
+        Ok(())
+    }
+
+    /// Creates a new face from free half-edge cycles (atomic).
+    pub(crate) fn create_face(
+        &mut self,
+        outer: &[HalfEdgeId],
+        holes: &[Vec<HalfEdgeId>],
+        plane: Plane,
+        sides: FaceSides,
+        tol: &Tolerances,
+        d: &mut dyn DeltaSink,
+    ) -> Result<FaceId, GeometryError> {
+        let f = self.faces.insert(Face {
+            outer: LoopId::null(),
+            holes: Vec::new(),
+            plane,
+            sides: FaceSides::default(),
+        });
+        if let Err(err) = self.attach_face(f, outer, holes, plane, sides, tol, d) {
+            self.faces.remove(f);
+            return Err(err);
+        }
+        Ok(f)
+    }
+
+    /// Releases a face's half-edges and loops, recording `FaceRemoved`. The
+    /// face slot stays (detached) so the face can be re-attached with the same
+    /// id; [`Self::discard_detached_face`] drops it instead.
+    pub(crate) fn detach_face(
+        &mut self,
+        f: FaceId,
+        d: &mut dyn DeltaSink,
+    ) -> Result<FaceSnapshot, GeometryError> {
+        let snapshot = self.face_snapshot(f)?;
+        for l in self.face_loops(f)? {
+            for h in self.loop_half_edges(l)? {
+                let twin = self.twin_of(h)?;
+                let he = self.he_mut(h)?;
+                he.face = None;
+                he.next = twin;
+                he.prev = twin;
+            }
+            self.loops.remove(l);
+        }
+        if let Some(face) = self.faces.get_mut(f) {
+            face.outer = LoopId::null();
+            face.holes.clear();
+        }
+        d.record(MeshDelta::FaceRemoved {
+            id: f,
+            snapshot: snapshot.clone(),
+        });
+        Ok(snapshot)
+    }
+
+    /// Drops the slot of a detached face (its removal was already recorded).
+    pub(crate) fn discard_detached_face(&mut self, f: FaceId) -> Result<(), GeometryError> {
+        match self.faces.get(f) {
+            Some(face) if face.outer.is_null() => {
+                self.faces.remove(f);
+                Ok(())
+            }
+            Some(_) => Err(broken(format!("{f} is attached"))),
+            None => Err(not_found(f)),
+        }
+    }
+
+    /// Detaches and drops a face.
+    pub(crate) fn remove_face(
+        &mut self,
+        f: FaceId,
+        d: &mut dyn DeltaSink,
+    ) -> Result<FaceSnapshot, GeometryError> {
+        let snapshot = self.detach_face(f, d)?;
+        self.discard_detached_face(f)?;
+        Ok(snapshot)
+    }
+
+    // ----- curves ---------------------------------------------------------------
+
+    /// docs/03 §3.3 `add_curve`; `soften` marks inter-segment edges.
+    pub(crate) fn add_curve_inner(
+        &mut self,
+        descriptor: CurveDescriptor,
+        members: &[EdgeId],
+        soften: bool,
+        d: &mut dyn DeltaSink,
+    ) -> Result<CurveId, GeometryError> {
+        if members.is_empty() {
+            return Err(GeometryError::Degenerate(
+                "a curve needs at least one edge".into(),
+            ));
+        }
+        let mut seen = BTreeSet::new();
+        for (i, &e) in members.iter().enumerate() {
+            let edge = self.edges.get(e).ok_or_else(|| not_found(e))?;
+            if edge.curve.is_some() {
+                return Err(GeometryError::NotApplicable(format!(
+                    "{e} already belongs to a curve"
+                )));
+            }
+            if !seen.insert(e) {
+                return Err(GeometryError::NotApplicable(format!("{e} is listed twice")));
+            }
+            if i > 0 {
+                let (a0, b0) = self.edge_endpoints(members[i - 1])?;
+                let (a1, b1) = self.edge_endpoints(e)?;
+                if a0 != a1 && a0 != b1 && b0 != a1 && b0 != b1 {
+                    return Err(GeometryError::NotApplicable(
+                        "curve members must be consecutive edges".into(),
+                    ));
+                }
+            }
+        }
+        let c = self.curves.insert(descriptor.clone());
+        for &e in members {
+            if let Some(edge) = self.edges.get_mut(e) {
+                edge.curve = Some(c);
+            }
+        }
+        self.curve_members.insert(c, members.to_vec());
+        d.record(MeshDelta::CurveAdded {
+            id: c,
+            descriptor,
+            members: members.to_vec(),
+        });
+        if soften {
+            self.soften_curve_junctions(c, d)?;
+        }
+        Ok(c)
+    }
+
+    /// Marks `SOFT | SMOOTH` the non-member edges at the curve's inner
+    /// vertices that separate two faces both containing a member edge.
+    fn soften_curve_junctions(
+        &mut self,
+        c: CurveId,
+        d: &mut dyn DeltaSink,
+    ) -> Result<(), GeometryError> {
+        let members = self.curve_members.get(c).cloned().unwrap_or_default();
+        let member_set: BTreeSet<EdgeId> = members.iter().copied().collect();
+        let n = members.len();
+        let mut junctions = BTreeSet::new();
+        for i in 0..n {
+            if i + 1 == n && n < 3 {
+                break;
+            }
+            let (a0, b0) = self.edge_endpoints(members[i])?;
+            let (a1, b1) = self.edge_endpoints(members[(i + 1) % n])?;
+            for v in [a0, b0] {
+                if v == a1 || v == b1 {
+                    junctions.insert(v);
+                }
+            }
+        }
+        let touches_curve = |mesh: &Self, f: FaceId| -> Result<bool, GeometryError> {
+            Ok(mesh.face_edges(f)?.iter().any(|e| member_set.contains(e)))
+        };
+        for v in junctions {
+            for h in self.vertex_star(v).to_vec() {
+                let e = self.he(h)?.edge;
+                if member_set.contains(&e) {
+                    continue;
+                }
+                let [Some(fa), Some(fb)] = self.edge_faces(e)? else {
+                    continue;
+                };
+                if fa == fb || !touches_curve(self, fa)? || !touches_curve(self, fb)? {
+                    continue;
+                }
+                let flags = self.edges.get(e).map(|x| x.flags).unwrap_or_default();
+                self.set_edge_flags(e, flags | EdgeFlags::SOFT | EdgeFlags::SMOOTH, d)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// docs/03 §3.3 `drop_curve`.
+    pub(crate) fn drop_curve_inner(
+        &mut self,
+        c: CurveId,
+        d: &mut dyn DeltaSink,
+    ) -> Result<(), GeometryError> {
+        let descriptor = self.curves.remove(c).ok_or_else(|| not_found(c))?;
+        let members = self.curve_members.remove(c).unwrap_or_default();
+        for &e in &members {
+            if let Some(edge) = self.edges.get_mut(e)
+                && edge.curve == Some(c)
+            {
+                edge.curve = None;
+            }
+        }
+        d.record(MeshDelta::CurveRemoved {
+            id: c,
+            descriptor,
+            members,
+        });
+        Ok(())
+    }
+
+    /// Faces coplanar with `plane` whose bounding box meets `bbox` (a linear
+    /// scan with cheap rejections; docs/03 Decisions).
+    pub(crate) fn coplanar_faces_near(
+        &self,
+        plane: &Plane,
+        bbox: &Aabb,
+        tol: &Tolerances,
+    ) -> Result<Vec<FaceId>, GeometryError> {
+        let mut out = Vec::new();
+        for (f, face) in &self.faces {
+            if face.outer.is_null() || !tol.is_coplanar(&face.plane, plane) {
+                continue;
+            }
+            if self.face_aabb(f)?.intersects(bbox) {
+                out.push(f);
+            }
+        }
+        Ok(out)
+    }
+
+    /// Edges whose bounding box meets `bbox` (linear scan).
+    pub(crate) fn edges_near(&self, bbox: &Aabb) -> Result<Vec<EdgeId>, GeometryError> {
+        let mut out = Vec::new();
+        for (e, _) in &self.edges {
+            if self.edge_segment(e)?.aabb().intersects(bbox) {
+                out.push(e);
+            }
+        }
+        Ok(out)
+    }
+
+    /// Runs face finding (docs/03 §4.3) for the given touched vertices, where
+    /// only regions bounded by a `seeds` edge may become new faces.
+    pub(crate) fn find_faces_seeded(
+        &mut self,
+        touched: &[VertexId],
+        seeds: &[EdgeId],
+        tol: &Tolerances,
+        d: &mut dyn DeltaSink,
+    ) -> Result<planar::FaceFindingResult, GeometryError> {
+        planar::find_faces_seeded(self, touched, seeds, tol, d)
     }
 }
 
@@ -769,51 +1715,4 @@ pub struct IndexedIds {
     pub faces: Vec<FaceId>,
     /// `curves[i]` is the id of local curve `i`.
     pub curves: Vec<CurveId>,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn edge_flags_set_operations() {
-        let f = EdgeFlags::SOFT | EdgeFlags::SMOOTH;
-        assert!(f.contains(EdgeFlags::SOFT));
-        assert!(!f.contains(EdgeFlags::HIDDEN));
-        assert_eq!(f.with(EdgeFlags::HIDDEN, true).bits(), 0b0111);
-        assert_eq!(f.difference(EdgeFlags::SOFT), EdgeFlags::SMOOTH);
-        assert_eq!(EdgeFlags::default(), EdgeFlags::NONE);
-    }
-
-    #[test]
-    fn directed_edge_index_round_trips() {
-        let d = DirectedEdgeIndex::reversed(42);
-        assert!(d.is_reversed());
-        assert_eq!(d.index(), 42);
-        assert!(!DirectedEdgeIndex::forward(42).is_reversed());
-    }
-
-    #[test]
-    fn empty_mesh_accessors() {
-        let mesh = HalfEdgeMesh::new();
-        assert!(mesh.is_empty());
-        assert_eq!(
-            mesh.vertex_count() + mesh.edge_count() + mesh.face_count(),
-            0
-        );
-        assert!(mesh.aabb().is_empty());
-        assert!(mesh.vertex_star(VertexId::default()).is_empty());
-        assert!(matches!(
-            mesh.edge_endpoints(EdgeId::default()),
-            Err(GeometryError::NotFound(_))
-        ));
-    }
-
-    #[test]
-    fn mesh_serializes_in_named_field_mode() {
-        let mesh = HalfEdgeMesh::new();
-        let bytes = rmp_serde::to_vec_named(&mesh).unwrap();
-        let back: HalfEdgeMesh = rmp_serde::from_slice(&bytes).unwrap();
-        assert!(back.is_empty());
-    }
 }
