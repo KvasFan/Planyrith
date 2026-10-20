@@ -7,8 +7,11 @@
 //! unique within one `Entities` container (or one mesh); `Pid`s are unique within
 //! a document and stable across save/load and undo/redo.
 
+#![warn(unused_variables, dead_code)]
+
 use std::borrow::Cow;
 use std::fmt;
+use std::str::FromStr;
 
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
@@ -146,12 +149,53 @@ impl Pid {
     pub const fn is_none(self) -> bool {
         self.0 == 0
     }
+
+    /// `true` for any allocated pid (not [`Pid::NONE`]).
+    pub const fn is_some(self) -> bool {
+        self.0 != 0
+    }
+
+    /// Parses the CLI form `@42` (docs/08 §2 `EntityRef`); a bare `42` is
+    /// accepted too. `@0` is rejected because it is never allocated.
+    pub fn parse(text: &str) -> Result<Self, PidParseError> {
+        let text = text.trim();
+        let digits = text.strip_prefix('@').unwrap_or(text);
+        if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+            return Err(PidParseError::Malformed(text.to_string()));
+        }
+        let raw: u64 = digits
+            .parse()
+            .map_err(|_| PidParseError::Malformed(text.to_string()))?;
+        if raw == 0 {
+            return Err(PidParseError::Reserved);
+        }
+        Ok(Pid(raw))
+    }
 }
 
 impl fmt::Display for Pid {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "@{}", self.0)
     }
+}
+
+impl FromStr for Pid {
+    type Err = PidParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Pid::parse(s)
+    }
+}
+
+/// Errors from [`Pid::parse`].
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum PidParseError {
+    /// Not `@<digits>` or `<digits>`, or the number does not fit in `u64`.
+    #[error("malformed pid `{0}` (expected `@<number>`)")]
+    Malformed(String),
+    /// `@0` names no entity.
+    #[error("pid @0 is reserved and names no entity")]
+    Reserved,
 }
 
 /// Monotonic allocator behind `ModelInfo::next_pid` (docs/04 §2, §10).
@@ -187,6 +231,23 @@ impl PidAllocator {
         let pid = Pid(self.next);
         self.next += 1;
         pid
+    }
+
+    /// Allocates `count` consecutive pids in ascending order (one call per
+    /// kernel operation keeps the pids of a batch of new faces contiguous).
+    pub fn allocate_many(&mut self, count: usize) -> Vec<Pid> {
+        (0..count).map(|_| self.allocate()).collect()
+    }
+
+    /// Number of pids handed out so far (`next - 1`), for statistics and
+    /// validation (docs/04 §13 monotonicity).
+    pub const fn allocated(&self) -> u64 {
+        self.next - 1
+    }
+
+    /// The raw `next_pid` file value.
+    pub const fn next_raw(&self) -> u64 {
+        self.next
     }
 
     /// The pid the next call to [`PidAllocator::allocate`] would return.
@@ -233,6 +294,40 @@ pub enum EntityKind {
 }
 
 impl EntityKind {
+    /// Every kind in declaration order (vertex first).
+    pub const ALL: [EntityKind; 10] = [
+        EntityKind::Vertex,
+        EntityKind::Edge,
+        EntityKind::Face,
+        EntityKind::Group,
+        EntityKind::Instance,
+        EntityKind::Guide,
+        EntityKind::Dimension,
+        EntityKind::Text,
+        EntityKind::Image,
+        EntityKind::SectionPlane,
+    ];
+
+    /// `true` for kinds that are entities with a pid (everything but vertices,
+    /// docs/04 §2).
+    pub const fn is_entity(self) -> bool {
+        !matches!(self, EntityKind::Vertex)
+    }
+
+    /// Picking priority when hits tie on depth: vertex > edge > face > others
+    /// (docs/03 §6, skeleton contract "Ordering"). Lower sorts first.
+    pub const fn pick_priority(self) -> u8 {
+        match self {
+            EntityKind::Vertex => 0,
+            EntityKind::Edge => 1,
+            EntityKind::Face => 2,
+            EntityKind::Guide => 3,
+            EntityKind::Group | EntityKind::Instance => 4,
+            EntityKind::Dimension | EntityKind::Text | EntityKind::Image => 5,
+            EntityKind::SectionPlane => 6,
+        }
+    }
+
     /// The query-language keyword for this kind (docs/08 §5 `kind`).
     pub const fn keyword(self) -> &'static str {
         match self {
@@ -270,6 +365,15 @@ impl EntityKind {
 impl fmt::Display for EntityKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.keyword())
+    }
+}
+
+impl FromStr for EntityKind {
+    type Err = PidParseError;
+
+    /// Parses a query-language kind keyword.
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        EntityKind::from_keyword(s.trim()).ok_or_else(|| PidParseError::Malformed(s.to_string()))
     }
 }
 
@@ -383,20 +487,65 @@ mod tests {
 
     #[test]
     fn entity_kind_keywords_round_trip() {
-        for kind in [
-            EntityKind::Vertex,
-            EntityKind::Edge,
-            EntityKind::Face,
-            EntityKind::Group,
-            EntityKind::Instance,
-            EntityKind::Guide,
-            EntityKind::Dimension,
-            EntityKind::Text,
-            EntityKind::Image,
-            EntityKind::SectionPlane,
-        ] {
+        for kind in EntityKind::ALL {
             assert_eq!(EntityKind::from_keyword(kind.keyword()), Some(kind));
+            assert_eq!(kind.keyword().parse::<EntityKind>(), Ok(kind));
+            assert_eq!(kind.is_entity(), kind != EntityKind::Vertex);
         }
+        assert!(EntityKind::Vertex.pick_priority() < EntityKind::Edge.pick_priority());
+        assert!(EntityKind::Edge.pick_priority() < EntityKind::Face.pick_priority());
+    }
+
+    #[test]
+    fn pid_parses_cli_form() {
+        assert_eq!(Pid::parse("@42"), Ok(Pid(42)));
+        assert_eq!(" 7 ".parse::<Pid>(), Ok(Pid(7)));
+        assert_eq!(Pid::parse("@0"), Err(PidParseError::Reserved));
+        assert!(matches!(
+            Pid::parse("@-1"),
+            Err(PidParseError::Malformed(_))
+        ));
+        assert!(matches!(Pid::parse("@"), Err(PidParseError::Malformed(_))));
+        assert!(matches!(
+            Pid::parse("face"),
+            Err(PidParseError::Malformed(_))
+        ));
+        assert_eq!(Pid(42).to_string(), "@42");
+        assert!(Pid(42).is_some());
+    }
+
+    #[test]
+    fn pid_allocator_batches_and_serializes_transparently() {
+        let mut alloc = PidAllocator::starting_at(0);
+        assert_eq!(alloc.peek(), Pid(1));
+        assert_eq!(alloc.allocate_many(3), vec![Pid(1), Pid(2), Pid(3)]);
+        assert_eq!(alloc.allocated(), 3);
+        alloc.observe(Pid::NONE);
+        assert_eq!(alloc.next_raw(), 4);
+        let json = serde_json::to_string(&alloc).unwrap();
+        assert_eq!(json, "4");
+        let back: PidAllocator = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, alloc);
+        assert_eq!(serde_json::to_string(&Pid(9)).unwrap(), "9");
+    }
+
+    #[test]
+    fn entity_ids_display_and_order() {
+        let mut faces: slotmap::SlotMap<FaceId, ()> = slotmap::SlotMap::with_key();
+        let f = faces.insert(());
+        let shown = EntityId::from(f).to_string();
+        assert!(shown.starts_with("FaceId#"), "{shown}");
+        assert_eq!(EntityId::Face(f).kind(), EntityKind::Face);
+        assert!(EntityId::Face(f).is_mesh_entity());
+        assert!(!EntityId::Face(f).is_container_instance());
+        let mut groups: slotmap::SlotMap<GroupId, ()> = slotmap::SlotMap::with_key();
+        let g = groups.insert(());
+        assert!(EntityId::Group(g).is_container_instance());
+        // Derived `Ord` orders by variant first, so BTreeMap iteration is stable.
+        assert!(EntityId::Face(f) < EntityId::Group(g));
+        let json = serde_json::to_string(&EntityId::Face(f)).unwrap();
+        let back: EntityId = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, EntityId::Face(f));
     }
 
     #[test]
