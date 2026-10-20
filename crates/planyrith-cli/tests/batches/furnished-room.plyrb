@@ -1,0 +1,34 @@
+# Milestone 0.1 acceptance (docs/13): a furnished room built headless.
+# Units: millimeters. The room's inner floor spans 0..6000 × 0..4000.
+
+# --- A chair: seat 450 × 450 at 450 mm, four legs, a backrest -----------------
+rectangle --corner-a 1000,1000,420 --corner-b 1450,1450,420
+push-pull --face '{face & last}' --distance 30
+rectangle --corner-a 1010,1010,420 --corner-b 1050,1050,420 ; push-pull --face '{face & last}' --distance 420
+rectangle --corner-a 1400,1010,420 --corner-b 1440,1050,420 ; push-pull --face '{face & last}' --distance 420
+rectangle --corner-a 1010,1400,420 --corner-b 1050,1440,420 ; push-pull --face '{face & last}' --distance 420
+rectangle --corner-a 1400,1400,420 --corner-b 1440,1440,420 ; push-pull --face '{face & last}' --distance 420
+rectangle --corner-a 1000,1420,450 --corner-b 1450,1450,450 ; push-pull --face '{face & last}' --distance 450
+make-component --targets all --name Chair
+# Four chairs in a row.
+move --targets 'definition:Chair' --delta 600,0,0 --copy --copies 3
+
+# --- A table: 2200 × 800 top at 720 mm, four legs -----------------------------
+rectangle --corner-a 1000,1800,690 --corner-b 3200,2600,690
+push-pull --face '{face & last}' --distance 30
+rectangle --corner-a 1020,1820,690 --corner-b 1080,1880,690 ; push-pull --face '{face & last}' --distance 690
+rectangle --corner-a 3120,1820,690 --corner-b 3180,1880,690 ; push-pull --face '{face & last}' --distance 690
+rectangle --corner-a 1020,2520,690 --corner-b 1080,2580,690 ; push-pull --face '{face & last}' --distance 690
+rectangle --corner-a 3120,2520,690 --corner-b 3180,2580,690 ; push-pull --face '{face & last}' --distance 690
+make-group --targets 'face | edge' --name Table
+
+# --- The room: 200 mm walls, 2.7 m high, a door and a window ------------------
+rectangle --corner-a -200,-200,0 --corner-b 6200,4200,0
+offset --face '{face & last}' --distance -200
+push-pull --face '{face & area<10m2}' --distance 2700
+tag-create --name Walls --color '#C8B8A0'
+tag-assign --targets 'face & !normal:z & !normal:-z' --tag Walls
+rectangle --corner-a 1000,-200,0 --corner-b 1900,-200,2100 ; push-pull --face '{face & last}' --distance -200
+rectangle --corner-a 2500,4200,900 --corner-b 3700,4200,2100 ; push-pull --face '{face & last}' --distance -200
+material-create --name Oak --color '#A0522D'
+material-apply --targets 'face & plane:xy@0 & area>20m2' --material Oak

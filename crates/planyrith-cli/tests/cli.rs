@@ -240,3 +240,115 @@ fn tool_help_lists_typed_options() {
         .success()
         .stdout(predicate::str::contains("\"Point\""));
 }
+
+/// docs/13 milestone 0.1 acceptance: a batch builds a furnished room headless
+/// (walls with openings, a table, chairs as components in an array); the file
+/// reopens identically and validates clean.
+#[test]
+fn furnished_room_acceptance() {
+    let dir = scratch("room");
+    let batch = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/batches/furnished-room.plyrb");
+    let room = dir.join("room.plyr");
+    let r = room.to_str().unwrap();
+    planyrith()
+        .args(["batch", batch.to_str().unwrap(), "-f", r, "--deterministic"])
+        .assert()
+        .success();
+    planyrith().args(["validate", "-f", r]).assert().success();
+
+    let info = json_of(
+        &planyrith()
+            .args(["info", "-f", r, "--json"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout,
+    );
+    let counts = &info["output"]["counts"];
+    assert_eq!(counts["model"]["instances"], 4);
+    assert_eq!(counts["model"]["groups"], 1);
+    assert_eq!(counts["definitions"], 2);
+    assert_eq!(info["output"]["bounds"]["max"][2], 2700.0);
+
+    let chairs = json_of(
+        &planyrith()
+            .args([
+                "query",
+                "-f",
+                r,
+                "definition:Chair",
+                "--fields",
+                "pid,is_solid,bbox",
+                "--json",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout,
+    );
+    let chairs = chairs["output"].as_array().unwrap();
+    assert_eq!(chairs.len(), 4);
+    assert!(chairs.iter().all(|c| c["is_solid"] == Value::Bool(true)));
+    let xs: Vec<f64> = chairs
+        .iter()
+        .map(|c| c["bbox"]["min"][0].as_f64().unwrap())
+        .collect();
+    assert_eq!(xs, vec![1000.0, 1600.0, 2200.0, 2800.0]);
+
+    let table = json_of(
+        &planyrith()
+            .args([
+                "query",
+                "-f",
+                r,
+                "group",
+                "--fields",
+                "name,is_solid,volume",
+                "--json",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout,
+    );
+    assert_eq!(table["output"][0]["name"], "Table");
+    let expected = 2200.0 * 800.0 * 30.0 + 4.0 * 60.0 * 60.0 * 690.0;
+    assert!((table["output"][0]["volume"].as_f64().unwrap() - expected).abs() < 1e-3);
+
+    // Door and window cut through: four reveal faces each (the walls are
+    // open underneath, so the door keeps a threshold face).
+    let reveals = json_of(
+        &planyrith()
+            .args([
+                "query",
+                "-f",
+                r,
+                "face & !tag:Walls & area<1m2",
+                "--count",
+                "--json",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout,
+    );
+    assert_eq!(reveals["output"], 4 + 4);
+
+    // Reopen and re-save without changes: identical bytes.
+    let again = dir.join("again.plyr");
+    planyrith()
+        .args([
+            "repair",
+            "-f",
+            r,
+            "-o",
+            again.to_str().unwrap(),
+            "--deterministic",
+        ])
+        .assert()
+        .success();
+    assert_eq!(
+        std::fs::read(&room).unwrap(),
+        std::fs::read(&again).unwrap()
+    );
+}
