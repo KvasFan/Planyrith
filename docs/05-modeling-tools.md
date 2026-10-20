@@ -449,3 +449,12 @@ UI hints are generated from one source.
   otherwise. `arc-bulge` measures the signed bulge to the left of the chord seen from `normal`
   (default +Z, or +Y for a vertical chord). `arc-2point` with `end` sweeps counter-clockwise
   about `normal` from the start to the end direction.
+- 2026-10-20 — **Arrays.** `move`/`rotate` take `copy`, `copies` (count) and `spacing`
+  (`between`: the offset/angle separates consecutive copies, the `*N` value field; `total`: it is
+  the whole span, the `/N` value field) instead of a nested `array` object. Copies of raw geometry
+  are redrawn with `add_edge` (faces form by face finding and take the originals' front side and
+  materials, flipping the copied group as a whole when needed); copies of groups and instances are
+  new occurrences of the same definition. `scale` takes `factor` (uniform) or `factors`
+  (`[sx, sy, sz]`, CLI `--factors '2;1.5;1'`) and a pivot (default: the targets' bounding-box
+  minimum corner, or its center with `about: center`). Locked groups/instances refuse
+  move/rotate/scale/erase/delete (`E1201`).

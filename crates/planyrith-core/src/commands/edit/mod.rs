@@ -12,6 +12,7 @@
 mod erase;
 mod push_pull;
 mod select;
+mod transform;
 
 pub use erase::{
     Delete, DeleteOutput, DeleteParams, Erase, EraseMode, EraseOutput, EraseParams, Hide, Lock,
@@ -19,6 +20,10 @@ pub use erase::{
 };
 pub use push_pull::{PushPull, PushPullOutput, PushPullParams};
 pub use select::{Select, SelectOutput, SelectParams};
+pub use transform::{
+    Move, MoveParams, Rotate, RotateParams, Scale, ScaleAbout, ScaleOutput, ScaleParams, Spacing,
+    TransformOutput,
+};
 
 use crate::commands::CommandRegistry;
 
@@ -33,6 +38,9 @@ pub fn register(registry: &mut CommandRegistry) {
     registry.register(Unlock);
     registry.register(PushPull);
     registry.register(Select);
+    registry.register(Move);
+    registry.register(Rotate);
+    registry.register(Scale);
 }
 
 #[cfg(test)]

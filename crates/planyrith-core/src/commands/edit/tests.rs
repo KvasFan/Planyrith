@@ -243,3 +243,118 @@ fn hide_and_unhide_round_trip() {
     let out = run(&mut e, "select", json!({ "query": "hidden" }));
     assert_eq!(out["count"], json!(0));
 }
+
+fn volume(e: &Engine) -> f64 {
+    e.document().model.mesh().volume().unwrap()
+}
+
+#[test]
+fn moving_faces_and_edges_of_a_box_stretches_it() {
+    let mut e = engine();
+    let r = run(
+        &mut e,
+        "rectangle",
+        json!({ "corner_a": [0,0,0], "corner_b": [100,100,0] }),
+    );
+    run(
+        &mut e,
+        "push-pull",
+        json!({ "face": { "Pid": r["face"] }, "distance": 100.0 }),
+    );
+    assert_eq!(faces(&e), 6);
+    let out = run(
+        &mut e,
+        "move",
+        json!({ "targets": "face & normal:z & plane:xy@100", "delta": [0, 0, 20] }),
+    );
+    assert_eq!(out["moved"], json!(1));
+    assert!((volume(&e) - 1_200_000.0).abs() < 1e-6);
+    // The top edge over the +X side: lifting it tilts the top.
+    run(
+        &mut e,
+        "move",
+        json!({ "targets": "bounded-by(face & plane:yz@100) & bounded-by(face & plane:xy@120)", "delta": [0, 0, 20] }),
+    );
+    assert!((volume(&e) - 1_300_000.0).abs() < 1e-6, "{}", volume(&e));
+    assert!(e.document().model.mesh().is_solid());
+    assert!(
+        e.document()
+            .model
+            .mesh()
+            .validate(e.document().tolerances())
+            .is_empty()
+    );
+}
+
+#[test]
+fn copies_make_linear_and_radial_arrays() {
+    let mut e = engine();
+    let r = run(
+        &mut e,
+        "rectangle",
+        json!({ "corner_a": [0,0,0], "corner_b": [100,100,0] }),
+    );
+    run(
+        &mut e,
+        "push-pull",
+        json!({ "face": { "Pid": r["face"] }, "distance": 100.0 }),
+    );
+    let out = run(
+        &mut e,
+        "move",
+        json!({ "targets": "all", "delta": [300, 0, 0], "copy": true, "copies": 3 }),
+    );
+    assert!(!out["copies"].as_array().unwrap().is_empty());
+    assert_eq!(faces(&e), 24);
+    assert!(
+        (volume(&e).abs() - 4_000_000.0).abs() < 1e-3,
+        "{}",
+        volume(&e)
+    );
+    e.undo().unwrap();
+    assert_eq!(faces(&e), 6);
+    // Radial: 11 copies by 30° around a far center, plus the original = 12.
+    run(
+        &mut e,
+        "rotate",
+        json!({ "targets": "all", "center": [1000, 50, 0], "angle": std::f64::consts::PI / 6.0, "copy": true, "copies": 11 }),
+    );
+    assert_eq!(faces(&e), 72);
+    assert!(
+        e.document()
+            .model
+            .mesh()
+            .validate(e.document().tolerances())
+            .is_empty()
+    );
+}
+
+#[test]
+fn rotate_and_scale_raw_geometry() {
+    let mut e = engine();
+    let r = run(
+        &mut e,
+        "rectangle",
+        json!({ "corner_a": [0,0,0], "corner_b": [200,100,0] }),
+    );
+    run(
+        &mut e,
+        "rotate",
+        json!({ "targets": "all", "center": [0,0,0], "angle": std::f64::consts::FRAC_PI_2 }),
+    );
+    let bb = e.document().aabb();
+    assert!((bb.min.x + 100.0).abs() < 1e-9 && (bb.max.y - 200.0).abs() < 1e-9);
+    let out = run(
+        &mut e,
+        "scale",
+        json!({ "targets": "all", "factors": [2.0, 0.5, 1.0] }),
+    );
+    let after = &out["bbox_after"];
+    assert!((after[1][0].as_f64().unwrap() - after[0][0].as_f64().unwrap() - 200.0).abs() < 1e-9);
+    assert!((after[1][1].as_f64().unwrap() - after[0][1].as_f64().unwrap() - 100.0).abs() < 1e-9);
+    let face = e
+        .document()
+        .model
+        .id_of(crate::ids::Pid(r["face"].as_u64().unwrap()));
+    assert!(face.is_some(), "the face keeps its pid through moves");
+}

@@ -684,7 +684,7 @@ fn create_region_face(
 }
 
 /// All faces edge-connected to `seeds` (across any shared edge).
-fn face_group(
+pub(crate) fn face_group(
     mesh: &HalfEdgeMesh,
     seeds: &BTreeSet<FaceId>,
 ) -> Result<BTreeSet<FaceId>, GeometryError> {
