@@ -482,7 +482,7 @@ impl RotateParams {
                 "must not lie on the axis",
             ));
         }
-        Ok(axis.dot(u.cross(v)).atan2(u.dot(v)))
+        Ok(libm::atan2(axis.dot(u.cross(v)), u.dot(v)))
     }
 }
 

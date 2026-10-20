@@ -731,7 +731,7 @@ fn curves_track_members_and_drop_when_broken() {
     let pts: Vec<DVec3> = (0..n)
         .map(|i| {
             let a = std::f64::consts::TAU * i as f64 / n as f64;
-            p(10.0 * a.cos(), 10.0 * a.sin(), 0.0)
+            p(10.0 * libm::cos(a), 10.0 * libm::sin(a), 0.0)
         })
         .collect();
     let results = polygon(&mut mesh, &pts, &mut NoDeltas);
@@ -856,7 +856,7 @@ fn triangle_soup_softens_shallow_edges() {
         p(0.0, 0.0, 0.0),
         p(0.0, 10.0, 0.0),
         p(-10.0, 5.0, 0.0),
-        p(10.0 * a.cos(), 5.0, 10.0 * a.sin()),
+        p(10.0 * libm::cos(a), 5.0, 10.0 * libm::sin(a)),
     ];
     let r = HalfEdgeMesh::from_triangles_merged(
         &positions,
@@ -965,7 +965,7 @@ fn star_polygon() -> impl Strategy<Value = Vec<DVec3>> {
                 .enumerate()
                 .map(|(i, r)| {
                     let a = std::f64::consts::TAU * i as f64 / n as f64;
-                    p(r * a.cos(), r * a.sin(), 0.0)
+                    p(r * libm::cos(a), r * libm::sin(a), 0.0)
                 })
                 .collect()
         })

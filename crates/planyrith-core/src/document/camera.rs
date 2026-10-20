@@ -83,7 +83,7 @@ impl Camera {
         let u = r.cross(f);
         match self.projection {
             Projection::Perspective { fov_y_deg } | Projection::TwoPoint { fov_y_deg } => {
-                let half_h = (fov_y_deg.to_radians() * 0.5).tan();
+                let half_h = libm::tan(fov_y_deg.to_radians() * 0.5);
                 let half_w = half_h * self.aspect;
                 Ray::new(self.eye, f + r * (ndc.x * half_w) + u * (ndc.y * half_h))
             }
@@ -103,7 +103,7 @@ impl Camera {
         }
         match self.projection {
             Projection::Perspective { fov_y_deg } | Projection::TwoPoint { fov_y_deg } => {
-                2.0 * t.max(0.0) * (fov_y_deg.to_radians() * 0.5).tan() / height_px
+                2.0 * t.max(0.0) * libm::tan(fov_y_deg.to_radians() * 0.5) / height_px
             }
             Projection::Parallel { height_mm } => height_mm / height_px,
         }

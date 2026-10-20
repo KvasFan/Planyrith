@@ -2201,7 +2201,9 @@ fn measure_eps(what: Measure, a: f64, b: f64, tol: &Tolerances) -> f64 {
     match what {
         Measure::Length => tol.length,
         Measure::Area => tol.length_sq + 2.0 * tol.length * size.sqrt(),
-        Measure::Volume => tol.length_sq * tol.length + 3.0 * tol.length * size.powf(2.0 / 3.0),
+        Measure::Volume => {
+            tol.length_sq * tol.length + 3.0 * tol.length * libm::pow(size, 2.0 / 3.0)
+        }
         Measure::Id => 0.5,
     }
 }

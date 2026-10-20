@@ -34,7 +34,10 @@ categories = ["graphics", "rendering", "command-line-utilities"]
 # milestone that needs them (docs/13-roadmap.md).
 [workspace.dependencies]
 # ---- core: math, geometry, spatial queries --------------------------------
-glam = { version = "0.33", features = ["serde", "bytemuck"] }
+# `libm`: glam's own trigonometry goes through the pure-Rust libm instead of the
+# platform's, so results are bit-identical on every OS (docs/08 §10).
+glam = { version = "0.33", features = ["serde", "bytemuck", "libm"] }
+libm = "0.2"
 parry3d-f64 = "0.31"
 earcutr = "0.5"
 

@@ -216,7 +216,7 @@ pub fn polygon_contains_polygon_2d(outer: &[DVec2], inner: &[DVec2], tol: &Toler
 
 /// Angle of a 2D direction in `(-π, π]`, the sort key of angular stars.
 pub(crate) fn sort_angle(d: DVec2) -> f64 {
-    d.y.atan2(d.x)
+    libm::atan2(d.y, d.x)
 }
 
 /// `v` lies within `planarity` of `plane`.

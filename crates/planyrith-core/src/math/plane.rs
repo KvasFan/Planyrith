@@ -733,7 +733,7 @@ mod tests {
             let pts: Vec<DVec3> = (0..count)
                 .map(|i| {
                     let a = (i as f64 / count as f64 + phase) * std::f64::consts::TAU;
-                    f.from_2d(DVec2::new(a.cos(), a.sin()) * radius)
+                    f.from_2d(DVec2::new(libm::cos(a), libm::sin(a)) * radius)
                 })
                 .collect();
             let fitted = Plane::fit(&pts, &t).unwrap();

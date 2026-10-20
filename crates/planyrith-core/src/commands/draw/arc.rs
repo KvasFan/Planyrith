@@ -27,7 +27,8 @@ fn default_normal() -> DVec3 {
 }
 
 /// A circular arc: center, unit normal, radius, start point and signed sweep
-/// (positive = counter-clockwise about the normal).
+/// (positive = counter-clockwise about the normal); `end` is the given end
+/// point when the arc is defined to pass through it.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct ArcGeometry {
     pub(crate) center: DVec3,
@@ -35,19 +36,28 @@ pub(crate) struct ArcGeometry {
     pub(crate) radius: f64,
     pub(crate) start: DVec3,
     pub(crate) sweep: f64,
+    pub(crate) end: Option<DVec3>,
 }
 
 impl ArcGeometry {
-    /// `segments + 1` points from start to end.
+    /// `segments + 1` points from start to end. The end points are the given
+    /// ones exactly, not their rounded reconstruction from the angles.
     pub(crate) fn points(&self, segments: u32) -> Vec<DVec3> {
         let u = (self.start - self.center).normalize();
         let v = self.normal.cross(u);
-        (0..=segments)
+        let mut points: Vec<DVec3> = (0..=segments)
             .map(|k| {
                 let a = self.sweep * f64::from(k) / f64::from(segments);
-                self.center + (u * a.cos() + v * a.sin()) * self.radius
+                self.center + (u * libm::cos(a) + v * libm::sin(a)) * self.radius
             })
-            .collect()
+            .collect();
+        if let Some(first) = points.first_mut() {
+            *first = self.start;
+        }
+        if let (Some(end), Some(last)) = (self.end, points.last_mut()) {
+            *last = end;
+        }
+        points
     }
 
     /// The `Arc` descriptor of these points in container coordinates; angles
@@ -60,7 +70,7 @@ impl ArcGeometry {
         let frame = Plane::from_point_normal(center, normal).frame_at(center);
         let angle = |p: DVec3| {
             let q = frame.to_2d(p) - frame.to_2d(center);
-            q.y.atan2(q.x)
+            libm::atan2(q.y, q.x)
         };
         let start_angle = angle(local[0]);
         let local_sweep = {
@@ -123,13 +133,14 @@ pub(crate) fn arc_through(
     let u = (a - center).normalize();
     let v = normal.cross(u);
     let q = c - center;
-    let sweep = q.dot(v).atan2(q.dot(u)).rem_euclid(std::f64::consts::TAU);
+    let sweep = libm::atan2(q.dot(v), q.dot(u)).rem_euclid(std::f64::consts::TAU);
     Ok(ArcGeometry {
         center,
         normal,
         radius,
         start: a,
         sweep,
+        end: Some(c),
     })
 }
 
@@ -224,6 +235,7 @@ impl Arc2PointParams {
                 "must differ from the center",
             ));
         }
+        let mut end_point = None;
         let sweep = match (self.end_angle, self.end) {
             (Some(angle), _) => angle.as_radians(),
             (None, Some(end)) => {
@@ -237,7 +249,11 @@ impl Arc2PointParams {
                         "must differ from the center",
                     ));
                 }
-                let a = q.dot(v).atan2(q.dot(u)).rem_euclid(std::f64::consts::TAU);
+                let a = libm::atan2(q.dot(v), q.dot(u)).rem_euclid(std::f64::consts::TAU);
+                if tol.same_point(plane.project(end), end) && tol.approx_eq_len(q.length(), radius)
+                {
+                    end_point = Some(end);
+                }
                 if a <= tol.angle {
                     std::f64::consts::TAU
                 } else {
@@ -267,6 +283,7 @@ impl Arc2PointParams {
             radius,
             start: self.start,
             sweep,
+            end: end_point,
         })
     }
 }

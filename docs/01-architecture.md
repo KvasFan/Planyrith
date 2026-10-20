@@ -37,7 +37,7 @@ the CLI's headless `render` subcommand share one renderer. It depends on `planyr
 
 | Crate | May depend on | Must not depend on |
 |---|---|---|
-| `planyrith-core` | `glam`, `parry3d-f64`, `earcutr`, `serde`, `serde_json`, `rmp-serde`, `zip` + `flate2` (pure-Rust deflate), `schemars`, `thiserror`, `slotmap`, `indexmap`, `bytemuck`, `blake3`, `uuid`, `image` (decoders only), `tracing`, importers, `truck-*` (feature), `rhai` (feature), `rayon` (feature) | `egui`, `wgpu`, `winit`, `eframe`, `web-sys`, `std::fs` outside `io::storage::native` |
+| `planyrith-core` | `glam`, `libm`, `parry3d-f64`, `earcutr`, `serde`, `serde_json`, `rmp-serde`, `zip` + `flate2` (pure-Rust deflate), `schemars`, `thiserror`, `slotmap`, `indexmap`, `bytemuck`, `blake3`, `uuid`, `image` (decoders only), `tracing`, importers, `truck-*` (feature), `rhai` (feature), `rayon` (feature) | `egui`, `wgpu`, `winit`, `eframe`, `web-sys`, `std::fs` outside `io::storage::native` |
 | `planyrith-render` | `planyrith-core`, `wgpu`, `glam`, `bytemuck`, `image` | `egui`, `winit` |
 | `planyrith-cli` | `planyrith-core`, `planyrith-render`, `clap`, `serde_json`, `tracing` | `egui`, `wgpu` directly |
 | `planyrith-gui` | everything above, `egui`, `eframe`, `egui-wgpu`, `egui_tiles`, `web-sys` (wasm) | — |

@@ -505,7 +505,7 @@ mod tests {
                 angles.dedup_by(|a, b| (*a - *b).abs() < 1e-3);
                 angles
                     .iter()
-                    .map(|a| c + DVec2::new(a.cos() * rx, a.sin() * ry))
+                    .map(|&a| c + DVec2::new(libm::cos(a) * rx, libm::sin(a) * ry))
                     .collect()
             })
             .prop_filter("non-degenerate", |ring: &Vec<DVec2>| {

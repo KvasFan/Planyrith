@@ -15,6 +15,7 @@ path = "src/lib.rs"
 # must never depend on a GUI toolkit, a GPU API or a windowing library.
 [dependencies]
 glam = { workspace = true }
+libm = { workspace = true }
 parry3d-f64 = { workspace = true }
 earcutr = { workspace = true }
 serde = { workspace = true }

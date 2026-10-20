@@ -854,7 +854,7 @@ mod tests {
         let pts: Vec<DVec3> = (0..n)
             .map(|i| {
                 let a = std::f64::consts::TAU * f64::from(i) / f64::from(n);
-                p(50.0 * a.cos(), 50.0 * a.sin(), 0.0)
+                p(50.0 * libm::cos(a), 50.0 * libm::sin(a), 0.0)
             })
             .collect();
         let mut members = Vec::new();

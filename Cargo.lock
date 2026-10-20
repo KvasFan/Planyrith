@@ -2971,6 +2971,7 @@ dependencies = [
  "glam",
  "image",
  "indexmap",
+ "libm",
  "parry3d-f64",
  "proptest",
  "rayon",

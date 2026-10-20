@@ -103,7 +103,7 @@ pub(crate) fn ring(center: DVec3, normal: DVec3, r: f64, n: u32) -> Vec<DVec3> {
     (0..n)
         .map(|i| {
             let a = std::f64::consts::TAU * f64::from(i) / f64::from(n);
-            frame.from_2d(c2 + DVec2::new(r * a.cos(), r * a.sin()))
+            frame.from_2d(c2 + DVec2::new(r * libm::cos(a), r * libm::sin(a)))
         })
         .collect()
 }
@@ -239,7 +239,7 @@ impl Command for Polygon {
         let vertex_radius = if p.inscribed {
             p.radius.as_mm()
         } else {
-            p.radius.as_mm() / (std::f64::consts::PI / f64::from(n)).cos()
+            p.radius.as_mm() / libm::cos(std::f64::consts::PI / f64::from(n))
         };
         let points = ring(p.center, p.normal.normalize(), vertex_radius, n);
         let (center, normal, local_vertex_radius) =
@@ -247,7 +247,7 @@ impl Command for Polygon {
         let radius = if p.inscribed {
             local_vertex_radius
         } else {
-            local_vertex_radius * (std::f64::consts::PI / f64::from(n)).cos()
+            local_vertex_radius * libm::cos(std::f64::consts::PI / f64::from(n))
         };
         let descriptor = CurveDescriptor::Polygon {
             center,

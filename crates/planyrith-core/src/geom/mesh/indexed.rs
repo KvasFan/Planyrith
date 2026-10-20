@@ -558,7 +558,7 @@ pub(super) fn from_triangles_merged(
     }
 
     // 6. Soften edges between faces meeting below the soften angle.
-    let soften_cos = opts.soften_angle.as_radians().cos();
+    let soften_cos = libm::cos(opts.soften_angle.as_radians());
     let edge_ids: Vec<EdgeId> = mesh.edges.keys().collect();
     for e in edge_ids {
         if let [Some(fa), Some(fb)] = mesh.edge_faces(e)?

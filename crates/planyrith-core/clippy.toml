@@ -1,0 +1,27 @@
+# Determinism (AGENTS.md §2, docs/08 §10): the platform math library may round
+# transcendental functions differently on each OS. The core calls the pure-Rust
+# `libm` crate instead (sqrt and arithmetic are exactly rounded everywhere).
+disallowed-methods = [
+    { path = "f64::sin", reason = "use libm::sin (cross-platform determinism)" },
+    { path = "f64::cos", reason = "use libm::cos (cross-platform determinism)" },
+    { path = "f64::sin_cos", reason = "use libm::sincos (cross-platform determinism)" },
+    { path = "f64::tan", reason = "use libm::tan (cross-platform determinism)" },
+    { path = "f64::asin", reason = "use libm::asin (cross-platform determinism)" },
+    { path = "f64::acos", reason = "use libm::acos (cross-platform determinism)" },
+    { path = "f64::atan", reason = "use libm::atan (cross-platform determinism)" },
+    { path = "f64::atan2", reason = "use libm::atan2 (cross-platform determinism)" },
+    { path = "f64::sinh", reason = "use libm::sinh (cross-platform determinism)" },
+    { path = "f64::cosh", reason = "use libm::cosh (cross-platform determinism)" },
+    { path = "f64::tanh", reason = "use libm::tanh (cross-platform determinism)" },
+    { path = "f64::exp", reason = "use libm::exp (cross-platform determinism)" },
+    { path = "f64::exp2", reason = "use libm::exp2 (cross-platform determinism)" },
+    { path = "f64::exp_m1", reason = "use libm::expm1 (cross-platform determinism)" },
+    { path = "f64::ln", reason = "use libm::log (cross-platform determinism)" },
+    { path = "f64::ln_1p", reason = "use libm::log1p (cross-platform determinism)" },
+    { path = "f64::log", reason = "use libm (cross-platform determinism)" },
+    { path = "f64::log2", reason = "use libm::log2 (cross-platform determinism)" },
+    { path = "f64::log10", reason = "use libm::log10 (cross-platform determinism)" },
+    { path = "f64::powf", reason = "use libm::pow (cross-platform determinism)" },
+    { path = "f64::hypot", reason = "use libm::hypot (cross-platform determinism)" },
+    { path = "f64::cbrt", reason = "use libm::cbrt (cross-platform determinism)" },
+]

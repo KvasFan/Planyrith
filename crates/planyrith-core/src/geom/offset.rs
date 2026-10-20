@@ -631,13 +631,13 @@ mod tests {
             let ring: Vec<DVec2> = (0..n)
                 .map(|i| {
                     let a = std::f64::consts::TAU * i as f64 / n as f64;
-                    v(r * a.cos(), r * a.sin())
+                    v(r * libm::cos(a), r * libm::sin(a))
                 })
                 .collect();
             let inner = offset_polygon_2d(&ring, -d, &tol()).unwrap();
             // Regular polygon: A(d) = A − P·d + d²·n·tan(π/n).
             let expected = polygon::area(&ring) - polygon::perimeter(&ring) * d
-                + d * d * n as f64 * (std::f64::consts::PI / n as f64).tan();
+                + d * d * n as f64 * libm::tan(std::f64::consts::PI / n as f64);
             prop_assert!((polygon::area(&inner) - expected).abs() < 1e-6 * expected);
             prop_assert!(polygon::is_convex(&inner, &tol()));
         }

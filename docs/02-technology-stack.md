@@ -18,6 +18,7 @@ high-frequency interaction**.
 | 3D rendering | **wgpu** | MIT/Apache-2.0 | glow (OpenGL), vulkano, ash | Portable (Vulkan/Metal/DX12/GL/WebGPU/WebGL2), pure Rust, the standard. |
 | Windowing/input | **winit** (via eframe) | Apache-2.0 | sdl2 (C) | Pure Rust, wasm support. |
 | Linear algebra | **glam** (`f64` types `DVec3/DMat4/DAffine3` in core; `f32` in render) | MIT/Apache-2.0 | nalgebra, cgmath | SIMD-fast, simple API, both precisions, serde support. `nalgebra` only if a solver is needed (feature-gated). |
+| Transcendental functions | **libm** (pure-Rust port of a portable C math library), also enabled as glam's `libm` feature | MIT/Apache-2.0 | `std` `f64::sin` etc. | `std` calls the platform math library, whose last-bit rounding differs between OSes; byte-identical output across platforms (docs/08 §10) needs one implementation everywhere. |
 | Exact CAD kernel (B-rep/NURBS) | **truck** family (`truck-geometry`, `truck-topology`, `truck-modeling`, `truck-meshalgo`, `truck-stepio`) behind feature `brep` | Apache-2.0 | OpenCascade (C++, excluded), fornjot kernel (early) | Only mature pure-Rust B-rep kernel; STEP I/O; used for exact solids, fillets later, STEP exchange. |
 | Interactive mesh representation | **custom half-edge mesh** in core | — | plexus, baby_shark, truck polymesh | Direct modeling needs face finding/splitting/merging on planar polygon faces with holes; no crate offers exactly that with stable ids. |
 | Triangulation of planar polygons with holes | **earcutr** (ear clipping) with a fallback to own implementation | ISC | lyon (2D path tessellation, MIT/Apache), spade (CDT, MIT/Apache) | Small, robust, fast for CAD polygons. `spade` used when constrained Delaunay quality is required (texture-mapped large faces). |
@@ -190,3 +191,8 @@ powerful but add ~10 MB and do not run inside the web build; they are a post-1.0
   Windows clipboard path pulls `clipboard-win` and `error-code` under it (§3).
 - 2026-10-20 — `truck-*` and `rhai` are not pinned yet; the `brep` and `scripting` features are
   declared as no-ops until their milestones.
+- 2026-10-21 — **Deterministic math.** The core computes `sin`, `cos`, `tan`, `atan2`, `pow` and
+  the other transcendental functions with the `libm` crate, and glam is built with its `libm`
+  feature, so the same input gives the same bits on every OS (docs/08 §10). Square roots and
+  arithmetic are exactly rounded by IEEE 754 everywhere and need nothing. A crate-level
+  `crates/planyrith-core/clippy.toml` forbids the `std` methods in the core.

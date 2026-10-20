@@ -191,12 +191,12 @@ impl Angle {
 
     /// Builds an angle from a slope `rise:run` (docs/08 §4 `1:12`).
     pub fn slope(rise: f64, run: f64) -> Self {
-        Angle(rise.atan2(run))
+        Angle(libm::atan2(rise, run))
     }
 
     /// Builds an angle from a grade in percent (docs/08 §4 `8%`).
     pub fn percent(grade: f64) -> Self {
-        Angle((grade / 100.0).atan())
+        Angle(libm::atan(grade / 100.0))
     }
 
     /// The value in radians.
@@ -211,7 +211,7 @@ impl Angle {
 
     /// The value as a grade in percent (`tan · 100`).
     pub fn to_percent(self) -> f64 {
-        self.0.tan() * 100.0
+        libm::tan(self.0) * 100.0
     }
 
     /// Absolute value.
@@ -1331,10 +1331,10 @@ mod tests {
             ("45deg", 45.0),
             ("45°", 45.0),
             ("0.7854rad", 0.7854f64.to_degrees()),
-            ("1:12", (1.0f64 / 12.0).atan().to_degrees()),
-            ("8%", 0.08f64.atan().to_degrees()),
+            ("1:12", libm::atan(1.0 / 12.0).to_degrees()),
+            ("8%", libm::atan(0.08).to_degrees()),
             ("-30", -30.0),
-            ("-1:12", -(1.0f64 / 12.0).atan().to_degrees()),
+            ("-1:12", -libm::atan(1.0 / 12.0).to_degrees()),
             ("1:0", 90.0),
             (" 90 deg ", 90.0),
         ];
@@ -1518,7 +1518,7 @@ mod tests {
         fn slopes_and_grades(rise in -100.0f64..100.0, run in 0.01f64..100.0) {
             let text = format!("{rise}:{run}");
             let slope = parse_angle(&text).unwrap_or_else(|e| panic!("{text}: {e}"));
-            prop_assert!((slope.as_radians() - rise.atan2(run)).abs() < 1e-12);
+            prop_assert!((slope.as_radians() - libm::atan2(rise, run)).abs() < 1e-12);
             let grade = parse_angle(&format!("{rise}%")).unwrap();
             prop_assert!((grade.to_percent() - rise).abs() < 1e-9);
         }

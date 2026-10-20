@@ -108,7 +108,11 @@ impl SunModel {
         match *self {
             SunModel::Manual { azimuth, altitude } => {
                 let (az, alt) = (azimuth.as_radians(), altitude.as_radians());
-                DVec3::new(az.sin() * alt.cos(), az.cos() * alt.cos(), alt.sin())
+                DVec3::new(
+                    libm::sin(az) * libm::cos(alt),
+                    libm::cos(az) * libm::cos(alt),
+                    libm::sin(alt),
+                )
             }
             SunModel::Geo {
                 date,
@@ -120,8 +124,8 @@ impl SunModel {
             } => {
                 let (east, north, up) = solar_enu(date, time, lat, lon, utc_offset);
                 let a = north_angle.as_radians();
-                let north_axis = DVec3::new(a.sin(), a.cos(), 0.0);
-                let east_axis = DVec3::new(a.cos(), -a.sin(), 0.0);
+                let north_axis = DVec3::new(libm::sin(a), libm::cos(a), 0.0);
+                let east_axis = DVec3::new(libm::cos(a), -libm::sin(a), 0.0);
                 (east_axis * east + north_axis * north + DVec3::Z * up).normalize_or_zero()
             }
         }
@@ -150,21 +154,22 @@ fn solar_enu(date: Date, time: TimeOfDay, lat: f64, lon: f64, utc_offset: f64) -
     let utc_hour = hour - utc_offset;
     let g = TAU / year_days * (f64::from(day_of_year(date)) - 1.0 + (utc_hour - 12.0) / 24.0);
     let eqtime = 229.18
-        * (0.000075 + 0.001868 * g.cos()
-            - 0.032077 * g.sin()
-            - 0.014615 * (2.0 * g).cos()
-            - 0.040849 * (2.0 * g).sin());
-    let decl = 0.006918 - 0.399912 * g.cos() + 0.070257 * g.sin() - 0.006758 * (2.0 * g).cos()
-        + 0.000907 * (2.0 * g).sin()
-        - 0.002697 * (3.0 * g).cos()
-        + 0.00148 * (3.0 * g).sin();
+        * (0.000075 + 0.001868 * libm::cos(g)
+            - 0.032077 * libm::sin(g)
+            - 0.014615 * libm::cos(2.0 * g)
+            - 0.040849 * libm::sin(2.0 * g));
+    let decl = 0.006918 - 0.399912 * libm::cos(g) + 0.070257 * libm::sin(g)
+        - 0.006758 * libm::cos(2.0 * g)
+        + 0.000907 * libm::sin(2.0 * g)
+        - 0.002697 * libm::cos(3.0 * g)
+        + 0.00148 * libm::sin(3.0 * g);
     // True solar time in minutes, then the hour angle (positive after noon).
     let solar_minutes = utc_hour * 60.0 + eqtime + 4.0 * lon;
     let h = (solar_minutes / 4.0 - 180.0).to_radians();
     let phi = lat.to_radians();
-    let up = phi.sin() * decl.sin() + phi.cos() * decl.cos() * h.cos();
-    let east = -decl.cos() * h.sin();
-    let north = phi.cos() * decl.sin() - phi.sin() * decl.cos() * h.cos();
+    let up = libm::sin(phi) * libm::sin(decl) + libm::cos(phi) * libm::cos(decl) * libm::cos(h);
+    let east = -libm::cos(decl) * libm::sin(h);
+    let north = libm::cos(phi) * libm::sin(decl) - libm::sin(phi) * libm::cos(decl) * libm::cos(h);
     (east, north, up)
 }
 
@@ -173,7 +178,7 @@ mod tests {
     use super::*;
 
     fn altitude_deg(d: DVec3) -> f64 {
-        d.z.asin().to_degrees()
+        libm::asin(d.z).to_degrees()
     }
 
     #[test]
