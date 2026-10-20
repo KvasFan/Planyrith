@@ -255,3 +255,10 @@ On failure: `{"ok": false, "error": {"code": "E1002", "message": "...", "param":
 - 2026-10-20 — `tool <name>` options are generated from `Params` schemas; no hand-written option parsing per tool.
 - 2026-10-20 — JSON-RPC 2.0 over stdio/local socket is the GUI-attach protocol; no HTTP server in 1.0.
 - 2026-10-20 — Selection query grammar in §5 is shared by CLI, RPC and scripting.
+- 2026-10-20 — Codes added to §9 by the skeleton contract: `E1403` storage error (key missing,
+  unreadable, quota — exit code 4), `E1701` operation cancelled (exit code 5), `E1901` internal
+  error (exit code 70). `GeometryError::OutOfRange` maps to `E1002`, `GeometryError::NotFound` to
+  `E1101`, mesh invariant violations to `E1302`.
+- 2026-10-20 — In the core, `Query` is the source string carried by `Sel` parameters (serialized
+  as a plain string) and `QueryExpr` is the parsed AST; `Query::parse` validates syntax without a
+  document, `QueryExpr::eval` needs the document plus `selection`/`last`/context.

@@ -245,3 +245,13 @@ Frontends and the RPC server fan events out to subscribers. Event kinds:
 - 2026-10-20 — `planyrith-render` is scaffolded at 0.1 (empty library with its dependency
   table wired) rather than created at 0.2, so the CLI and GUI manifests can depend on it from
   the first commit and the boundary check in CI covers all four crates from the start.
+- 2026-10-20 — Skeleton contract (`docs/dev/skeleton-contract.md`): the `Command` trait exposes
+  `fn name(&self) -> &'static str` instead of an associated `const NAME`, so the object-safe
+  `ErasedCommand` is a blanket impl over the same type and `CommandRegistry` stores one box per
+  command. `Engine::execute::<C>` therefore requires `C: Default` (commands are stateless);
+  `Engine::execute_with(&cmd, params)` exists for non-default instances.
+- 2026-10-20 — Every tool's `Params` flattens `commands::CommonParams { context, dry_run }`
+  (docs/05 §1). The CLI `--dry-run` calls `Engine::validate_erased` only.
+- 2026-10-20 — `Delta` is a closed enum of elementary, invertible changes carrying before/after
+  values, pids and order indices (never whole-document snapshots). `EntityId`s may change across
+  undo/redo; `Pid`s do not (docs/04 Decisions).

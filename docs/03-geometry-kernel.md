@@ -318,3 +318,15 @@ within `tolerances.length`.
   non-manifold edges are not permitted (§3.1 inv. 5).
 - 2026-10-20 — Curves are polylines with descriptors, not exact NURBS, in the interactive kernel.
 - 2026-10-20 — Auto-fold on non-planar vertex moves creates hidden soft edges (§4.8).
+- 2026-10-20 — Skeleton contract: `EdgeFlags` is a `u8` newtype with associated constants (the
+  `bitflags` crate is not in the approved list); `SmallVec` fields are plain `Vec`s. The mesh is
+  struct-of-slot-maps as in §3.1 with private fields and accessor methods.
+- 2026-10-20 — Kernel operations take `&Tolerances` explicitly (the document's) and a
+  `&mut dyn DeltaSink`. `MeshDelta` identifies vertices and edge endpoints by **position**, not by
+  `VertexId`: invariant 3 (no two vertices within `length`) makes a position a stable identity,
+  and slot-map keys cannot be re-created at a chosen index on undo. `FaceSplit { old, new }` and
+  `FacesMerged { kept, removed }` are composite markers emitted alongside the elementary
+  add/remove deltas so pid bookkeeping can keep the surviving identity.
+- 2026-10-20 — `add_vertex` returns `Result` (it can fail with `OutOfRange`); `erase_edge_keep_faces`
+  is exposed as `set_edge_flags`. The file form of a mesh is `IndexedMesh` with
+  `DirectedEdgeIndex` (bit 31 = reversed), produced by `to_indexed` / consumed by `from_indexed`.

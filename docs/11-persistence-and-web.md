@@ -109,3 +109,8 @@ The core never calls `std::fs` directly outside `NativeFs`. Open/save commands t
 - 2026-10-20 — Single-threaded wasm build in 1.0; no SharedArrayBuffer requirement.
 - 2026-10-20 — IndexedDB via `rexie` behind `Storage`; OPFS optional.
 - 2026-10-20 — Autosave is journal + periodic snapshot, never in-place.
+- 2026-10-20 — Skeleton contract: the `Storage` trait is **synchronous** in the first draft
+  (`fn read(&self, key) -> Result<Vec<u8>, IoError>` etc., `Bytes` = `Vec<u8>`); desktop
+  backends are blocking and the web build wraps IndexedDB behind the same signatures (or an
+  `async` adapter) at milestone 0.7. `MemoryStorage` and `conformance_check` ship with the
+  skeleton; `NativeFs` is the only module allowed to use `std::fs`.

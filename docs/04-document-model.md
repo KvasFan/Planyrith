@@ -252,3 +252,26 @@ tags, non-invertible transforms, `next_pid` monotonicity. `repair` fixes what it
 - 2026-10-20 — Dimensions re-measure via anchors; detached dimensions are allowed and flagged.
 - 2026-10-20 — Tags are visibility/style categories only; untagged raw geometry is the norm.
 - 2026-10-20 — Camera and selection are not undoable; section-plane and hidden state are.
+- 2026-10-20 — Skeleton contract: `EntityId` is an enum over the typed ids (`Edge`, `Face`,
+  `Group`, `Instance`, `Guide`, `Dimension`, `Text`, `Image`, `SectionPlane`). Vertices are not
+  entities and carry no pid (`EntityKind::Vertex` exists for queries, hits and inference only);
+  how the `Point` CLI form `@pid` maps onto vertices is settled with the CLI at 0.1.
+- 2026-10-20 — The per-entity side tables of §3 (`attrs`, `tag_of`, `hidden`, `locked`, plus
+  `pids`/`by_pid`) are `BTreeMap`/`BTreeSet` keyed by `EntityId` (a `SecondaryMap` needs a single
+  key type). They iterate in id order and serialize as pair sequences (`document::serde_seq`).
+- 2026-10-20 — `EntityId` values are not stable across undo/redo; `Pid` is the stable identity.
+  Deltas record pids and order indices so undo re-creates entities with the same pid at the same
+  position in `order`. `next_pid` is never rewound.
+- 2026-10-20 — `Tag::UNTAGGED` and the two default materials are slot-map keys created with the
+  document (`Tags::untagged()`, `Materials::default_for(side)`), not constants. `Materials`,
+  `Tags`, `Scenes`, `Styles` and `Document::definition_order` keep explicit insertion-order lists.
+- 2026-10-20 — Minimal definitions where the spec was silent: `DimStyle { text_height, arrow,
+  units, precision }`; `Watermark { image, placement, opacity, scale, behind_model }`;
+  `RenderingOptions { shadows, fog_enabled, section: SectionDisplay }`; `SunModel::Geo` uses
+  dependency-free `Date { year, month, day }` / `TimeOfDay { hour, minute }`; `ModelInfo`
+  defaults to millimeters with precision 1 and `format_version = 1`; `Guide` is an enum
+  `Line | Point`; `Text` is the §3.6 `ScreenText`.
+- 2026-10-20 — `EntityPath { instances: InstancePath, target: EntityKey }` with
+  `EntityKey = Id(EntityId) | Pid(Pid)`; `EditContext { path: InstancePath }`; `Selection` is an
+  `IndexSet<EntityPath>`. `ComponentDefinition::new(uuid, name)` takes the UUID from the caller so
+  the document layer stays deterministic.

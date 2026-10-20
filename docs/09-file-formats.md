@@ -147,3 +147,10 @@ save unless `--no-thumbnail`. `manifest.json` carries `title`, `author`, `descri
 - 2026-10-20 — Faces serialized as edge-index loops; half-edge rebuilt on load.
 - 2026-10-20 — History journal is optional and never required for loading.
 - 2026-10-20 — IFC/FBX/DWG explicitly out of scope for 1.0.
+- 2026-10-20 — Skeleton contract: the in-memory document types derive `serde` directly in
+  named-field mode for the first draft; the index-based `EntitiesSer`/`DefinitionSer`/… forms of
+  §2 are produced by `io::native` from `HalfEdgeMesh::to_indexed` (`IndexedMesh`,
+  `DirectedEdgeIndex` with bit 31 = reversed) when the writer is implemented. `Document::images`
+  is skipped by serde and written as `images/<hash>.<ext>` parts.
+- 2026-10-20 — Migrations (§4) operate on a `serde_json::Value` intermediate tree
+  (`io::native::migrate::migrate(tree, from)`), applied one version step at a time.
