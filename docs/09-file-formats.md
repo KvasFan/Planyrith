@@ -1,0 +1,149 @@
+# 09 — File formats
+
+**Audience:** implementing agents. Normative. Lives in `planyrith-core::io`.
+
+## 1. Native container: `.plyr`
+
+A ZIP archive (`zip` crate, `Stored` or `Deflate` via `miniz_oxide`) with this layout:
+
+```
+model.plyr
+├── mimetype                  "application/x-planyrith" (first entry, Stored, for sniffing)
+├── manifest.json             { format_version, min_reader_version, generator, created, modified, title, parts: [...], checksums }
+├── document.msgpack          Document (rmp-serde), excluding image bytes and history
+├── images/<blake3-hex>.<ext> texture/image bytes (PNG/JPEG/WebP), deduplicated by content hash
+├── thumbnail.png             256×256 preview rendered by the last saver (optional)
+├── history.msgpack           optional: command journal since the last "compact" (see §3)
+└── ext/<plugin-id>/...       optional plugin payloads (opaque; preserved on round-trip)
+```
+
+Rules:
+- Readers **MUST** ignore unknown parts and unknown MessagePack map keys (forward compatibility).
+- Writers **MUST** write parts in the order above and use deterministic ZIP metadata (fixed
+  timestamps when `--deterministic`, no extra fields) so that identical documents produce
+  identical bytes.
+- `manifest.json.checksums` holds blake3 of each part; `planyrith validate` verifies them.
+- Maximum single part size 4 GB (ZIP64 enabled).
+- Extensions: `.plyr` document, `.plyrc` component (same container; `document.msgpack` holds one
+  definition at the root plus referenced materials), `.plyrm` material library, `.plyrs` style
+  library, `.plyrt` template (a `.plyr` flagged `is_template`).
+
+## 2. `document.msgpack` schema
+
+Serialized with `rmp-serde` in **named-field (map) mode** (not compact tuple mode) so fields can
+be added and skipped. Top-level:
+
+```
+Document {
+  format_version: u32,
+  info: ModelInfo,
+  model: EntitiesSer,
+  definitions: [DefinitionSer],          // ordered; referenced by index within the file
+  materials: [MaterialSer],
+  tags: { folders: [...], tags: [...] },
+  scenes: [SceneSer],
+  styles: [StyleSer], active_style: u32,
+  rendering: RenderingOptions,
+  camera: Camera,
+  attrs: AttributeDictionaries,
+}
+EntitiesSer {
+  vertices: [[f64;3]],                    // index = local vertex index
+  edges: [{ a: u32, b: u32, flags: u8, curve: Option<u32>, pid: u64 }],
+  faces: [{ loops: [[u32 /*edge index, sign bit = direction*/]], plane: [f64;4], mat_front: Option<u32>, mat_back: Option<u32>, uv_front: Option<UvMapSer>, uv_back, pid }],
+  curves: [CurveDescriptorSer],
+  groups: [{ definition: u32, transform: [f64;12], name, pid, tag, hidden, locked, attrs }],
+  instances: [{ definition: u32, transform, name, pid, tag, hidden, locked, material_override, glued_to, attrs }],
+  guides, dimensions, texts, images, section_planes: [...],
+  order: [u64 /*pid*/],                    // insertion order across kinds
+}
+```
+- Vertex positions are exact `f64`; faces store their plane for validation (recomputed on load if
+  missing).
+- Face loops reference edges by index with a direction bit; the half-edge structure is rebuilt on
+  load (`HalfEdgeMesh::from_indexed`) — this keeps the file compact and independent of internal
+  slot layout.
+- Pids are stored; `EntityId`s are not (they are allocated on load in `order`).
+- Transforms are 3×4 column-major `f64`.
+
+## 3. Edit history journal (optional)
+
+`history.msgpack` is an append-only list of `{ command, params, group, timestamp? }` since the
+last compaction. It enables "revert to" and crash recovery and makes files reviewable in version
+control via `planyrith export --format json`. It is **not** required to load the document.
+`planyrith tool compact-history` clears it. Journals are capped at 64 MB by default.
+
+## 4. Versioning and migration
+
+- `format_version` increments on any schema change. `min_reader_version` tells old readers
+  whether they can load (ignoring unknown fields) or must refuse (E1401).
+- Migrations live in `io::native::migrate::vN_to_vN+1` and are pure functions on the deserialized
+  intermediate (`serde_value`-like tree) applied in sequence; every migration has a fixture pair.
+- Policy: readers support all versions since 0.1; writers always write the latest.
+
+## 5. Interchange formats — scope
+
+| Format | Import | Export | Notes |
+|---|---|---|---|
+| OBJ (+MTL) | ✔ | ✔ | groups → groups or components (`o`/`g`), materials, UVs, normals (as soft edges). |
+| STL (ASCII/binary) | ✔ | ✔ | triangles merged into coplanar faces on import (`--merge-coplanar`, default on); binary default on export. |
+| glTF 2.0 / GLB | ✔ | ✔ | nodes → groups/instances (meshes shared → components), PBR base color + texture, transforms, cameras → scenes. KHR_texture_transform supported. |
+| DXF (R12–2018 ASCII) | ✔ | ✔ (3D and 2D) | LINE, LWPOLYLINE/POLYLINE, ARC, CIRCLE, ELLIPSE (segmented), SPLINE (flattened), 3DFACE, POLYFACE mesh, INSERT/BLOCK → components, LAYER → tags, TEXT/MTEXT, DIMENSION (as text+lines on export). |
+| STEP AP203/214 | ✔ (feature `brep`) | ✔ (feature `brep`) | via `truck-stepio`; solids/shells; curved faces tessellated with curve descriptors. |
+| Images (PNG/JPEG/WebP) | ✔ | ✔ (render) | import as image entity or as a material texture. |
+| CSV | ✔ (points) | ✔ (component report) | `x,y,z[,name]` points → guide points or vertices; report: definition, count, bbox, volume, attrs. |
+| JSON | — | ✔ | full document dump (`--canonical` for diffing). |
+| SVG / PDF | — | ✔ | 2D export of a view (`--2d`) and of sheets (`docs/15`). Hidden-line removal in software; vector output. |
+| `.plyr/.plyrc` | ✔ | ✔ | merge another document as a group/component. |
+
+Out of scope for 1.0 (documented as future work): IFC, FBX, 3DS, DWG, USD, COLLADA.
+Import of any unsupported entity yields `W2004` with counts, never a failure.
+
+## 6. Importer/exporter contracts
+
+```rust
+pub trait Importer { fn probe(bytes: &[u8], name: &str) -> Confidence; fn import(&self, src: &mut dyn Read, opts: &ImportOptions, tx: &mut Transaction, progress: &dyn Progress) -> Result<ImportReport, IoError>; }
+pub trait Exporter { fn export(&self, doc: &Document, scope: &ExportScope, opts: &ExportOptions, dst: &mut dyn Write, progress: &dyn Progress) -> Result<ExportReport, IoError>; }
+```
+Common options: `units` (source unit for unitless formats), `scale`, `swap_yz` (Y-up formats are
+auto-detected for glTF; OBJ/STL are assumed Y-up unless `--z-up`), `merge_coplanar`,
+`soften_angle`, `as` (group/component/image), `at` (placement), `include_hidden`,
+`selection_only`, `per_tag`, `triangulate`, `copy_textures`.
+
+Rules:
+- Importers build geometry through the kernel (`add_edge`/face creation) only for *boundary*
+  edges; interior triangles of large meshes are inserted via a fast path
+  `HalfEdgeMesh::from_triangles_merged` which merges coplanar adjacent triangles into faces,
+  marks edges between faces below `soften_angle` as `SOFT|SMOOTH`, and reports non-manifold input.
+- Exporters are deterministic (stable ordering by pid) and stream (never hold the whole output in
+  memory for > 100 MB files).
+- Texture references are exported relative to the output file unless `copy_textures`.
+
+## 7. Thumbnails and metadata
+
+The GUI and CLI write `thumbnail.png` (256² isometric render of the model, deterministic style) on
+save unless `--no-thumbnail`. `manifest.json` carries `title`, `author`, `description`,
+`generator` (`planyrith <version>`), `created`, `modified` (RFC 3339; fixed under
+`--deterministic`).
+
+## 8. Robustness
+
+- Corrupt or truncated containers → `E1402` with the failing part; `planyrith repair --from-parts`
+  can rebuild from `document.msgpack` alone.
+- Fuzz targets: the ZIP walker, the MessagePack decoder path (via `arbitrary` structs), every
+  importer. No panics allowed; memory bounded (`zip` entries are size-checked against the
+  manifest before extraction, max 4 GB; images capped at 16384² px).
+
+## 9. Compatibility tests
+
+- Golden `.plyr` fixtures for every `format_version` since 0.1 under
+  `crates/planyrith-core/tests/fixtures/native/`.
+- Round-trip tests per interchange format: import → export → import ⇒ same topology counts and
+  bounds within tolerance; glTF/OBJ validated with external validators in CI when available.
+
+## Decisions
+
+- 2026-10-20 — ZIP container with `mimetype` first entry; MessagePack named-field mode.
+- 2026-10-20 — Faces serialized as edge-index loops; half-edge rebuilt on load.
+- 2026-10-20 — History journal is optional and never required for loading.
+- 2026-10-20 — IFC/FBX/DWG explicitly out of scope for 1.0.

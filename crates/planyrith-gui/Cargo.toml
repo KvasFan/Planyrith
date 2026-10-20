@@ -1,0 +1,21 @@
+[package]
+name = "planyrith-gui"
+description = "Planyrith graphical frontend: egui/eframe shell with a wgpu 3D viewport, on desktop and WebAssembly"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "planyrith-gui"
+path = "src/main.rs"
+
+# No dependencies at 0.0.0. Planned (see docs/02-technology-stack.md):
+#   planyrith-core, egui, eframe, egui-wgpu, egui_tiles, wgpu, glam, image,
+#   wasm-bindgen / web-sys / rexie (target wasm32)
+[dependencies]
+
+[lints]
+workspace = true

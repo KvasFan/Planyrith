@@ -1,0 +1,214 @@
+# 07 — Interaction and user interface
+
+**Audience:** implementing agents. Normative for `planyrith-gui`. The GUI never implements
+document semantics; it collects parameters and dispatches commands (`docs/01 §3.3`).
+
+## 1. Shell layout (egui + eframe + egui_tiles)
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Menu bar: File Edit View Camera Draw Tools Window Extensions Help           │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ Toolbars (dockable rows): Large tool set | Views | Styles | Sections | ...  │
+├──────────┬──────────────────────────────────────────────────────┬───────────┤
+│ Left     │                                                      │ Right     │
+│ dock     │                 3D Viewport (wgpu)                   │ dock      │
+│ (tiles)  │   ┌──────────────────────────────────────────────┐   │ (tiles):  │
+│ Tool     │   │ scene tabs: [Scene 1][Scene 2][+]            │   │ Entity    │
+│ options  │   └──────────────────────────────────────────────┘   │ Info      │
+│          │                                                      │ Materials │
+│          │                                                      │ Components│
+│          │                                                      │ Styles    │
+│          │                                                      │ Tags      │
+│          │                                                      │ Scenes    │
+│          │                                                      │ Shadows   │
+│          │                                                      │ Outliner  │
+│          │                                                      │ Fog       │
+│          │                                                      │ Tool Help│
+├──────────┴──────────────────────────────────────────────────────┴───────────┤
+│ Status bar: [context breadcrumb] [hint for current step] [value field label][value field ▭] │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+- Docks are `egui_tiles` trees; panels are tabs that can be split, stacked, dragged, floated
+  (as separate egui windows) and hidden. Layouts are saved per user (not in the document) with
+  a "Default", "Modeling", "Documentation" preset set.
+- Multiple viewports (split view) are supported from milestone 0.6: each viewport is a tile with
+  its own camera and style, sharing the document.
+- Window title: `<file name>[*] — Planyrith`.
+
+## 2. Input model
+
+- Mouse: left = tool action; middle-drag = orbit, `Shift`+middle = pan, wheel = zoom to cursor,
+  right = context menu (on release without drag). Trackpad: two-finger = orbit, `Shift` = pan,
+  pinch = zoom. Pen/tablet: hover supported.
+- Keyboard: single-letter tool shortcuts (`docs/05 §12`), modifiers (`Shift`/`Ctrl`/`Alt`,
+  `Cmd` on macOS maps to `Ctrl`), arrow keys for axis locks, `Esc`, `Enter`, `Backspace`
+  (remove last point in chains), `Delete`, `Tab` (cycle inference candidates when several are
+  within tolerance), `Space` (select tool), number/unit keys go to the value field without focusing it.
+- The **value field** (value control box) is always live: typing while a tool is in a step that accepts a
+  value fills the value field; `Enter` applies; the value field stays editable *after* an action completes until
+  the next pointer move with button press, so a user can type `2000` Enter after a Push/Pull to
+  correct the distance (re-executes the last command via undo+redo with new params).
+- Focus rules: the viewport keeps keyboard focus unless a text field is being edited; `Esc` from
+  a text field returns focus to the viewport.
+- Touch (web/tablets): one finger = tool action, two fingers = orbit/zoom, three = pan; long
+  press = right-click. Not optimized for 1.0 but must work.
+
+## 3. Tool lifecycle
+
+```rust
+pub trait InteractiveTool {
+    fn activate(&mut self, cx: &ToolCx);                 // reset state, set status hint
+    fn pointer(&mut self, ev: PointerEvent, cx: &mut ToolCx) -> ToolFlow;  // Continue | Done(ParamsJson) | Cancel
+    fn key(&mut self, ev: KeyEvent, cx: &mut ToolCx) -> ToolFlow;
+    fn value_field(&mut self, text: &str, cx: &mut ToolCx) -> ToolFlow;             // Enter in value field
+    fn draw_overlay(&self, painter: &OverlayPainter, cx: &ToolCx);          // rubber-bands, marks
+    fn preview(&self) -> Option<PreviewRequest>;                            // command + params for scratch apply
+    fn deactivate(&mut self, cx: &mut ToolCx);
+}
+```
+- `ToolCx` gives read access to the document, the inference engine, the camera, the selection,
+  the status-bar hint setter and the value field. Tools cannot mutate the document except through
+  `cx.execute(command, params)`.
+- Sticky vs one-shot: drawing/editing tools stay active after completing (sticky); `Space`
+  returns to Select. Organize commands (make group…) are one-shot.
+- Preview: each frame the GUI applies `preview()` on a scratch fork and renders the fork's
+  changed containers with a preview style (semi-transparent) — the real document is untouched.
+  Preview is throttled to 60 Hz and skipped if the previous preview took > 16 ms (then only the
+  rubber-band overlay is shown).
+
+## 4. Status bar and hints
+
+- Left: context breadcrumb (`Model › Kitchen › Cabinet (3 instances)`), clickable to exit levels.
+- Middle: hint from `CommandMeta.steps[current].prompt`, e.g. "Select end point or enter length".
+- Right: value field label from `steps[current].value_field` ("Length", "Distance", "Angle", "Dimensions",
+  "Radius", "Sides") and the value field field.
+- Tool Help panel (optional tab) shows an animated description of the active tool from the
+  same metadata plus `modifiers`.
+
+## 5. Inference UX
+
+- Marks and labels per `docs/06 §10`. Labels appear after 300 ms hover and fade on motion.
+- `Shift` locks the current inference (line/plane becomes bold); arrow keys lock axes
+  (`docs/05 §2`); a lock glyph is drawn on the cursor; locked state persists until the step ends
+  or the key is pressed again.
+- Hover memory: hovering an endpoint/edge/face for 400 ms registers a reference (small pulsing
+  ring); up to 3 references; "From Point" dotted lines appear when aligned with a reference.
+- `Tab` cycles alternative candidates when more than one inference lies within the pixel
+  tolerance (e.g. endpoint vs. intersection).
+- Pixel tolerance is 8 px (HiDPI-aware); configurable in Preferences.
+
+## 6. Panels (right dock)
+
+| Panel | Content and behavior |
+|---|---|
+| **Entity Info** | For the selection: kind and count, tag combo, name, instance count ("3 in model"), lengths/areas/volume (solid), material swatches (front/back), hidden/locked toggles, shadow casting/receiving, dimension text, arc segments/radius editable. Edits dispatch commands. |
+| **Materials** | Library tree (folders: in-model, bundled, user) with thumbnails; search; "In Model" shows usage counts; edit panel: color picker (RGB/HSL/hex), opacity slider, texture file/size (locked aspect), colorize, reset; sampler button; drag-drop onto faces/instances. |
+| **Components** | Library browser (in-model, local folders, user library) with thumbnails; drag into viewport = `insert-component` with glue behavior; right-click: select instances, reload, save as, statistics. |
+| **Styles** | Presets (bundled + user), edit tabs (Edges, Faces, Background, Watermark, Modeling), mix. |
+| **Tags** | Tree with folders; visibility eye, color swatch, line style, current-tag radio (with warning about tagging raw geometry); context menu: add/delete/rename/purge unused/select entities. |
+| **Scenes** | Thumbnails list; add/update/delete/reorder; properties checklist (camera, hidden, tags, sections, style, shadows); transition time; "include in animation"; play. |
+| **Shadows** | Toggle, date/time sliders, time zone/UTC offset, light/dark, on faces/ground/from edges, geo-location fields (lat/lon/north). |
+| **Fog** | Toggle, near/far distance sliders, color/use background. |
+| **Outliner** | Hierarchy tree of groups/instances (named), search, drag to re-parent (`reparent` command), eye/lock toggles, double-click to enter context. |
+| **Tool Help** | Tool help from metadata. |
+| **Soften Edges** | Angle slider, smooth normals, soften coplanar (operates on selection). |
+
+Left dock hosts **Tool Options** (dynamic fields for the active tool's params that are not
+collected by clicks: e.g. segments for Circle, array count, copy toggle).
+
+## 7. Menus (summary; items are commands)
+
+- **File:** New, Open…, Open Recent, Save, Save As…, Save a Copy As…, Revert, Import…, Export ►
+  (3D Model…, 2D Graphic…, Image…, Animation…, Section Slice…), Send to Sheets, Document
+  Info…, Print…, Exit.
+- **Edit:** Undo, Redo, Cut, Copy, Paste, Paste in Place, Delete, Delete Guides, Select All,
+  Select None, Invert Selection, Hide, Unhide ►, Lock, Unlock, Make Component…, Make Group,
+  Close Group/Component, Intersect Faces ►, Entity-specific submenu (Divide, Reverse Faces,
+  Explode, Soften/Smooth, Texture ►).
+- **View:** Toolbars ►, Scene Tabs, Hidden Geometry, Hidden Objects, Section Planes, Section
+  Cuts, Section Fill, Axes, Guides, Shadows, Fog, Edge Style ►, Face Style ►, Component Edit ►
+  (Hide rest of model, Hide similar components), Animation ►.
+- **Camera:** Previous, Next, Standard Views ►, Parallel Projection, Perspective, Two-Point
+  Perspective, Field of View, Zoom, Zoom Window, Zoom Extents, Position Camera, Walk, Look Around.
+- **Draw:** Lines ► (Line, Freehand), Arcs ► (Arc, 2 Point Arc, 3 Point Arc, Pie), Shapes ►
+  (Rectangle, Rotated Rectangle, Circle, Polygon), 3D Text.
+- **Tools:** Select, Eraser, Paint, Move, Rotate, Scale, Push/Pull, Sweep, Offset,
+  Outer Shell, Solid Tools ►, Tape Measure, Protractor, Axes, Dimensions, Text, Section Plane.
+- **Window:** Panels ►, Layout Presets ►, Reset Layout, Model Info, Preferences, Extension Manager,
+  Console (scripting REPL).
+- **Extensions:** populated by plugin manifests (`docs/10`).
+- **Help:** Documentation, Keyboard shortcuts, Check for updates (opt-in), About.
+
+## 8. Dialogs
+
+- **Model Info:** Units (format, precision, length snapping, angle units/precision/snapping),
+  Geo-location, Dimensions (font, arrows, extension lines, text alignment), Text, Animation
+  (scene transitions/delay), Components (fade similar/rest), Credits,
+  File (size, version), Rendering (anti-aliasing), Statistics (entity counts, purge unused),
+  Tolerances (advanced).
+- **Preferences** (per user): Accessibility (inference colors, high-contrast marks), Applications
+  (image editor), Compatibility (wheel direction), Drawing (click style: click-move-click vs
+  click-drag; continue line drawing; display crosshairs), Files (default folders), General (auto-
+  save interval, backup, check for problems/auto-fix, scene warnings), Graphics (MSAA, max
+  textures, software/hardware), Shortcuts (remap), Template, Workspace (icon size, docks).
+- **Make Component**, **Save As**, **Export options** per format, **Import options**,
+  **Texture position** (contextual, in viewport), **Problem checker** results.
+
+## 9. Undo/redo UX
+
+- Edit menu shows the undo label from `CommandMeta.label` ("Undo Push/Pull").
+- Chained drawing steps undo per segment while the tool is active; completed tools undo as one.
+- Camera changes are not undo steps (Camera › Previous/Next instead).
+- Undo stack limit: 500 steps or 512 MB of deltas (older steps dropped with a status message).
+
+## 10. Edit context (groups/components)
+
+- Double-click enters; `Esc` with nothing in progress (or clicking outside) exits one level;
+  breadcrumb clicks exit to a level.
+- Inside a component, the title shows the instance count; edits apply to all instances (live
+  update in the viewport). "Make Unique" available in the context menu.
+- Rest of model fades (style `inactive_fade`); "Hide rest of model" / "Hide similar components"
+  toggles in View › Component Edit.
+- Paste into a context pastes into that container; "Paste in Place" keeps world coordinates.
+
+## 11. Clipboard
+
+- Internal clipboard holds a serialized sub-document (`.plyr` bytes); cross-process copy/paste
+  between Planyrith instances via the OS clipboard with a custom MIME type
+  `application/x-planyrith` and a text fallback (JSON) for scripts.
+
+## 12. Accessibility and i18n
+
+- All colors in Preferences › Accessibility (inference marks, selection, axes) with high-
+  contrast presets; marks have distinct shapes, not only colors.
+- Full keyboard operation of panels (egui provides focus traversal); tooltips on every icon.
+- Strings are externalized (Fluent `.ftl` files via the `fluent` crate, Apache-2.0/MIT);
+  English is the source language; number/unit formatting respects document units (not locale) and
+  decimal separator from user preference.
+- Font scaling with OS HiDPI and a UI scale preference (75–200 %).
+
+## 13. Web-specific UI
+
+- File menu uses the browser: Open = file picker (File System Access API when available, else
+  `<input type=file>`), Save = download or "Save to browser" (IndexedDB, `docs/11`), Recent =
+  IndexedDB list with sizes and "Export all" (zip download).
+- Keyboard shortcuts that the browser reserves (`Ctrl+N`, `Ctrl+W`, `Ctrl+T`) are remapped (`Alt+N`…),
+  documented in Help.
+- A persistent "unsaved changes" guard via `beforeunload`.
+
+## 14. Performance rules for the GUI layer
+
+- Never allocate per frame in hot paths (egui painter shapes are pooled).
+- Document queries in panels are cached by `DocumentChanged` generation; panels redraw only on
+  change (egui `request_repaint` on events, idle otherwise — important for laptops).
+- The viewport requests continuous repaint only during camera motion, tool drag or scene
+  animation.
+
+## Decisions
+
+- 2026-10-20 — egui_tiles docks; layouts stored per user, not in documents.
+- 2026-10-20 — value field remains editable after an action to re-execute the last command with a new value.
+- 2026-10-20 — Click-move-click is the default drawing style (drag style is a preference).
+- 2026-10-20 — Fluent for localization; English source.

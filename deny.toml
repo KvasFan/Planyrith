@@ -1,0 +1,46 @@
+# cargo-deny configuration — enforces the project's licensing policy.
+# Run with: cargo deny check licenses bans sources
+# Policy details: docs/02-technology-stack.md, section "Licensing policy".
+
+[licenses]
+# Only permissive, OSI-approved licenses are allowed by default so that the
+# resulting binaries can be shipped under MIT OR Apache-2.0.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "CC0-1.0",
+    "MPL-2.0",
+    "OFL-1.1",
+    "Ubuntu-font-1.0",
+]
+# Copyleft licenses (GPL-*, LGPL-*, AGPL-*) are not in the allow list. They are
+# acceptable only for optional, clearly separated components and require an
+# explicit entry here plus a note in docs/02-technology-stack.md.
+confidence-threshold = 0.9
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# "Rust only": crates that compile or link vendored C/C++ are not allowed.
+deny = [
+    { crate = "openssl-sys", reason = "C library; use rustls" },
+    { crate = "libz-sys", reason = "C library; use miniz_oxide via flate2 default features" },
+    { crate = "libz-ng-sys", reason = "C library; use miniz_oxide" },
+    { crate = "zstd-sys", reason = "C library; not needed" },
+    { crate = "bzip2-sys", reason = "C library; not needed" },
+    { crate = "libsqlite3-sys", reason = "C library; not needed" },
+    { crate = "freetype-sys", reason = "C library; egui uses pure-Rust text" },
+    { crate = "sdl2-sys", reason = "C library; winit is used" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

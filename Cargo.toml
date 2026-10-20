@@ -1,0 +1,42 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/planyrith-core",
+    "crates/planyrith-cli",
+    "crates/planyrith-gui",
+]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/KvasFan/Planyrith"
+homepage = "https://github.com/KvasFan/Planyrith"
+authors = ["Planyrith contributors"]
+keywords = ["cad", "3d", "modeling", "architecture", "wgpu"]
+categories = ["graphics", "rendering", "command-line-utilities"]
+
+# Shared dependency versions are declared here once the implementation starts.
+# Nothing is pulled in at version 0.0.0 on purpose: this tag is specification-only.
+# See docs/02-technology-stack.md for the approved crate list and licenses.
+[workspace.dependencies]
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+unwrap_used = "warn"
+expect_used = "warn"
+module_name_repetitions = "allow"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+opt-level = 3
+
+[profile.dev.package."*"]
+opt-level = 2

@@ -1,0 +1,20 @@
+[package]
+name = "planyrith-cli"
+description = "Planyrith command-line frontend: every tool as a subcommand, scripting, headless export, and the JSON-RPC server the GUI can attach to"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "planyrith"
+path = "src/main.rs"
+
+# No dependencies at 0.0.0. Planned (see docs/02-technology-stack.md):
+#   planyrith-core, clap, serde_json, tracing, tracing-subscriber, anyhow
+[dependencies]
+
+[lints]
+workspace = true

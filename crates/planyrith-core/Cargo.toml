@@ -1,0 +1,26 @@
+[package]
+name = "planyrith-core"
+description = "Planyrith document model, geometry kernel, command system and file I/O (no GUI, no GPU)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+# No dependencies at 0.0.0. Planned (see docs/02-technology-stack.md):
+#   glam, parry3d-f64, serde, rmp-serde, zip, thiserror, rayon (desktop),
+#   truck-* (feature "brep"), image, gltf, tobj, dxf, earcutr, rhai (feature "scripting")
+[dependencies]
+
+[features]
+default = []
+brep = []        # exact B-rep kernel integration (truck)
+scripting = []   # embedded scripting runtime (rhai)
+parallel = []    # rayon-based parallelism (desktop targets)
+
+[lints]
+workspace = true

@@ -1,0 +1,320 @@
+# 03 — Geometry kernel
+
+**Audience:** implementing agents. Normative. Lives in `planyrith-core::geom`, `::math`,
+`::tolerance`, `::spatial`, `::inference` (the inference *engine* is here; its *UX* is in `docs/07`).
+
+## 1. Coordinate system and units
+
+- Right-handed, **Z up**. Drawing axes: X = red, Y = green, Z = blue. Ground plane is XY.
+- Internal length unit: **millimeter**, stored as `f64`. All lengths in APIs use the newtype
+  `Length(f64)`; angles use `Angle(f64)` in radians. Display units (mm, cm, m, in, ft-in,
+  architectural fractions) are a *formatting* concern in `units.rs`.
+- Model extent supported: ±1 × 10⁹ mm (1 000 km) with full tolerance behavior; beyond that,
+  commands return `GeometryError::OutOfRange`.
+- Transforms are `glam::DAffine3` (rotation+scale+shear 3×3 plus translation). Instances may be
+  mirrored (negative determinant) and non-uniformly scaled; algorithms must not assume
+  orthonormality unless they normalize first.
+
+## 2. Tolerances
+
+```rust
+pub struct Tolerances {
+    pub length: f64,        // 1e-3 mm  — two points closer than this are the same point
+    pub length_sq: f64,     // length²
+    pub angle: f64,         // 1e-6 rad — direction equality / coplanarity test
+    pub planarity: f64,     // 1e-2 mm  — max distance of a loop's vertices from its fitted plane
+    pub parametric: f64,    // 1e-9     — curve parameter equality
+}
+```
+
+Rules:
+- Never compare `f64` with `==` in geometry. Use `approx_eq_len`, `approx_eq_angle`,
+  `is_coplanar`, `is_parallel`, `is_perpendicular` helpers from `tolerance.rs`.
+- Tolerances are a property of the `Document` (`ModelInfo.tolerances`) with the defaults above.
+  A document may raise them (e.g. imported sloppy meshes) but never below `1e-6 mm`.
+- Edges shorter than `length` **MUST NOT** exist in a mesh; operations that would create one
+  merge the endpoints instead and report a warning.
+- Faces with area < `length²` are degenerate and are removed with a warning.
+
+## 3. The half-edge mesh
+
+Each `Entities` container (`docs/04 §3`) owns exactly one `HalfEdgeMesh` holding all of its
+edges and faces. Groups and component definitions therefore have their own meshes; nothing in a
+mesh references geometry in another container.
+
+### 3.1 Data layout (struct-of-arrays, slot maps with generations)
+
+```rust
+pub struct HalfEdgeMesh {
+    vertices:   SlotMap<VertexId, Vertex>,       // position: DVec3
+    half_edges: SlotMap<HalfEdgeId, HalfEdge>,   // origin: VertexId, twin, next, prev, edge: EdgeId, face: Option<FaceId>
+    edges:      SlotMap<EdgeId, Edge>,           // he: HalfEdgeId (one of the pair), flags: EdgeFlags, curve: Option<CurveRef>
+    faces:      SlotMap<FaceId, Face>,           // outer: LoopId, holes: SmallVec<LoopId>, plane: Plane, material_front/back, uv_front/back
+    loops:      SlotMap<LoopId, Loop>,           // start: HalfEdgeId, face: FaceId
+    curves:     SlotMap<CurveId, CurveDescriptor>, // arcs/circles/polylines grouping consecutive edges
+    vertex_edges: SecondaryMap<VertexId, SmallVec<[HalfEdgeId; 6]>>, // outgoing half-edges (star)
+}
+```
+
+Invariants (checked by `Mesh::validate()` in debug builds and by `planyrith validate`):
+
+1. Every edge has exactly two half-edges (twins). A half-edge's `face` is `None` when it borders
+   no face on that side (open/wire edges are allowed — this is not a closed-manifold mesh).
+2. A face has one outer loop (counter-clockwise when viewed from the front, i.e. along `+normal`)
+   and zero or more hole loops (clockwise). All loop vertices lie within `planarity` of `face.plane`.
+3. Two vertices are never closer than `tolerances.length`.
+4. Two edges never intersect except at shared vertices (edges are split at intersections when
+   added — see §4.2). Edges never pass through a face interior without splitting it.
+5. An edge may border more than two faces only through *distinct* half-edge pairs? **No:** an
+   edge borders at most two faces (one per half-edge). Non-manifold junctions (three faces
+   sharing a line) are represented by coincident but separate edges only if they belong to
+   different containers; within one container the geometry is a 2-manifold with boundary plus
+   wire edges. (Rationale: direct modeling of thin surfaces needs T-junctions along *edges* —
+   that is handled by splitting faces, not by >2-valent edges.)
+
+### 3.2 Edge flags
+
+```rust
+bitflags! { pub struct EdgeFlags: u8 {
+    const SOFT    = 0b0001; // shading normals averaged across this edge (smooth shading)
+    const SMOOTH  = 0b0010; // edge not drawn when both faces visible
+    const HIDDEN  = 0b0100; // never drawn (unless "show hidden geometry")
+    const CAST_SHADOW_PROFILE = 0b1000; // reserved
+}}
+```
+
+### 3.3 Curves
+
+Arcs, circles and polygons are polylines of ordinary edges plus a `CurveDescriptor`
+(`Arc { center, normal, radius, start_angle, end_angle, segments }`, `Circle{…}`,
+`Polygon{…}`, `Freehand{points}`) referenced by each member edge. Behavior:
+- Selection, inference ("center", "tangent", "on arc") and Push/Pull treat the curve as one unit.
+- Segment count is editable while the curve is still "intact" (all member edges present,
+  no member edge used by a face other than the two the curve was created with).
+- Any edit that breaks the invariant drops the descriptor (edges become plain).
+- Faces whose boundary includes a curve mark the inter-segment edges `SOFT | SMOOTH`.
+
+## 4. Fundamental operations
+
+All operations are functions in `geom::*` taking `&mut HalfEdgeMesh` plus a `&mut DeltaSink`
+that records inverse operations for undo (`docs/01 §3`). They return `Result<_, GeometryError>`
+and never leave the mesh in an invalid state (apply-or-rollback within the function).
+
+### 4.1 Add vertex / merge
+`add_vertex(p) -> VertexId` returns an existing vertex if one is within `tolerances.length`.
+
+### 4.2 Add edge (the workhorse)
+`add_edge(a: DVec3, b: DVec3) -> AddEdgeResult { edges: Vec<EdgeId>, new_faces: Vec<FaceId>, split_faces: Vec<(FaceId, FaceId, FaceId)> }`
+
+Algorithm:
+1. Snap endpoints to existing vertices (§4.1). If `a≈b` → `Err(Degenerate)`.
+2. **Split against existing geometry:** collect all edges whose segment intersects `[a,b]`
+   (spatial index query on the segment's AABB expanded by tolerance), split both at the
+   intersection points (creating vertices); collect vertices lying on `[a,b]` and split the new
+   edge there. Result: a chain of edges `e1..en`.
+3. For each edge in the chain whose interior lies on an existing face (point-in-polygon test in
+   the face's plane, distance ≤ planarity): the edge becomes an *interior* edge of that face.
+4. **Face finding (§4.3)** on every vertex touched: detect newly closed coplanar loops → create
+   faces; detect faces split by a chord → split (§4.4).
+5. Emit deltas.
+
+### 4.3 Face finding
+Given the set of touched vertices `V`:
+1. For each pair of consecutive edges around each `v ∈ V` (angularly sorted star), consider the
+   plane they span (skip if collinear). Collect candidate planes (deduplicated by
+   `is_coplanar`).
+2. For each candidate plane `P`: take the subgraph of edges lying in `P` (vertices within
+   `planarity`), connected to `V`. Compute the planar embedding (edges sorted by angle around
+   each vertex in `P`'s 2D frame). Walk each half-edge "turn left-most" to enumerate minimal
+   cycles. Discard the unbounded outer cycle (the one with negative signed area in the frame
+   chosen so interior faces are positive) — unless the subgraph has only one cycle, which means a
+   single closed loop → one face.
+3. For each minimal cycle not already a face loop: if it contains an existing face's loop as a
+   sub-area (i.e. the cycle encloses existing geometry) → it's a hole situation handled in §4.5;
+   otherwise create `Face { outer: cycle }` with plane `P`, orientation chosen so the normal
+   points toward `+Z` if the plane is not vertical, else toward the viewer-agnostic rule
+   `+Y` then `+X` (deterministic default; the user flips later). The caller (Push/Pull, etc.)
+   may override orientation.
+4. **Interior wire edges**: an edge chain inside a face whose both endpoints touch the face
+   boundary (or each other forming a cycle) splits the face (§4.4) or creates a hole (§4.5).
+
+Complexity target: O(k log n) per added edge for k local edges; never a global scan.
+
+### 4.4 Split face by chord
+Face `F` with outer loop `L`; chord `c` connects two boundary vertices through the interior
+(possibly via a chain). Build the two new loops by walking `L` from `c.start` to `c.end` plus
+`c`, and the complement. Assign existing holes to whichever new face contains them. Copy
+materials/UVs. Delete `F`, create `F1`, `F2`. Deltas: `FaceSplit { old, new: [F1, F2] }` so
+undo restores the single id.
+
+### 4.5 Holes
+A closed cycle strictly inside a face `F` (no shared vertices) becomes a **hole** of `F` and a
+new **inner face** `G` with the same plane and opposite loop orientation (so the user can later
+erase `G` to get a real hole, or push/pull it). Erasing `G` leaves the hole; erasing the cycle's
+edges removes the hole and re-merges.
+
+### 4.6 Erase edge
+`erase_edge(e)`:
+1. If `e` borders two faces `F1`, `F2` that are coplanar → **merge** them into one face (union
+   of loops, holes recomputed; the new face keeps `F1`'s id and material).
+2. If `e` borders exactly one face → delete that face (it is no longer closed).
+3. If `e` borders two non-coplanar faces → delete both faces (the user asked for a hole in a
+   box) — this matches direct-modeling expectations.
+4. Delete `e`; delete vertices that became isolated.
+Variant `erase_edge_keep_faces` is used by Soften/Hide tools (flags only, no topology change).
+
+### 4.7 Erase face
+Deletes the face only; edges stay (unless `erase_orphans=true`, used by Eraser with modifier).
+
+### 4.8 Move vertices (translate/transform a set of vertices)
+`transform_vertices(set, T)`:
+1. Compute new positions; detect vertex merges (new positions within tolerance of each other
+   or of untouched vertices) → merge, with edge collapse if the edge's endpoints merge.
+2. For each affected face check planarity. If a face would become non-planar: **auto-fold** it —
+   triangulate the face along the shortest diagonal that restores planar pieces (the new interior
+   edges are flagged `SOFT|SMOOTH|HIDDEN` so the fold is invisible). This is the behavior users
+   expect when dragging one vertex of a quad.
+3. Re-check for intersections with other edges/faces only if `check_intersections=true`
+   (Move tool default *off* for speed; Intersect Faces is explicit).
+
+### 4.9 Extrude face (Push/Pull core)
+`extrude_face(f, distance, options{ create_new_start_face: bool })`:
+1. Offset all vertices of `f`'s loops along `f.normal * distance` into new vertices; create side
+   faces (quads) for every boundary edge of every loop (holes included); create the new cap.
+2. If `create_new_start_face` (modifier) keep the original face; otherwise delete it (the
+   original is now interior to the volume).
+3. **Merge rule:** after extrusion, for each new side face check coplanar adjacency with
+   existing faces sharing an edge → merge (so pulling a rectangle on a wall extends the wall).
+4. **Push-through rule:** if `distance` is negative and the cap lands coplanar (within
+   `planarity`) on an existing face of the same container that fully contains the cap outline
+   → split that face by the cap outline and delete the interior piece plus the cap
+   (a through-hole is created). If the cap lands on the back of another face but is not
+   contained → ordinary extrusion (user may run Intersect Faces).
+5. Side faces inherit the material of the start face's *neighbors* when a neighbor face
+   is coplanar and merged (step 3); otherwise default material.
+
+### 4.10 Offset loop
+`offset_face_boundary(f, d)`: offset each loop edge inward/outward by `d` in the face plane using
+miter joins; resolve self-intersections by clipping (polygon offset with the straight skeleton
+simplification: for convex corners use miter; for concave corners trim); result edges added via
+§4.2 so faces form automatically.
+
+### 4.11 Sweep
+`sweep_profile(profile_face, path_edges)`: for each path vertex compute a frame (path tangent,
+Frenet-free "minimum rotation" frame to avoid twisting); transform the profile to each frame;
+connect consecutive profiles with quads; at path corners miter the profile (intersect adjacent
+sweep planes). Closed path → closed ring. The profile face is deleted (it is interior).
+
+### 4.12 Intersect faces
+`intersect(set_a, set_b, scope)`: compute face–face intersection segments (plane–plane line
+clipped to both polygons); add them as edges via §4.2 into the target container (`scope`
+decides: with model / with selection / with context). Because §4.2 splits faces, the result is
+ready for erasing pieces.
+
+### 4.13 Solid classification and booleans
+A container is a **solid** if its mesh is a closed 2-manifold (every edge borders exactly two
+faces, no wire edges, no faces inside) and has consistent orientation; `is_solid()` is cached and
+reported in the Entity Info panel and `planyrith query --solid`.
+
+`boolean(op, A, B)` for solids (half-edge implementation, `geom::boolean`):
+1. Intersect faces of A and B (§4.12) into copies.
+2. Classify every face piece as inside/outside/on the other solid (ray parity + coplanar
+   handling by normal comparison).
+3. Keep pieces per op: Union = outside A ∪ outside B; Intersect = inside ∩; Subtract A−B =
+   outside-B pieces of A ∪ inside-A pieces of B (flipped); Trim = Subtract but keep B;
+   Split = all three regions as separate solids; Outer Shell = Union of all, dropping internal
+   voids.
+4. Stitch pieces into a new mesh, merge coplanar faces, validate solidity.
+If step 2 reports ambiguity (coplanar overlaps with mismatched tolerances), fall back to the exact
+kernel under feature `brep` (`geom::brep::boolean`) and otherwise return `GeometryError::
+NonRobust` with guidance.
+
+## 5. Tessellation (for rendering and export)
+
+`tessellate_face(f) -> Vec<[u32; 3]>`: project loops to the face's 2D frame, run ear clipping
+(`earcutr`) with holes; cache the result per face keyed by `(face_gen, vertex positions hash)`.
+For faces with a texture and area > 10 m² use constrained Delaunay (`spade`) to avoid
+sliver triangles that distort projected textures. Normals per vertex: face normal unless the edge
+is `SOFT`, in which case average adjacent face normals (angle-weighted).
+
+## 6. Spatial indexes (`spatial/`)
+
+- Per container: a `Qbvh<EdgeId>` over edge AABBs and a `Qbvh<FaceId>` over face AABBs
+  (`parry3d-f64`). Rebuilt incrementally from deltas (`refit` + periodic rebalance).
+- Per document: a `Qbvh<InstancePath>` over instance world-space AABBs for broad-phase picking
+  and inference across groups; narrow phase transforms the ray into the container's local frame.
+- Queries: `ray_cast(ray, filter) -> Vec<Hit{ path, kind: Vertex|Edge|Face, t, point }>` sorted
+  by `t`; `segment_intersections`, `aabb_query`, `nearest_edge_to_segment`.
+
+## 7. Inference engine (`inference/`)
+
+Input: a screen ray (camera + pixel), pixel tolerance (default 8 px), the current tool's
+*constraint* (free / plane / axis / line), and an optional *reference point* (for "from point"
+inferences).
+
+Output: `Inference { point: DVec3, kind, on: Option<EntityPath>, locked: bool, label }`.
+
+Kinds, in **priority order** (higher wins when several are within pixel tolerance):
+1. `Endpoint` (vertex) — green
+2. `Midpoint` — cyan
+3. `Intersection` (edge×edge in screen space projected to 3D, or edge×face) — black/red
+4. `Center` (arc/circle) — blue
+5. `OnEdge` — red
+6. `OnFace` — blue
+7. `Tangent` / `Perpendicular` / `Parallel` to an edge (direction constraints) — magenta
+8. `FromPoint` axis alignment with a remembered reference point — dotted colored line
+9. `OnAxis` (red/green/blue) — the drawn direction is within tolerance of an axis
+10. `OnPlane` (ground or current constraint plane) — none
+11. `Free` (point on ground plane for first points; on the tool's constraint plane after)
+
+Rules:
+- **Hover memory:** hovering an entity for > 400 ms (GUI) or explicitly via CLI `--ref` adds it
+  as a reference for `FromPoint`/`Parallel`/`Perpendicular` inferences (max 3 references).
+- **Axis lock:** `Shift` locks the current inference's constraint; arrow keys lock to an axis
+  (`→` red, `←` green, `↑` blue, `↓` parallel/perpendicular to hovered edge). While locked,
+  the point is the projection of the ray onto the locked line/plane.
+- **Depth resolution for free points:** ray–ground-plane; if the ray misses the ground (looking
+  up), use a vertical plane through the last point facing the camera.
+- All inference computations are in `f64` world space; pixel tolerance is converted to a world
+  distance at the candidate's depth. Deterministic: ties broken by priority, then by smaller
+  `t`, then by lower id.
+- The CLI exposes the engine as `planyrith infer --from <x,y,z> --dir <dx,dy,dz>` for tests.
+
+## 8. Numeric robustness guidelines
+
+- Prefer formulations that avoid catastrophic cancellation (e.g. compute plane fit via centroid
+  and covariance; compute circle centers via perpendicular bisectors in the plane frame).
+- Clamp parameters to `[0,1]` for segment tests with `parametric` tolerance.
+- When a result depends on a predicate (left/right of a line), evaluate the predicate once and
+  reuse it; never recompute with a different formula in the same algorithm.
+- Snap results to the vertex grid implied by `tolerances.length`? **No** — do not quantize
+  coordinates; merge by tolerance only (quantization causes drift under repeated transforms).
+
+## 9. B-rep bridge (feature `brep`)
+
+`geom::brep`: `to_solid(&HalfEdgeMesh) -> truck::Solid` (planar faces → planar surfaces, loops →
+wires of line/arc edges using curve descriptors) and `from_solid(&truck::Solid, tess_res) ->
+HalfEdgeMesh` (curved faces tessellated with curve descriptors retained for cylinders/arcs where
+possible). Used by STEP I/O and by boolean fallback. Round trip of a planar solid must be exact
+within `tolerances.length`.
+
+## 10. Acceptance tests (minimum)
+
+- Property tests: random planar polygons → `add_edge` sequence → exactly one face; random
+  chords → split count; erase chord → merge back to original face id-count.
+- Push/Pull a rectangle on a cube face by +d: face count +4 (sides) (merged with coplanar
+  neighbors when applicable); by −d through the cube: through-hole created, solid remains solid.
+- Sweep a circle profile along a closed square path: closed solid ring with 4×segments faces.
+- Boolean union of two overlapping cubes = solid with 12 faces (after coplanar merge); volume
+  equals inclusion–exclusion within 1e-6 relative.
+- Inference: endpoint beats on-edge at equal pixel distance; axis lock projects correctly;
+  results identical across platforms (golden JSON).
+- `validate()` passes after every fuzzed sequence of operations (cargo-fuzz target).
+
+## Decisions
+
+- 2026-10-20 — Z-up, millimeters, `f64`, tolerances in §2.
+- 2026-10-20 — Within one container the mesh is a 2-manifold-with-boundary plus wire edges;
+  non-manifold edges are not permitted (§3.1 inv. 5).
+- 2026-10-20 — Curves are polylines with descriptors, not exact NURBS, in the interactive kernel.
+- 2026-10-20 — Auto-fold on non-planar vertex moves creates hidden soft edges (§4.8).
