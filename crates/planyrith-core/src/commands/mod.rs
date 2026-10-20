@@ -21,7 +21,9 @@ pub mod organize;
 pub mod transaction;
 pub mod view;
 
-pub use transaction::{CommittedTransaction, Delta, Transaction, UndoEntry, UndoStack};
+pub use transaction::{
+    AttrTarget, CommittedTransaction, Delta, MeshAliases, Transaction, TxView, UndoEntry, UndoStack,
+};
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -32,7 +34,9 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::diagnostics::Warning;
-use crate::document::{Camera, Document, EditContext, EntityPath, EntityRef, Query, Selection};
+use crate::document::{
+    Camera, Document, EditContext, EntityPath, EntityRef, InstancePath, PathError, Query, Selection,
+};
 use crate::geom::GeometryError;
 use crate::ids::{Pid, SceneId};
 use crate::inference::InferenceKind;
@@ -370,7 +374,24 @@ impl CommandRegistry {
     /// Registers every built-in command of the current milestone
     /// (docs/13 0.1: `line`, `rectangle`, `circle`, …).
     pub fn with_builtins() -> Self {
-        todo!("docs/13 milestone 0.1 built-in command set")
+        let mut registry = Self::new();
+        draw::register(&mut registry);
+        edit::register(&mut registry);
+        organize::register(&mut registry);
+        annotate::register(&mut registry);
+        view::register(&mut registry);
+        file::register(&mut registry);
+        registry
+    }
+}
+
+/// `E1101` for an edit-context path that does not resolve to a container.
+fn path_error(path: &InstancePath, err: PathError) -> CommandError {
+    match err {
+        PathError::NotFound(key) | PathError::NotAContainer(key) => CommandError::NotFound(
+            EntityRef::Path(EntityPath::new(path.parent().unwrap_or_default(), key)),
+        ),
+        PathError::TooDeep => CommandError::NotApplicable(err.to_string()),
     }
 }
 
@@ -494,6 +515,10 @@ pub struct Engine {
     last_created: Vec<Pid>,
     generation: u64,
     next_group_token: u64,
+    /// Open undo groups, innermost last.
+    open_groups: Vec<GroupToken>,
+    /// Edge/face id aliases kept for the whole session (undo/redo replay).
+    aliases: MeshAliases,
 }
 
 impl fmt::Debug for Engine {
@@ -520,6 +545,8 @@ impl Engine {
             last_created: Vec::new(),
             generation: 0,
             next_group_token: 1,
+            open_groups: Vec::new(),
+            aliases: MeshAliases::new(),
         }
     }
 
@@ -568,7 +595,13 @@ impl Engine {
     /// Opens a container for editing after validating the path (`E1101`);
     /// emits `ActiveContextChanged`.
     pub fn set_context(&mut self, context: EditContext) -> Result<(), CommandError> {
-        todo!("docs/04 §11 set edit context")
+        self.doc
+            .resolve_container(&context.path)
+            .map_err(|e| path_error(&context.path, e))?;
+        self.context = context;
+        let snapshot = self.context.clone();
+        self.events.emit(&Event::ActiveContextChanged(snapshot));
+        Ok(())
     }
 
     /// Pids created by the last executed command (`last` in queries, docs/08 §2).
@@ -598,16 +631,116 @@ impl Engine {
         command: &C,
         params: C::Params,
     ) -> Result<C::Output, CommandError> {
-        todo!("docs/01 §3.2 Engine::execute")
+        command.validate(&self.doc, &params)?;
+        let meta = command.meta();
+        self.run(&meta, |tx| command.apply(tx, params))
     }
 
     /// Executes a registered command by name with JSON params (CLI, RPC, scripts).
+    /// With `"dry_run": true` the params are only validated and
+    /// `{"dry_run": true, "valid": true}` is returned.
     pub fn execute_erased(
         &mut self,
         name: &str,
         params: serde_json::Value,
     ) -> Result<serde_json::Value, CommandError> {
-        todo!("docs/01 §3.2 Engine::execute_erased")
+        let registry = Arc::clone(&self.registry);
+        let command = registry.get(name).ok_or_else(|| {
+            CommandError::invalid_param("command", format!("unknown command `{name}`"))
+        })?;
+        command.validate_json(&self.doc, &params)?;
+        if params.get("dry_run").and_then(serde_json::Value::as_bool) == Some(true) {
+            return Ok(serde_json::json!({ "dry_run": true, "valid": true }));
+        }
+        let meta = command.meta();
+        self.run(&meta, |tx| command.apply_json(tx, params))
+    }
+
+    /// Transaction → apply → commit (or rollback) → history → events.
+    fn run<R>(
+        &mut self,
+        meta: &CommandMeta,
+        apply: impl FnOnce(&mut Transaction<'_>) -> Result<R, CommandError>,
+    ) -> Result<R, CommandError> {
+        let mut tx = Transaction::new(&mut self.doc, meta.label.clone()).with_view(
+            self.selection.clone(),
+            self.last_created.clone(),
+            self.context.clone(),
+        );
+        let output = match apply(&mut tx) {
+            Ok(output) => output,
+            Err(err) => {
+                tx.rollback().map_err(|e| {
+                    CommandError::Internal(format!("rollback after `{err}` failed: {e}"))
+                })?;
+                return Err(err);
+            }
+        };
+        let (selection, context) = tx.take_view_changes();
+        let committed = tx.commit();
+        for warning in &committed.warnings {
+            self.events.emit(&Event::Warning(warning.clone()));
+        }
+        if !meta.view_only {
+            self.last_created = committed.created.clone();
+        }
+        if !committed.deltas.is_empty() {
+            self.generation += 1;
+            self.events.emit(&Event::DocumentChanged {
+                label: committed.label.clone(),
+                deltas: Arc::from(committed.deltas.clone()),
+                generation: self.generation,
+            });
+            if !meta.view_only {
+                self.history.push(committed);
+                self.emit_history();
+            }
+        }
+        if let Some(selection) = selection {
+            self.set_selection(selection);
+        }
+        if let Some(context) = context {
+            self.set_context(context)?;
+        }
+        Ok(output)
+    }
+
+    fn emit_history(&mut self) {
+        let event = Event::HistoryChanged {
+            can_undo: self.history.can_undo(),
+            can_redo: self.history.can_redo(),
+        };
+        self.events.emit(&event);
+    }
+
+    /// Applies an undo entry's deltas (inverted and reversed for undo).
+    fn replay_entry(&mut self, entry: &UndoEntry, undo: bool) -> Result<Vec<Delta>, CommandError> {
+        let mut applied = Vec::new();
+        let mut step = |doc: &mut Document, delta: Delta, aliases: &mut MeshAliases| {
+            transaction::apply_delta(doc, &delta, aliases).map_err(|e| {
+                CommandError::Internal(format!(
+                    "{} of `{}` failed: {e}",
+                    if undo { "undo" } else { "redo" },
+                    entry.label
+                ))
+            })?;
+            applied.push(delta);
+            Ok::<(), CommandError>(())
+        };
+        if undo {
+            for tx in entry.transactions.iter().rev() {
+                for delta in tx.deltas.iter().rev() {
+                    step(&mut self.doc, delta.inverse(), &mut self.aliases)?;
+                }
+            }
+        } else {
+            for tx in &entry.transactions {
+                for delta in &tx.deltas {
+                    step(&mut self.doc, delta.clone(), &mut self.aliases)?;
+                }
+            }
+        }
+        Ok(applied)
     }
 
     /// Validates without applying (`--dry-run`).
@@ -624,29 +757,74 @@ impl Engine {
 
     /// Undoes the last undo entry (docs/01 §3.1: inverse deltas, O(change)).
     pub fn undo(&mut self) -> Result<(), CommandError> {
-        todo!("docs/01 §3.2 Engine::undo")
+        let entry = self
+            .history
+            .step_back()
+            .cloned()
+            .ok_or_else(|| CommandError::NotApplicable("nothing to undo".into()))?;
+        let applied = self.replay_entry(&entry, true)?;
+        self.after_history_move(entry.label, applied);
+        Ok(())
     }
 
     /// Redoes the last undone entry.
     pub fn redo(&mut self) -> Result<(), CommandError> {
-        todo!("docs/01 §3.2 Engine::redo")
+        let entry = self
+            .history
+            .step_forward()
+            .cloned()
+            .ok_or_else(|| CommandError::NotApplicable("nothing to redo".into()))?;
+        let applied = self.replay_entry(&entry, false)?;
+        self.after_history_move(entry.label, applied);
+        Ok(())
+    }
+
+    fn after_history_move(&mut self, label: String, applied: Vec<Delta>) {
+        self.generation += 1;
+        self.last_created.clear();
+        self.events.emit(&Event::DocumentChanged {
+            label,
+            deltas: Arc::from(applied),
+            generation: self.generation,
+        });
+        self.emit_history();
     }
 
     /// Starts grouping subsequent commands into one undo step (batches,
-    /// `group()` in scripts).
+    /// `group()` in scripts). Groups nest; only the outermost one creates the
+    /// undo entry.
     pub fn begin_group(&mut self, label: &str) -> GroupToken {
-        todo!("docs/01 §3.2 Engine::begin_group")
+        let token = GroupToken(self.next_group_token);
+        self.next_group_token += 1;
+        if self.open_groups.is_empty() {
+            self.history.begin_group(label);
+        }
+        self.open_groups.push(token);
+        token
     }
 
-    /// Ends the group started with `token`.
+    /// Ends the group started with `token` (must be the innermost open one).
     pub fn end_group(&mut self, token: GroupToken) -> Result<(), CommandError> {
-        todo!("docs/01 §3.2 Engine::end_group")
+        if self.open_groups.last() != Some(&token) {
+            return Err(CommandError::invalid_param(
+                "group",
+                "the token does not match the innermost open group",
+            ));
+        }
+        self.open_groups.pop();
+        if self.open_groups.is_empty() {
+            self.history.end_group();
+            self.emit_history();
+        }
+        Ok(())
     }
 
     /// Replaces the document (open/revert), clearing history and selection.
     pub fn replace_document(&mut self, doc: Document) {
         self.doc = doc;
         self.history = UndoStack::default();
+        self.open_groups.clear();
+        self.aliases.clear();
         self.selection = Selection::new();
         self.context = EditContext::model();
         self.last_created.clear();
@@ -772,6 +950,306 @@ mod tests {
         assert!(!bus.unsubscribe(id));
         bus.emit(&Event::ToolChanged("move".into()));
         assert_eq!(*seen.borrow(), vec!["line".to_string()]);
+    }
+
+    // ----- engine round trips with real kernel operations -----------------------
+
+    use crate::document::{ContainerRef, Tag};
+    use crate::geom::{HalfEdgeMesh, NoDeltas};
+    use crate::ids::EntityId;
+    use glam::DVec3;
+
+    /// Draws a closed polyline in the model (test-only command).
+    #[derive(Default)]
+    struct Polyline;
+
+    #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+    struct PolylineParams {
+        #[schemars(with = "Vec<[f64; 3]>")]
+        points: Vec<DVec3>,
+        closed: bool,
+    }
+
+    impl Command for Polyline {
+        type Params = PolylineParams;
+        type Output = Vec<Pid>;
+
+        fn name(&self) -> &'static str {
+            "test-polyline"
+        }
+
+        fn validate(&self, _doc: &Document, p: &PolylineParams) -> Result<(), CommandError> {
+            if p.points.len() < 2 {
+                return Err(CommandError::invalid_param("points", "need two points"));
+            }
+            Ok(())
+        }
+
+        fn apply(
+            &self,
+            tx: &mut Transaction<'_>,
+            p: PolylineParams,
+        ) -> Result<Vec<Pid>, CommandError> {
+            let n = p.points.len();
+            let count = if p.closed { n } else { n - 1 };
+            for i in 0..count {
+                let (a, b) = (p.points[i], p.points[(i + 1) % n]);
+                tx.with_mesh(ContainerRef::Model, |m, tol, d| m.add_edge(a, b, tol, d))?;
+            }
+            Ok(tx.created().to_vec())
+        }
+
+        fn meta(&self) -> CommandMeta {
+            CommandMeta {
+                name: "test-polyline".into(),
+                category: CommandCategory::Draw,
+                label: "Polyline".into(),
+                view_only: false,
+                steps: Vec::new(),
+            }
+        }
+    }
+
+    /// Creates a tag and assigns it to every face of the model (test-only).
+    #[derive(Default)]
+    struct TagFaces;
+
+    impl Command for TagFaces {
+        type Params = String;
+        type Output = ();
+
+        fn name(&self) -> &'static str {
+            "test-tag-faces"
+        }
+
+        fn validate(&self, _doc: &Document, _p: &String) -> Result<(), CommandError> {
+            Ok(())
+        }
+
+        fn apply(&self, tx: &mut Transaction<'_>, name: String) -> Result<(), CommandError> {
+            let tag = tx.insert_tag(Tag::new(name, crate::document::Rgba8::BLACK))?;
+            let faces: Vec<EntityId> = tx
+                .document()
+                .model
+                .mesh()
+                .faces()
+                .map(|(f, _)| EntityId::Face(f))
+                .collect();
+            for f in faces {
+                tx.set_tag(ContainerRef::Model, f, Some(tag))?;
+            }
+            Ok(())
+        }
+
+        fn meta(&self) -> CommandMeta {
+            CommandMeta {
+                name: "test-tag-faces".into(),
+                category: CommandCategory::Organize,
+                label: "Tag faces".into(),
+                view_only: false,
+                steps: Vec::new(),
+            }
+        }
+    }
+
+    /// A command that draws an edge and then fails (rollback test).
+    #[derive(Default)]
+    struct DrawThenFail;
+
+    impl Command for DrawThenFail {
+        type Params = ();
+        type Output = ();
+
+        fn name(&self) -> &'static str {
+            "test-fail"
+        }
+
+        fn validate(&self, _doc: &Document, _p: &()) -> Result<(), CommandError> {
+            Ok(())
+        }
+
+        fn apply(&self, tx: &mut Transaction<'_>, _p: ()) -> Result<(), CommandError> {
+            tx.with_mesh(ContainerRef::Model, |m, tol, d| {
+                m.add_edge(DVec3::ZERO, DVec3::new(0.0, 0.0, 50.0), tol, d)
+            })?;
+            Err(CommandError::NotApplicable("on purpose".into()))
+        }
+
+        fn meta(&self) -> CommandMeta {
+            CommandMeta {
+                name: "test-fail".into(),
+                category: CommandCategory::Draw,
+                label: "Fail".into(),
+                view_only: false,
+                steps: Vec::new(),
+            }
+        }
+    }
+
+    /// Id-independent view of the model: each ordered entity as
+    /// `pid kind geometry tag hidden`.
+    fn signature(doc: &Document) -> Vec<String> {
+        let model = &doc.model;
+        let mesh: &HalfEdgeMesh = model.mesh();
+        model
+            .iter()
+            .map(|id| {
+                let pid = model.pid_of(id).unwrap();
+                let geometry = match id {
+                    EntityId::Edge(e) => {
+                        let s = mesh.edge_segment(e).unwrap();
+                        let (a, b) = (format!("{:.3?}", s.a), format!("{:.3?}", s.b));
+                        if a < b {
+                            format!("{a}-{b}")
+                        } else {
+                            format!("{b}-{a}")
+                        }
+                    }
+                    EntityId::Face(f) => format!(
+                        "area {:.3} n {:.3?}",
+                        mesh.face_area(f).unwrap(),
+                        mesh.face_normal(f).unwrap()
+                    ),
+                    other => format!("{other:?}"),
+                };
+                let tag = model
+                    .tag_of(id)
+                    .and_then(|t| doc.tags.get(t))
+                    .map(|t| t.name.clone())
+                    .unwrap_or_default();
+                format!("{pid} {geometry} [{tag}] {}", model.is_hidden(id))
+            })
+            .collect()
+    }
+
+    fn engine() -> Engine {
+        let mut reg = CommandRegistry::new();
+        reg.register(Polyline);
+        reg.register(TagFaces);
+        reg.register(DrawThenFail);
+        Engine::new(Document::new(), Arc::new(reg))
+    }
+
+    fn rect() -> PolylineParams {
+        PolylineParams {
+            points: vec![
+                DVec3::ZERO,
+                DVec3::new(100.0, 0.0, 0.0),
+                DVec3::new(100.0, 50.0, 0.0),
+                DVec3::new(0.0, 50.0, 0.0),
+            ],
+            closed: true,
+        }
+    }
+
+    #[test]
+    fn mesh_commands_bind_pids_and_undo_redo_restores_them() {
+        let mut e = engine();
+        let created = e.execute::<Polyline>(rect()).unwrap();
+        assert_eq!(created.len(), 5, "4 edges + 1 face");
+        assert_eq!(e.last_created(), created.as_slice());
+        let after_rect = signature(e.document());
+
+        e.execute::<TagFaces>("Floor".into()).unwrap();
+        // A chord splits the tagged face: the new piece inherits the tag.
+        e.execute::<Polyline>(PolylineParams {
+            points: vec![DVec3::new(40.0, 0.0, 0.0), DVec3::new(40.0, 50.0, 0.0)],
+            closed: false,
+        })
+        .unwrap();
+        let end = signature(e.document());
+        let tagged = end.iter().filter(|s| s.contains("[Floor]")).count();
+        assert_eq!(tagged, 2, "{end:#?}");
+        assert_eq!(e.document().model.mesh().face_count(), 2);
+        assert_eq!(e.generation(), 3);
+
+        e.undo().unwrap();
+        e.undo().unwrap();
+        assert_eq!(signature(e.document()), after_rect);
+        assert!(e.document().tags.by_name("Floor").is_none());
+        e.undo().unwrap();
+        assert!(e.document().model.is_empty());
+        assert!(e.document().model.mesh().is_empty());
+        assert!(e.undo().is_err());
+
+        e.redo().unwrap();
+        assert_eq!(signature(e.document()), after_rect);
+        e.redo().unwrap();
+        e.redo().unwrap();
+        assert_eq!(signature(e.document()), end);
+        assert!(e.redo().is_err());
+
+        // Twice more around the loop: aliases keep resolving.
+        for _ in 0..2 {
+            for _ in 0..3 {
+                e.undo().unwrap();
+            }
+            for _ in 0..3 {
+                e.redo().unwrap();
+            }
+            assert_eq!(signature(e.document()), end);
+        }
+        assert!(
+            e.document()
+                .model
+                .mesh()
+                .validate(e.document().tolerances())
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn failed_commands_roll_back_and_leave_no_history() {
+        let mut e = engine();
+        e.execute::<Polyline>(rect()).unwrap();
+        let before = signature(e.document());
+        let err = e.execute::<DrawThenFail>(()).unwrap_err();
+        assert_eq!(err.code(), "E1201");
+        assert_eq!(signature(e.document()), before);
+        assert_eq!(e.history().applied(), 1);
+        // Pids are never reused, even after a rollback.
+        let next = e.execute::<Polyline>(PolylineParams {
+            points: vec![DVec3::new(0.0, 0.0, 10.0), DVec3::new(5.0, 0.0, 10.0)],
+            closed: false,
+        });
+        let pids = next.unwrap();
+        assert!(pids.iter().all(|p| p.0 > 5));
+    }
+
+    #[test]
+    fn groups_make_one_undo_step_and_erased_commands_run() {
+        let mut e = engine();
+        let token = e.begin_group("Two squares");
+        let inner = e.begin_group("ignored");
+        e.execute_erased("test-polyline", serde_json::to_value(rect()).unwrap())
+            .unwrap();
+        e.end_group(inner).unwrap();
+        e.execute_erased("test-tag-faces", serde_json::json!("Walls"))
+            .unwrap();
+        assert!(e.end_group(GroupToken(999)).is_err());
+        e.end_group(token).unwrap();
+        assert_eq!(e.history().applied(), 1);
+        assert_eq!(e.history().undo_label(), Some("Two squares"));
+        let dry = e
+            .execute_erased(
+                "test-polyline",
+                serde_json::json!({ "points": [[0.0, 0.0, 0.0]], "closed": false, "dry_run": true }),
+            )
+            .unwrap_err();
+        assert_eq!(dry.code(), "E1001");
+        e.undo().unwrap();
+        assert!(e.document().model.is_empty());
+    }
+
+    #[test]
+    fn edit_context_must_resolve() {
+        let mut e = engine();
+        let bad = EditContext {
+            path: InstancePath::root().child(crate::document::EntityKey::Pid(Pid(42))),
+        };
+        assert_eq!(e.set_context(bad).unwrap_err().code(), "E1101");
+        assert!(e.set_context(EditContext::model()).is_ok());
+        let _ = NoDeltas;
     }
 
     #[test]

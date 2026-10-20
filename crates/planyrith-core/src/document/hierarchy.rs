@@ -450,6 +450,35 @@ impl Entities {
         Ok(self.forget(id))
     }
 
+    /// Moves a mesh entity's pid binding, order slot and side-table rows from
+    /// `old` (no longer in the mesh) to `new` (re-created by replay; docs/03
+    /// Decisions "reshape keeps the pid").
+    pub(crate) fn rekey(&mut self, old: EntityId, new: EntityId) -> Result<(), HierarchyError> {
+        let pid = self
+            .pids
+            .remove(&old)
+            .ok_or(HierarchyError::NotFound(old))?;
+        if self.pids.contains_key(&new) {
+            self.pids.insert(old, pid);
+            return Err(HierarchyError::PidInUse(pid));
+        }
+        self.pids.insert(new, pid);
+        self.by_pid.insert(pid, new);
+        if let Some(slot) = self.order.iter_mut().find(|x| **x == old) {
+            *slot = new;
+        }
+        if let Some(a) = self.attrs.remove(&old) {
+            self.attrs.insert(new, a);
+        }
+        if let Some(t) = self.tag_of.remove(&old) {
+            self.tag_of.insert(new, t);
+        }
+        if self.hidden.remove(&old) {
+            self.hidden.insert(new);
+        }
+        Ok(())
+    }
+
     // ----- typed access ----------------------------------------------------------
 
     /// Group by id.

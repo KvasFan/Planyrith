@@ -6,3 +6,11 @@
 //! kebab-case name (AGENTS.md §4). Empty in the skeleton contract.
 //!
 //! Owner key: `later`.
+
+use crate::commands::CommandRegistry;
+
+/// Registers this category's commands (called by
+/// [`CommandRegistry::with_builtins`]).
+pub fn register(registry: &mut CommandRegistry) {
+    let _ = registry;
+}

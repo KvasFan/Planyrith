@@ -3,11 +3,27 @@
 //! `Transaction`, `Delta`, `CommittedTransaction`, `UndoStack`.
 //!
 //! Pid bookkeeping: `Transaction::with_mesh` runs a kernel operation, then
-//! allocates pids for every `EdgeAdded`/`FaceAdded` delta (or re-binds the
-//! recorded pid when replaying), binds them in the container's order list and
-//! unbinds removed ones (docs/04 §2). Undo never rewinds `next_pid`.
+//! allocates pids for every edge/face it created, binds them at the end of the
+//! container's order list and unbinds the ones it removed (docs/04 §2). A face
+//! recorded as `FaceRemoved { id }` + `FaceAdded { id }` (a reshape, docs/03
+//! Decisions) keeps its pid. New pieces of a split face or edge inherit the
+//! tag and hidden state of the original. Undo never rewinds `next_pid`.
+//!
+//! Recorded order of one mesh operation: side-table clears and `PidUnbound` of
+//! vanished elements, then the `Mesh` deltas, then `PidBound` (and inherited
+//! tags) of new elements. Replaying that list forward, or its inverses in
+//! reverse, keeps every pid operation next to an existing element.
+//!
+//! Ids: everything except mesh edges/faces has stable ids across undo/redo
+//! (`document::StableMap`, docs/04 Decisions). Edge/face ids named by deltas are
+//! resolved through [`MeshAliases`] (one `geom::ReplayIds` per container),
+//! which the engine keeps for the whole session.
 //!
 //! Owner key: `later` (depends on `document` and `mesh`).
+
+#![warn(unused_variables, dead_code)]
+
+use std::collections::{BTreeMap, BTreeSet};
 
 use glam::DAffine3;
 use serde::{Deserialize, Serialize};
@@ -15,14 +31,16 @@ use serde::{Deserialize, Serialize};
 use crate::commands::CommandError;
 use crate::diagnostics::Warning;
 use crate::document::{
-    ComponentDefinition, ContainerRef, Document, EntityRecord, Material, ModelInfo,
-    RenderingOptions, Scene, Style, Tag, TagFolder, Value,
+    AttributeDictionaries, ComponentDefinition, ContainerRef, Document, EditContext, Entities,
+    EntityKey, EntityPath, EntityRecord, EntityRef, HierarchyError, Material, ModelInfo, QueryEnv,
+    RenderingOptions, Scene, Selection, Style, Tag, TagFolder, Value,
 };
-use crate::geom::{DeltaSink, FaceSides, GeometryError, HalfEdgeMesh, MeshDelta};
+use crate::geom::{DeltaSink, FaceSides, GeometryError, HalfEdgeMesh, MeshDelta, ReplayIds};
 use crate::ids::{
     DefinitionId, EntityId, FaceId, MaterialId, Pid, SceneId, StyleId, TagFolderId, TagId,
 };
 use crate::io::Storage;
+use crate::math::Segment;
 use crate::tolerance::Tolerances;
 
 /// Where an attribute lives (docs/04 §9).
@@ -137,7 +155,7 @@ pub enum Delta {
         /// After.
         to: Option<TagId>,
     },
-    /// Hidden flag changed.
+    /// Hidden flag changed (recorded only when the value really changes).
     HiddenChanged {
         /// Container.
         container: ContainerRef,
@@ -146,7 +164,7 @@ pub enum Delta {
         /// New value (inverse is `!to`).
         to: bool,
     },
-    /// Locked flag changed.
+    /// Locked flag changed (recorded only when the value really changes).
     LockedChanged {
         /// Container.
         container: ContainerRef,
@@ -199,6 +217,8 @@ pub enum Delta {
     MaterialInserted {
         /// Id.
         id: MaterialId,
+        /// Position in the material list.
+        order_index: usize,
         /// Data.
         material: Box<Material>,
     },
@@ -206,6 +226,8 @@ pub enum Delta {
     MaterialRemoved {
         /// Id.
         id: MaterialId,
+        /// Former position.
+        order_index: usize,
         /// Data.
         material: Box<Material>,
     },
@@ -222,6 +244,8 @@ pub enum Delta {
     TagInserted {
         /// Id.
         id: TagId,
+        /// Position in the tag list.
+        order_index: usize,
         /// Data.
         tag: Tag,
     },
@@ -229,6 +253,8 @@ pub enum Delta {
     TagRemoved {
         /// Id.
         id: TagId,
+        /// Former position.
+        order_index: usize,
         /// Data.
         tag: Tag,
     },
@@ -245,6 +271,8 @@ pub enum Delta {
     TagFolderInserted {
         /// Id.
         id: TagFolderId,
+        /// Position in the folder list.
+        order_index: usize,
         /// Data.
         folder: TagFolder,
     },
@@ -252,6 +280,8 @@ pub enum Delta {
     TagFolderRemoved {
         /// Id.
         id: TagFolderId,
+        /// Former position.
+        order_index: usize,
         /// Data.
         folder: TagFolder,
     },
@@ -295,6 +325,8 @@ pub enum Delta {
     StyleInserted {
         /// Id.
         id: StyleId,
+        /// Position in the style list.
+        order_index: usize,
         /// Data.
         style: Box<Style>,
     },
@@ -302,6 +334,8 @@ pub enum Delta {
     StyleRemoved {
         /// Id.
         id: StyleId,
+        /// Former position.
+        order_index: usize,
         /// Data.
         style: Box<Style>,
     },
@@ -341,7 +375,263 @@ pub enum Delta {
 impl Delta {
     /// The inverse delta (swaps before/after, inserted/removed, bound/unbound).
     pub fn inverse(&self) -> Delta {
-        todo!("docs/01 §3.1 inverse deltas")
+        match self.clone() {
+            Delta::Mesh { container, delta } => Delta::Mesh {
+                container,
+                delta: delta.inverse(),
+            },
+            Delta::PidBound {
+                container,
+                id,
+                pid,
+                order_index,
+            } => Delta::PidUnbound {
+                container,
+                id,
+                pid,
+                order_index,
+            },
+            Delta::PidUnbound {
+                container,
+                id,
+                pid,
+                order_index,
+            } => Delta::PidBound {
+                container,
+                id,
+                pid,
+                order_index,
+            },
+            Delta::EntityInserted {
+                container,
+                id,
+                pid,
+                order_index,
+                record,
+            } => Delta::EntityRemoved {
+                container,
+                id,
+                pid,
+                order_index,
+                record,
+            },
+            Delta::EntityRemoved {
+                container,
+                id,
+                pid,
+                order_index,
+                record,
+            } => Delta::EntityInserted {
+                container,
+                id,
+                pid,
+                order_index,
+                record,
+            },
+            Delta::EntityChanged {
+                container,
+                id,
+                from,
+                to,
+            } => Delta::EntityChanged {
+                container,
+                id,
+                from: to,
+                to: from,
+            },
+            Delta::TransformChanged {
+                container,
+                id,
+                from,
+                to,
+            } => Delta::TransformChanged {
+                container,
+                id,
+                from: to,
+                to: from,
+            },
+            Delta::TagChanged {
+                container,
+                id,
+                from,
+                to,
+            } => Delta::TagChanged {
+                container,
+                id,
+                from: to,
+                to: from,
+            },
+            Delta::HiddenChanged { container, id, to } => Delta::HiddenChanged {
+                container,
+                id,
+                to: !to,
+            },
+            Delta::LockedChanged { container, id, to } => Delta::LockedChanged {
+                container,
+                id,
+                to: !to,
+            },
+            Delta::AttributeChanged {
+                target,
+                dict,
+                key,
+                from,
+                to,
+            } => Delta::AttributeChanged {
+                target,
+                dict,
+                key,
+                from: to,
+                to: from,
+            },
+            Delta::DefinitionInserted {
+                id,
+                order_index,
+                definition,
+            } => Delta::DefinitionRemoved {
+                id,
+                order_index,
+                definition,
+            },
+            Delta::DefinitionRemoved {
+                id,
+                order_index,
+                definition,
+            } => Delta::DefinitionInserted {
+                id,
+                order_index,
+                definition,
+            },
+            Delta::DefinitionChanged { id, from, to } => Delta::DefinitionChanged {
+                id,
+                from: to,
+                to: from,
+            },
+            Delta::MaterialInserted {
+                id,
+                order_index,
+                material,
+            } => Delta::MaterialRemoved {
+                id,
+                order_index,
+                material,
+            },
+            Delta::MaterialRemoved {
+                id,
+                order_index,
+                material,
+            } => Delta::MaterialInserted {
+                id,
+                order_index,
+                material,
+            },
+            Delta::MaterialChanged { id, from, to } => Delta::MaterialChanged {
+                id,
+                from: to,
+                to: from,
+            },
+            Delta::TagInserted {
+                id,
+                order_index,
+                tag,
+            } => Delta::TagRemoved {
+                id,
+                order_index,
+                tag,
+            },
+            Delta::TagRemoved {
+                id,
+                order_index,
+                tag,
+            } => Delta::TagInserted {
+                id,
+                order_index,
+                tag,
+            },
+            Delta::TagUpdated { id, from, to } => Delta::TagUpdated {
+                id,
+                from: to,
+                to: from,
+            },
+            Delta::TagFolderInserted {
+                id,
+                order_index,
+                folder,
+            } => Delta::TagFolderRemoved {
+                id,
+                order_index,
+                folder,
+            },
+            Delta::TagFolderRemoved {
+                id,
+                order_index,
+                folder,
+            } => Delta::TagFolderInserted {
+                id,
+                order_index,
+                folder,
+            },
+            Delta::SceneInserted {
+                id,
+                order_index,
+                scene,
+            } => Delta::SceneRemoved {
+                id,
+                order_index,
+                scene,
+            },
+            Delta::SceneRemoved {
+                id,
+                order_index,
+                scene,
+            } => Delta::SceneInserted {
+                id,
+                order_index,
+                scene,
+            },
+            Delta::SceneChanged { id, from, to } => Delta::SceneChanged {
+                id,
+                from: to,
+                to: from,
+            },
+            Delta::SceneMoved {
+                id,
+                from_index,
+                to_index,
+            } => Delta::SceneMoved {
+                id,
+                from_index: to_index,
+                to_index: from_index,
+            },
+            Delta::StyleInserted {
+                id,
+                order_index,
+                style,
+            } => Delta::StyleRemoved {
+                id,
+                order_index,
+                style,
+            },
+            Delta::StyleRemoved {
+                id,
+                order_index,
+                style,
+            } => Delta::StyleInserted {
+                id,
+                order_index,
+                style,
+            },
+            Delta::StyleChanged { id, from, to } => Delta::StyleChanged {
+                id,
+                from: to,
+                to: from,
+            },
+            Delta::ActiveStyleChanged { from, to } => {
+                Delta::ActiveStyleChanged { from: to, to: from }
+            }
+            Delta::InfoChanged { from, to } => Delta::InfoChanged { from: to, to: from },
+            Delta::RenderingChanged { from, to } => Delta::RenderingChanged { from: to, to: from },
+        }
     }
 
     /// The container this delta touches, if it is container-scoped.
@@ -366,10 +656,325 @@ impl Delta {
     }
 }
 
-/// Applies one delta to the document (forward direction). Private to this
-/// module's owner; `Engine::undo` applies `delta.inverse()`.
-pub(crate) fn apply_delta(doc: &mut Document, delta: &Delta) -> Result<(), CommandError> {
-    todo!("docs/01 §3.1 delta application / replay")
+/// Edge/face id aliases per container for replay (see the module
+/// documentation). The engine keeps one for the whole session.
+pub type MeshAliases = BTreeMap<ContainerRef, ReplayIds>;
+
+/// The id an entity recorded as `id` has now (edges/faces through `aliases`).
+fn resolve(aliases: &MeshAliases, container: ContainerRef, id: EntityId) -> EntityId {
+    match (id, aliases.get(&container)) {
+        (EntityId::Edge(e), Some(a)) => EntityId::Edge(a.edge(e)),
+        (EntityId::Face(f), Some(a)) => EntityId::Face(a.face(f)),
+        _ => id,
+    }
+}
+
+fn internal(msg: impl std::fmt::Display) -> CommandError {
+    CommandError::Internal(msg.to_string())
+}
+
+fn hierarchy(err: HierarchyError) -> CommandError {
+    match err {
+        HierarchyError::NotFound(id) => {
+            CommandError::NotFound(EntityRef::Path(EntityPath::in_model(EntityKey::Id(id))))
+        }
+        HierarchyError::NotLockable(_)
+        | HierarchyError::MeshEntity(_)
+        | HierarchyError::KindMismatch(_)
+        | HierarchyError::Cycle(_)
+        | HierarchyError::TooDeep(_) => CommandError::NotApplicable(err.to_string()),
+        HierarchyError::PidInUse(_) => internal(err),
+    }
+}
+
+fn container_mut(doc: &mut Document, c: ContainerRef) -> Result<&mut Entities, CommandError> {
+    doc.container_mut(c)
+        .ok_or_else(|| CommandError::NotApplicable(format!("container {c:?} does not exist")))
+}
+
+/// Applies one delta to the document (forward direction). `Engine::undo`
+/// applies `delta.inverse()` for a transaction's deltas in reverse order.
+pub(crate) fn apply_delta(
+    doc: &mut Document,
+    delta: &Delta,
+    aliases: &mut MeshAliases,
+) -> Result<(), CommandError> {
+    match delta {
+        Delta::Mesh { container, delta } => {
+            let tol = *doc.tolerances();
+            let entities = container_mut(doc, *container)?;
+            let ids = aliases.entry(*container).or_default();
+            let created = |ids: &ReplayIds| match delta {
+                MeshDelta::FaceAdded { id, .. } => Some(EntityId::Face(ids.face(*id))),
+                MeshDelta::EdgeAdded { id, .. } => Some(EntityId::Edge(ids.edge(*id))),
+                _ => None,
+            };
+            let before = created(ids);
+            entities.mesh_mut().replay(delta, ids, &tol)?;
+            // A reshaped face (same id removed and added) is re-created under a
+            // new id by replay; its pid and side tables follow it.
+            if let (Some(prev), Some(now)) = (before, created(ids))
+                && prev != now
+                && !entities.contains(prev)
+                && entities.pid_of(prev).is_some()
+            {
+                entities.rekey(prev, now).map_err(hierarchy)?;
+            }
+        }
+        Delta::PidBound {
+            container,
+            id,
+            pid,
+            order_index,
+        } => {
+            let id = resolve(aliases, *container, *id);
+            container_mut(doc, *container)?
+                .bind_pid(id, *pid, Some(*order_index))
+                .map_err(hierarchy)?;
+        }
+        Delta::PidUnbound { container, id, .. } => {
+            let id = resolve(aliases, *container, *id);
+            container_mut(doc, *container)?
+                .unbind_pid(id)
+                .map_err(hierarchy)?;
+        }
+        Delta::EntityInserted {
+            container,
+            id,
+            pid,
+            order_index,
+            record,
+        } => {
+            container_mut(doc, *container)?
+                .restore(*id, (**record).clone(), *pid, *order_index)
+                .map_err(hierarchy)?;
+        }
+        Delta::EntityRemoved { container, id, .. } => {
+            container_mut(doc, *container)?
+                .remove(*id)
+                .map_err(hierarchy)?;
+        }
+        Delta::EntityChanged {
+            container, id, to, ..
+        } => {
+            container_mut(doc, *container)?
+                .replace(*id, (**to).clone())
+                .map_err(hierarchy)?;
+        }
+        Delta::TransformChanged {
+            container, id, to, ..
+        } => {
+            container_mut(doc, *container)?
+                .set_transform(*id, *to)
+                .map_err(hierarchy)?;
+        }
+        Delta::TagChanged {
+            container, id, to, ..
+        } => {
+            let id = resolve(aliases, *container, *id);
+            container_mut(doc, *container)?
+                .set_tag(id, *to)
+                .map_err(hierarchy)?;
+        }
+        Delta::HiddenChanged { container, id, to } => {
+            let id = resolve(aliases, *container, *id);
+            container_mut(doc, *container)?
+                .set_hidden(id, *to)
+                .map_err(hierarchy)?;
+        }
+        Delta::LockedChanged { container, id, to } => {
+            container_mut(doc, *container)?
+                .set_locked(*id, *to)
+                .map_err(hierarchy)?;
+        }
+        Delta::AttributeChanged {
+            target,
+            dict,
+            key,
+            to,
+            ..
+        } => {
+            let target = match *target {
+                AttrTarget::Entity { container, id } => AttrTarget::Entity {
+                    container,
+                    id: resolve(aliases, container, id),
+                },
+                other => other,
+            };
+            write_attribute(doc, target, dict, key, to.clone())?;
+        }
+        Delta::DefinitionInserted {
+            id,
+            order_index,
+            definition,
+        } => {
+            if !doc.restore_definition(*id, (**definition).clone(), *order_index) {
+                return Err(internal(format!("cannot restore {id}")));
+            }
+        }
+        Delta::DefinitionRemoved { id, .. } => {
+            doc.remove_definition(*id)
+                .ok_or_else(|| internal(format!("{id} is not in the document")))?;
+        }
+        Delta::DefinitionChanged { id, to, .. } => {
+            let def = doc
+                .definitions
+                .get_mut(*id)
+                .ok_or_else(|| internal(format!("{id} is not in the document")))?;
+            let entities = std::mem::take(&mut def.entities);
+            *def = (**to).clone();
+            def.entities = entities;
+        }
+        Delta::MaterialInserted {
+            id,
+            order_index,
+            material,
+        } => doc
+            .materials
+            .restore(*id, (**material).clone(), *order_index)
+            .map_err(internal)?,
+        Delta::MaterialRemoved { id, .. } => {
+            doc.materials.remove(*id).map_err(internal)?;
+        }
+        Delta::MaterialChanged { id, to, .. } => {
+            doc.materials
+                .replace(*id, (**to).clone())
+                .map_err(internal)?;
+        }
+        Delta::TagInserted {
+            id,
+            order_index,
+            tag,
+        } => doc
+            .tags
+            .restore(*id, tag.clone(), *order_index)
+            .map_err(internal)?,
+        Delta::TagRemoved { id, .. } => {
+            doc.tags.remove(*id).map_err(internal)?;
+        }
+        Delta::TagUpdated { id, to, .. } => {
+            doc.tags.replace(*id, to.clone()).map_err(internal)?;
+        }
+        Delta::TagFolderInserted {
+            id,
+            order_index,
+            folder,
+        } => doc
+            .tags
+            .restore_folder(*id, folder.clone(), *order_index)
+            .map_err(internal)?,
+        Delta::TagFolderRemoved { id, .. } => {
+            doc.tags.remove_folder(*id).map_err(internal)?;
+        }
+        Delta::SceneInserted {
+            id,
+            order_index,
+            scene,
+        } => {
+            if !doc.scenes.restore(*id, (**scene).clone(), *order_index) {
+                return Err(internal(format!("cannot restore {id}")));
+            }
+        }
+        Delta::SceneRemoved { id, .. } => {
+            doc.scenes
+                .remove(*id)
+                .ok_or_else(|| internal(format!("{id} is not in the document")))?;
+        }
+        Delta::SceneChanged { id, to, .. } => {
+            doc.scenes
+                .replace(*id, (**to).clone())
+                .ok_or_else(|| internal(format!("{id} is not in the document")))?;
+        }
+        Delta::SceneMoved { id, to_index, .. } => {
+            doc.scenes
+                .reorder(*id, *to_index)
+                .ok_or_else(|| internal(format!("{id} is not in the document")))?;
+        }
+        Delta::StyleInserted {
+            id,
+            order_index,
+            style,
+        } => {
+            if !doc.styles.restore(*id, (**style).clone(), *order_index) {
+                return Err(internal(format!("cannot restore {id}")));
+            }
+        }
+        Delta::StyleRemoved { id, .. } => {
+            doc.styles
+                .remove(*id)
+                .ok_or_else(|| internal(format!("cannot remove {id}")))?;
+        }
+        Delta::StyleChanged { id, to, .. } => {
+            doc.styles
+                .replace(*id, (**to).clone())
+                .ok_or_else(|| internal(format!("{id} is not in the document")))?;
+        }
+        Delta::ActiveStyleChanged { to, .. } => {
+            doc.styles
+                .set_active(*to)
+                .ok_or_else(|| internal(format!("{to} is not in the document")))?;
+        }
+        Delta::InfoChanged { to, .. } => {
+            let next_pid = doc.info.next_pid;
+            doc.info = (**to).clone();
+            doc.info.next_pid = next_pid;
+        }
+        Delta::RenderingChanged { to, .. } => doc.rendering = (**to).clone(),
+    }
+    Ok(())
+}
+
+/// The attribute dictionaries a target names.
+fn attributes_mut(
+    doc: &mut Document,
+    target: AttrTarget,
+) -> Result<&mut AttributeDictionaries, CommandError> {
+    Ok(match target {
+        AttrTarget::Document => &mut doc.attrs,
+        AttrTarget::Entity { container, id } => container_mut(doc, container)?
+            .attrs_mut(id)
+            .map_err(hierarchy)?,
+        AttrTarget::Definition(d) => {
+            &mut doc
+                .definitions
+                .get_mut(d)
+                .ok_or_else(|| CommandError::NotApplicable(format!("{d} does not exist")))?
+                .attrs
+        }
+        AttrTarget::Material(_) => {
+            return Err(internal(
+                "material attributes are written by write_attribute",
+            ));
+        }
+    })
+}
+
+/// Sets (`Some`) or removes (`None`) one attribute; returns the previous value.
+fn write_attribute(
+    doc: &mut Document,
+    target: AttrTarget,
+    dict: &str,
+    key: &str,
+    value: Option<Value>,
+) -> Result<Option<Value>, CommandError> {
+    if let AttrTarget::Material(m) = target {
+        let mut material = doc
+            .materials
+            .get(m)
+            .cloned()
+            .ok_or_else(|| CommandError::NotApplicable(format!("{m} does not exist")))?;
+        let previous = match value {
+            Some(v) => material.attrs.set(dict, key, v),
+            None => material.attrs.remove(dict, key),
+        };
+        doc.materials.replace(m, material).map_err(internal)?;
+        return Ok(previous);
+    }
+    let attrs = attributes_mut(doc, target)?;
+    Ok(match value {
+        Some(v) => attrs.set(dict, key, v),
+        None => attrs.remove(dict, key),
+    })
 }
 
 /// A committed transaction stored in history.
@@ -385,6 +990,23 @@ pub struct CommittedTransaction {
     pub created: Vec<Pid>,
 }
 
+/// Engine state a command may read (`selection`, `last`, edit context) and the
+/// view changes it may request; neither is part of the undo history
+/// (docs/04 §11).
+#[derive(Debug, Clone, Default)]
+pub struct TxView {
+    /// Current selection.
+    pub selection: Selection,
+    /// Pids created by the previous command.
+    pub last: Vec<Pid>,
+    /// Current edit context.
+    pub context: EditContext,
+    /// Selection to apply after commit.
+    pub selection_out: Option<Selection>,
+    /// Edit context to apply after commit.
+    pub context_out: Option<EditContext>,
+}
+
 /// An open transaction: the only way commands mutate a document
 /// (docs/01 §3.1). Dropped without `commit` → caller must `rollback`.
 pub struct Transaction<'a> {
@@ -394,6 +1016,7 @@ pub struct Transaction<'a> {
     deltas: Vec<Delta>,
     warnings: Vec<Warning>,
     created: Vec<Pid>,
+    view: TxView,
 }
 
 impl std::fmt::Debug for Transaction<'_> {
@@ -407,12 +1030,22 @@ impl std::fmt::Debug for Transaction<'_> {
 }
 
 impl DeltaSink for Transaction<'_> {
+    /// Records a mesh delta that the caller already applied to the **model**
+    /// container's mesh. Prefer [`Transaction::with_mesh`], which also keeps
+    /// pids in sync and works for any container.
     fn record(&mut self, delta: MeshDelta) {
-        // Only valid while a `with_mesh` scope knows the container; the scope
-        // wraps deltas itself. Direct use is a programming error surfaced by
-        // `debug_assert` in the implementation.
-        todo!("docs/01 §3.1 mesh delta wrapping")
+        self.deltas.push(Delta::Mesh {
+            container: ContainerRef::Model,
+            delta,
+        });
     }
+}
+
+/// Side tables of an entity captured before it disappears.
+struct SideRows {
+    tag: Option<TagId>,
+    hidden: bool,
+    attrs: Option<AttributeDictionaries>,
 }
 
 impl<'a> Transaction<'a> {
@@ -425,12 +1058,22 @@ impl<'a> Transaction<'a> {
             deltas: Vec::new(),
             warnings: Vec::new(),
             created: Vec::new(),
+            view: TxView::default(),
         }
     }
 
     /// Gives file commands access to storage (docs/01 §3.1 rule 2).
     pub fn with_storage(mut self, storage: &'a dyn Storage) -> Self {
         self.storage = Some(storage);
+        self
+    }
+
+    /// Hands the engine's selection, `last` pids and edit context to the
+    /// command (queries may refer to them).
+    pub fn with_view(mut self, selection: Selection, last: Vec<Pid>, context: EditContext) -> Self {
+        self.view.selection = selection;
+        self.view.last = last;
+        self.view.context = context;
         self
     }
 
@@ -479,6 +1122,41 @@ impl<'a> Transaction<'a> {
         self.doc.allocate_pid()
     }
 
+    /// The query environment: engine selection, `last`, edit context.
+    pub fn query_env(&self) -> QueryEnv<'_> {
+        QueryEnv {
+            selection: &self.view.selection,
+            last: &self.view.last,
+            context: &self.view.context,
+        }
+    }
+
+    /// The edit context the command runs in.
+    pub fn context(&self) -> &EditContext {
+        &self.view.context
+    }
+
+    /// Asks the engine to replace the selection after commit (not undoable).
+    pub fn set_selection(&mut self, selection: Selection) {
+        self.view.selection_out = Some(selection);
+    }
+
+    /// Asks the engine to change the edit context after commit (not undoable).
+    pub fn set_context(&mut self, context: EditContext) {
+        self.view.context_out = Some(context);
+    }
+
+    /// Takes the view changes requested by the command.
+    pub fn take_view_changes(&mut self) -> (Option<Selection>, Option<EditContext>) {
+        (self.view.selection_out.take(), self.view.context_out.take())
+    }
+
+    fn entities(&self, c: ContainerRef) -> Result<&Entities, CommandError> {
+        self.doc
+            .container(c)
+            .ok_or_else(|| CommandError::NotApplicable(format!("container {c:?} does not exist")))
+    }
+
     // ----- mesh ---------------------------------------------------------------
 
     /// Runs a kernel operation on a container's mesh, recording its deltas,
@@ -488,7 +1166,172 @@ impl<'a> Transaction<'a> {
         container: ContainerRef,
         op: impl FnOnce(&mut HalfEdgeMesh, &Tolerances, &mut dyn DeltaSink) -> Result<R, GeometryError>,
     ) -> Result<R, CommandError> {
-        todo!("docs/01 §3.1 transactional mesh operation")
+        let tol = *self.doc.tolerances();
+        let mut recorded: Vec<MeshDelta> = Vec::new();
+        let result = op(
+            container_mut(self.doc, container)?.mesh_mut(),
+            &tol,
+            &mut recorded,
+        )?;
+        self.absorb_mesh_deltas(container, recorded)?;
+        Ok(result)
+    }
+
+    /// Pid and side-table bookkeeping after a kernel operation (module
+    /// documentation).
+    fn absorb_mesh_deltas(
+        &mut self,
+        container: ContainerRef,
+        recorded: Vec<MeshDelta>,
+    ) -> Result<(), CommandError> {
+        let mut removed: Vec<EntityId> = Vec::new();
+        let mut added: Vec<EntityId> = Vec::new();
+        let mut removed_edges: Vec<(EntityId, Segment)> = Vec::new();
+        let mut split_from: BTreeMap<FaceId, FaceId> = BTreeMap::new();
+        for d in &recorded {
+            match d {
+                MeshDelta::EdgeRemoved { id, a, b, .. } => {
+                    removed.push(EntityId::Edge(*id));
+                    removed_edges.push((EntityId::Edge(*id), Segment::new(*a, *b)));
+                }
+                MeshDelta::FaceRemoved { id, .. } => removed.push(EntityId::Face(*id)),
+                MeshDelta::EdgeAdded { id, .. } => added.push(EntityId::Edge(*id)),
+                MeshDelta::FaceAdded { id, .. } => added.push(EntityId::Face(*id)),
+                MeshDelta::FaceSplit { old, new } => {
+                    split_from.insert(new[1], *old);
+                }
+                _ => {}
+            }
+        }
+        let tol = *self.doc.tolerances();
+        let entities = self.entities(container)?;
+        let mut seen = BTreeSet::new();
+        let vanished: Vec<EntityId> = removed
+            .into_iter()
+            .filter(|id| seen.insert(*id))
+            .filter(|id| !entities.contains(*id) && entities.pid_of(*id).is_some())
+            .collect();
+        let mut seen = BTreeSet::new();
+        let appeared: Vec<EntityId> = added
+            .into_iter()
+            .filter(|id| seen.insert(*id))
+            .filter(|id| entities.contains(*id) && entities.pid_of(*id).is_none())
+            .collect();
+
+        // Rows of vanished elements, and what new pieces inherit.
+        let mut rows: BTreeMap<EntityId, SideRows> = BTreeMap::new();
+        for &id in &vanished {
+            rows.insert(
+                id,
+                SideRows {
+                    tag: entities.tag_of(id),
+                    hidden: entities.is_hidden(id),
+                    attrs: entities.attrs(id).cloned(),
+                },
+            );
+        }
+        let mut inherit: BTreeMap<EntityId, (Option<TagId>, bool)> = BTreeMap::new();
+        for &id in &appeared {
+            match id {
+                EntityId::Face(f) => {
+                    if let Some(&old) = split_from.get(&f) {
+                        let old = EntityId::Face(old);
+                        inherit.insert(id, (entities.tag_of(old), entities.is_hidden(old)));
+                    }
+                }
+                EntityId::Edge(e) => {
+                    let seg = entities.mesh().edge_segment(e)?;
+                    let parent = removed_edges.iter().find(|(_, s)| {
+                        tol.point_on_segment(seg.a, s) && tol.point_on_segment(seg.b, s)
+                    });
+                    if let Some((old, _)) = parent
+                        && let Some(r) = rows.get(old)
+                    {
+                        inherit.insert(id, (r.tag, r.hidden));
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // 1. Clears and unbinds of vanished elements (recorded first).
+        let mut pre = Vec::new();
+        for id in vanished {
+            let r = rows.remove(&id).unwrap_or(SideRows {
+                tag: None,
+                hidden: false,
+                attrs: None,
+            });
+            if let Some(attrs) = &r.attrs {
+                for (dict, entries) in &attrs.0 {
+                    for (key, value) in entries {
+                        pre.push(Delta::AttributeChanged {
+                            target: AttrTarget::Entity { container, id },
+                            dict: dict.clone(),
+                            key: key.clone(),
+                            from: Some(value.clone()),
+                            to: None,
+                        });
+                    }
+                }
+            }
+            if r.hidden {
+                pre.push(Delta::HiddenChanged {
+                    container,
+                    id,
+                    to: false,
+                });
+            }
+            if r.tag.is_some() {
+                pre.push(Delta::TagChanged {
+                    container,
+                    id,
+                    from: r.tag,
+                    to: None,
+                });
+            }
+            let (pid, order_index) = container_mut(self.doc, container)?
+                .unbind_pid(id)
+                .map_err(hierarchy)?;
+            pre.push(Delta::PidUnbound {
+                container,
+                id,
+                pid,
+                order_index,
+            });
+        }
+        self.deltas.extend(pre);
+
+        // 2. The kernel deltas.
+        self.deltas.extend(
+            recorded
+                .into_iter()
+                .map(|delta| Delta::Mesh { container, delta }),
+        );
+
+        // 3. Binds of new elements, then inherited rows.
+        for id in appeared {
+            let pid = self.doc.allocate_pid();
+            let entities = container_mut(self.doc, container)?;
+            entities.bind_pid(id, pid, None).map_err(hierarchy)?;
+            let order_index = entities.len() - 1;
+            self.deltas.push(Delta::PidBound {
+                container,
+                id,
+                pid,
+                order_index,
+            });
+            self.created.push(pid);
+            if let Some((tag, hidden)) = inherit.remove(&id) {
+                if tag.is_some() {
+                    self.set_tag(container, id, tag)?;
+                }
+                if hidden {
+                    self.set_hidden(container, id, true)?;
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Sets a face's materials/UVs.
@@ -498,7 +1341,18 @@ impl<'a> Transaction<'a> {
         face: FaceId,
         sides: FaceSides,
     ) -> Result<(), CommandError> {
-        todo!("docs/04 §4 face material change")
+        for side in [sides.material_front, sides.material_back]
+            .into_iter()
+            .flatten()
+        {
+            if self.doc.materials.get(side).is_none() {
+                return Err(CommandError::invalid_param(
+                    "material",
+                    format!("{side} does not exist"),
+                ));
+            }
+        }
+        self.with_mesh(container, |mesh, _, d| mesh.set_face_sides(face, sides, d))
     }
 
     // ----- entities ---------------------------------------------------------------
@@ -509,7 +1363,91 @@ impl<'a> Transaction<'a> {
         container: ContainerRef,
         record: EntityRecord,
     ) -> Result<(EntityId, Pid), CommandError> {
-        todo!("docs/04 §3 insert entity")
+        self.check_record(container, &record)?;
+        let pid = self.doc.allocate_pid();
+        let entities = container_mut(self.doc, container)?;
+        let id = entities.insert(record.clone(), pid).map_err(hierarchy)?;
+        let order_index = entities.len() - 1;
+        self.deltas.push(Delta::EntityInserted {
+            container,
+            id,
+            pid,
+            order_index,
+            record: Box::new(record),
+        });
+        self.created.push(pid);
+        Ok((id, pid))
+    }
+
+    /// Groups and instances must name an existing definition and must not
+    /// nest a definition inside itself (docs/04 §13).
+    fn check_record(
+        &self,
+        container: ContainerRef,
+        record: &EntityRecord,
+    ) -> Result<(), CommandError> {
+        let definition = match record {
+            EntityRecord::Group(g) => g.definition,
+            EntityRecord::Instance(i) => i.definition,
+            _ => return Ok(()),
+        };
+        if self.doc.definition(definition).is_none() {
+            return Err(CommandError::invalid_param(
+                "definition",
+                format!("{definition} does not exist"),
+            ));
+        }
+        if let ContainerRef::Definition(host) = container
+            && self.definition_reaches(definition, host)
+        {
+            return Err(CommandError::NotApplicable(
+                "a component cannot contain itself".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// `true` when `from` is `target` or nests it at any depth.
+    fn definition_reaches(&self, from: DefinitionId, target: DefinitionId) -> bool {
+        let mut stack = vec![from];
+        let mut seen = BTreeSet::new();
+        while let Some(d) = stack.pop() {
+            if d == target {
+                return true;
+            }
+            if !seen.insert(d) {
+                continue;
+            }
+            if let Some(def) = self.doc.definition(d) {
+                stack.extend(def.entities.groups().map(|(_, g)| g.definition));
+                stack.extend(def.entities.instances().map(|(_, i)| i.definition));
+            }
+        }
+        false
+    }
+
+    /// Records the clearing of an entity's tag, hidden and locked state and
+    /// attributes (so that undo of a removal restores them), then clears them.
+    fn clear_side_rows(
+        &mut self,
+        container: ContainerRef,
+        id: EntityId,
+    ) -> Result<(), CommandError> {
+        let entities = self.entities(container)?;
+        let attrs = entities.attrs(id).cloned();
+        let locked = entities.is_locked(id);
+        if let Some(attrs) = attrs {
+            for (dict, entries) in &attrs.0 {
+                for key in entries.keys() {
+                    self.set_attribute(AttrTarget::Entity { container, id }, dict, key, None)?;
+                }
+            }
+        }
+        if locked {
+            self.set_locked(container, id, false)?;
+        }
+        self.set_hidden(container, id, false)?;
+        self.set_tag(container, id, None)
     }
 
     /// Removes a non-mesh entity.
@@ -518,7 +1456,21 @@ impl<'a> Transaction<'a> {
         container: ContainerRef,
         id: EntityId,
     ) -> Result<EntityRecord, CommandError> {
-        todo!("docs/04 §3 remove entity")
+        if !self.entities(container)?.contains(id) {
+            return Err(hierarchy(HierarchyError::NotFound(id)));
+        }
+        self.clear_side_rows(container, id)?;
+        let (record, pid, order_index) = container_mut(self.doc, container)?
+            .remove(id)
+            .map_err(hierarchy)?;
+        self.deltas.push(Delta::EntityRemoved {
+            container,
+            id,
+            pid,
+            order_index,
+            record: Box::new(record.clone()),
+        });
+        Ok(record)
     }
 
     /// Replaces a non-mesh entity's data.
@@ -528,7 +1480,19 @@ impl<'a> Transaction<'a> {
         id: EntityId,
         record: EntityRecord,
     ) -> Result<(), CommandError> {
-        todo!("docs/04 §3 replace entity")
+        self.check_record(container, &record)?;
+        let from = container_mut(self.doc, container)?
+            .replace(id, record.clone())
+            .map_err(hierarchy)?;
+        if from != record {
+            self.deltas.push(Delta::EntityChanged {
+                container,
+                id,
+                from: Box::new(from),
+                to: Box::new(record),
+            });
+        }
+        Ok(())
     }
 
     /// Sets a transform.
@@ -538,17 +1502,54 @@ impl<'a> Transaction<'a> {
         id: EntityId,
         transform: DAffine3,
     ) -> Result<(), CommandError> {
-        todo!("docs/04 §3 set transform")
+        if !transform.is_finite() || transform.matrix3.determinant().abs() <= f64::EPSILON {
+            return Err(CommandError::invalid_param(
+                "transform",
+                "the transform must be finite and invertible",
+            ));
+        }
+        let from = container_mut(self.doc, container)?
+            .set_transform(id, transform)
+            .map_err(hierarchy)?;
+        if from != transform {
+            self.deltas.push(Delta::TransformChanged {
+                container,
+                id,
+                from,
+                to: transform,
+            });
+        }
+        Ok(())
     }
 
-    /// Sets a tag (`None` = untagged).
+    /// Sets a tag (`None` = untagged; the `Untagged` tag id is stored as `None`).
     pub fn set_tag(
         &mut self,
         container: ContainerRef,
         id: EntityId,
         tag: Option<TagId>,
     ) -> Result<(), CommandError> {
-        todo!("docs/04 §5 set tag")
+        let tag = tag.filter(|t| *t != self.doc.tags.untagged());
+        if let Some(t) = tag
+            && self.doc.tags.get(t).is_none()
+        {
+            return Err(CommandError::invalid_param(
+                "tag",
+                format!("{t} does not exist"),
+            ));
+        }
+        let from = container_mut(self.doc, container)?
+            .set_tag(id, tag)
+            .map_err(hierarchy)?;
+        if from != tag {
+            self.deltas.push(Delta::TagChanged {
+                container,
+                id,
+                from,
+                to: tag,
+            });
+        }
+        Ok(())
     }
 
     /// Sets hidden.
@@ -558,7 +1559,17 @@ impl<'a> Transaction<'a> {
         id: EntityId,
         hidden: bool,
     ) -> Result<(), CommandError> {
-        todo!("docs/04 §3 set hidden")
+        let before = container_mut(self.doc, container)?
+            .set_hidden(id, hidden)
+            .map_err(hierarchy)?;
+        if before != hidden {
+            self.deltas.push(Delta::HiddenChanged {
+                container,
+                id,
+                to: hidden,
+            });
+        }
+        Ok(())
     }
 
     /// Sets locked (groups/instances only).
@@ -568,7 +1579,17 @@ impl<'a> Transaction<'a> {
         id: EntityId,
         locked: bool,
     ) -> Result<(), CommandError> {
-        todo!("docs/04 §3 set locked")
+        let before = container_mut(self.doc, container)?
+            .set_locked(id, locked)
+            .map_err(hierarchy)?;
+        if before != locked {
+            self.deltas.push(Delta::LockedChanged {
+                container,
+                id,
+                to: locked,
+            });
+        }
+        Ok(())
     }
 
     /// Sets or clears (`None`) one attribute value.
@@ -579,7 +1600,17 @@ impl<'a> Transaction<'a> {
         key: &str,
         value: Option<Value>,
     ) -> Result<(), CommandError> {
-        todo!("docs/04 §9 set attribute")
+        let from = write_attribute(self.doc, target, dict, key, value.clone())?;
+        if from != value {
+            self.deltas.push(Delta::AttributeChanged {
+                target,
+                dict: dict.to_string(),
+                key: key.to_string(),
+                from,
+                to: value,
+            });
+        }
+        Ok(())
     }
 
     // ----- document-level collections ----------------------------------------------
@@ -589,7 +1620,13 @@ impl<'a> Transaction<'a> {
         &mut self,
         definition: ComponentDefinition,
     ) -> Result<DefinitionId, CommandError> {
-        todo!("docs/04 §3.3 insert definition")
+        let id = self.doc.add_definition(definition.clone());
+        self.deltas.push(Delta::DefinitionInserted {
+            id,
+            order_index: self.doc.definition_order.len() - 1,
+            definition: Box::new(definition),
+        });
+        Ok(id)
     }
 
     /// Removes an unreferenced definition (`purge-unused`, explode).
@@ -597,12 +1634,75 @@ impl<'a> Transaction<'a> {
         &mut self,
         id: DefinitionId,
     ) -> Result<ComponentDefinition, CommandError> {
-        todo!("docs/04 §3.3 remove definition")
+        if self.doc.definition(id).is_none() {
+            return Err(CommandError::invalid_param(
+                "definition",
+                format!("{id} does not exist"),
+            ));
+        }
+        let referenced = self.doc.containers().into_iter().any(|c| {
+            self.doc.container(c).is_some_and(|e| {
+                e.groups().any(|(_, g)| g.definition == id)
+                    || e.instances().any(|(_, i)| i.definition == id)
+            })
+        });
+        if referenced {
+            return Err(CommandError::NotApplicable(format!(
+                "{id} is still used by a group or instance"
+            )));
+        }
+        let (definition, order_index) = self
+            .doc
+            .remove_definition(id)
+            .ok_or_else(|| internal(format!("{id} vanished")))?;
+        self.deltas.push(Delta::DefinitionRemoved {
+            id,
+            order_index,
+            definition: Box::new(definition.clone()),
+        });
+        Ok(definition)
+    }
+
+    /// Replaces a definition's metadata and behavior (its entities are kept).
+    pub fn update_definition(
+        &mut self,
+        id: DefinitionId,
+        mut definition: ComponentDefinition,
+    ) -> Result<(), CommandError> {
+        definition.entities = Entities::new();
+        let current = self.doc.definitions.get_mut(id).ok_or_else(|| {
+            CommandError::invalid_param("definition", format!("{id} does not exist"))
+        })?;
+        let entities = std::mem::take(&mut current.entities);
+        let from = std::mem::replace(current, definition.clone());
+        current.entities = entities;
+        self.deltas.push(Delta::DefinitionChanged {
+            id,
+            from: Box::new(from),
+            to: Box::new(definition),
+        });
+        Ok(())
     }
 
     /// Adds a material.
     pub fn insert_material(&mut self, material: Material) -> Result<MaterialId, CommandError> {
-        todo!("docs/04 §4 insert material")
+        let id = self
+            .doc
+            .materials
+            .insert(material)
+            .map_err(|e| CommandError::invalid_param("name", e.to_string()))?;
+        let stored = self
+            .doc
+            .materials
+            .get(id)
+            .cloned()
+            .ok_or_else(|| internal("lost material"))?;
+        self.deltas.push(Delta::MaterialInserted {
+            id,
+            order_index: self.doc.materials.position(id).unwrap_or(0),
+            material: Box::new(stored),
+        });
+        Ok(id)
     }
 
     /// Replaces a material.
@@ -611,72 +1711,319 @@ impl<'a> Transaction<'a> {
         id: MaterialId,
         material: Material,
     ) -> Result<(), CommandError> {
-        todo!("docs/04 §4 replace material")
+        let from = self
+            .doc
+            .materials
+            .replace(id, material)
+            .map_err(|e| CommandError::invalid_param("material", e.to_string()))?;
+        let to = self
+            .doc
+            .materials
+            .get(id)
+            .cloned()
+            .ok_or_else(|| internal("lost material"))?;
+        if from != to {
+            self.deltas.push(Delta::MaterialChanged {
+                id,
+                from: Box::new(from),
+                to: Box::new(to),
+            });
+        }
+        Ok(())
     }
 
     /// Removes a material (faces using it fall back to default).
     pub fn remove_material(&mut self, id: MaterialId) -> Result<Material, CommandError> {
-        todo!("docs/04 §4 remove material")
+        if self.doc.materials.get(id).is_none() {
+            return Err(CommandError::invalid_param(
+                "material",
+                format!("{id} does not exist"),
+            ));
+        }
+        for c in self.doc.containers() {
+            let entities = self.entities(c)?;
+            let faces: Vec<(FaceId, FaceSides)> = entities
+                .mesh()
+                .faces()
+                .filter(|(_, f)| {
+                    f.sides.material_front == Some(id) || f.sides.material_back == Some(id)
+                })
+                .map(|(f, face)| {
+                    let mut sides = face.sides.clone();
+                    if sides.material_front == Some(id) {
+                        sides.material_front = None;
+                    }
+                    if sides.material_back == Some(id) {
+                        sides.material_back = None;
+                    }
+                    (f, sides)
+                })
+                .collect();
+            let instances: Vec<(EntityId, EntityRecord)> = entities
+                .instances()
+                .filter(|(_, i)| i.material_override == Some(id))
+                .map(|(k, i)| {
+                    let mut i = i.clone();
+                    i.material_override = None;
+                    (EntityId::Instance(k), EntityRecord::Instance(i))
+                })
+                .collect();
+            for (f, sides) in faces {
+                self.with_mesh(c, |mesh, _, d| mesh.set_face_sides(f, sides, d))?;
+            }
+            for (k, record) in instances {
+                self.replace_entity(c, k, record)?;
+            }
+        }
+        let order_index = self.doc.materials.position(id).unwrap_or(0);
+        let material = self
+            .doc
+            .materials
+            .remove(id)
+            .map_err(|e| CommandError::NotApplicable(e.to_string()))?;
+        self.deltas.push(Delta::MaterialRemoved {
+            id,
+            order_index,
+            material: Box::new(material.clone()),
+        });
+        Ok(material)
     }
 
     /// Adds a tag.
     pub fn insert_tag(&mut self, tag: Tag) -> Result<TagId, CommandError> {
-        todo!("docs/04 §5 insert tag")
+        let id = self
+            .doc
+            .tags
+            .insert(tag.clone())
+            .map_err(|e| CommandError::invalid_param("name", e.to_string()))?;
+        self.deltas.push(Delta::TagInserted {
+            id,
+            order_index: self.doc.tags.position(id).unwrap_or(0),
+            tag,
+        });
+        Ok(id)
     }
 
     /// Replaces a tag.
     pub fn replace_tag(&mut self, id: TagId, tag: Tag) -> Result<(), CommandError> {
-        todo!("docs/04 §5 replace tag")
+        let from = self
+            .doc
+            .tags
+            .replace(id, tag.clone())
+            .map_err(|e| CommandError::invalid_param("tag", e.to_string()))?;
+        if from != tag {
+            self.deltas.push(Delta::TagUpdated { id, from, to: tag });
+        }
+        Ok(())
     }
 
     /// Removes a tag; entities carrying it become untagged.
     pub fn remove_tag(&mut self, id: TagId) -> Result<Tag, CommandError> {
-        todo!("docs/04 §5 remove tag")
+        if id == self.doc.tags.untagged() || self.doc.tags.get(id).is_none() {
+            return Err(CommandError::invalid_param(
+                "tag",
+                "the tag does not exist or cannot be removed",
+            ));
+        }
+        for c in self.doc.containers() {
+            let tagged = self.entities(c)?.with_tag(id);
+            for e in tagged {
+                self.set_tag(c, e, None)?;
+            }
+        }
+        let order_index = self.doc.tags.position(id).unwrap_or(0);
+        let tag = self
+            .doc
+            .tags
+            .remove(id)
+            .map_err(|e| CommandError::NotApplicable(e.to_string()))?;
+        self.deltas.push(Delta::TagRemoved {
+            id,
+            order_index,
+            tag: tag.clone(),
+        });
+        Ok(tag)
+    }
+
+    /// Adds a tag folder.
+    pub fn insert_tag_folder(&mut self, folder: TagFolder) -> Result<TagFolderId, CommandError> {
+        let id = self
+            .doc
+            .tags
+            .insert_folder(folder.clone())
+            .map_err(|e| CommandError::invalid_param("folder", e.to_string()))?;
+        self.deltas.push(Delta::TagFolderInserted {
+            id,
+            order_index: self.doc.tags.folder_position(id).unwrap_or(0),
+            folder,
+        });
+        Ok(id)
+    }
+
+    /// Removes an empty tag folder.
+    pub fn remove_tag_folder(&mut self, id: TagFolderId) -> Result<TagFolder, CommandError> {
+        let order_index = self.doc.tags.folder_position(id).unwrap_or(0);
+        let folder = self
+            .doc
+            .tags
+            .remove_folder(id)
+            .map_err(|e| CommandError::NotApplicable(e.to_string()))?;
+        self.deltas.push(Delta::TagFolderRemoved {
+            id,
+            order_index,
+            folder: folder.clone(),
+        });
+        Ok(folder)
     }
 
     /// Adds a scene.
     pub fn insert_scene(&mut self, scene: Scene) -> Result<SceneId, CommandError> {
-        todo!("docs/04 §6 insert scene")
+        if self.doc.scenes.len() >= crate::document::Scenes::MAX {
+            return Err(CommandError::NotApplicable("too many scenes".into()));
+        }
+        let id = self.doc.scenes.insert(scene.clone());
+        self.deltas.push(Delta::SceneInserted {
+            id,
+            order_index: self.doc.scenes.index_of(id).unwrap_or(0),
+            scene: Box::new(scene),
+        });
+        Ok(id)
     }
 
     /// Replaces a scene.
     pub fn replace_scene(&mut self, id: SceneId, scene: Scene) -> Result<(), CommandError> {
-        todo!("docs/04 §6 replace scene")
+        let from =
+            self.doc.scenes.replace(id, scene.clone()).ok_or_else(|| {
+                CommandError::invalid_param("scene", format!("{id} does not exist"))
+            })?;
+        if from != scene {
+            self.deltas.push(Delta::SceneChanged {
+                id,
+                from: Box::new(from),
+                to: Box::new(scene),
+            });
+        }
+        Ok(())
     }
 
     /// Removes a scene.
     pub fn remove_scene(&mut self, id: SceneId) -> Result<Scene, CommandError> {
-        todo!("docs/04 §6 remove scene")
+        let (scene, order_index) =
+            self.doc.scenes.remove(id).ok_or_else(|| {
+                CommandError::invalid_param("scene", format!("{id} does not exist"))
+            })?;
+        self.deltas.push(Delta::SceneRemoved {
+            id,
+            order_index,
+            scene: Box::new(scene.clone()),
+        });
+        Ok(scene)
     }
 
     /// Moves a scene in the list.
     pub fn move_scene(&mut self, id: SceneId, index: usize) -> Result<(), CommandError> {
-        todo!("docs/04 §6 reorder scene")
+        let from_index =
+            self.doc.scenes.index_of(id).ok_or_else(|| {
+                CommandError::invalid_param("scene", format!("{id} does not exist"))
+            })?;
+        self.doc
+            .scenes
+            .reorder(id, index)
+            .ok_or_else(|| internal("scene vanished"))?;
+        let to_index = self.doc.scenes.index_of(id).unwrap_or(from_index);
+        if to_index != from_index {
+            self.deltas.push(Delta::SceneMoved {
+                id,
+                from_index,
+                to_index,
+            });
+        }
+        Ok(())
     }
 
     /// Adds a style.
     pub fn insert_style(&mut self, style: Style) -> Result<StyleId, CommandError> {
-        todo!("docs/04 §7 insert style")
+        let id = self.doc.styles.insert(style.clone());
+        self.deltas.push(Delta::StyleInserted {
+            id,
+            order_index: self.doc.styles.position(id).unwrap_or(0),
+            style: Box::new(style),
+        });
+        Ok(id)
     }
 
     /// Replaces a style.
     pub fn replace_style(&mut self, id: StyleId, style: Style) -> Result<(), CommandError> {
-        todo!("docs/04 §7 replace style")
+        let from =
+            self.doc.styles.replace(id, style.clone()).ok_or_else(|| {
+                CommandError::invalid_param("style", format!("{id} does not exist"))
+            })?;
+        if from != style {
+            self.deltas.push(Delta::StyleChanged {
+                id,
+                from: Box::new(from),
+                to: Box::new(style),
+            });
+        }
+        Ok(())
+    }
+
+    /// Removes a style that is not active.
+    pub fn remove_style(&mut self, id: StyleId) -> Result<Style, CommandError> {
+        let order_index =
+            self.doc.styles.position(id).ok_or_else(|| {
+                CommandError::invalid_param("style", format!("{id} does not exist"))
+            })?;
+        let style = self.doc.styles.remove(id).ok_or_else(|| {
+            CommandError::NotApplicable("the active style cannot be removed".into())
+        })?;
+        self.deltas.push(Delta::StyleRemoved {
+            id,
+            order_index,
+            style: Box::new(style.clone()),
+        });
+        Ok(style)
     }
 
     /// Activates a style.
     pub fn set_active_style(&mut self, id: StyleId) -> Result<(), CommandError> {
-        todo!("docs/04 §7 set active style")
+        let from =
+            self.doc.styles.set_active(id).ok_or_else(|| {
+                CommandError::invalid_param("style", format!("{id} does not exist"))
+            })?;
+        if from != id {
+            self.deltas.push(Delta::ActiveStyleChanged { from, to: id });
+        }
+        Ok(())
     }
 
-    /// Replaces model info (units, title, tolerances…).
-    pub fn set_info(&mut self, info: ModelInfo) -> Result<(), CommandError> {
-        todo!("docs/04 §10 set model info")
+    /// Replaces model info (units, title, tolerances…). `next_pid` is never
+    /// rewound: the current counter is kept.
+    pub fn set_info(&mut self, mut info: ModelInfo) -> Result<(), CommandError> {
+        info.tolerances
+            .validate()
+            .map_err(|e| CommandError::invalid_param("tolerances", e.to_string()))?;
+        info.next_pid = self.doc.info.next_pid;
+        if info != self.doc.info {
+            let from = std::mem::replace(&mut self.doc.info, info.clone());
+            self.deltas.push(Delta::InfoChanged {
+                from: Box::new(from),
+                to: Box::new(info),
+            });
+        }
+        Ok(())
     }
 
     /// Replaces rendering options.
     pub fn set_rendering(&mut self, rendering: RenderingOptions) -> Result<(), CommandError> {
-        todo!("docs/04 §1 set rendering options")
+        if rendering != self.doc.rendering {
+            let from = std::mem::replace(&mut self.doc.rendering, rendering.clone());
+            self.deltas.push(Delta::RenderingChanged {
+                from: Box::new(from),
+                to: Box::new(rendering),
+            });
+        }
+        Ok(())
     }
 
     // ----- lifecycle --------------------------------------------------------------
@@ -692,20 +2039,14 @@ impl<'a> Transaction<'a> {
     }
 
     /// Reverts every recorded delta in reverse order (apply-or-rollback for
-    /// failed commands, docs/01 §3.1).
+    /// failed commands, docs/01 §3.1). Ids are still current, so a fresh
+    /// alias table suffices.
     pub fn rollback(self) -> Result<(), CommandError> {
-        todo!("docs/01 §3.1 transaction rollback")
-    }
-
-    /// Records a delta that was already applied to the document (used by the
-    /// mutation helpers above).
-    pub(crate) fn record_delta(&mut self, delta: Delta) {
-        self.deltas.push(delta);
-    }
-
-    /// Mutable document access for the mutation helpers above.
-    pub(crate) fn document_mut(&mut self) -> &mut Document {
-        self.doc
+        let mut aliases = MeshAliases::new();
+        for delta in self.deltas.iter().rev() {
+            apply_delta(self.doc, &delta.inverse(), &mut aliases)?;
+        }
+        Ok(())
     }
 }
 
