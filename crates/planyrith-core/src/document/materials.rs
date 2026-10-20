@@ -285,23 +285,60 @@ impl Materials {
             .filter_map(|id| self.items.get(*id).map(|m| (*id, m)))
     }
 
-    /// Adds a material; names must be unique.
-    pub(crate) fn insert(&mut self, material: Material) -> Result<MaterialId, MaterialError> {
-        todo!("docs/04 §4 insert material")
+    /// Position of a material in the insertion order (captured before
+    /// removal so undo can restore it with [`Materials::insert_at`]).
+    pub fn position(&self, id: MaterialId) -> Option<usize> {
+        self.order.iter().position(|x| *x == id)
     }
 
-    /// Replaces a material's data (same id).
+    /// Adds a material; names must be unique.
+    pub(crate) fn insert(&mut self, material: Material) -> Result<MaterialId, MaterialError> {
+        self.insert_at(material, self.order.len())
+    }
+
+    /// Adds a material at `index` in the order (undo of a removal; the id is new).
+    pub(crate) fn insert_at(
+        &mut self,
+        mut material: Material,
+        index: usize,
+    ) -> Result<MaterialId, MaterialError> {
+        if self.by_name(&material.name).is_some() {
+            return Err(MaterialError::DuplicateName(material.name));
+        }
+        // Only the two built-ins carry the default marker.
+        material.is_default_for = None;
+        let id = self.items.insert(material);
+        self.order.insert(index.min(self.order.len()), id);
+        Ok(id)
+    }
+
+    /// Replaces a material's data (same id). The default marker of the
+    /// built-ins is kept.
     pub(crate) fn replace(
         &mut self,
         id: MaterialId,
-        material: Material,
+        mut material: Material,
     ) -> Result<Material, MaterialError> {
-        todo!("docs/04 §4 replace material")
+        let current = self.items.get(id).ok_or(MaterialError::NotFound(id))?;
+        if self
+            .by_name(&material.name)
+            .is_some_and(|other| other != id)
+        {
+            return Err(MaterialError::DuplicateName(material.name));
+        }
+        material.is_default_for = current.is_default_for;
+        let slot = self.items.get_mut(id).ok_or(MaterialError::NotFound(id))?;
+        Ok(std::mem::replace(slot, material))
     }
 
     /// Removes a non-default material.
     pub(crate) fn remove(&mut self, id: MaterialId) -> Result<Material, MaterialError> {
-        todo!("docs/04 §4 remove material")
+        if id == self.default_front || id == self.default_back {
+            return Err(MaterialError::DefaultProtected);
+        }
+        let material = self.items.remove(id).ok_or(MaterialError::NotFound(id))?;
+        self.order.retain(|x| *x != id);
+        Ok(material)
     }
 }
 
@@ -368,7 +405,34 @@ impl ImageStore {
     /// Decodes the header of `bytes` (format, width, height) with the `image`
     /// crate and inserts; rejects sides above [`ImageStore::MAX_SIDE_PX`].
     pub fn insert_encoded(&mut self, bytes: Vec<u8>) -> Result<ImageRef, IoError> {
-        todo!("docs/04 §4 image header decode and size cap")
+        let reader = image::ImageReader::new(std::io::Cursor::new(&bytes))
+            .with_guessed_format()
+            .map_err(|e| IoError::UnsupportedFormat(format!("image: {e}")))?;
+        let format = match reader.format() {
+            Some(image::ImageFormat::Png) => ImageFormat::Png,
+            Some(image::ImageFormat::Jpeg) => ImageFormat::Jpeg,
+            Some(image::ImageFormat::WebP) => ImageFormat::WebP,
+            other => {
+                return Err(IoError::UnsupportedFormat(format!(
+                    "image encoding {other:?} (PNG, JPEG or WebP expected)"
+                )));
+            }
+        };
+        let (width, height) = reader
+            .into_dimensions()
+            .map_err(|e| IoError::UnsupportedFormat(format!("image header: {e}")))?;
+        if width > Self::MAX_SIDE_PX || height > Self::MAX_SIDE_PX {
+            return Err(IoError::LimitExceeded(format!(
+                "image is {width}×{height} px; the limit is {} px per side",
+                Self::MAX_SIDE_PX
+            )));
+        }
+        Ok(self.insert(ImageData {
+            bytes,
+            format,
+            width,
+            height,
+        }))
     }
 
     /// Image by hash.
@@ -423,6 +487,50 @@ mod tests {
         assert_eq!(m.by_name(Material::DEFAULT_FRONT_NAME), Some(front));
         assert_eq!(m.resolve(None, FrontOrBack::Front), front);
         assert_eq!(m.iter().count(), 2);
+    }
+
+    #[test]
+    fn materials_keep_unique_names_and_protect_defaults() {
+        let mut m = Materials::new();
+        let oak = m
+            .insert(Material::solid("Oak", Rgba8::rgb(150, 100, 50)))
+            .unwrap();
+        assert_eq!(
+            m.insert(Material::solid("Oak", Rgba8::BLACK)),
+            Err(MaterialError::DuplicateName("Oak".into()))
+        );
+        let front = m.default_for(FrontOrBack::Front);
+        assert_eq!(m.remove(front), Err(MaterialError::DefaultProtected));
+        let renamed = Material::solid("Default", Rgba8::BLACK);
+        assert_eq!(
+            m.replace(oak, renamed),
+            Err(MaterialError::DuplicateName("Default".into()))
+        );
+        let index = m.position(oak).unwrap();
+        let removed = m.remove(oak).unwrap();
+        let back = m.insert_at(removed, index).unwrap();
+        assert_eq!(m.position(back), Some(2));
+        assert_eq!(m.get(back).unwrap().name, "Oak");
+    }
+
+    #[test]
+    fn encoded_images_are_decoded_and_capped() {
+        // A 1×1 PNG.
+        let png: Vec<u8> = vec![
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48,
+            0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00,
+            0x00, 0x1F, 0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, 0x54, 0x78,
+            0x9C, 0x63, 0x00, 0x01, 0x00, 0x00, 0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00,
+            0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+        ];
+        let mut store = ImageStore::new();
+        let r = store.insert_encoded(png).unwrap();
+        let data = store.get(r).unwrap();
+        assert_eq!(
+            (data.format, data.width, data.height),
+            (ImageFormat::Png, 1, 1)
+        );
+        assert!(store.insert_encoded(vec![0, 1, 2, 3]).is_err());
     }
 
     #[test]

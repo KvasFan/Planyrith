@@ -78,13 +78,35 @@ impl Camera {
     /// World ray through normalized device coordinates `(x, y) ∈ [-1, 1]²`
     /// (y up), used by picking and the CLI `infer` verb (docs/03 §7).
     pub fn ray_through_ndc(&self, ndc: glam::DVec2) -> Ray {
-        todo!("docs/03 §7 camera ray")
+        let f = self.forward();
+        let r = self.right();
+        let u = r.cross(f);
+        match self.projection {
+            Projection::Perspective { fov_y_deg } | Projection::TwoPoint { fov_y_deg } => {
+                let half_h = (fov_y_deg.to_radians() * 0.5).tan();
+                let half_w = half_h * self.aspect;
+                Ray::new(self.eye, f + r * (ndc.x * half_w) + u * (ndc.y * half_h))
+            }
+            Projection::Parallel { height_mm } => {
+                let half_h = height_mm * 0.5;
+                let half_w = half_h * self.aspect;
+                Ray::new(self.eye + r * (ndc.x * half_w) + u * (ndc.y * half_h), f)
+            }
+        }
     }
 
     /// World-space size of one pixel at depth `t` along the view direction for a
     /// viewport of `height_px` pixels (docs/03 §7 pixel tolerance conversion).
     pub fn world_per_pixel_at(&self, t: f64, height_px: f64) -> f64 {
-        todo!("docs/03 §7 pixel to world distance")
+        if height_px <= 0.0 {
+            return 0.0;
+        }
+        match self.projection {
+            Projection::Perspective { fov_y_deg } | Projection::TwoPoint { fov_y_deg } => {
+                2.0 * t.max(0.0) * (fov_y_deg.to_radians() * 0.5).tan() / height_px
+            }
+            Projection::Parallel { height_mm } => height_mm / height_px,
+        }
     }
 }
 
@@ -98,5 +120,28 @@ mod tests {
         assert!((c.forward().length() - 1.0).abs() < 1e-12);
         assert!(c.right().length() > 0.99);
         assert!(c.distance() > 0.0);
+    }
+
+    #[test]
+    fn center_ray_looks_at_the_target_and_pixels_scale_with_depth() {
+        let c = Camera::default();
+        let ray = c.ray_through_ndc(glam::DVec2::ZERO);
+        assert!((ray.dir - c.forward()).length() < 1e-12);
+        let top = c.ray_through_ndc(glam::DVec2::new(0.0, 1.0));
+        let angle = top.dir.angle_between(ray.dir).to_degrees();
+        assert!((angle - 17.5).abs() < 1e-9);
+        assert!(
+            (c.world_per_pixel_at(2.0, 100.0) - 2.0 * c.world_per_pixel_at(1.0, 100.0)).abs()
+                < 1e-15
+        );
+
+        let ortho = Camera {
+            projection: Projection::Parallel { height_mm: 1000.0 },
+            ..c
+        };
+        let a = ortho.ray_through_ndc(glam::DVec2::new(0.0, 1.0));
+        assert!((a.dir - ortho.forward()).length() < 1e-12);
+        assert!(((a.origin - ortho.eye).length() - 500.0).abs() < 1e-9);
+        assert_eq!(ortho.world_per_pixel_at(5.0, 1000.0), 1.0);
     }
 }
