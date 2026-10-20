@@ -262,3 +262,45 @@ On failure: `{"ok": false, "error": {"code": "E1002", "message": "...", "param":
 - 2026-10-20 — In the core, `Query` is the source string carried by `Sel` parameters (serialized
   as a plain string) and `QueryExpr` is the parsed AST; `Query::parse` validates syntax without a
   document, `QueryExpr::eval` needs the document plus `selection`/`last`/context.
+- 2026-10-20 — Query syntax details (§5). Whitespace is allowed around `:` and comparison
+  operators and between a function keyword and its `(`; `!` may repeat (`!!a`). Parenthesized
+  groups keep their structure, so `(a & b) & c` is not flattened. An unquoted value ends at
+  whitespace or one of `| & ( )`; double-quoted values use `\"` and `\\` escapes. In
+  `attr.<dict>.<key>` the key is the text after the last dot (dictionary names may contain dots);
+  a bare `attr.d.k` (or `attr.d.k:""`) tests that the attribute exists, and `attr.d.k op number`
+  compares integer, float and length attributes. A bare plural kind (`faces`) is `UnknownKind`,
+  another bare word `UnknownKeyword`, an unknown `word:`/`word>` `UnknownKey`; a known key
+  without `:value`/comparison, or with the wrong one (`tag>5`, `area:5`), is a syntax error.
+  `#path` syntax is validated at parse time. `QueryExpr::to_source` writes `a & b`, `a | b`,
+  `!a`, parentheses only where needed, numbers in core units and `layer` as `tag`.
+- 2026-10-20 — Query numbers. The parser has no document, so bare numbers in comparisons are
+  millimeters, mm² and mm³. Lengths use the §4 length grammar; areas and volumes accept a number
+  followed by `mm`, `cm`, `m`, `in` or `ft` and `2`/`²` (area) or `3`/`³` (volume), e.g.
+  `area>40m2`, `volume<2m³`; `id` takes digits only. `=` holds within the length tolerance (for
+  areas `length² + 2·length·√A`, for volumes `length³ + 3·length·V^(2/3)`); `>`/`<` need a
+  difference beyond it, `>=`/`<=` accept one within it.
+- 2026-10-20 — Query domain and order. A query evaluates over the edit context's entities plus
+  the occurrences that `children(…)`, `connected(…)`, `bounded-by(…)`, `inside(…)` and `#path`
+  terms bring into view; atoms are predicates over that domain and `!q` is the domain minus `q`
+  (so `children(group) & face` filters the children, `!children(group)` is the context).
+  Results are in tree pre-order: container order (`Entities` order, then mesh edges and faces
+  without a pid), a group's/instance's contents right after it.
+- 2026-10-20 — Query semantics. `plane:`, `normal:`, `area`, `length` and `inside` measure in the
+  edit context's local frame (world at the model root); `volume` is the solid definition's
+  volume times the absolute determinant of the placement. `vertex` matches nothing (vertices are
+  not entities). `hidden` = own hidden flag or an invisible tag (enclosing occurrences are not
+  considered); `visible` is its complement. `selection` matches selected occurrences in the
+  domain (`Id`-keyed items are normalized to their pid). `connected(q)` includes the seeds and
+  treats a face as touching every vertex of its loops. `inside(q)` returns context entities
+  whose bounds lie in the union of the matches' bounds (expanded by the length tolerance),
+  excluding the matches; texts, dimensions, section planes and infinite guides have no bounds.
+  `name:` globs the group/instance name and its definition's name; `attr.d.k:value` compares
+  length attributes numerically and others by their text form. Unknown tags, materials,
+  definitions and unresolvable `#path`s match nothing; malformed `plane:`/`normal:` values are
+  evaluation errors.
+- 2026-10-20 — Paths (§5.3). `#` is optional; the first segment is `Model`. `@42` or `42` is a pid;
+  `Name[n]` is the n-th (0-based, default 0) group or instance with that name in container order,
+  where an unnamed instance is named by its definition. Names that are all digits, start with
+  `@`, or contain whitespace or `/ [ ] " \ | & ( )` are written double-quoted; entities without
+  a name (empty names included) are written `@pid`. `display_with` output parses back to the same
+  pid-keyed path.
