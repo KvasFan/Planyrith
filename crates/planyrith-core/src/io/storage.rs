@@ -1,5 +1,6 @@
 //! Implements docs/11-persistence-and-web.md §1 (storage abstraction): the
-//! `Storage` trait plus the `MemoryStorage` and `NativeFs` backends.
+//! `Storage` trait plus the `MemoryStorage` and `NativeFs` backends, and the
+//! conformance suite of docs/11 §7.
 //!
 //! The spec writes the trait `async`; this draft keeps it **synchronous**
 //! (docs/11 Decisions): desktop backends are blocking, and the web build wraps
@@ -8,9 +9,13 @@
 //! later is a mechanical change for implementations only.
 //!
 //! `NativeFs` is the **only** place in the crate allowed to touch `std::fs`
-//! (docs/01 §1.1, AGENTS.md §2).
+//! (docs/01 §1.1, AGENTS.md §2). Its atomic write is "write `.<name>.tmp` in
+//! the target directory, `fsync`, rotate backups, rename over the target"
+//! (docs/11 §1, §6).
 //!
 //! Owner key: `io-native`.
+
+#![warn(unused_variables, dead_code)]
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -188,6 +193,10 @@ impl Storage for MemoryStorage {
 
 /// Desktop file-system storage (docs/11 §1 `NativeFs`): keys are paths; atomic
 /// write = write `.<name>.tmp` + fsync + rename; optional rotating backups.
+///
+/// Keys use `/` as the separator on every platform; `list` looks at the
+/// directory the prefix points into (not recursively) and reports entries in
+/// key order. Missing parent directories are created on write.
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug, Clone, Default)]
 pub struct NativeFs {
@@ -201,6 +210,9 @@ pub struct NativeFs {
 
 #[cfg(not(target_arch = "wasm32"))]
 impl NativeFs {
+    /// Suffix of the temporary file an atomic write goes through.
+    const TEMP_SUFFIX: &'static str = ".tmp";
+
     /// Storage rooted at the working directory.
     pub fn new() -> Self {
         Self::default()
@@ -221,28 +233,165 @@ impl NativeFs {
             None => std::path::PathBuf::from(&key.0),
         }
     }
+
+    /// The sibling `.<name>.tmp` path an atomic write of `path` goes through.
+    fn temp_path(path: &std::path::Path) -> std::path::PathBuf {
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        path.with_file_name(format!(".{name}{}", Self::TEMP_SUFFIX))
+    }
+
+    /// `true` for the temporary files this backend creates, which `list`
+    /// hides.
+    fn is_temp_name(name: &str) -> bool {
+        name.starts_with('.') && name.ends_with(Self::TEMP_SUFFIX)
+    }
+
+    /// Maps an OS error to the stable `E1403` variants without leaking the
+    /// locale-dependent OS message.
+    fn map_io(key: &StorageKey, err: &std::io::Error) -> IoError {
+        if err.kind() == std::io::ErrorKind::NotFound {
+            return IoError::NotFound(key.0.clone());
+        }
+        let reason = match err.raw_os_error() {
+            Some(code) => format!("{} (os error {code})", err.kind()),
+            None => err.kind().to_string(),
+        };
+        IoError::storage(key.as_str(), reason)
+    }
+
+    /// Rotates `path~1..N` so that `path` can become `path~1` (docs/11 §6).
+    fn rotate_backups(&self, path: &std::path::Path) -> std::io::Result<()> {
+        if self.backups == 0 || !path.is_file() {
+            return Ok(());
+        }
+        let backup = |n: u32| {
+            let mut os = path.as_os_str().to_owned();
+            os.push(format!("~{n}"));
+            std::path::PathBuf::from(os)
+        };
+        for n in (1..self.backups).rev() {
+            match std::fs::rename(backup(n), backup(n + 1)) {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => return Err(e),
+            }
+        }
+        std::fs::rename(path, backup(1))
+    }
+
+    /// Writes `bytes` to the temp sibling, syncs it and renames it over
+    /// `path`. On failure the temp file is removed.
+    fn write_atomic(&self, path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+        use std::io::Write as _;
+
+        if let Some(parent) = path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            std::fs::create_dir_all(parent)?;
+        }
+        let tmp = Self::temp_path(path);
+        let result = (|| {
+            let mut file = std::fs::File::create(&tmp)?;
+            file.write_all(bytes)?;
+            file.sync_all()?;
+            drop(file);
+            self.rotate_backups(path)?;
+            std::fs::rename(&tmp, path)
+        })();
+        if result.is_err() {
+            // Best effort: the original error is the one worth reporting.
+            let _ = std::fs::remove_file(&tmp);
+        }
+        result
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 impl Storage for NativeFs {
     fn read(&self, key: &StorageKey) -> Result<Vec<u8>, IoError> {
-        todo!("docs/11 §1 NativeFs::read")
+        std::fs::read(self.path_for(key)).map_err(|e| Self::map_io(key, &e))
     }
 
     fn write(&self, key: &StorageKey, bytes: &[u8]) -> Result<(), IoError> {
-        todo!("docs/11 §1 NativeFs::write (tmp + fsync + rename, backups)")
+        if self.read_only {
+            return Err(IoError::ReadOnly(key.0.clone()));
+        }
+        self.write_atomic(&self.path_for(key), bytes)
+            .map_err(|e| Self::map_io(key, &e))
     }
 
     fn delete(&self, key: &StorageKey) -> Result<(), IoError> {
-        todo!("docs/11 §1 NativeFs::delete")
+        if self.read_only {
+            return Err(IoError::ReadOnly(key.0.clone()));
+        }
+        match std::fs::remove_file(self.path_for(key)) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(Self::map_io(key, &e)),
+        }
     }
 
     fn list(&self, prefix: &str) -> Result<Vec<StorageEntry>, IoError> {
-        todo!("docs/11 §1 NativeFs::list")
+        let dir_part = prefix.rsplit_once('/').map_or("", |(d, _)| d);
+        let dir_key = if dir_part.is_empty() {
+            String::new()
+        } else {
+            format!("{dir_part}/")
+        };
+        let dir = match &self.root {
+            Some(root) if dir_part.is_empty() => root.clone(),
+            Some(root) => root.join(dir_part),
+            None if dir_part.is_empty() => std::path::PathBuf::from("."),
+            None => std::path::PathBuf::from(dir_part),
+        };
+        let read_dir = match std::fs::read_dir(&dir) {
+            Ok(rd) => rd,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(e) => return Err(Self::map_io(&StorageKey::new(prefix), &e)),
+        };
+        let mut rows = Vec::new();
+        for entry in read_dir {
+            let entry = entry.map_err(|e| Self::map_io(&StorageKey::new(prefix), &e))?;
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if Self::is_temp_name(&name) {
+                continue;
+            }
+            let key = format!("{dir_key}{name}");
+            if !key.starts_with(prefix) {
+                continue;
+            }
+            let meta = match entry.metadata() {
+                Ok(m) => m,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(e) => return Err(Self::map_io(&StorageKey::new(&key), &e)),
+            };
+            if !meta.is_file() {
+                continue;
+            }
+            let modified_unix_s = meta.modified().ok().and_then(|t| {
+                t.duration_since(std::time::UNIX_EPOCH)
+                    .ok()
+                    .and_then(|d| i64::try_from(d.as_secs()).ok())
+            });
+            rows.push(StorageEntry {
+                key: StorageKey(key),
+                size: meta.len(),
+                modified_unix_s,
+            });
+        }
+        rows.sort_by(|a, b| a.key.cmp(&b.key));
+        Ok(rows)
     }
 
     fn exists(&self, key: &StorageKey) -> Result<bool, IoError> {
-        todo!("docs/11 §1 NativeFs::exists")
+        match std::fs::metadata(self.path_for(key)) {
+            Ok(meta) => Ok(meta.is_file()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+            Err(e) => Err(Self::map_io(key, &e)),
+        }
     }
 
     fn capabilities(&self) -> StorageCaps {
@@ -311,5 +460,89 @@ mod tests {
         assert_eq!(k.journal().as_str(), "house.plyr.journal");
         assert_eq!(k.autosave().as_str(), "house.autosave.plyr");
         assert_eq!(k.backup(2).as_str(), "house.plyr~2");
+    }
+
+    /// A fresh scratch directory per test (tests may touch `std::fs`).
+    #[cfg(not(target_arch = "wasm32"))]
+    struct Scratch(std::path::PathBuf);
+
+    #[cfg(not(target_arch = "wasm32"))]
+    impl Scratch {
+        fn new(tag: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!(
+                "planyrith-core-storage-{}-{tag}",
+                std::process::id()
+            ));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            Scratch(dir)
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn native_fs_passes_conformance() {
+        let scratch = Scratch::new("conformance");
+        let fs = NativeFs::rooted(&scratch.0);
+        conformance_check(&fs).unwrap();
+        assert!(fs.capabilities().persistent && fs.capabilities().shareable_path);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn native_fs_write_is_atomic_and_rotates_backups() {
+        let scratch = Scratch::new("atomic");
+        let fs = NativeFs {
+            backups: 2,
+            ..NativeFs::rooted(&scratch.0)
+        };
+        let key = StorageKey::from("docs/house.plyr");
+        fs.write(&key, b"v1").unwrap();
+        fs.write(&key, b"v2").unwrap();
+        fs.write(&key, b"v3").unwrap();
+        fs.write(&key, b"v4").unwrap();
+        assert_eq!(fs.read(&key).unwrap(), b"v4");
+        assert_eq!(fs.read(&key.backup(1)).unwrap(), b"v3");
+        assert_eq!(fs.read(&key.backup(2)).unwrap(), b"v2");
+        assert_eq!(fs.read(&key.backup(3)).unwrap_err().code(), "E1403");
+        // No temp file is left behind; listing is by key prefix, in key order.
+        let names: Vec<String> = fs
+            .list("docs/")
+            .unwrap()
+            .into_iter()
+            .map(|e| e.key.0)
+            .collect();
+        assert_eq!(
+            names,
+            vec!["docs/house.plyr", "docs/house.plyr~1", "docs/house.plyr~2"]
+        );
+        assert!(!NativeFs::temp_path(&fs.path_for(&key)).exists());
+        assert_eq!(fs.list("docs/house.plyr~").unwrap().len(), 2);
+        assert!(fs.list("missing/").unwrap().is_empty());
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn native_fs_read_only_and_not_found() {
+        let scratch = Scratch::new("readonly");
+        let fs = NativeFs {
+            read_only: true,
+            ..NativeFs::rooted(&scratch.0)
+        };
+        let key = StorageKey::from("a.plyr");
+        assert_eq!(fs.write(&key, b"x").unwrap_err().code(), "E1501");
+        assert_eq!(fs.delete(&key).unwrap_err().code(), "E1501");
+        assert_eq!(
+            fs.read(&key).unwrap_err(),
+            IoError::NotFound("a.plyr".into())
+        );
+        assert!(!fs.exists(&key).unwrap());
     }
 }
