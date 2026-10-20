@@ -113,7 +113,11 @@ fn push_pull_to_a_point_measures_along_the_normal() {
 #[test]
 fn push_pull_accepts_queries() {
     let mut e = engine();
-    run(&mut e, "rectangle", json!({ "corner_a": [0,0,0], "corner_b": [1200,800,0] }));
+    run(
+        &mut e,
+        "rectangle",
+        json!({ "corner_a": [0,0,0], "corner_b": [1200,800,0] }),
+    );
     let out = run(
         &mut e,
         "push-pull",
@@ -121,7 +125,10 @@ fn push_pull_accepts_queries() {
     );
     assert_eq!(out["solid_after"], json!(true));
     let err = e
-        .execute_erased("push-pull", json!({ "face": { "Query": "face" }, "distance": 10.0 }))
+        .execute_erased(
+            "push-pull",
+            json!({ "face": { "Query": "face" }, "distance": 10.0 }),
+        )
         .unwrap_err();
     assert_eq!(err.code(), "E1102");
 }

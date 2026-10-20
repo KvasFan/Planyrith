@@ -479,6 +479,38 @@ impl Entities {
         Ok(())
     }
 
+    /// Re-synchronizes pid bindings with the mesh after a change made outside
+    /// a transaction (file repair): unbinds edges/faces that no longer exist
+    /// and binds fresh pids to those without one. Returns `(bound, unbound)`.
+    pub(crate) fn sync_mesh_pids(
+        &mut self,
+        next_pid: &mut crate::ids::PidAllocator,
+    ) -> (usize, usize) {
+        let stale: Vec<EntityId> = self
+            .pids
+            .keys()
+            .copied()
+            .filter(|id| matches!(id, EntityId::Edge(_) | EntityId::Face(_)) && !self.contains(*id))
+            .collect();
+        for id in &stale {
+            self.forget(*id);
+        }
+        let missing: Vec<EntityId> = self
+            .mesh
+            .edges()
+            .map(|(e, _)| EntityId::Edge(e))
+            .chain(self.mesh.faces().map(|(f, _)| EntityId::Face(f)))
+            .filter(|id| !self.pids.contains_key(id))
+            .collect();
+        for id in &missing {
+            let pid = next_pid.allocate();
+            self.order.push(*id);
+            self.pids.insert(*id, pid);
+            self.by_pid.insert(pid, *id);
+        }
+        (missing.len(), stale.len())
+    }
+
     // ----- typed access ----------------------------------------------------------
 
     /// Group by id.
