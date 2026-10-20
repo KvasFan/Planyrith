@@ -34,7 +34,7 @@ struct DetachedFace {
 impl HalfEdgeMesh {
     // ----- §4.2 add edge ----------------------------------------------------------
 
-    pub(super) fn add_edge_inner(
+    pub(crate) fn add_edge_inner(
         &mut self,
         a: DVec3,
         b: DVec3,
@@ -143,7 +143,7 @@ impl HalfEdgeMesh {
 
     // ----- §4.6 erase edge / merge --------------------------------------------------
 
-    pub(super) fn erase_edge_inner(
+    pub(crate) fn erase_edge_inner(
         &mut self,
         e: EdgeId,
         tol: &Tolerances,
@@ -193,7 +193,7 @@ impl HalfEdgeMesh {
         Ok(result)
     }
 
-    pub(super) fn merge_faces_inner(
+    pub(crate) fn merge_faces_inner(
         &mut self,
         kept: FaceId,
         removed: FaceId,
@@ -336,7 +336,7 @@ impl HalfEdgeMesh {
 
     // ----- §4.7 erase face -------------------------------------------------------------
 
-    pub(super) fn erase_face_inner(
+    pub(crate) fn erase_face_inner(
         &mut self,
         f: FaceId,
         erase_orphans: bool,
@@ -362,7 +362,7 @@ impl HalfEdgeMesh {
 
     // ----- §4.8 transform vertices --------------------------------------------------
 
-    pub(super) fn transform_vertices_inner(
+    pub(crate) fn transform_vertices_inner(
         &mut self,
         set: &[VertexId],
         t: &DAffine3,

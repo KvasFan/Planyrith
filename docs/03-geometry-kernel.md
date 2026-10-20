@@ -386,3 +386,18 @@ within `tolerances.length`.
   triangles whose winding contradicts an already accepted neighbor, drops (and counts) triangles
   that would make an edge non-manifold, merges coplanar edge-connected triangles whose boundary is
   one planar region, and softens edges between faces meeting below `soften_angle`.
+- 2026-10-20 — **Extrude (§4.9) cases.** (1) *Stretch*: when every boundary edge of the face borders
+  a face containing the extrusion direction (the top of a box), the face's vertices move and the
+  neighbors stretch, in both directions. (2) *Generic*: vertical and cap edges are added with
+  `add_edge` so face finding builds sides and cap with orientations that agree with the neighbors;
+  hole rings are capped before the outer ring and their top fills removed. The start face is
+  removed (it becomes interior) unless nothing lies across its edges, in which case it stays as the
+  base facing away from the volume (a lone rectangle becomes a closed box) — this refines step 2,
+  since keeping a face whose edges already carry a second face would need three faces on an edge;
+  `create_new_start_face` is refused in that case. (3) *Join / push-through*: when the cap outline
+  lands inside a coplanar face, the outline is cut into it and the inside piece removed *before*
+  the sides are added; this opens a hole when pushing and joins the volumes when pulling. Faces that
+  occupy a side strip from the wrong side (the underside of a wall below a door that reaches the
+  floor) are removed, the edges they leave as wires are deleted, and face finding builds the side
+  faces they blocked. Sides of curve-bounded faces get `SOFT | SMOOTH` between segments and the cap
+  receives a translated copy of the curve descriptor.
