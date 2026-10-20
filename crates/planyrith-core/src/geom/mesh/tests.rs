@@ -1049,3 +1049,98 @@ fn tessellation_of_a_face_with_a_hole_covers_its_area() {
     }
     assert!((area - mesh.face_area(outer).unwrap()).abs() < 1e-6);
 }
+
+// ----- randomized operation sequences (docs/03 §10 "fuzzed sequences") ------------
+
+#[derive(Debug, Clone)]
+enum Op {
+    Add([i8; 3], [i8; 3]),
+    EraseEdge(usize),
+    EraseFace(usize),
+    Move(usize, [i8; 3]),
+}
+
+fn lattice() -> impl Strategy<Value = [i8; 3]> {
+    (0i8..5, 0i8..5, prop_oneof![4 => Just(0i8), 1 => 0i8..3]).prop_map(|(x, y, z)| [x, y, z])
+}
+
+fn op() -> impl Strategy<Value = Op> {
+    prop_oneof![
+        6 => (lattice(), lattice()).prop_map(|(a, b)| Op::Add(a, b)),
+        2 => (0usize..64).prop_map(Op::EraseEdge),
+        1 => (0usize..64).prop_map(Op::EraseFace),
+        1 => (0usize..64, (-1i8..2, -1i8..2, -1i8..2)).prop_map(|(v, (x, y, z))| Op::Move(v, [x, y, z])),
+    ]
+}
+
+fn at(p: [i8; 3]) -> DVec3 {
+    p3(
+        f64::from(p[0]) * 100.0,
+        f64::from(p[1]) * 100.0,
+        f64::from(p[2]) * 100.0,
+    )
+}
+
+fn p3(x: f64, y: f64, z: f64) -> DVec3 {
+    DVec3::new(x, y, z)
+}
+
+proptest! {
+    // `PLANYRITH_FUZZ_CASES=20000` runs a long fuzzing session.
+    #![proptest_config(ProptestConfig::with_cases(
+        std::env::var("PLANYRITH_FUZZ_CASES").ok().and_then(|v| v.parse().ok()).unwrap_or(96)
+    ))]
+
+    /// Every operation either succeeds leaving a valid mesh (all invariants,
+    /// edge crossings included) or fails leaving the mesh unchanged; undoing
+    /// the whole sequence by replay returns to the empty mesh.
+    #[test]
+    fn random_operation_sequences_keep_the_mesh_valid(ops in prop::collection::vec(op(), 1..24)) {
+        let mut mesh = HalfEdgeMesh::new();
+        let mut log: Vec<Vec<MeshDelta>> = Vec::new();
+        for op in ops {
+            let before = canonical(&mesh);
+            let mut d = Vec::new();
+            let outcome = match op {
+                Op::Add(a, b) => mesh.add_edge(at(a), at(b), &tol(), &mut d).map(|_| ()),
+                Op::EraseEdge(i) => match mesh.edges().nth(i % mesh.edge_count().max(1)) {
+                    Some((e, _)) => mesh.erase_edge(e, &tol(), &mut d).map(|_| ()),
+                    None => Ok(()),
+                },
+                Op::EraseFace(i) => match mesh.faces().nth(i % mesh.face_count().max(1)) {
+                    Some((f, _)) => mesh.erase_face(f, i % 2 == 0, &tol(), &mut d).map(|_| ()),
+                    None => Ok(()),
+                },
+                Op::Move(i, delta) => match mesh.vertices().nth(i % mesh.vertex_count().max(1)) {
+                    Some((v, _)) => mesh
+                        .transform_vertices(
+                            &[v],
+                            &DAffine3::from_translation(at(delta)),
+                            TransformOptions { auto_fold: true, check_intersections: true },
+                            &tol(),
+                            &mut d,
+                        )
+                        .map(|_| ()),
+                    None => Ok(()),
+                },
+            };
+            match outcome {
+                Ok(()) => {
+                    let violations = mesh.validate(&tol());
+                    prop_assert!(violations.is_empty(), "{:?} broke the mesh: {:#?}", op, violations);
+                    log.push(d);
+                }
+                Err(_) => {
+                    prop_assert_eq!(canonical(&mesh), before, "a failed {:?} changed the mesh", op);
+                    prop_assert!(d.is_empty());
+                }
+            }
+        }
+        let mut ids = ReplayIds::new();
+        for d in log.iter().rev() {
+            let inverse: Vec<MeshDelta> = d.iter().rev().map(MeshDelta::inverse).collect();
+            mesh.replay_all(&inverse, &mut ids, &tol()).unwrap();
+        }
+        prop_assert!(mesh.is_empty(), "undoing everything leaves {}", canonical(&mesh));
+    }
+}

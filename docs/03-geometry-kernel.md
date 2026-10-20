@@ -376,6 +376,14 @@ within `tolerances.length`.
   ear-clipped in their best-fit plane and the triangles regrown into maximal planar groups; the
   largest piece keeps the face id, fold edges are `SOFT | SMOOTH | HIDDEN`. Without auto-fold a move
   that would bend a face fails and rolls back.
+- 2026-10-20 — **Fold triangles and intersection checks** (§4.8 steps 2–3, found by randomized
+  operation sequences). A fold triangle whose side runs through another vertex of the face's loops
+  (collinear boundary vertices) is subdivided at that vertex, and zero-area triangles are dropped,
+  so fold edges never pass through vertices. With `check_intersections` the fold edges join the
+  moved edges in the intersection pass: crossings split both edges at the crossing point, a vertex
+  lying inside an edge splits that edge, and a moved edge that becomes **collinear and
+  overlapping** with another edge fails the whole move (`E1302`, rolled back) — welding coincident
+  edges is the job of an explicit intersect operation, not of a move.
 - 2026-10-20 — **Draft performance trade-offs**, to revisit before importers (0.5): public mesh
   operations roll back by restoring a snapshot taken on entry (replaying inverse deltas is the
   planned optimization); proximity lookups (vertex at a position, edges near a segment, coplanar

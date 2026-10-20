@@ -477,9 +477,9 @@ impl HalfEdgeMesh {
             self.reattach_moved_face(face, &map, opts, tol, d, &mut result)?;
         }
 
-        // Step 3: optional intersection check.
+        // Step 3: optional intersection check (moved edges and fold edges).
         if opts.check_intersections {
-            let mut edges = BTreeSet::new();
+            let mut edges: BTreeSet<EdgeId> = result.fold_edges.iter().copied().collect();
             for &(_, v) in &kept {
                 for &h in self.vertex_star(v) {
                     edges.insert(self.he(h)?.edge);
@@ -626,6 +626,36 @@ impl HalfEdgeMesh {
                 t.swap(1, 2);
             }
         }
+        // A triangle side must not run through another loop vertex (a
+        // collinear boundary vertex): split such triangles at it, then drop
+        // the zero-area ones, so fold edges never overlap loop edges.
+        let mut guard = 0;
+        'split: loop {
+            guard += 1;
+            if guard > 4 * all.len() * all.len() + 16 {
+                return Err(cannot());
+            }
+            for k in 0..triangles.len() {
+                let t = triangles[k];
+                for side in 0..3 {
+                    let (u, v, x) = (t[side], t[(side + 1) % 3], t[(side + 2) % 3]);
+                    let seg = crate::math::Segment::new(points[u], points[v]);
+                    let inside = (0..all.len()).find(|&w| {
+                        w != u && w != v && w != x && tol.point_inside_segment(points[w], &seg)
+                    });
+                    if let Some(w) = inside {
+                        triangles[k] = [u, w, x];
+                        triangles.push([w, v, x]);
+                        continue 'split;
+                    }
+                }
+            }
+            break;
+        }
+        triangles.retain(|t| {
+            ((p2[t[1]] - p2[t[0]]).perp_dot(p2[t[2]] - p2[t[0]]) * 0.5).abs() > tol.length_sq
+                && !tol.collinear(points[t[0]], points[t[1]], points[t[2]])
+        });
 
         // Grow planar groups across shared triangle edges.
         let mut by_edge: BTreeMap<(usize, usize), Vec<usize>> = BTreeMap::new();
@@ -794,7 +824,16 @@ impl HalfEdgeMesh {
                         continue;
                     }
                     let gs = self.edge_segment(g)?;
-                    if let SegmentContact::Point { point, .. } = segment_segment(&seg, &gs, tol)
+                    let contact = segment_segment(&seg, &gs, tol);
+                    if matches!(contact, SegmentContact::Overlap { .. }) {
+                        // Coincident edges would need a weld (docs/03 Decisions).
+                        return Err(GeometryError::NonRobust(
+                            "the moved geometry overlaps existing edges; move it elsewhere \
+                             or erase the overlapping edges first"
+                                .into(),
+                        ));
+                    }
+                    if let SegmentContact::Point { point, .. } = contact
                         && tol.point_inside_segment(point, &gs)
                     {
                         let (m, parts) = self.split_edge_at(g, point, tol, d)?;
