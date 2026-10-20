@@ -10,15 +10,14 @@ use glam::{DAffine3, DVec3};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::commands::common::{refuse_locked, targets_in};
+use crate::commands::common::{redraw_geometry, refuse_locked, targets_in};
 use crate::commands::params::{PointSchema, Target, VectorSchema, check_point, target_container};
 use crate::commands::{
     Command, CommandCategory, CommandError, CommandMeta, CommonParams, ToolStep, Transaction,
 };
 use crate::document::{Document, EntityRecord, EntityView, Guide, Query};
-use crate::geom::planar;
 use crate::geom::{FaceSides, TransformOptions};
-use crate::ids::{EdgeId, EntityId, FaceId, Pid, VertexId};
+use crate::ids::{EdgeId, EntityId, Pid, VertexId};
 use crate::inference::InferenceKind;
 use crate::math::transform::{rotation_about, scale_about, translation};
 use crate::math::{Aabb, Plane};
@@ -199,7 +198,7 @@ fn copy_entities(
             _ => {}
         }
     }
-    let segments: Vec<(DVec3, DVec3, crate::geom::EdgeFlags)> = edges
+    let segments = edges
         .iter()
         .map(|&e| {
             let s = mesh.edge_segment(e)?;
@@ -210,41 +209,9 @@ fn copy_entities(
                 flags,
             ))
         })
-        .collect::<Result<_, CommandError>>()?;
+        .collect::<Result<Vec<_>, CommandError>>()?;
     let before = tx.created().len();
-    if !segments.is_empty() {
-        tx.with_mesh(container, |mesh, tol, d| {
-            mesh.transact(tol, d, |m, log| {
-                for (a, b, flags) in &segments {
-                    let r = m.add_edge_inner(*a, *b, tol, log)?;
-                    if flags.bits() == 0 {
-                        continue;
-                    }
-                    for e in r.edges {
-                        let old = m.edge(e).map(|x| x.flags).unwrap_or_default();
-                        if old != *flags && old.bits() == 0 {
-                            m.set_edge_flags(e, *flags, log)?;
-                        }
-                    }
-                }
-                // Give each copied face the original's front and materials. A
-                // face can only flip together with its edge-connected group.
-                let mut reversed: BTreeSet<FaceId> = BTreeSet::new();
-                for (outer, plane, sides) in &faces {
-                    let Some(f) = face_through(m, outer, tol) else {
-                        continue;
-                    };
-                    if m.face_normal(f)?.dot(plane.normal) < 0.0 && !reversed.contains(&f) {
-                        let group = planar::face_group(m, &BTreeSet::from([f]))?;
-                        planar::reverse_faces(m, &group, tol, log)?;
-                        reversed.extend(group);
-                    }
-                    m.set_face_sides(f, sides.clone(), log)?;
-                }
-                Ok(())
-            })
-        })?;
-    }
+    redraw_geometry(tx, container, &segments, &faces)?;
     let mut pids: Vec<Pid> = tx.created()[before..].to_vec();
     for &id in ids {
         let Some(view) = tx.document().container(container).and_then(|e| e.view(id)) else {
@@ -275,31 +242,6 @@ fn copy_entities(
         pids.push(pid);
     }
     Ok(pids)
-}
-
-/// The face whose outer loop runs through exactly `points`.
-fn face_through(
-    m: &crate::geom::HalfEdgeMesh,
-    points: &[DVec3],
-    tol: &crate::tolerance::Tolerances,
-) -> Option<FaceId> {
-    let wanted: BTreeSet<VertexId> = points
-        .iter()
-        .map(|&p| m.find_vertex_near(p, tol))
-        .collect::<Option<_>>()?;
-    let first = *wanted.iter().next()?;
-    for &h in m.vertex_star(first) {
-        for side in [Some(h), m.twin_of(h).ok()].into_iter().flatten() {
-            let Some(f) = m.he(side).ok()?.face else {
-                continue;
-            };
-            let outer: BTreeSet<VertexId> = m.face_vertices(f).ok()?.into_iter().collect();
-            if outer == wanted {
-                return Some(f);
-            }
-        }
-    }
-    None
 }
 
 /// Runs the move-or-copy of a transform family `at(s)` (s = array step).

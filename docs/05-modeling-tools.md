@@ -458,3 +458,16 @@ UI hints are generated from one source.
   (`[sx, sy, sz]`, CLI `--factors '2;1.5;1'`) and a pivot (default: the targets' bounding-box
   minimum corner, or its center with `about: center`). Locked groups/instances refuse
   move/rotate/scale/erase/delete (`E1201`).
+- 2026-10-20 — **Groups and components.** `make-group`/`make-component` build the definition
+  from the indexed mesh form of the selected faces and edges (faces bring their boundary edges),
+  so orientation, materials, edge flags, tags and hidden state carry over exactly; the definition
+  origin is the selection's bounding-box minimum (in the edit context) and the occurrence's
+  transform is the translation to it. Selected faces, and selected edges no remaining face
+  needs, leave the source. Nested groups, instances, guides, images, texts, dimensions and section
+  planes move into the definition (they get new pids). Commands may not use randomness, so the
+  definition UUID is derived from the document's pid counter. `make-component` takes `behavior`
+  as a JSON object of `ComponentBehavior` fields and `replace_selection` (default true; false only
+  creates the definition). `explode` redraws the definition's geometry in the parent with
+  `add_edge` (merging with what is there), applies an instance's `material_override` to faces with
+  the default material, re-creates nested occurrences and guides, and removes the occurrence (a
+  group's private definition goes with it).
