@@ -358,3 +358,51 @@ fn rotate_and_scale_raw_geometry() {
         .id_of(crate::ids::Pid(r["face"].as_u64().unwrap()));
     assert!(face.is_some(), "the face keeps its pid through moves");
 }
+
+#[test]
+fn offset_a_face_inward_then_pull_the_inner_face() {
+    let mut e = engine();
+    let r = run(
+        &mut e,
+        "rectangle",
+        json!({ "corner_a": [0,0,0], "corner_b": [1000,1000,0] }),
+    );
+    let out = run(
+        &mut e,
+        "offset",
+        json!({ "face": { "Pid": r["face"] }, "distance": -100.0 }),
+    );
+    assert_eq!(out["edges"].as_array().unwrap().len(), 4);
+    assert!(out["face"].is_u64());
+    assert_eq!(faces(&e), 2);
+    // A raised panel: pull the inner face.
+    run(
+        &mut e,
+        "push-pull",
+        json!({ "face": { "Pid": out["face"] }, "distance": 20.0 }),
+    );
+    assert_eq!(faces(&e), 6);
+    // Offsetting by edges: the boundary of the raised panel's top.
+    let top = run(&mut e, "select", json!({ "query": "face & plane:xy@20" }));
+    assert_eq!(top["count"], json!(1));
+    let out = run(
+        &mut e,
+        "offset",
+        json!({ "edges": "bounded-by(face & plane:xy@20)", "distance": -50.0 }),
+    );
+    assert!(out["face"].is_u64());
+    let err = e
+        .execute_erased(
+            "offset",
+            json!({ "face": { "Pid": r["face"] }, "distance": -900.0 }),
+        )
+        .unwrap_err();
+    assert_eq!(err.code(), "E1301");
+    assert!(
+        e.document()
+            .model
+            .mesh()
+            .validate(e.document().tolerances())
+            .is_empty()
+    );
+}

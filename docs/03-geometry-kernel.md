@@ -401,3 +401,11 @@ within `tolerances.length`.
   floor) are removed, the edges they leave as wires are deleted, and face finding builds the side
   faces they blocked. Sides of curve-bounded faces get `SOFT | SMOOTH` between segments and the cap
   receives a translated copy of the curve descriptor.
+- 2026-10-20 — **Offset (§4.10).** Each ring is offset along the normal pointing out of the
+  region with miter joins, bevelled where the miter would exceed 4 × |d|. Self-intersections are
+  resolved on the planar arrangement of the raw offset curves: a region is kept when its winding
+  number is at least one and, for inward offsets, it lies inside the original region at least |d|
+  from its boundary; the result is the boundary of the kept regions. Holes offset in the opposite
+  sense (the region's width stays constant); an inward offset past a narrow part yields several
+  loops, past the whole width none (`E1301`). `offset_polygon_2d` returns the largest loop;
+  `offset_rings_2d` returns all of them.

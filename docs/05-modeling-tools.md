@@ -480,3 +480,6 @@ UI hints are generated from one source.
   Instances get `material_override`; groups have none, so painting a group paints the
   default-material faces of its private definition. Material color alpha mirrors `opacity`.
   Textures (`material-edit` texture fields, `texture-position`) arrive with milestone 0.4.
+- 2026-10-20 — `offset` output is `{edges, face, faces_split}` (`face` = the face bounded by the
+  offset outer loop: the inner face for an inward offset, the surrounding ring for an outward one).
+  `edges` must be the complete outer boundary of one face in 0.1; open chains come later.

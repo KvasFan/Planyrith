@@ -10,6 +10,7 @@
 #![warn(unused_variables, dead_code)]
 
 mod erase;
+mod offset;
 mod push_pull;
 mod select;
 mod transform;
@@ -18,6 +19,7 @@ pub use erase::{
     Delete, DeleteOutput, DeleteParams, Erase, EraseMode, EraseOutput, EraseParams, Hide, Lock,
     StateOutput, StateParams, Unhide, Unlock,
 };
+pub use offset::{Offset, OffsetOutput, OffsetParams};
 pub use push_pull::{PushPull, PushPullOutput, PushPullParams};
 pub use select::{Select, SelectOutput, SelectParams};
 pub use transform::{
@@ -37,6 +39,7 @@ pub fn register(registry: &mut CommandRegistry) {
     registry.register(Lock);
     registry.register(Unlock);
     registry.register(PushPull);
+    registry.register(Offset);
     registry.register(Select);
     registry.register(Move);
     registry.register(Rotate);
