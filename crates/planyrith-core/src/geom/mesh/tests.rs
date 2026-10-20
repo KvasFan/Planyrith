@@ -1031,8 +1031,13 @@ fn tessellation_of_a_face_with_a_hole_covers_its_area() {
     let outer = mesh.faces().next().unwrap().0;
     polygon(&mut mesh, &rect(20.0, 20.0, 40.0, 40.0), &mut NoDeltas);
     // A collinear vertex on the boundary must not produce a sliver.
-    mesh.add_edge(p(50.0, 0.0, 0.0), p(50.0, -10.0, 0.0), &tol(), &mut NoDeltas)
-        .unwrap();
+    mesh.add_edge(
+        p(50.0, 0.0, 0.0),
+        p(50.0, -10.0, 0.0),
+        &tol(),
+        &mut NoDeltas,
+    )
+    .unwrap();
     let tess = crate::geom::tessellate::tessellate_face(&mesh, outer, &tol()).unwrap();
     let n = mesh.face_normal(outer).unwrap();
     let mut area = 0.0;

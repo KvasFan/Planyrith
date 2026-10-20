@@ -391,7 +391,19 @@ impl Document {
     /// Resolves an entity path to its container, id, pid and world transform
     /// (docs/04 §12, docs/08 §5.3).
     pub fn resolve(&self, path: &EntityPath) -> Result<Resolved, PathError> {
-        todo!("docs/04 §12 path resolution")
+        let (container, world) = self.resolve_container(&path.instances)?;
+        let entities = self
+            .container(container)
+            .ok_or(PathError::NotFound(path.target))?;
+        let entity = entities
+            .key_to_id(path.target)
+            .ok_or(PathError::NotFound(path.target))?;
+        Ok(Resolved {
+            container,
+            entity,
+            pid: entities.pid_of(entity).unwrap_or(Pid::NONE),
+            world,
+        })
     }
 
     /// Resolves an instance path to the container it opens and its world
@@ -400,24 +412,44 @@ impl Document {
         &self,
         path: &InstancePath,
     ) -> Result<(ContainerRef, DAffine3), PathError> {
-        todo!("docs/04 §12 instance path resolution")
+        if path.depth() > Entities::MAX_DEPTH {
+            return Err(PathError::TooDeep);
+        }
+        let mut container = ContainerRef::Model;
+        let mut world = DAffine3::IDENTITY;
+        for &step in &path.steps {
+            let entities = self.container(container).ok_or(PathError::NotFound(step))?;
+            let id = entities.key_to_id(step).ok_or(PathError::NotFound(step))?;
+            let (Some(definition), Some(transform)) =
+                (entities.definition_of(id), entities.transform_of(id))
+            else {
+                return Err(PathError::NotAContainer(step));
+            };
+            container = ContainerRef::Definition(definition);
+            world *= transform;
+        }
+        Ok((container, world))
     }
 
     /// Finds the pid in any container (pids are document-unique, docs/04 §2).
     pub fn locate_pid(&self, pid: Pid) -> Option<(ContainerRef, EntityId)> {
-        todo!("docs/04 §2 pid lookup across containers")
+        self.containers().into_iter().find_map(|c| {
+            self.container(c)
+                .and_then(|entities| entities.id_of(pid))
+                .map(|id| (c, id))
+        })
     }
 
     /// World-space bounds of the model (instances expanded).
     pub fn aabb(&self) -> Aabb {
-        todo!("docs/08 §2 document bounds")
+        self.model.local_aabb(&self.definitions, false)
     }
 
     /// Lightweight clone for previews: copy-on-write at container granularity
     /// (docs/01 §3.1 rule 4). The draft clones eagerly; the optimization is
     /// transparent to callers.
     pub fn fork_for_preview(&self) -> Document {
-        todo!("docs/01 §3.1 fork_for_preview")
+        self.clone()
     }
 }
 
@@ -445,6 +477,64 @@ mod tests {
         assert_eq!(back.materials.len(), doc.materials.len());
         assert_eq!(back.tags.len(), doc.tags.len());
         assert_eq!(back.styles.len(), doc.styles.len());
+    }
+
+    #[test]
+    fn paths_resolve_through_groups_and_pids_are_found_anywhere() {
+        let mut doc = Document::new();
+        let def = doc.add_definition(ComponentDefinition::new(uuid::Uuid::nil(), "Cabinet"));
+        let tol = *doc.tolerances();
+        let r = doc.definitions[def]
+            .entities
+            .mesh_mut()
+            .add_edge(
+                glam::DVec3::ZERO,
+                glam::DVec3::X,
+                &tol,
+                &mut crate::geom::NoDeltas,
+            )
+            .unwrap();
+        let edge = EntityId::Edge(r.edges[0]);
+        doc.definitions[def]
+            .entities
+            .bind_pid(edge, Pid(10), None)
+            .unwrap();
+        let shift = DAffine3::from_translation(glam::DVec3::new(1.0, 2.0, 3.0));
+        doc.model
+            .insert(
+                EntityRecord::Instance(ComponentInstance {
+                    definition: def,
+                    transform: shift,
+                    name: Some("left".into()),
+                    material_override: None,
+                    glued_to: None,
+                    dynamic_attrs: AttributeDictionaries::default(),
+                }),
+                Pid(11),
+            )
+            .unwrap();
+        let path = EntityPath::new(
+            InstancePath::root().child(EntityKey::Pid(Pid(11))),
+            EntityKey::Pid(Pid(10)),
+        );
+        let resolved = doc.resolve(&path).unwrap();
+        assert_eq!(resolved.container, ContainerRef::Definition(def));
+        assert_eq!(resolved.entity, edge);
+        assert_eq!(resolved.world, shift);
+        assert_eq!(
+            doc.locate_pid(Pid(10)),
+            Some((ContainerRef::Definition(def), edge))
+        );
+        assert_eq!(doc.locate_pid(Pid(99)), None);
+        let bad = EntityPath::new(
+            InstancePath::root().child(EntityKey::Pid(Pid(10))),
+            EntityKey::Pid(Pid(10)),
+        );
+        assert_eq!(
+            doc.resolve(&bad),
+            Err(PathError::NotFound(EntityKey::Pid(Pid(10))))
+        );
+        assert_eq!(doc.aabb().max, glam::DVec3::new(2.0, 2.0, 3.0));
     }
 
     #[test]

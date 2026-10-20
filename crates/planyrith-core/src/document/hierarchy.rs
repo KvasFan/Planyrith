@@ -130,6 +130,14 @@ pub enum HierarchyError {
     /// Nesting deeper than the hard limit of docs/04 §14.
     #[error("nesting depth {0} exceeds the limit")]
     TooDeep(usize),
+    /// A definition contains an instance of itself, directly or not
+    /// (docs/04 §13: cyclic nesting is forbidden).
+    #[error("cyclic component nesting through {0}")]
+    Cycle(DefinitionId),
+    /// The record or operation does not match the entity's kind (e.g.
+    /// replacing a group with a guide, setting the transform of a text).
+    #[error("operation does not apply to this kind of entity: {0}")]
+    KindMismatch(EntityId),
 }
 
 /// One container of entities (docs/04 §3): the model root or a definition's
@@ -213,6 +221,15 @@ impl Entities {
         self.by_pid.get(&pid).copied()
     }
 
+    /// The id an [`EntityKey`](crate::document::EntityKey) denotes here, if
+    /// it exists.
+    pub fn key_to_id(&self, key: crate::document::EntityKey) -> Option<EntityId> {
+        match key {
+            crate::document::EntityKey::Id(id) => self.contains(id).then_some(id),
+            crate::document::EntityKey::Pid(pid) => self.id_of(pid),
+        }
+    }
+
     /// `true` when the id exists in this container (mesh ids are checked in the mesh).
     pub fn contains(&self, id: EntityId) -> bool {
         match id {
@@ -234,7 +251,7 @@ impl Entities {
         record: EntityRecord,
         pid: Pid,
     ) -> Result<EntityId, HierarchyError> {
-        todo!("docs/04 §3 insert entity")
+        self.insert_at(record, pid, self.order.len())
     }
 
     /// Inserts a non-mesh entity at `order_index` (undo of a removal).
@@ -244,7 +261,22 @@ impl Entities {
         pid: Pid,
         order_index: usize,
     ) -> Result<EntityId, HierarchyError> {
-        todo!("docs/04 §2 order-preserving re-insertion")
+        if self.by_pid.contains_key(&pid) {
+            return Err(HierarchyError::PidInUse(pid));
+        }
+        let id = match record {
+            EntityRecord::Group(g) => EntityId::Group(self.groups.insert(g)),
+            EntityRecord::Instance(i) => EntityId::Instance(self.instances.insert(i)),
+            EntityRecord::Guide(g) => EntityId::Guide(self.guides.insert(g)),
+            EntityRecord::Dimension(d) => EntityId::Dimension(self.dimensions.insert(d)),
+            EntityRecord::Text(t) => EntityId::Text(self.texts.insert(t)),
+            EntityRecord::Image(i) => EntityId::Image(self.images.insert(i)),
+            EntityRecord::SectionPlane(s) => EntityId::SectionPlane(self.section_planes.insert(s)),
+        };
+        self.order.insert(order_index.min(self.order.len()), id);
+        self.pids.insert(id, pid);
+        self.by_pid.insert(pid, id);
+        Ok(id)
     }
 
     /// Removes a non-mesh entity with all its side-table rows; returns the
@@ -253,7 +285,45 @@ impl Entities {
         &mut self,
         id: EntityId,
     ) -> Result<(EntityRecord, Pid, usize), HierarchyError> {
-        todo!("docs/04 §3 remove entity")
+        let not_found = || HierarchyError::NotFound(id);
+        let record = match id {
+            EntityId::Edge(_) | EntityId::Face(_) => return Err(HierarchyError::MeshEntity(id)),
+            EntityId::Group(g) => EntityRecord::Group(self.groups.remove(g).ok_or_else(not_found)?),
+            EntityId::Instance(i) => {
+                EntityRecord::Instance(self.instances.remove(i).ok_or_else(not_found)?)
+            }
+            EntityId::Guide(g) => EntityRecord::Guide(self.guides.remove(g).ok_or_else(not_found)?),
+            EntityId::Dimension(d) => {
+                EntityRecord::Dimension(self.dimensions.remove(d).ok_or_else(not_found)?)
+            }
+            EntityId::Text(t) => EntityRecord::Text(self.texts.remove(t).ok_or_else(not_found)?),
+            EntityId::Image(i) => EntityRecord::Image(self.images.remove(i).ok_or_else(not_found)?),
+            EntityId::SectionPlane(s) => {
+                EntityRecord::SectionPlane(self.section_planes.remove(s).ok_or_else(not_found)?)
+            }
+        };
+        let (pid, index) = self.forget(id);
+        Ok((record, pid, index))
+    }
+
+    /// Drops `id` from the order and every side table; returns its pid
+    /// (`Pid::NONE` when it had none) and former order index.
+    fn forget(&mut self, id: EntityId) -> (Pid, usize) {
+        let index = self
+            .order
+            .iter()
+            .position(|x| *x == id)
+            .unwrap_or(self.order.len());
+        if index < self.order.len() {
+            self.order.remove(index);
+        }
+        let pid = self.pids.remove(&id).unwrap_or(Pid::NONE);
+        self.by_pid.remove(&pid);
+        self.attrs.remove(&id);
+        self.tag_of.remove(&id);
+        self.hidden.remove(&id);
+        self.locked.remove(&id);
+        (pid, index)
     }
 
     /// Replaces a non-mesh entity's data in place (same id and pid).
@@ -262,7 +332,42 @@ impl Entities {
         id: EntityId,
         record: EntityRecord,
     ) -> Result<EntityRecord, HierarchyError> {
-        todo!("docs/04 §3 replace entity")
+        fn swap<K: slotmap::Key, T>(
+            map: &mut SlotMap<K, T>,
+            key: K,
+            value: T,
+            id: EntityId,
+        ) -> Result<T, HierarchyError> {
+            let slot = map.get_mut(key).ok_or(HierarchyError::NotFound(id))?;
+            Ok(std::mem::replace(slot, value))
+        }
+        Ok(match (id, record) {
+            (EntityId::Group(k), EntityRecord::Group(v)) => {
+                EntityRecord::Group(swap(&mut self.groups, k, v, id)?)
+            }
+            (EntityId::Instance(k), EntityRecord::Instance(v)) => {
+                EntityRecord::Instance(swap(&mut self.instances, k, v, id)?)
+            }
+            (EntityId::Guide(k), EntityRecord::Guide(v)) => {
+                EntityRecord::Guide(swap(&mut self.guides, k, v, id)?)
+            }
+            (EntityId::Dimension(k), EntityRecord::Dimension(v)) => {
+                EntityRecord::Dimension(swap(&mut self.dimensions, k, v, id)?)
+            }
+            (EntityId::Text(k), EntityRecord::Text(v)) => {
+                EntityRecord::Text(swap(&mut self.texts, k, v, id)?)
+            }
+            (EntityId::Image(k), EntityRecord::Image(v)) => {
+                EntityRecord::Image(swap(&mut self.images, k, v, id)?)
+            }
+            (EntityId::SectionPlane(k), EntityRecord::SectionPlane(v)) => {
+                EntityRecord::SectionPlane(swap(&mut self.section_planes, k, v, id)?)
+            }
+            (EntityId::Edge(_) | EntityId::Face(_), _) => {
+                return Err(HierarchyError::MeshEntity(id));
+            }
+            _ => return Err(HierarchyError::KindMismatch(id)),
+        })
     }
 
     /// Binds a pid to a mesh edge or face created by a mesh operation and
@@ -273,13 +378,34 @@ impl Entities {
         pid: Pid,
         order_index: Option<usize>,
     ) -> Result<(), HierarchyError> {
-        todo!("docs/04 §2 bind pid to mesh entity")
+        if !matches!(id, EntityId::Edge(_) | EntityId::Face(_)) {
+            return Err(HierarchyError::KindMismatch(id));
+        }
+        if !self.contains(id) {
+            return Err(HierarchyError::NotFound(id));
+        }
+        if self.by_pid.contains_key(&pid) {
+            return Err(HierarchyError::PidInUse(pid));
+        }
+        if let Some(old) = self.pids.get(&id) {
+            return Err(HierarchyError::PidInUse(*old));
+        }
+        let index = order_index
+            .unwrap_or(self.order.len())
+            .min(self.order.len());
+        self.order.insert(index, id);
+        self.pids.insert(id, pid);
+        self.by_pid.insert(pid, id);
+        Ok(())
     }
 
     /// Unbinds a mesh entity's pid and side-table rows after the mesh removed
     /// it; returns the pid and former order index.
     pub(crate) fn unbind_pid(&mut self, id: EntityId) -> Result<(Pid, usize), HierarchyError> {
-        todo!("docs/04 §2 unbind pid")
+        if !self.pids.contains_key(&id) {
+            return Err(HierarchyError::NotFound(id));
+        }
+        Ok(self.forget(id))
     }
 
     // ----- typed access ----------------------------------------------------------
@@ -394,7 +520,14 @@ impl Entities {
         id: EntityId,
         t: DAffine3,
     ) -> Result<DAffine3, HierarchyError> {
-        todo!("docs/04 §3 set transform")
+        let slot = match id {
+            EntityId::Group(g) => self.groups.get_mut(g).map(|x| &mut x.transform),
+            EntityId::Instance(i) => self.instances.get_mut(i).map(|x| &mut x.transform),
+            EntityId::Image(i) => self.images.get_mut(i).map(|x| &mut x.transform),
+            _ => return Err(HierarchyError::KindMismatch(id)),
+        };
+        let slot = slot.ok_or(HierarchyError::NotFound(id))?;
+        Ok(std::mem::replace(slot, t))
     }
 
     // ----- side tables ------------------------------------------------------------
@@ -410,7 +543,20 @@ impl Entities {
         id: EntityId,
         tag: Option<TagId>,
     ) -> Result<Option<TagId>, HierarchyError> {
-        todo!("docs/04 §5 set tag")
+        self.require(id)?;
+        Ok(match tag {
+            Some(t) => self.tag_of.insert(id, t),
+            None => self.tag_of.remove(&id),
+        })
+    }
+
+    /// `NotFound` unless the entity exists.
+    fn require(&self, id: EntityId) -> Result<(), HierarchyError> {
+        if self.contains(id) {
+            Ok(())
+        } else {
+            Err(HierarchyError::NotFound(id))
+        }
     }
 
     /// `true` when the entity is hidden (docs/04 §5 visibility rule).
@@ -424,7 +570,12 @@ impl Entities {
         id: EntityId,
         hidden: bool,
     ) -> Result<bool, HierarchyError> {
-        todo!("docs/04 §3 set hidden")
+        self.require(id)?;
+        Ok(if hidden {
+            !self.hidden.insert(id)
+        } else {
+            self.hidden.remove(&id)
+        })
     }
 
     /// `true` when the group/instance is locked.
@@ -438,7 +589,15 @@ impl Entities {
         id: EntityId,
         locked: bool,
     ) -> Result<bool, HierarchyError> {
-        todo!("docs/04 §3 set locked")
+        if !matches!(id, EntityId::Group(_) | EntityId::Instance(_)) {
+            return Err(HierarchyError::NotLockable(id));
+        }
+        self.require(id)?;
+        Ok(if locked {
+            !self.locked.insert(id)
+        } else {
+            self.locked.remove(&id)
+        })
     }
 
     /// Attributes of an entity (`None` when it has none).
@@ -451,7 +610,22 @@ impl Entities {
         &mut self,
         id: EntityId,
     ) -> Result<&mut AttributeDictionaries, HierarchyError> {
-        todo!("docs/04 §9 entity attributes")
+        self.require(id)?;
+        Ok(self.attrs.entry(id).or_default())
+    }
+
+    /// Replaces (or with `None` removes) an entity's whole attribute set;
+    /// returns the previous one (undo of attribute edits, docs/01 §3.1).
+    pub(crate) fn set_attrs(
+        &mut self,
+        id: EntityId,
+        attrs: Option<AttributeDictionaries>,
+    ) -> Result<Option<AttributeDictionaries>, HierarchyError> {
+        self.require(id)?;
+        Ok(match attrs {
+            Some(a) => self.attrs.insert(id, a),
+            None => self.attrs.remove(&id),
+        })
     }
 
     /// Entities carrying `tag`, in order (used when a tag is deleted).
@@ -488,7 +662,78 @@ impl Entities {
         definitions: &SlotMap<DefinitionId, ComponentDefinition>,
         visible_only: bool,
     ) -> Aabb {
-        todo!("docs/08 §2 bbox field")
+        self.aabb_at_depth(definitions, visible_only, 0)
+    }
+
+    fn aabb_at_depth(
+        &self,
+        definitions: &SlotMap<DefinitionId, ComponentDefinition>,
+        visible_only: bool,
+        depth: usize,
+    ) -> Aabb {
+        let shown = |id: EntityId| !visible_only || !self.hidden.contains(&id);
+        let mut bb = Aabb::EMPTY;
+        for (e, _) in self.mesh.edges() {
+            if shown(EntityId::Edge(e))
+                && let Ok(s) = self.mesh.edge_segment(e)
+            {
+                bb = bb.including(s.a).including(s.b);
+            }
+        }
+        if visible_only {
+            // A visible face whose boundary edges are hidden still counts.
+            for (f, face) in self.mesh.faces() {
+                if shown(EntityId::Face(f))
+                    && let Ok(points) = self.mesh.loop_vertices(face.outer)
+                {
+                    for v in points {
+                        if let Ok(p) = self.mesh.position(v) {
+                            bb = bb.including(p);
+                        }
+                    }
+                }
+            }
+        } else {
+            bb = bb.union(&self.mesh.aabb());
+        }
+        if depth < Self::MAX_DEPTH {
+            let nested = self
+                .groups
+                .iter()
+                .map(|(g, x)| (EntityId::Group(g), x.definition, x.transform))
+                .chain(
+                    self.instances
+                        .iter()
+                        .map(|(i, x)| (EntityId::Instance(i), x.definition, x.transform)),
+                );
+            for (id, definition, transform) in nested {
+                if !shown(id) {
+                    continue;
+                }
+                if let Some(def) = definitions.get(definition) {
+                    let inner = def
+                        .entities
+                        .aabb_at_depth(definitions, visible_only, depth + 1);
+                    if !inner.is_empty() {
+                        bb = bb.union(&inner.transformed(&transform));
+                    }
+                }
+            }
+        }
+        for (i, image) in &self.images {
+            if shown(EntityId::Image(i)) {
+                let (w, h) = (image.width.0, image.height.0);
+                for corner in [
+                    glam::DVec3::ZERO,
+                    glam::DVec3::new(w, 0.0, 0.0),
+                    glam::DVec3::new(w, h, 0.0),
+                    glam::DVec3::new(0.0, h, 0.0),
+                ] {
+                    bb = bb.including(image.transform.transform_point3(corner));
+                }
+            }
+        }
+        bb
     }
 
     /// Maximum nesting depth below this container (docs/04 §14, cycle check in
@@ -497,7 +742,49 @@ impl Entities {
         &self,
         definitions: &SlotMap<DefinitionId, ComponentDefinition>,
     ) -> Result<usize, HierarchyError> {
-        todo!("docs/04 §13 nesting depth / cycle detection")
+        let mut memo = BTreeMap::new();
+        let mut stack = Vec::new();
+        self.depth_below(definitions, &mut memo, &mut stack)
+    }
+
+    /// Depth below this container with memoization per definition and the
+    /// current definition chain for cycle detection.
+    fn depth_below(
+        &self,
+        definitions: &SlotMap<DefinitionId, ComponentDefinition>,
+        memo: &mut BTreeMap<DefinitionId, usize>,
+        stack: &mut Vec<DefinitionId>,
+    ) -> Result<usize, HierarchyError> {
+        let children: BTreeSet<DefinitionId> = self
+            .groups
+            .values()
+            .map(|g| g.definition)
+            .chain(self.instances.values().map(|i| i.definition))
+            .collect();
+        let mut depth = 0;
+        for d in children {
+            if stack.contains(&d) {
+                return Err(HierarchyError::Cycle(d));
+            }
+            let below = match memo.get(&d) {
+                Some(&known) => known,
+                None => {
+                    let Some(def) = definitions.get(d) else {
+                        continue;
+                    };
+                    stack.push(d);
+                    let known = def.entities.depth_below(definitions, memo, stack)?;
+                    stack.pop();
+                    memo.insert(d, known);
+                    known
+                }
+            };
+            depth = depth.max(below + 1);
+            if depth > Self::MAX_DEPTH {
+                return Err(HierarchyError::TooDeep(depth));
+            }
+        }
+        Ok(depth)
     }
 }
 
@@ -512,6 +799,124 @@ mod tests {
         assert_eq!(e.counts(), EntityCounts::default());
         assert!(e.iter().next().is_none());
         assert!(e.pid_of(EntityId::Group(GroupId::default())).is_none());
+    }
+
+    fn group(definition: DefinitionId) -> EntityRecord {
+        EntityRecord::Group(Group {
+            definition,
+            transform: DAffine3::IDENTITY,
+            name: "g".into(),
+        })
+    }
+
+    fn guide() -> EntityRecord {
+        EntityRecord::Guide(Guide::Point {
+            pos: glam::DVec3::ZERO,
+        })
+    }
+
+    #[test]
+    fn insert_remove_and_reinsert_keep_order_and_side_tables_clean() {
+        let mut e = Entities::new();
+        let a = e.insert(guide(), Pid(1)).unwrap();
+        let b = e.insert(group(DefinitionId::default()), Pid(2)).unwrap();
+        let c = e.insert(guide(), Pid(3)).unwrap();
+        assert_eq!(e.order(), &[a, b, c]);
+        assert_eq!(
+            e.insert(guide(), Pid(2)),
+            Err(HierarchyError::PidInUse(Pid(2)))
+        );
+
+        e.set_hidden(b, true).unwrap();
+        e.set_locked(b, true).unwrap();
+        assert_eq!(e.set_locked(a, true), Err(HierarchyError::NotLockable(a)));
+        e.attrs_mut(b).unwrap();
+        let (record, pid, index) = e.remove(b).unwrap();
+        assert_eq!((pid, index), (Pid(2), 1));
+        assert!(!e.is_hidden(b) && !e.is_locked(b) && e.attrs(b).is_none());
+        assert_eq!(e.id_of(Pid(2)), None);
+
+        let b2 = e.insert_at(record, pid, index).unwrap();
+        assert_eq!(e.order(), &[a, b2, c]);
+        assert_eq!(e.pid_of(b2), Some(Pid(2)));
+        assert_eq!(
+            e.replace(a, group(DefinitionId::default())),
+            Err(HierarchyError::KindMismatch(a))
+        );
+        assert!(e.replace(a, guide()).is_ok());
+    }
+
+    #[test]
+    fn mesh_entities_bind_and_unbind_pids() {
+        let mut e = Entities::new();
+        let tol = crate::tolerance::Tolerances::default();
+        let r = e
+            .mesh_mut()
+            .add_edge(
+                glam::DVec3::ZERO,
+                glam::DVec3::X,
+                &tol,
+                &mut crate::geom::NoDeltas,
+            )
+            .unwrap();
+        let edge = EntityId::Edge(r.edges[0]);
+        assert_eq!(e.remove(edge), Err(HierarchyError::MeshEntity(edge)));
+        e.bind_pid(edge, Pid(7), None).unwrap();
+        assert_eq!(e.id_of(Pid(7)), Some(edge));
+        assert_eq!(e.order(), &[edge]);
+        e.set_tag(edge, Some(TagId::default())).unwrap();
+        assert_eq!(e.unbind_pid(edge), Ok((Pid(7), 0)));
+        assert!(e.is_empty() && e.tag_of(edge).is_none());
+    }
+
+    #[test]
+    fn nesting_depth_detects_cycles() {
+        let mut defs: SlotMap<DefinitionId, ComponentDefinition> = SlotMap::with_key();
+        let inner = defs.insert(ComponentDefinition::new(uuid::Uuid::nil(), "inner"));
+        let outer = defs.insert(ComponentDefinition::new(uuid::Uuid::nil(), "outer"));
+        defs[outer].entities.insert(group(inner), Pid(1)).unwrap();
+        let mut root = Entities::new();
+        root.insert(group(outer), Pid(2)).unwrap();
+        assert_eq!(root.nesting_depth(&defs), Ok(2));
+        // inner → outer closes a cycle.
+        defs[inner].entities.insert(group(outer), Pid(3)).unwrap();
+        assert!(matches!(
+            root.nesting_depth(&defs),
+            Err(HierarchyError::Cycle(_))
+        ));
+    }
+
+    #[test]
+    fn local_aabb_includes_transformed_nested_geometry() {
+        let tol = crate::tolerance::Tolerances::default();
+        let mut defs: SlotMap<DefinitionId, ComponentDefinition> = SlotMap::with_key();
+        let d = defs.insert(ComponentDefinition::new(uuid::Uuid::nil(), "d"));
+        defs[d]
+            .entities
+            .mesh_mut()
+            .add_edge(
+                glam::DVec3::ZERO,
+                glam::DVec3::new(10.0, 0.0, 0.0),
+                &tol,
+                &mut crate::geom::NoDeltas,
+            )
+            .unwrap();
+        let mut root = Entities::new();
+        let g = root
+            .insert(
+                EntityRecord::Group(Group {
+                    definition: d,
+                    transform: DAffine3::from_translation(glam::DVec3::new(0.0, 0.0, 5.0)),
+                    name: String::new(),
+                }),
+                Pid(1),
+            )
+            .unwrap();
+        let bb = root.local_aabb(&defs, true);
+        assert_eq!(bb.max, glam::DVec3::new(10.0, 0.0, 5.0));
+        root.set_hidden(g, true).unwrap();
+        assert!(root.local_aabb(&defs, true).is_empty());
+        assert!(!root.local_aabb(&defs, false).is_empty());
     }
 
     #[test]
