@@ -828,8 +828,8 @@ impl HalfEdgeMesh {
                     if matches!(contact, SegmentContact::Overlap { .. }) {
                         // Coincident edges would need a weld (docs/03 Decisions).
                         return Err(GeometryError::NonRobust(
-                            "the moved geometry overlaps existing edges; move it elsewhere \
-                             or erase the overlapping edges first"
+                            "moved edges would overlap existing edges; choose another \
+                             position or erase the overlapping edges first"
                                 .into(),
                         ));
                     }
@@ -838,7 +838,12 @@ impl HalfEdgeMesh {
                     {
                         let (m, parts) = self.split_edge_at(g, point, tol, d)?;
                         touched.insert(m);
-                        let _ = parts;
+                        // A pending edge split from this side still needs
+                        // its own check, piece by piece.
+                        if work.contains(&g) {
+                            work.retain(|w| *w != g);
+                            work.extend(parts);
+                        }
                         split_at = Some(self.position(m)?);
                         break;
                     }

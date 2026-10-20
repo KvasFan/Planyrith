@@ -132,9 +132,11 @@ fn stretch(
     m.transform_vertices_inner(
         &set,
         &DAffine3::from_translation(n * d),
+        // Like the generic case (whose edges go through `add_edge`), the
+        // stretched edges are split where they cross other edges (invariant 4).
         TransformOptions {
             auto_fold: true,
-            check_intersections: false,
+            check_intersections: true,
         },
         tol,
         log,

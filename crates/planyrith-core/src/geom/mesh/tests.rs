@@ -1055,9 +1055,16 @@ fn tessellation_of_a_face_with_a_hole_covers_its_area() {
 #[derive(Debug, Clone)]
 enum Op {
     Add([i8; 3], [i8; 3]),
+    /// Axis-aligned rectangle: corner, extent along the two in-plane axes,
+    /// normal axis (0 = x, 1 = y, 2 = z).
+    Rect([i8; 3], [i8; 2], u8),
     EraseEdge(usize),
     EraseFace(usize),
     Move(usize, [i8; 3]),
+    /// Push/pull face `n` by a multiple of 50 mm.
+    Extrude(usize, i8),
+    /// Offset face `n` by a multiple of 25 mm.
+    Offset(usize, i8),
 }
 
 fn lattice() -> impl Strategy<Value = [i8; 3]> {
@@ -1067,9 +1074,12 @@ fn lattice() -> impl Strategy<Value = [i8; 3]> {
 fn op() -> impl Strategy<Value = Op> {
     prop_oneof![
         6 => (lattice(), lattice()).prop_map(|(a, b)| Op::Add(a, b)),
+        2 => (lattice(), (1i8..4, 1i8..4), 0u8..3).prop_map(|(c, (u, v), n)| Op::Rect(c, [u, v], n)),
         2 => (0usize..64).prop_map(Op::EraseEdge),
         1 => (0usize..64).prop_map(Op::EraseFace),
         1 => (0usize..64, (-1i8..2, -1i8..2, -1i8..2)).prop_map(|(v, (x, y, z))| Op::Move(v, [x, y, z])),
+        2 => (0usize..64, prop_oneof![-4i8..0, 1i8..5]).prop_map(|(f, d)| Op::Extrude(f, d)),
+        1 => (0usize..64, prop_oneof![-2i8..0, 1i8..3]).prop_map(|(f, d)| Op::Offset(f, d)),
     ]
 }
 
@@ -1083,6 +1093,105 @@ fn at(p: [i8; 3]) -> DVec3 {
 
 fn p3(x: f64, y: f64, z: f64) -> DVec3 {
     DVec3::new(x, y, z)
+}
+
+/// One elementary mesh operation of a fuzz [`Op`], with ids resolved.
+#[derive(Debug)]
+enum Step {
+    Add(DVec3, DVec3),
+    EraseEdge(EdgeId),
+    EraseFace(FaceId, bool),
+    Move(VertexId, DVec3),
+    Extrude(FaceId, f64),
+    Offset(FaceId, f64),
+}
+
+fn steps(mesh: &HalfEdgeMesh, op: &Op) -> Vec<Step> {
+    let face = |i: usize| {
+        mesh.faces()
+            .nth(i % mesh.face_count().max(1))
+            .map(|(f, _)| f)
+    };
+    match *op {
+        Op::Add(a, b) => vec![Step::Add(at(a), at(b))],
+        Op::Rect(c, [u, v], n) => {
+            let (iu, iv) = match n {
+                0 => (1, 2),
+                1 => (0, 2),
+                _ => (0, 1),
+            };
+            let mut corners = [c; 4];
+            corners[1][iu] += u;
+            corners[2][iu] += u;
+            corners[2][iv] += v;
+            corners[3][iv] += v;
+            (0..4)
+                .map(|k| Step::Add(at(corners[k]), at(corners[(k + 1) % 4])))
+                .collect()
+        }
+        Op::EraseEdge(i) => mesh
+            .edges()
+            .nth(i % mesh.edge_count().max(1))
+            .map(|(e, _)| Step::EraseEdge(e))
+            .into_iter()
+            .collect(),
+        Op::EraseFace(i) => face(i)
+            .map(|f| Step::EraseFace(f, i % 2 == 0))
+            .into_iter()
+            .collect(),
+        Op::Move(i, delta) => mesh
+            .vertices()
+            .nth(i % mesh.vertex_count().max(1))
+            .map(|(v, _)| Step::Move(v, at(delta)))
+            .into_iter()
+            .collect(),
+        Op::Extrude(i, k) => face(i)
+            .map(|f| Step::Extrude(f, f64::from(k) * 50.0))
+            .into_iter()
+            .collect(),
+        Op::Offset(i, k) => face(i)
+            .map(|f| Step::Offset(f, f64::from(k) * 25.0))
+            .into_iter()
+            .collect(),
+    }
+}
+
+fn apply_step(
+    mesh: &mut HalfEdgeMesh,
+    step: &Step,
+    d: &mut Vec<MeshDelta>,
+) -> Result<(), GeometryError> {
+    let tol = tol();
+    match *step {
+        Step::Add(a, b) => mesh.add_edge(a, b, &tol, d).map(|_| ()),
+        Step::EraseEdge(e) => mesh.erase_edge(e, &tol, d).map(|_| ()),
+        Step::EraseFace(f, edges) => mesh.erase_face(f, edges, &tol, d).map(|_| ()),
+        Step::Move(v, delta) => mesh
+            .transform_vertices(
+                &[v],
+                &DAffine3::from_translation(delta),
+                TransformOptions {
+                    auto_fold: true,
+                    check_intersections: true,
+                },
+                &tol,
+                d,
+            )
+            .map(|_| ()),
+        Step::Extrude(f, k) => crate::geom::extrude::extrude_face(
+            mesh,
+            f,
+            crate::units::Length::mm(k),
+            crate::geom::extrude::ExtrudeOptions::default(),
+            &tol,
+            d,
+        )
+        .map(|_| ()),
+        Step::Offset(f, k) => {
+            crate::geom::offset::offset_face_boundary(mesh, f, crate::units::Length::mm(k), &tol, d)
+                .map(|_| ())
+        }
+    }
 }
 
 proptest! {
@@ -1099,40 +1208,19 @@ proptest! {
         let mut mesh = HalfEdgeMesh::new();
         let mut log: Vec<Vec<MeshDelta>> = Vec::new();
         for op in ops {
-            let before = canonical(&mesh);
-            let mut d = Vec::new();
-            let outcome = match op {
-                Op::Add(a, b) => mesh.add_edge(at(a), at(b), &tol(), &mut d).map(|_| ()),
-                Op::EraseEdge(i) => match mesh.edges().nth(i % mesh.edge_count().max(1)) {
-                    Some((e, _)) => mesh.erase_edge(e, &tol(), &mut d).map(|_| ()),
-                    None => Ok(()),
-                },
-                Op::EraseFace(i) => match mesh.faces().nth(i % mesh.face_count().max(1)) {
-                    Some((f, _)) => mesh.erase_face(f, i % 2 == 0, &tol(), &mut d).map(|_| ()),
-                    None => Ok(()),
-                },
-                Op::Move(i, delta) => match mesh.vertices().nth(i % mesh.vertex_count().max(1)) {
-                    Some((v, _)) => mesh
-                        .transform_vertices(
-                            &[v],
-                            &DAffine3::from_translation(at(delta)),
-                            TransformOptions { auto_fold: true, check_intersections: true },
-                            &tol(),
-                            &mut d,
-                        )
-                        .map(|_| ()),
-                    None => Ok(()),
-                },
-            };
-            match outcome {
-                Ok(()) => {
-                    let violations = mesh.validate(&tol());
-                    prop_assert!(violations.is_empty(), "{:?} broke the mesh: {:#?}", op, violations);
-                    log.push(d);
-                }
-                Err(_) => {
-                    prop_assert_eq!(canonical(&mesh), before, "a failed {:?} changed the mesh", op);
-                    prop_assert!(d.is_empty());
+            for step in steps(&mesh, &op) {
+                let before = canonical(&mesh);
+                let mut d = Vec::new();
+                match apply_step(&mut mesh, &step, &mut d) {
+                    Ok(()) => {
+                        let violations = mesh.validate(&tol());
+                        prop_assert!(violations.is_empty(), "{:?} ({:?}) broke the mesh: {:#?}", op, step, violations);
+                        log.push(d);
+                    }
+                    Err(_) => {
+                        prop_assert_eq!(canonical(&mesh), before, "a failed {:?} ({:?}) changed the mesh", op, step);
+                        prop_assert!(d.is_empty());
+                    }
                 }
             }
         }
