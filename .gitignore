@@ -17,3 +17,6 @@ Thumbs.db
 # Local scratch
 /tmp/
 *.log
+
+# Claude Code session data (worktrees, caches)
+.claude/

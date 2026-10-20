@@ -24,5 +24,9 @@ by milestone (`13-roadmap.md`). Working rules for implementers are in the reposi
 | 14 | [Glossary](14-glossary.md) | Canonical vocabulary |
 | 15 | [Sheets](15-sheets-2d-documentation.md) | 2D documentation module |
 
+Implementation progress (not part of the spec): `dev/development-status.md` records what is
+built so far and the critical path to resume; `dev/skeleton-contract.md` freezes the
+`planyrith-core` interfaces the modules are implemented against.
+
 Conventions: RFC 2119 keywords; kebab-case command names; millimeters and `f64` internally;
 every document ends with a dated **Decisions** list that records resolved ambiguities.

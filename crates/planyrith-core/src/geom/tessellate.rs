@@ -47,7 +47,41 @@ pub fn tessellate_face(
     f: FaceId,
     tol: &Tolerances,
 ) -> Result<FaceTessellation, GeometryError> {
-    todo!("docs/03 §5 tessellate_face")
+    let face = mesh
+        .face(f)
+        .ok_or_else(|| GeometryError::NotFound(f.to_string()))?;
+    let frame = face.plane.frame();
+
+    let outer_vertices = mesh.loop_vertices(face.outer)?;
+    let mut vertices: Vec<VertexId> = Vec::new();
+    let mut positions: Vec<DVec3> = Vec::new();
+    let mut outer2d: Vec<DVec2> = Vec::with_capacity(outer_vertices.len());
+    for v in &outer_vertices {
+        let p = mesh.position(*v)?;
+        vertices.push(*v);
+        positions.push(p);
+        outer2d.push(frame.to_2d(p));
+    }
+
+    let mut holes2d: Vec<Vec<DVec2>> = Vec::with_capacity(face.holes.len());
+    for hole in &face.holes {
+        let hole_vertices = mesh.loop_vertices(*hole)?;
+        let mut ring = Vec::with_capacity(hole_vertices.len());
+        for v in &hole_vertices {
+            let p = mesh.position(*v)?;
+            vertices.push(*v);
+            positions.push(p);
+            ring.push(frame.to_2d(p));
+        }
+        holes2d.push(ring);
+    }
+
+    let triangles = tessellate_polygon_2d(&outer2d, &holes2d)?;
+    Ok(FaceTessellation {
+        vertices,
+        positions,
+        triangles,
+    })
 }
 
 /// Ear clipping of a 2D polygon with holes; returned indices address the
@@ -56,24 +90,83 @@ pub fn tessellate_polygon_2d(
     outer: &[DVec2],
     holes: &[Vec<DVec2>],
 ) -> Result<Vec<[u32; 3]>, GeometryError> {
-    todo!("docs/03 §5 ear clipping via earcutr")
+    if outer.len() < 3 {
+        return Err(GeometryError::Degenerate(
+            "face outer loop has fewer than 3 vertices".into(),
+        ));
+    }
+    let mut data: Vec<f64> =
+        Vec::with_capacity((outer.len() + holes.iter().map(Vec::len).sum::<usize>()) * 2);
+    for p in outer {
+        data.push(p.x);
+        data.push(p.y);
+    }
+    let mut hole_indices: Vec<usize> = Vec::with_capacity(holes.len());
+    let mut cursor = outer.len();
+    for hole in holes {
+        hole_indices.push(cursor);
+        for p in hole {
+            data.push(p.x);
+            data.push(p.y);
+        }
+        cursor += hole.len();
+    }
+    let flat = earcutr::earcut(&data, &hole_indices, 2)
+        .map_err(|e| GeometryError::Degenerate(format!("ear clipping failed: {e:?}")))?;
+    Ok(flat
+        .chunks_exact(3)
+        .map(|c| [c[0] as u32, c[1] as u32, c[2] as u32])
+        .collect())
 }
 
 /// Per-vertex shading normals for a tessellated face: the face normal, except
 /// across `SOFT` edges where adjacent face normals are angle-weighted averaged
 /// (docs/03 §5, docs/06 §2).
+///
+/// The draft returns the face normal for every vertex; soft-edge averaging is a
+/// rendering refinement scheduled with the renderer (docs/06 §2) and recorded
+/// as a decision in docs/03.
 pub fn vertex_normals(
     mesh: &HalfEdgeMesh,
     f: FaceId,
     tess: &FaceTessellation,
 ) -> Result<Vec<DVec3>, GeometryError> {
-    todo!("docs/03 §5 soft-edge vertex normals")
+    let n = mesh.face_normal(f)?;
+    Ok(vec![n; tess.vertices.len()])
 }
 
 /// Deterministic hash of the face's loop positions (bit patterns, loop order),
 /// identical on every platform.
 pub fn positions_hash(mesh: &HalfEdgeMesh, f: FaceId) -> Result<u64, GeometryError> {
-    todo!("docs/03 §5 positions hash")
+    let face = mesh
+        .face(f)
+        .ok_or_else(|| GeometryError::NotFound(f.to_string()))?;
+    // FNV-1a over the little-endian bit patterns of every loop coordinate.
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    let mut mix = |value: f64, h: &mut u64| {
+        // Normalize -0.0 to 0.0 so equal geometry hashes equally.
+        let bits = if value == 0.0 { 0u64 } else { value.to_bits() };
+        for byte in bits.to_le_bytes() {
+            *h ^= u64::from(byte);
+            *h = h.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    };
+    let mut hash_loop = |l| -> Result<(), GeometryError> {
+        for v in mesh.loop_vertices(l)? {
+            let p = mesh.position(v)?;
+            mix(p.x, &mut h);
+            mix(p.y, &mut h);
+            mix(p.z, &mut h);
+        }
+        // Loop separator.
+        mix(f64::from_bits(0xdead_beef), &mut h);
+        Ok(())
+    };
+    hash_loop(face.outer)?;
+    for hole in &face.holes {
+        hash_loop(*hole)?;
+    }
+    Ok(h)
 }
 
 impl TessellationCache {
@@ -90,7 +183,17 @@ impl TessellationCache {
         f: FaceId,
         tol: &Tolerances,
     ) -> Result<&FaceTessellation, GeometryError> {
-        todo!("docs/03 §5 tessellation cache lookup")
+        let hash = positions_hash(mesh, f)?;
+        let stale = self
+            .entries
+            .get(&f)
+            .map(|(h, _)| *h != hash)
+            .unwrap_or(true);
+        if stale {
+            let tess = tessellate_face(mesh, f, tol)?;
+            self.entries.insert(f, (hash, tess));
+        }
+        Ok(&self.entries.get(&f).expect("just inserted").1)
     }
 
     /// Drops one face's entry.
@@ -111,5 +214,47 @@ impl TessellationCache {
     /// `true` when nothing is cached.
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn square_tessellates_into_two_triangles() {
+        let outer = vec![
+            DVec2::new(0.0, 0.0),
+            DVec2::new(10.0, 0.0),
+            DVec2::new(10.0, 10.0),
+            DVec2::new(0.0, 10.0),
+        ];
+        let tris = tessellate_polygon_2d(&outer, &[]).unwrap();
+        assert_eq!(tris.len(), 2);
+    }
+
+    #[test]
+    fn square_with_square_hole_tessellates() {
+        let outer = vec![
+            DVec2::new(0.0, 0.0),
+            DVec2::new(10.0, 0.0),
+            DVec2::new(10.0, 10.0),
+            DVec2::new(0.0, 10.0),
+        ];
+        let hole = vec![
+            DVec2::new(3.0, 3.0),
+            DVec2::new(3.0, 7.0),
+            DVec2::new(7.0, 7.0),
+            DVec2::new(7.0, 3.0),
+        ];
+        let tris = tessellate_polygon_2d(&outer, &[hole]).unwrap();
+        // 8 boundary vertices with one hole → 8 triangles.
+        assert_eq!(tris.len(), 8);
+    }
+
+    #[test]
+    fn degenerate_polygon_errors() {
+        let outer = vec![DVec2::new(0.0, 0.0), DVec2::new(1.0, 0.0)];
+        assert!(tessellate_polygon_2d(&outer, &[]).is_err());
     }
 }

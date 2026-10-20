@@ -1,5 +1,10 @@
 # planyrith-core skeleton contract
 
+> **Progress:** for which parts of this contract are now implemented and what to do next, see
+> [`development-status.md`](development-status.md). As of 2026-10-20 the `foundations`,
+> `spatial` and `io-native` owner keys are implemented; `mesh` is partial (tessellation done,
+> topology operations still `todo!()`); `document` and `later` are not started.
+
 **Audience:** the engineers implementing milestone 0.1 in parallel. This document freezes the
 public types, traits and function signatures of `planyrith-core` as committed on 2026-10-20 so
 that five owners can fill in module bodies against agreed interfaces. Every operation body is
