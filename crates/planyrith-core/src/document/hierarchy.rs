@@ -624,6 +624,19 @@ impl Entities {
         Ok(self.forget(id))
     }
 
+    /// Gives the entities new pids, one per entity in container order,
+    /// keeping ids, order and side rows (a definition forked by copy-on-edit
+    /// needs its own pids: pids are document-unique, docs/04 §2). Extra pids
+    /// are ignored; missing ones leave the remaining entities unchanged.
+    pub(crate) fn reassign_pids(&mut self, pids: impl IntoIterator<Item = Pid>) {
+        for (&id, pid) in self.order.iter().zip(pids) {
+            if let Some(old) = self.pids.insert(id, pid) {
+                self.by_pid.remove(&old);
+            }
+            self.by_pid.insert(pid, id);
+        }
+    }
+
     /// Moves a mesh entity's pid binding, order slot and side-table rows from
     /// `old` (no longer in the mesh) to `new` (re-created by replay; docs/03
     /// Decisions "reshape keeps the pid").

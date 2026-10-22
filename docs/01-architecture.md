@@ -255,3 +255,10 @@ Frontends and the RPC server fan events out to subscribers. Event kinds:
 - 2026-10-20 — `Delta` is a closed enum of elementary, invertible changes carrying before/after
   values, pids and order indices (never whole-document snapshots). `EntityId`s may change across
   undo/redo; `Pid`s do not (docs/04 Decisions).
+- 2026-10-22 — **Undo/redo bookkeeping.** Undo and redo are all-or-nothing: an entry that fails
+  part-way is reverted before the error is returned and the history cursor does not move. A failed
+  command is rolled back through the session's alias table (rollback re-creates edges and faces
+  under new ids that older history entries must find), and re-inserting a definition snapshot
+  makes its mesh ids the current members of their alias classes. `DocumentChanged` events after
+  undo/redo carry the deltas as applied, with the ids the elements have now, so incremental
+  consumers (spatial index, render cache) can use them like the events of executed commands.

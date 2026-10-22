@@ -12,7 +12,7 @@ use super::{
     TriangleMergeOptions, TriangleMergeResult, broken,
 };
 use crate::geom::planar::boundary_cycles;
-use crate::geom::{FaceSides, GeometryError, NoDeltas};
+use crate::geom::{DeltaSink, FaceSides, GeometryError, NoDeltas};
 use crate::ids::{CurveId, EdgeId, FaceId, HalfEdgeId, VertexId};
 use crate::math::{Plane, polygon};
 use crate::tolerance::Tolerances;
@@ -32,8 +32,33 @@ fn build_from_indexed(
     check: bool,
 ) -> Result<HalfEdgeMesh, GeometryError> {
     let mut mesh = HalfEdgeMesh::new();
-    let d = &mut NoDeltas;
+    append_indexed(&mut mesh, indexed, tol, &mut NoDeltas)?;
+    let violations = if check {
+        mesh.validate(tol)
+    } else {
+        Vec::new()
+    };
+    if let Some(first) = violations.first() {
+        return Err(broken(format!(
+            "loaded mesh violates invariant {}: {} ({} violation(s))",
+            first.invariant,
+            first.detail,
+            violations.len()
+        )));
+    }
+    Ok(mesh)
+}
 
+/// Adds the vertices, edges, curves and faces of `indexed` to `mesh` as they
+/// are (no merging with existing elements), recording deltas; returns the new
+/// ids by local index (`curves` lists the descriptors that kept edges).
+/// Not atomic on its own: callers run it inside `transact` or on a scratch mesh.
+pub(super) fn append_indexed(
+    mesh: &mut HalfEdgeMesh,
+    indexed: &IndexedMesh,
+    tol: &Tolerances,
+    d: &mut dyn DeltaSink,
+) -> Result<IndexedIds, GeometryError> {
     let mut vertices = Vec::with_capacity(indexed.vertices.len());
     for &p in &indexed.vertices {
         if !tol.in_range(p) {
@@ -63,7 +88,7 @@ fn build_from_indexed(
             .filter(|(edge, _)| edge.curve == Some(i as u32))
             .map(|(_, &e)| e)
             .collect();
-        let members = chain_order(&mesh, &members)?;
+        let members = chain_order(mesh, &members)?;
         if members.is_empty() {
             // A descriptor without edges carries no geometry; drop it.
             continue;
@@ -79,6 +104,7 @@ fn build_from_indexed(
         }
     }
 
+    let mut faces = Vec::with_capacity(indexed.faces.len());
     for face in &indexed.faces {
         let mut cycles = Vec::with_capacity(face.loops.len());
         for lp in &face.loops {
@@ -101,23 +127,14 @@ fn build_from_indexed(
             None => Plane::from_polygon(&mesh.cycle_positions(outer)?, tol)
                 .ok_or_else(|| GeometryError::Degenerate("face outer loop has zero area".into()))?,
         };
-        mesh.create_face(outer, holes, plane, face.sides.clone(), tol, d)?;
+        faces.push(mesh.create_face(outer, holes, plane, face.sides.clone(), tol, d)?);
     }
-
-    let violations = if check {
-        mesh.validate(tol)
-    } else {
-        Vec::new()
-    };
-    if let Some(first) = violations.first() {
-        return Err(broken(format!(
-            "loaded mesh violates invariant {}: {} ({} violation(s))",
-            first.invariant,
-            first.detail,
-            violations.len()
-        )));
-    }
-    Ok(mesh)
+    Ok(IndexedIds {
+        vertices,
+        edges,
+        faces,
+        curves,
+    })
 }
 
 /// Orders curve members into a chain (from an end for open chains, from the

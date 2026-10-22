@@ -450,6 +450,21 @@ impl Document {
         Ok((container, world))
     }
 
+    /// The first locked group or instance on `path`, if any: its contents
+    /// cannot be edited until it is unlocked (docs/05 §5.13).
+    pub fn locked_step(&self, path: &InstancePath) -> Option<EntityKey> {
+        let mut container = ContainerRef::Model;
+        for &step in &path.steps {
+            let entities = self.container(container)?;
+            let id = entities.key_to_id(step)?;
+            if entities.is_locked(id) {
+                return Some(step);
+            }
+            container = ContainerRef::Definition(entities.definition_of(id)?);
+        }
+        None
+    }
+
     /// Finds the pid in any container (pids are document-unique, docs/04 §2).
     pub fn locate_pid(&self, pid: Pid) -> Option<(ContainerRef, EntityId)> {
         self.containers().into_iter().find_map(|c| {

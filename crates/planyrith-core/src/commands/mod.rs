@@ -602,6 +602,11 @@ impl Engine {
         self.doc
             .resolve_container(&context.path)
             .map_err(|e| path_error(&context.path, e))?;
+        if let Some(step) = self.doc.locked_step(&context.path) {
+            return Err(CommandError::NotApplicable(format!(
+                "{step} is locked; unlock it before editing inside it"
+            )));
+        }
         self.context = context;
         let snapshot = self.context.clone();
         self.events.emit(&Event::ActiveContextChanged(snapshot));
@@ -680,7 +685,7 @@ impl Engine {
         let output = match apply(&mut tx) {
             Ok(output) => output,
             Err(err) => {
-                tx.rollback().map_err(|e| {
+                tx.rollback(&mut self.aliases).map_err(|e| {
                     CommandError::Internal(format!("rollback after `{err}` failed: {e}"))
                 })?;
                 return Err(err);
@@ -723,30 +728,43 @@ impl Engine {
         self.events.emit(&event);
     }
 
-    /// Applies an undo entry's deltas (inverted and reversed for undo).
+    /// Applies an undo entry's deltas (inverted and reversed for undo). All
+    /// or nothing: when a delta fails, the ones already applied are reverted
+    /// so the document is back where it was.
     fn replay_entry(&mut self, entry: &UndoEntry, undo: bool) -> Result<Vec<Delta>, CommandError> {
-        let mut applied = Vec::new();
-        let mut step = |doc: &mut Document, delta: Delta, aliases: &mut MeshAliases| {
-            transaction::apply_delta(doc, &delta, aliases).map_err(|e| {
-                CommandError::Internal(format!(
-                    "{} of `{}` failed: {e}",
-                    if undo { "undo" } else { "redo" },
-                    entry.label
-                ))
-            })?;
-            applied.push(delta);
-            Ok::<(), CommandError>(())
-        };
-        if undo {
-            for tx in entry.transactions.iter().rev() {
-                for delta in tx.deltas.iter().rev() {
-                    step(&mut self.doc, delta.inverse(), &mut self.aliases)?;
-                }
-            }
+        let what = if undo { "undo" } else { "redo" };
+        let deltas: Vec<Delta> = if undo {
+            entry
+                .transactions
+                .iter()
+                .rev()
+                .flat_map(|tx| tx.deltas.iter().rev().map(Delta::inverse))
+                .collect()
         } else {
-            for tx in &entry.transactions {
-                for delta in &tx.deltas {
-                    step(&mut self.doc, delta.clone(), &mut self.aliases)?;
+            entry
+                .transactions
+                .iter()
+                .flat_map(|tx| tx.deltas.iter().cloned())
+                .collect()
+        };
+        let mut applied: Vec<Delta> = Vec::with_capacity(deltas.len());
+        for delta in deltas {
+            match transaction::apply_delta(&mut self.doc, &delta, &mut self.aliases) {
+                Ok(live) => applied.push(live),
+                Err(e) => {
+                    for done in applied.iter().rev() {
+                        transaction::apply_delta(&mut self.doc, &done.inverse(), &mut self.aliases)
+                            .map_err(|e2| {
+                                CommandError::Internal(format!(
+                                    "{what} of `{}` failed ({e}) and could not be reverted: {e2}",
+                                    entry.label
+                                ))
+                            })?;
+                    }
+                    return Err(CommandError::Internal(format!(
+                        "{what} of `{}` failed: {e}",
+                        entry.label
+                    )));
                 }
             }
         }
@@ -769,10 +787,11 @@ impl Engine {
     pub fn undo(&mut self) -> Result<(), CommandError> {
         let entry = self
             .history
-            .step_back()
+            .undo_entry()
             .cloned()
             .ok_or_else(|| CommandError::NotApplicable("nothing to undo".into()))?;
         let applied = self.replay_entry(&entry, true)?;
+        self.history.step_back();
         self.after_history_move(entry.label, applied);
         Ok(())
     }
@@ -781,10 +800,11 @@ impl Engine {
     pub fn redo(&mut self) -> Result<(), CommandError> {
         let entry = self
             .history
-            .step_forward()
+            .redo_entry()
             .cloned()
             .ok_or_else(|| CommandError::NotApplicable("nothing to redo".into()))?;
         let applied = self.replay_entry(&entry, false)?;
+        self.history.step_forward();
         self.after_history_move(entry.label.clone(), applied);
         // `last` names what the redone step created (docs/08 §2).
         self.last_created = entry

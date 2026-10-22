@@ -695,13 +695,34 @@ fn container_mut(doc: &mut Document, c: ContainerRef) -> Result<&mut Entities, C
         .ok_or_else(|| CommandError::NotApplicable(format!("container {c:?} does not exist")))
 }
 
-/// Applies one delta to the document (forward direction). `Engine::undo`
-/// applies `delta.inverse()` for a transaction's deltas in reverse order.
+/// `delta` with the edge/face ids it names replaced by the ids those
+/// elements have now (mesh deltas are resolved by the replay itself).
+fn with_live_ids(delta: &Delta, aliases: &MeshAliases) -> Delta {
+    let mut live = delta.clone();
+    match &mut live {
+        Delta::PidBound { container, id, .. }
+        | Delta::PidUnbound { container, id, .. }
+        | Delta::TagChanged { container, id, .. }
+        | Delta::HiddenChanged { container, id, .. } => *id = resolve(aliases, *container, *id),
+        Delta::AttributeChanged {
+            target: AttrTarget::Entity { container, id },
+            ..
+        } => *id = resolve(aliases, *container, *id),
+        _ => {}
+    }
+    live
+}
+
+/// Applies one delta to the document (forward direction) and returns it as
+/// applied, with current edge/face/vertex ids, for event consumers.
+/// `Engine::undo` applies `delta.inverse()` for a transaction's deltas in
+/// reverse order.
 pub(crate) fn apply_delta(
     doc: &mut Document,
     delta: &Delta,
     aliases: &mut MeshAliases,
-) -> Result<(), CommandError> {
+) -> Result<Delta, CommandError> {
+    let live = with_live_ids(delta, aliases);
     match delta {
         Delta::Mesh { container, delta } => {
             let tol = *doc.tolerances();
@@ -713,7 +734,7 @@ pub(crate) fn apply_delta(
                 _ => None,
             };
             let before = created(ids);
-            entities.mesh_mut().replay(delta, ids, &tol)?;
+            let applied = entities.mesh_mut().replay(delta, ids, &tol)?;
             // A reshaped face (same id removed and added) is re-created under a
             // new id by replay; its pid and side tables follow it.
             if let (Some(prev), Some(now)) = (before, created(ids))
@@ -723,6 +744,10 @@ pub(crate) fn apply_delta(
             {
                 entities.rekey(prev, now).map_err(hierarchy)?;
             }
+            return Ok(Delta::Mesh {
+                container: *container,
+                delta: applied,
+            });
         }
         Delta::PidBound {
             container,
@@ -813,6 +838,20 @@ pub(crate) fn apply_delta(
         } => {
             if !doc.restore_definition(*id, (**definition).clone(), *order_index) {
                 return Err(internal(format!("cannot restore {id}")));
+            }
+            // The snapshot brings its mesh back under the ids it was recorded
+            // with; make them the current members of their alias classes so
+            // later deltas that name any alias resolve to them.
+            let ids = aliases.entry(ContainerRef::Definition(*id)).or_default();
+            let mesh = definition.entities.mesh();
+            for (e, _) in mesh.edges() {
+                ids.alias_edge(e, e);
+            }
+            for (f, _) in mesh.faces() {
+                ids.alias_face(f, f);
+            }
+            for (c, _) in mesh.curves() {
+                ids.alias_curve(c, c);
             }
         }
         Delta::DefinitionRemoved { id, .. } => {
@@ -924,7 +963,7 @@ pub(crate) fn apply_delta(
         }
         Delta::RenderingChanged { to, .. } => doc.rendering = (**to).clone(),
     }
-    Ok(())
+    Ok(live)
 }
 
 /// The attribute dictionaries a target names.
@@ -1201,7 +1240,10 @@ impl<'a> Transaction<'a> {
                 MeshDelta::EdgeAdded { id, .. } => added.push(EntityId::Edge(*id)),
                 MeshDelta::FaceAdded { id, .. } => added.push(EntityId::Face(*id)),
                 MeshDelta::FaceSplit { old, new } => {
-                    split_from.insert(new[1], *old);
+                    // A piece of a piece inherits from the face that existed
+                    // before the operation.
+                    let root = split_from.get(old).copied().unwrap_or(*old);
+                    split_from.insert(new[1], root);
                 }
                 _ => {}
             }
@@ -1268,6 +1310,8 @@ impl<'a> Transaction<'a> {
         // existing edge, not something the command created (docs/08 Decisions).
         let mut keeps: BTreeMap<EntityId, EntityId> = BTreeMap::new();
         let mut fragments: BTreeSet<EntityId> = BTreeSet::new();
+        // Pieces of an edge this transaction made are made by it too.
+        let made_here: BTreeSet<Pid> = self.created.iter().copied().collect();
         for (old, list) in &pieces {
             let mut best: Option<(EntityId, f64, bool)> = None;
             for &(piece, len, at_start) in list {
@@ -1284,7 +1328,12 @@ impl<'a> Transaction<'a> {
             }
             if let Some((keeper, _, _)) = best {
                 keeps.insert(keeper, *old);
-                fragments.extend(list.iter().map(|p| p.0).filter(|p| *p != keeper));
+                if !entities
+                    .pid_of(*old)
+                    .is_some_and(|p| made_here.contains(&p))
+                {
+                    fragments.extend(list.iter().map(|p| p.0).filter(|p| *p != keeper));
+                }
             }
         }
         // Old edge → (unbind sequence, pid, order index, attributes).
@@ -1394,6 +1443,74 @@ impl<'a> Transaction<'a> {
                 if hidden {
                     self.set_hidden(container, id, true)?;
                 }
+            }
+        }
+        Ok(())
+    }
+
+    /// Exchanges the pids (and order slots and attributes) of two mesh
+    /// entities of one container: identity moves from one to the other
+    /// (docs/05 Decisions, drawing on a face).
+    pub fn swap_pids(
+        &mut self,
+        container: ContainerRef,
+        a: EntityId,
+        b: EntityId,
+    ) -> Result<(), CommandError> {
+        if a == b {
+            return Ok(());
+        }
+        let entities = self.entities(container)?;
+        let (attrs_a, attrs_b) = (entities.attrs(a).cloned(), entities.attrs(b).cloned());
+        let entities = container_mut(self.doc, container)?;
+        let (pa, ia) = entities.unbind_pid(a).map_err(hierarchy)?;
+        let (pb, ib) = entities.unbind_pid(b).map_err(hierarchy)?;
+        // Re-bind in reverse unbind order so the slots come back exactly.
+        entities.bind_pid(a, pb, Some(ib)).map_err(hierarchy)?;
+        entities.bind_pid(b, pa, Some(ia)).map_err(hierarchy)?;
+        self.deltas.extend([
+            Delta::PidUnbound {
+                container,
+                id: a,
+                pid: pa,
+                order_index: ia,
+            },
+            Delta::PidUnbound {
+                container,
+                id: b,
+                pid: pb,
+                order_index: ib,
+            },
+            Delta::PidBound {
+                container,
+                id: a,
+                pid: pb,
+                order_index: ib,
+            },
+            Delta::PidBound {
+                container,
+                id: b,
+                pid: pa,
+                order_index: ia,
+            },
+        ]);
+        // Attributes belong to the identity: they follow the pids.
+        for (id, old, new) in [(a, &attrs_a, &attrs_b), (b, &attrs_b, &attrs_a)] {
+            let keys: BTreeSet<(String, String)> = old
+                .iter()
+                .chain(new.iter())
+                .flat_map(|x| {
+                    x.0.iter()
+                        .flat_map(|(d, e)| e.keys().map(move |k| (d.clone(), k.clone())))
+                })
+                .collect();
+            for (dict, key) in keys {
+                let value = new
+                    .as_ref()
+                    .and_then(|x| x.0.get(&dict))
+                    .and_then(|e| e.get(&key));
+                let target = AttrTarget::Entity { container, id };
+                self.set_attribute(target, &dict, &key, value.cloned())?;
             }
         }
         Ok(())
@@ -2104,12 +2221,12 @@ impl<'a> Transaction<'a> {
     }
 
     /// Reverts every recorded delta in reverse order (apply-or-rollback for
-    /// failed commands, docs/01 §3.1). Ids are still current, so a fresh
-    /// alias table suffices.
-    pub fn rollback(self) -> Result<(), CommandError> {
-        let mut aliases = MeshAliases::new();
+    /// failed commands, docs/01 §3.1). Pass the session's alias table: the
+    /// replay re-creates edges and faces under new ids, and older history
+    /// entries must find them through their alias classes.
+    pub fn rollback(self, aliases: &mut MeshAliases) -> Result<(), CommandError> {
         for delta in self.deltas.iter().rev() {
-            apply_delta(self.doc, &delta.inverse(), &mut aliases)?;
+            apply_delta(self.doc, &delta.inverse(), aliases)?;
         }
         Ok(())
     }
@@ -2210,6 +2327,20 @@ impl UndoStack {
     /// `true` when an entry can be redone.
     pub fn can_redo(&self) -> bool {
         self.cursor < self.entries.len() && self.open_group.is_none()
+    }
+
+    /// The entry the next undo inverts, without moving the cursor.
+    pub fn undo_entry(&self) -> Option<&UndoEntry> {
+        self.can_undo()
+            .then(|| self.entries.get(self.cursor - 1))
+            .flatten()
+    }
+
+    /// The entry the next redo re-applies, without moving the cursor.
+    pub fn redo_entry(&self) -> Option<&UndoEntry> {
+        self.can_redo()
+            .then(|| self.entries.get(self.cursor))
+            .flatten()
     }
 
     /// Moves the cursor back and returns the entry to invert.

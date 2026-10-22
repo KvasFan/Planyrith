@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::commands::common::targets_in;
+use crate::commands::common::targets_of;
 use crate::commands::params::{pid_of, resolve_ref, target_container};
 use crate::commands::{
     Command, CommandCategory, CommandError, CommandMeta, CommonParams, ToolStep, Transaction,
@@ -58,11 +58,11 @@ impl Command for Offset {
         "offset"
     }
 
-    fn validate(&self, _doc: &Document, p: &OffsetParams) -> Result<(), CommandError> {
+    fn validate(&self, doc: &Document, p: &OffsetParams) -> Result<(), CommandError> {
         if p.face.is_none() && p.edges.is_none() {
             return Err(CommandError::invalid_param("face", "give face or edges"));
         }
-        if !p.distance.as_mm().is_finite() || p.distance.as_mm() == 0.0 {
+        if !p.distance.as_mm().is_finite() || p.distance.as_mm().abs() <= doc.tolerances().length {
             return Err(CommandError::invalid_param(
                 "distance",
                 "must be a non-zero length",
@@ -79,7 +79,7 @@ impl Command for Offset {
         let target = target_container(tx, &p.common)?;
         let face = match (&p.face, &p.edges) {
             (Some(r), _) => {
-                let resolved = resolve_ref(tx, r)?;
+                let resolved = resolve_ref(tx, &target.context, "face", r)?;
                 if resolved.container != target.container {
                     return Err(CommandError::NotApplicable(
                         "the face is not in the edit context; open its group first".into(),
@@ -144,7 +144,7 @@ fn face_bounded_by(
     target: &crate::commands::params::Target,
     q: &Query,
 ) -> Result<FaceId, CommandError> {
-    let edges: BTreeSet<EdgeId> = targets_in(tx, target, q)?
+    let edges: BTreeSet<EdgeId> = targets_of(tx, target, "edges", q)?
         .into_iter()
         .filter_map(|id| match id {
             EntityId::Edge(e) => Some(e),

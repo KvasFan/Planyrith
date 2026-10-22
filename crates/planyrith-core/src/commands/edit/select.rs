@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::commands::params::select;
+use crate::commands::params::{command_context, select};
 use crate::commands::{
     Command, CommandCategory, CommandError, CommandMeta, CommonParams, ToolStep, Transaction,
 };
@@ -59,7 +59,8 @@ impl Command for Select {
         tx: &mut Transaction<'_>,
         p: SelectParams,
     ) -> Result<SelectOutput, CommandError> {
-        let matches = select(tx, &p.query)?;
+        let context = command_context(tx, &p.common);
+        let matches = select(tx, &context, "query", &p.query)?;
         let mut selection = tx.query_env().selection.clone();
         selection.apply(p.mode, &matches);
         let mut kinds = BTreeMap::new();

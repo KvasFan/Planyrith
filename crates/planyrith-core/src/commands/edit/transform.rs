@@ -10,17 +10,19 @@ use glam::{DAffine3, DVec3};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::commands::common::{redraw_geometry, refuse_locked, targets_in};
+use crate::commands::common::{SideRows, mesh_piece, place_geometry, refuse_locked, targets_in};
 use crate::commands::params::{PointSchema, Target, VectorSchema, check_point, target_container};
 use crate::commands::{
     Command, CommandCategory, CommandError, CommandMeta, CommonParams, ToolStep, Transaction,
 };
 use crate::document::{Document, EntityRecord, EntityView, Guide, Query};
-use crate::geom::{FaceSides, TransformOptions};
-use crate::ids::{EdgeId, EntityId, Pid, VertexId};
+use crate::geom::TransformOptions;
+use crate::geom::mesh::transform_indexed;
+use crate::ids::{EdgeId, EntityId, FaceId, Pid, VertexId};
 use crate::inference::InferenceKind;
+use crate::math::Aabb;
 use crate::math::transform::{rotation_about, scale_about, translation};
-use crate::math::{Aabb, Plane};
+use crate::tolerance::Tolerances;
 use crate::units::Angle;
 
 /// How array copies are spaced (docs/05 §4.4, §4.5).
@@ -162,9 +164,12 @@ fn placed_record(
     }
 }
 
-/// Copies `ids` under `world`: geometry is redrawn with `add_edge` (faces form
-/// by face finding and take the originals' materials and front side);
-/// groups and instances become new occurrences of the same definition.
+/// Copies `ids` under `world`. Geometry is copied exactly (faces with their
+/// holes, edges with flags, curves, materials, tags and hidden state) when the
+/// copy touches nothing, and otherwise redrawn with `add_edge` so it merges
+/// with what is there, leaving existing faces as they are (docs/05
+/// Decisions). Groups and instances become new occurrences of the same
+/// definition, with the originals' tags, hidden state and attributes.
 fn copy_entities(
     tx: &mut Transaction<'_>,
     target: &Target,
@@ -178,43 +183,29 @@ fn copy_entities(
         .container(container)
         .ok_or_else(|| CommandError::Internal("edit context vanished".into()))?;
     let mesh = entities.mesh();
-    let mut edges: BTreeSet<EdgeId> = BTreeSet::new();
-    let mut faces: Vec<(Vec<DVec3>, Plane, FaceSides)> = Vec::new();
+    let mut edges: Vec<EdgeId> = Vec::new();
+    let mut faces: Vec<FaceId> = Vec::new();
     for id in ids {
         match *id {
-            EntityId::Edge(e) => {
-                edges.insert(e);
-            }
-            EntityId::Face(f) => {
-                edges.extend(mesh.face_edges(f)?);
-                let face = mesh.face_ref(f)?;
-                let outer = mesh.loop_positions(face.outer)?;
-                faces.push((
-                    outer.iter().map(|&p| local.transform_point3(p)).collect(),
-                    face.plane.transformed(&local),
-                    face.sides.clone(),
-                ));
-            }
+            EntityId::Edge(e) => edges.push(e),
+            EntityId::Face(f) => faces.push(f),
             _ => {}
         }
     }
-    let segments = edges
+    let piece = mesh_piece(mesh, &faces, &edges)?;
+    let edge_rows: Vec<SideRows> = piece
+        .edges
         .iter()
-        .map(|&e| {
-            let s = mesh.edge_segment(e)?;
-            let flags = mesh.edge(e).map(|x| x.flags).unwrap_or_default();
-            Ok((
-                local.transform_point3(s.a),
-                local.transform_point3(s.b),
-                flags,
-            ))
-        })
-        .collect::<Result<Vec<_>, CommandError>>()?;
-    let before = tx.created().len();
-    redraw_geometry(tx, container, &segments, &faces)?;
-    let mut pids: Vec<Pid> = tx.created()[before..].to_vec();
+        .map(|&e| SideRows::of(entities, EntityId::Edge(e)))
+        .collect();
+    let face_rows: Vec<SideRows> = piece
+        .faces
+        .iter()
+        .map(|&f| SideRows::of(entities, EntityId::Face(f)))
+        .collect();
+    let mut others = Vec::new();
     for &id in ids {
-        let Some(view) = tx.document().container(container).and_then(|e| e.view(id)) else {
+        let Some(view) = entities.view(id) else {
             continue;
         };
         let record = match view {
@@ -238,7 +229,20 @@ fn copy_entities(
                 _ => continue,
             },
         };
-        let (_, pid) = tx.insert_entity(container, record)?;
+        // A copy is not locked even when its original is.
+        let rows = SideRows {
+            locked: false,
+            ..SideRows::of(entities, id)
+        };
+        others.push((record, rows));
+    }
+    let copy = transform_indexed(&piece.indexed, &local);
+    let before = tx.created().len();
+    place_geometry(tx, container, &copy, edge_rows, face_rows)?;
+    let mut pids: Vec<Pid> = tx.created()[before..].to_vec();
+    for (record, rows) in others {
+        let (new, pid) = tx.insert_entity(container, record)?;
+        rows.apply(tx, container, new)?;
         pids.push(pid);
     }
     Ok(pids)
@@ -458,7 +462,7 @@ pub struct RotateParams {
 }
 
 impl RotateParams {
-    fn angle(&self) -> Result<f64, CommandError> {
+    fn angle(&self, tol: &Tolerances) -> Result<f64, CommandError> {
         if let Some(a) = self.angle {
             return Ok(a.as_radians());
         }
@@ -476,11 +480,13 @@ impl RotateParams {
         let v = b - self.center;
         let u = u - axis * u.dot(axis);
         let v = v - axis * v.dot(axis);
-        if u.length_squared() == 0.0 || v.length_squared() == 0.0 {
-            return Err(CommandError::invalid_param(
-                "from_point",
-                "must not lie on the axis",
-            ));
+        for (name, w) in [("from_point", u), ("to_point", v)] {
+            if w.length_squared() <= tol.length_sq {
+                return Err(CommandError::invalid_param(
+                    name,
+                    "must not lie on the axis",
+                ));
+            }
         }
         Ok(libm::atan2(axis.dot(u.cross(v)), u.dot(v)))
     }
@@ -498,14 +504,14 @@ impl Command for Rotate {
         "rotate"
     }
 
-    fn validate(&self, _doc: &Document, p: &RotateParams) -> Result<(), CommandError> {
+    fn validate(&self, doc: &Document, p: &RotateParams) -> Result<(), CommandError> {
         parse_targets(&p.targets)?;
         check_copies(p.copies)?;
         check_point("center", p.center)?;
         if p.axis.try_normalize().is_none() {
             return Err(CommandError::invalid_param("axis", "must be non-zero"));
         }
-        p.angle().map(|_| ())
+        p.angle(doc.tolerances()).map(|_| ())
     }
 
     fn apply(
@@ -513,7 +519,7 @@ impl Command for Rotate {
         tx: &mut Transaction<'_>,
         p: RotateParams,
     ) -> Result<TransformOutput, CommandError> {
-        let angle = p.angle()?;
+        let angle = p.angle(tx.tolerances())?;
         let (center, axis) = (p.center, p.axis.normalize());
         let opts = TransformOptions {
             auto_fold: p.auto_fold,

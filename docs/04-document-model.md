@@ -285,3 +285,6 @@ tags, non-invertible transforms, `next_pid` monotonicity. `repair` fixes what it
   `geom::ReplayIds`, kept per container across undo/redo (docs/03 Decisions). This refines the
   "EntityId values are not stable across undo/redo" entry above: that now only holds for edges and
   faces. Reserved keys cost one small slot each and are never handed out again.
+- 2026-10-22 — Forking a definition (copy-on-edit, docs/05 Decisions) clones it with a fresh UUID
+  and fresh pids for all its entities (pids are document-unique, §2); ids, order and side rows are
+  kept. `Document::locked_step` finds the first locked group or instance on a context path.

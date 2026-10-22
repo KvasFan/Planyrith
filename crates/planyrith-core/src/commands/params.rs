@@ -17,8 +17,8 @@ use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 
 use crate::commands::{CommandError, CommonParams, Transaction};
 use crate::document::{
-    ContainerRef, Document, EntityKey, EntityPath, EntityRef, InstancePath, Query, QueryExpr,
-    Selection,
+    ContainerRef, Document, EditContext, EntityKey, EntityPath, EntityRef, InstancePath, Query,
+    QueryEnv, QueryExpr, Selection,
 };
 use crate::ids::{EntityId, Pid};
 use crate::math::{Plane, TransformParts};
@@ -259,8 +259,10 @@ fn parse_entity_ref(param: &str, text: &str) -> Result<EntityRef, CommandError> 
 // ----- resolution helpers for commands ---------------------------------------------------
 
 /// The container a command writes into and its container-to-world transform.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Target {
+    /// The edit context of the command (queries evaluate inside it).
+    pub context: EditContext,
     /// Container.
     pub container: ContainerRef,
     /// Container-to-world transform.
@@ -282,45 +284,78 @@ impl Target {
 }
 
 /// Resolves the edit context of a command: `common.context` (the path of the
-/// group or instance to edit) if given, else the engine's context. Points in
-/// params are world coordinates; commands convert them with
-/// [`Target::to_local`] (docs/05 Decisions).
+/// group or instance to edit) if given, else the engine's context. Groups on
+/// the path are made private first (copy-on-edit, docs/04 §3.1), so call it
+/// only from commands that edit the context. Points in params are world
+/// coordinates; commands convert them with [`Target::to_local`] (docs/05
+/// Decisions).
 pub fn target_container(
-    tx: &Transaction<'_>,
+    tx: &mut Transaction<'_>,
     common: &CommonParams,
 ) -> Result<Target, CommandError> {
+    let context = command_context(tx, common);
     let doc = tx.document();
     let (container, world) = match &common.context {
-        Some(path) => {
-            let instances = path.instances.child(path.target);
-            doc.resolve_container(&instances)
-                .map_err(|_| CommandError::NotFound(EntityRef::Path(path.clone())))?
-        }
-        None => doc.resolve_container(&tx.context().path).map_err(|_| {
+        Some(path) => doc
+            .resolve_container(&context.path)
+            .map_err(|_| CommandError::NotFound(EntityRef::Path(path.clone())))?,
+        None => doc.resolve_container(&context.path).map_err(|_| {
             CommandError::NotFound(EntityRef::Path(EntityPath::in_model(EntityKey::Pid(
                 Pid::NONE,
             ))))
         })?,
     };
+    if let Some(step) = doc.locked_step(&context.path) {
+        return Err(CommandError::NotApplicable(format!(
+            "{step} is locked; unlock it before editing inside it"
+        )));
+    }
+    // The command is about to edit the context: groups on the way in are
+    // made private first (copy-on-edit, docs/04 §3.1).
+    crate::commands::common::make_path_private(tx, &context.path)?;
     if world.matrix3.determinant().abs() <= f64::EPSILON {
         return Err(CommandError::NotApplicable(
             "the edit context has a singular transform".into(),
         ));
     }
     Ok(Target {
+        context,
         container,
         world,
         local: world.inverse(),
     })
 }
 
-/// Evaluates a `Sel` query in the command's environment.
-pub fn select(tx: &Transaction<'_>, query: &Query) -> Result<Selection, CommandError> {
+/// The edit context a command runs in: `common.context` (the path of the
+/// group or instance to edit) if given, else the engine's context.
+pub fn command_context(tx: &Transaction<'_>, common: &CommonParams) -> EditContext {
+    match &common.context {
+        Some(path) => EditContext {
+            path: path.instances.child(path.target),
+        },
+        None => tx.context().clone(),
+    }
+}
+
+/// Evaluates the `Sel` query of parameter `param` inside edit context
+/// `context` (docs/08 §5); errors name that parameter.
+pub fn select(
+    tx: &Transaction<'_>,
+    context: &EditContext,
+    param: &str,
+    query: &Query,
+) -> Result<Selection, CommandError> {
     let expr: QueryExpr = query
         .parse()
-        .map_err(|e| CommandError::invalid_param("targets", e.to_string()))?;
-    expr.eval(tx.document(), &tx.query_env())
-        .map_err(|e| CommandError::invalid_param("targets", e.to_string()))
+        .map_err(|e| CommandError::invalid_param(param, e.to_string()))?;
+    let env = tx.query_env();
+    let env = QueryEnv {
+        selection: env.selection,
+        last: env.last,
+        context,
+    };
+    expr.eval(tx.document(), &env)
+        .map_err(|e| CommandError::invalid_param(param, e.to_string()))
 }
 
 /// A resolved single entity occurrence.
@@ -334,15 +369,21 @@ pub struct Resolved {
     pub world: DAffine3,
 }
 
-/// Resolves an `EntityRef` to exactly one entity (`E1101`/`E1102`).
-pub fn resolve_ref(tx: &Transaction<'_>, r: &EntityRef) -> Result<Resolved, CommandError> {
+/// Resolves the `EntityRef` of parameter `param` to exactly one entity
+/// (`E1101`/`E1102`); queries evaluate inside edit context `context`.
+pub fn resolve_ref(
+    tx: &Transaction<'_>,
+    context: &EditContext,
+    param: &str,
+    r: &EntityRef,
+) -> Result<Resolved, CommandError> {
     let doc = tx.document();
     match r {
         EntityRef::Pid(pid) => {
             let (container, id) = doc
                 .locate_pid(*pid)
                 .ok_or_else(|| CommandError::NotFound(r.clone()))?;
-            let world = world_of(doc, container, tx.context().path.clone());
+            let world = world_of(doc, container, context.path.clone());
             Ok(Resolved {
                 container,
                 id,
@@ -353,7 +394,7 @@ pub fn resolve_ref(tx: &Transaction<'_>, r: &EntityRef) -> Result<Resolved, Comm
             resolve_path(doc, path).ok_or_else(|| CommandError::NotFound(r.clone()))
         }
         EntityRef::Query(q) => {
-            let selection = select(tx, q)?;
+            let selection = select(tx, context, param, q)?;
             if selection.len() != 1 {
                 return Err(if selection.is_empty() {
                     CommandError::NotFound(r.clone())

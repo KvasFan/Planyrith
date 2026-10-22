@@ -55,6 +55,8 @@ pub(crate) struct Drawn {
     pub edges: Vec<Pid>,
     /// Faces created in empty space or inside a face (hole fill).
     pub faces_created: Vec<Pid>,
+    /// `(kept, new)` pids of each face split by the drawn edges.
+    pub split_from: Vec<(Pid, Pid)>,
     /// New pieces of faces split by the drawn edges.
     pub faces_split: Vec<Pid>,
 }
@@ -76,7 +78,7 @@ pub(crate) fn draw_chain(
         mesh.transact(tol, d, |m, d| {
             let mut edges: Vec<EdgeId> = Vec::new();
             let mut created: Vec<FaceId> = Vec::new();
-            let mut split: Vec<FaceId> = Vec::new();
+            let mut split: Vec<(FaceId, FaceId)> = Vec::new();
             for i in 0..segments {
                 let r = m.add_edge(local[i], local[(i + 1) % n], tol, d)?;
                 for e in r.edges {
@@ -85,7 +87,7 @@ pub(crate) fn draw_chain(
                     }
                 }
                 created.extend(r.new_faces);
-                split.extend(r.split_faces.iter().map(|(_, _, b)| *b));
+                split.extend(r.split_faces.iter().map(|&(_, kept, new)| (kept, new)));
             }
             // Edges a later segment split no longer exist; keep the live ones.
             edges.retain(|e| m.edge(*e).is_some());
@@ -112,10 +114,14 @@ pub(crate) fn draw_chain(
                 .push(pid_of(tx, container, EntityId::Face(*f))?);
         }
     }
-    for f in split.iter().filter(|f| alive(tx, f)) {
+    for (kept, f) in split.iter().filter(|(_, f)| alive(tx, f)) {
         if seen.insert(*f) {
-            out.faces_split
-                .push(pid_of(tx, container, EntityId::Face(*f))?);
+            let pid = pid_of(tx, container, EntityId::Face(*f))?;
+            out.faces_split.push(pid);
+            if alive(tx, kept) {
+                out.split_from
+                    .push((pid_of(tx, container, EntityId::Face(*kept))?, pid));
+            }
         }
     }
     Ok(out)
@@ -123,14 +129,21 @@ pub(crate) fn draw_chain(
 
 /// The face bounded exactly by the drawn closed chain, if one exists (the
 /// shape's own face; a hole-fill inside an existing face counts).
+///
+/// When the shape is the larger piece of a face it split, it kept that
+/// face's pid (docs/03 Decisions, face identity) and the leftover got the
+/// new one. The two pids are then swapped, so the face the user drew is the
+/// new face that `last` names and the leftover keeps the old identity
+/// (docs/05 Decisions).
 pub(crate) fn face_of_chain(
-    tx: &Transaction<'_>,
+    tx: &mut Transaction<'_>,
     target: &Target,
     drawn: &Drawn,
 ) -> Result<Option<Pid>, CommandError> {
     let Some(entities) = tx.document().container(target.container) else {
         return Ok(None);
     };
+    let mesh = entities.mesh();
     let edges: BTreeSet<EdgeId> = drawn
         .edges
         .iter()
@@ -139,22 +152,38 @@ pub(crate) fn face_of_chain(
             _ => None,
         })
         .collect();
-    for pid in drawn.faces_created.iter().chain(&drawn.faces_split) {
-        if let Some(EntityId::Face(f)) = entities.id_of(*pid) {
-            let outer: BTreeSet<EdgeId> = entities
-                .mesh()
-                .face(f)
-                .map(|face| entities.mesh().loop_edges(face.outer))
-                .transpose()?
-                .unwrap_or_default()
+    let mut shape = None;
+    'search: for &e in &edges {
+        for f in mesh.edge_faces(e)?.into_iter().flatten() {
+            let outer: BTreeSet<EdgeId> = mesh
+                .loop_edges(mesh.face_ref(f)?.outer)?
                 .into_iter()
                 .collect();
             if outer == edges {
-                return Ok(Some(*pid));
+                shape = Some(f);
+                break 'search;
             }
         }
     }
-    Ok(None)
+    let Some(f) = shape else {
+        return Ok(None);
+    };
+    let pid = pid_of(tx, target.container, EntityId::Face(f))?;
+    if drawn.faces_created.contains(&pid) || drawn.faces_split.contains(&pid) {
+        return Ok(Some(pid));
+    }
+    let Some(&(_, leftover)) = drawn.split_from.iter().find(|(kept, _)| *kept == pid) else {
+        return Ok(Some(pid));
+    };
+    let Some(other) = tx
+        .document()
+        .container(target.container)
+        .and_then(|e| e.id_of(leftover))
+    else {
+        return Ok(Some(pid));
+    };
+    tx.swap_pids(target.container, EntityId::Face(f), other)?;
+    Ok(Some(leftover))
 }
 
 /// `E1001` unless `n` is within `lo..=hi`.

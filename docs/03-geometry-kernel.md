@@ -425,3 +425,11 @@ within `tolerances.length`.
   sense (the region's width stays constant); an inward offset past a narrow part yields several
   loops, past the whole width none (`E1301`). `offset_polygon_2d` returns the largest loop;
   `offset_rings_2d` returns all of them.
+- 2026-10-22 — **Direct insertion and curve transforms.** `HalfEdgeMesh::insert_disjoint` appends
+  a piece given in indexed form unchanged (faces with holes, flags, curves, sides) when no vertex,
+  edge or face of it touches the mesh, and returns `None` otherwise (the caller then merges with
+  `add_edge`); `transform_indexed` maps a piece through an affine transform, reversing loops under
+  a mirror so faces keep their front side. `CurveDescriptor::transformed` keeps a descriptor only
+  under similarity transforms (rotation, uniform scale, translation, mirror; a mirrored arc flips
+  its normal so its sweep keeps its sign); under non-uniform scaling or shear the curve is dropped
+  and its edges become plain (§3.3).

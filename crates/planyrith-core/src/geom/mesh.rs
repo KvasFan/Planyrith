@@ -30,10 +30,12 @@
 mod analysis;
 mod edit;
 mod indexed;
+mod insert;
 mod replay;
 #[cfg(test)]
 mod tests;
 
+pub use insert::transform_indexed;
 pub use replay::ReplayIds;
 
 use std::collections::BTreeSet;
@@ -217,6 +219,88 @@ pub enum CurveDescriptor {
         /// Sampled points.
         points: Vec<DVec3>,
     },
+}
+
+impl CurveDescriptor {
+    /// This curve after `t`, or `None` when `t` does not keep it circular
+    /// (non-uniform scaling or shear; docs/03 §3.3: the edges become plain).
+    /// Under a mirroring transform an arc's normal is flipped so that its
+    /// sweep keeps its sign.
+    pub fn transformed(&self, t: &DAffine3) -> Option<CurveDescriptor> {
+        if let CurveDescriptor::Freehand { points } = self {
+            return Some(CurveDescriptor::Freehand {
+                points: points.iter().map(|&p| t.transform_point3(p)).collect(),
+            });
+        }
+        let m = t.matrix3;
+        let scale = m.x_axis.length();
+        let slack = 1e-9 * scale.max(1.0);
+        let similar = scale > 0.0
+            && (m.y_axis.length() - scale).abs() <= slack
+            && (m.z_axis.length() - scale).abs() <= slack
+            && m.x_axis.dot(m.y_axis).abs() <= slack * scale
+            && m.y_axis.dot(m.z_axis).abs() <= slack * scale
+            && m.z_axis.dot(m.x_axis).abs() <= slack * scale;
+        if !similar {
+            return None;
+        }
+        let sign = if m.determinant() < 0.0 { -1.0 } else { 1.0 };
+        let normal_of = |n: DVec3| (m * n).normalize_or_zero() * sign;
+        Some(match *self {
+            CurveDescriptor::Arc {
+                center,
+                normal,
+                radius,
+                start_angle,
+                end_angle,
+                segments,
+            } => {
+                let frame = Plane::from_point_normal(center, normal).frame_at(center);
+                let a = start_angle.as_radians();
+                let start = frame
+                    .from_2d(frame.to_2d(center) + DVec2::new(libm::cos(a), libm::sin(a)) * radius);
+                let center2 = t.transform_point3(center);
+                let normal2 = normal_of(normal);
+                let frame2 = Plane::from_point_normal(center2, normal2).frame_at(center2);
+                let q = frame2.to_2d(t.transform_point3(start)) - frame2.to_2d(center2);
+                let a2 = libm::atan2(q.y, q.x);
+                let sweep = end_angle.as_radians() - a;
+                CurveDescriptor::Arc {
+                    center: center2,
+                    normal: normal2,
+                    radius: radius * scale,
+                    start_angle: Angle::radians(a2),
+                    end_angle: Angle::radians(a2 + sweep),
+                    segments,
+                }
+            }
+            CurveDescriptor::Circle {
+                center,
+                normal,
+                radius,
+                segments,
+            } => CurveDescriptor::Circle {
+                center: t.transform_point3(center),
+                normal: normal_of(normal),
+                radius: radius * scale,
+                segments,
+            },
+            CurveDescriptor::Polygon {
+                center,
+                normal,
+                radius,
+                sides,
+                inscribed,
+            } => CurveDescriptor::Polygon {
+                center: t.transform_point3(center),
+                normal: normal_of(normal),
+                radius: radius * scale,
+                sides,
+                inscribed,
+            },
+            CurveDescriptor::Freehand { .. } => return None,
+        })
+    }
 }
 
 /// Result of [`HalfEdgeMesh::add_edge`] (docs/03 §4.2).

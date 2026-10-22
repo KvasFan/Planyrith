@@ -98,39 +98,52 @@ impl ReplayIds {
 
 impl HalfEdgeMesh {
     /// Applies one recorded delta without recording anything (docs/01 §3.1
-    /// replay). Undo applies `delta.inverse()` for a transaction's deltas in
-    /// reverse order; redo applies the deltas in order. Composite markers are
-    /// no-ops. Not atomic; see [`HalfEdgeMesh::replay_all`].
+    /// replay) and returns it as applied, with the ids the elements have now
+    /// (what incremental consumers such as the spatial index need). Undo
+    /// applies `delta.inverse()` for a transaction's deltas in reverse order;
+    /// redo applies the deltas in order. Composite markers change nothing.
+    /// Not atomic; see [`HalfEdgeMesh::replay_all`].
     pub fn replay(
         &mut self,
         delta: &MeshDelta,
         ids: &mut ReplayIds,
         tol: &Tolerances,
-    ) -> Result<(), GeometryError> {
+    ) -> Result<MeshDelta, GeometryError> {
         let d = &mut NoDeltas;
+        let mut live = delta.clone();
         match delta {
             MeshDelta::VertexAdded { position, .. } => {
                 if self.find_vertex_near(*position, tol).is_some() {
                     return Err(broken("replayed vertex coincides with an existing one"));
                 }
-                self.new_vertex(*position, d);
+                let v = self.new_vertex(*position, d);
+                if let MeshDelta::VertexAdded { id, .. } = &mut live {
+                    *id = v;
+                }
             }
             MeshDelta::VertexRemoved { position, .. } => {
                 let v = self.vertex_at(*position, tol)?;
                 self.delete_vertex(v, d)?;
+                if let MeshDelta::VertexRemoved { id, .. } = &mut live {
+                    *id = v;
+                }
             }
             MeshDelta::VertexMoved { from, to, .. } => {
                 let v = self.vertex_at(*from, tol)?;
                 self.set_position_raw(v, *to)?;
+                if let MeshDelta::VertexMoved { id, .. } = &mut live {
+                    *id = v;
+                }
             }
             MeshDelta::VerticesMoved { moves } => {
                 let resolved = moves
                     .iter()
-                    .map(|(_, from, to)| Ok((self.vertex_at(*from, tol)?, *to)))
-                    .collect::<Result<Vec<(VertexId, DVec3)>, GeometryError>>()?;
-                for (v, to) in resolved {
+                    .map(|(_, from, to)| Ok((self.vertex_at(*from, tol)?, *from, *to)))
+                    .collect::<Result<Vec<(VertexId, DVec3, DVec3)>, GeometryError>>()?;
+                for &(v, _, to) in &resolved {
                     self.set_position_raw(v, to)?;
                 }
+                live = MeshDelta::VerticesMoved { moves: resolved };
             }
             MeshDelta::EdgeAdded {
                 id, a, b, flags, ..
@@ -139,6 +152,9 @@ impl HalfEdgeMesh {
                 let vb = self.vertex_at(*b, tol)?;
                 let e = self.new_edge(va, vb, *flags, d)?;
                 ids.alias_edge(*id, e);
+                if let MeshDelta::EdgeAdded { id, .. } = &mut live {
+                    *id = e;
+                }
             }
             MeshDelta::EdgeRemoved { a, b, .. } => {
                 let va = self.vertex_at(*a, tol)?;
@@ -147,9 +163,16 @@ impl HalfEdgeMesh {
                     .edge_between(va, vb)
                     .ok_or_else(|| not_found(format!("edge {a:?}–{b:?}")))?;
                 self.delete_edge(e, d)?;
+                if let MeshDelta::EdgeRemoved { id, .. } = &mut live {
+                    *id = e;
+                }
             }
             MeshDelta::EdgeFlagsChanged { id, to, .. } => {
-                self.set_edge_flags(ids.edge(*id), *to, d)?;
+                let e = ids.edge(*id);
+                self.set_edge_flags(e, *to, d)?;
+                if let MeshDelta::EdgeFlagsChanged { id, .. } = &mut live {
+                    *id = e;
+                }
             }
             MeshDelta::FaceAdded { id, snapshot } => {
                 let outer = self.cycle_at(&snapshot.outer, tol)?;
@@ -167,6 +190,9 @@ impl HalfEdgeMesh {
                     d,
                 )?;
                 ids.alias_face(*id, f);
+                if let MeshDelta::FaceAdded { id, .. } = &mut live {
+                    *id = f;
+                }
             }
             MeshDelta::FaceRemoved { snapshot, .. } => {
                 let outer = self.cycle_at(&snapshot.outer, tol)?;
@@ -179,11 +205,29 @@ impl HalfEdgeMesh {
                     .face
                     .ok_or_else(|| not_found("face of a replayed snapshot"))?;
                 self.remove_face(f, d)?;
+                if let MeshDelta::FaceRemoved { id, .. } = &mut live {
+                    *id = f;
+                }
             }
             MeshDelta::FaceSidesChanged { id, to, .. } => {
-                self.set_face_sides(ids.face(*id), to.clone(), d)?;
+                let f = ids.face(*id);
+                self.set_face_sides(f, to.clone(), d)?;
+                if let MeshDelta::FaceSidesChanged { id, .. } = &mut live {
+                    *id = f;
+                }
             }
-            MeshDelta::FaceSplit { .. } | MeshDelta::FacesMerged { .. } => {}
+            MeshDelta::FaceSplit { old, new } => {
+                live = MeshDelta::FaceSplit {
+                    old: ids.face(*old),
+                    new: [ids.face(new[0]), ids.face(new[1])],
+                };
+            }
+            MeshDelta::FacesMerged { kept, removed } => {
+                live = MeshDelta::FacesMerged {
+                    kept: ids.face(*kept),
+                    removed: ids.face(*removed),
+                };
+            }
             MeshDelta::CurveAdded {
                 id,
                 descriptor,
@@ -192,12 +236,27 @@ impl HalfEdgeMesh {
                 let members: Vec<EdgeId> = members.iter().map(|&e| ids.edge(e)).collect();
                 let c = self.add_curve_inner(descriptor.clone(), &members, false, d)?;
                 ids.alias_curve(*id, c);
+                live = MeshDelta::CurveAdded {
+                    id: c,
+                    descriptor: descriptor.clone(),
+                    members,
+                };
             }
-            MeshDelta::CurveRemoved { id, .. } => {
-                self.drop_curve_inner(ids.curve(*id), d)?;
+            MeshDelta::CurveRemoved {
+                id,
+                descriptor,
+                members,
+            } => {
+                let c = ids.curve(*id);
+                self.drop_curve_inner(c, d)?;
+                live = MeshDelta::CurveRemoved {
+                    id: c,
+                    descriptor: descriptor.clone(),
+                    members: members.iter().map(|&e| ids.edge(e)).collect(),
+                };
             }
         }
-        Ok(())
+        Ok(live)
     }
 
     /// Replays a sequence atomically: on failure the mesh is restored and the
@@ -211,7 +270,7 @@ impl HalfEdgeMesh {
         let backup = self.clone();
         let backup_ids = ids.clone();
         for delta in deltas {
-            if let Err(err) = self.replay(delta, ids, tol) {
+            if let Err(err) = self.replay(delta, ids, tol).map(|_| ()) {
                 *self = backup;
                 *ids = backup_ids;
                 return Err(err);

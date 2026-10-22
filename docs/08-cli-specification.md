@@ -325,3 +325,5 @@ On failure: `{"ok": false, "error": {"code": "E1002", "message": "...", "param":
 - 2026-10-20 — The `render` verb and the `planyrith-render` dependency are behind the CLI's
   optional `render` feature until milestone 0.2, so 0.1 builds do not compile the GPU stack.
   `export` writes `json` only in 0.1 (`E1401`-class error, exit code 4, for other formats).
+- 2026-10-22 — Errors from evaluating a query name the parameter that holds it (`targets`,
+  `query`, `face`, `edges`), not always `targets`.

@@ -483,3 +483,31 @@ UI hints are generated from one source.
 - 2026-10-20 — `offset` output is `{edges, face, faces_split}` (`face` = the face bounded by the
   offset outer loop: the inner face for an inward offset, the surrounding ring for an outward one).
   `edges` must be the complete outer boundary of one face in 0.1; open chains come later.
+- 2026-10-22 — **Copies, groups and explode carry geometry exactly** (refines "Arrays" and
+  "Groups and components" above). Copying raw geometry, building a definition and exploding an
+  occurrence all move the selected faces and edges in indexed form: faces keep every loop (holes
+  stay open), edges keep flags and the curves whose members all come along, faces keep sides and
+  orientation, and each element keeps its tag, hidden state and attributes (groups, instances and
+  other non-mesh entities too; a copy is never locked). When the moved geometry touches nothing at
+  its destination it is inserted as is ("interior geometry is inserted directly", §5.3); when it
+  touches existing geometry it is redrawn with `add_edge` so it merges with what is there, and only
+  faces this redraw created take the copied sides or flip; existing faces are never re-oriented or
+  repainted. A definition is complete when it is inserted (undo/redo restore that snapshot).
+- 2026-10-22 — **Copy-on-edit of groups** (docs/04 §3.1). Copies of a group share its definition
+  until one of them is edited. Before a command edits inside a group (its context path passes
+  through it) or paints it, every *other* group that shares the definition moves to a copy of the
+  definition with fresh pids; the edited group keeps its definition, ids and pids, so the edit
+  context and the selection stay valid. Component instances are never forked (`make-unique`, 0.4).
+- 2026-10-22 — **Edit context of a command.** The per-command `context` param is the domain of the
+  command's queries (`targets`, `face`, `edges`, `query`) as well as the container it edits.
+  Opening a locked group or instance as the context (`Engine::set_context`, CLI `--context`) or
+  editing inside one is `E1201` (§5.13).
+- 2026-10-22 — **The face of a drawn shape is the new face.** When a closed shape drawn on a face is
+  the larger piece of the split, the pids of the shape's face and of the leftover piece are
+  exchanged, so the shape's face is the new face (`face` in the output, in `last`) and the leftover
+  keeps the original face's identity and attributes. `push-pull --face '{face & last}'` after a
+  rectangle therefore always pulls the rectangle.
+- 2026-10-22 — Removing a group also removes the private definitions of the groups nested in it
+  that nothing else uses (recursively). Validation of lengths and angles uses the tolerances
+  (`distance` within `length` of zero is `E1001`, as is a `from_point`/`to_point` within `length`
+  of the rotation axis), so `--dry-run` agrees with the real run.

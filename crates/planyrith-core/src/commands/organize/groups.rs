@@ -3,34 +3,37 @@
 //!
 //! Making a group copies the selected faces and edges (with the faces'
 //! boundary edges) into a new definition built from the indexed mesh form,
-//! so orientation, materials, flags and tags carry over exactly; the
-//! definition origin is the selection's bounding-box minimum. Selected
-//! faces, and edges no unselected face still needs, are then removed from the
-//! source; edges shared with unselected faces stay on both sides (docs/05
-//! Decisions). Exploding redraws the definition's geometry in the parent
-//! with the occurrence transform (`add_edge` semantics, so it merges with
-//! what is there) and re-creates nested occurrences.
+//! so orientation, materials, flags, curves and organization rows carry over
+//! exactly; selected non-mesh entities move in with their rows. The
+//! definition is complete before it is inserted (undo/redo restore it from
+//! that snapshot); the definition origin is the selection's bounding-box
+//! minimum. Selected faces, and edges no unselected face still needs, are
+//! then removed from the source; edges shared with unselected faces stay on
+//! both sides (docs/05 Decisions). Exploding inserts the definition's
+//! geometry exactly when it touches nothing in the parent, and otherwise
+//! redraws it with `add_edge` semantics so it merges with what is there.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
-use glam::DVec3;
+use glam::{DAffine3, DVec3};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::commands::common::{
-    FaceCopy, redraw_geometry, refuse_locked, remove_container_entity, targets_in,
+    SideRows, definition_uuid, mesh_piece, place_geometry, refuse_locked, remove_container_entity,
+    targets_in,
 };
 use crate::commands::params::{Target, target_container};
 use crate::commands::{
     Command, CommandCategory, CommandError, CommandMeta, CommonParams, Transaction,
 };
 use crate::document::{
-    ComponentBehavior, ComponentDefinition, ComponentInstance, ContainerRef, Document, EntityKey,
-    EntityPath, EntityRecord, EntityView, Group, Guide, Query, Selection,
+    ComponentBehavior, ComponentDefinition, ComponentInstance, ContainerRef, Document, Entities,
+    EntityKey, EntityPath, EntityRecord, EntityView, Group, Guide, Query, Selection,
 };
-use crate::geom::mesh::{DirectedEdgeIndex, IndexedEdge, IndexedFace, IndexedMesh};
-use crate::geom::{EdgeFlags, HalfEdgeMesh};
-use crate::ids::{EdgeId, EntityId, FaceId, Pid, VertexId};
+use crate::geom::HalfEdgeMesh;
+use crate::geom::mesh::transform_indexed;
+use crate::ids::{EdgeId, EntityId, FaceId, Pid};
 use crate::math::Aabb;
 use crate::math::transform::translation;
 
@@ -38,28 +41,72 @@ fn selection_query() -> Query {
     Query::new("selection")
 }
 
-/// A deterministic definition UUID: commands may not use randomness, so the
-/// UUID is derived from the document's pid counter (unique and monotonic).
-fn definition_uuid(doc: &Document) -> uuid::Uuid {
-    uuid::Uuid::from_u64_pair(0x706c_7972_6974_6800, doc.info.next_pid.next_raw())
+/// A non-mesh entity's record after moving its container through `t`
+/// (`None` for mesh elements). Texts and dimensions keep their anchors as
+/// they are (annotations arrive with milestone 0.6).
+fn moved_record(view: EntityView<'_>, t: &DAffine3) -> Option<EntityRecord> {
+    Some(match view {
+        EntityView::Group(g) => EntityRecord::Group(Group {
+            transform: *t * g.transform,
+            ..g.clone()
+        }),
+        EntityView::Instance(i) => EntityRecord::Instance(ComponentInstance {
+            transform: *t * i.transform,
+            ..i.clone()
+        }),
+        EntityView::Image(i) => {
+            let mut i = i.clone();
+            i.transform = *t * i.transform;
+            EntityRecord::Image(i)
+        }
+        EntityView::Guide(g) => EntityRecord::Guide(match g {
+            Guide::Line {
+                origin,
+                dir,
+                finite,
+            } => {
+                let moved = t.transform_vector3(*dir);
+                let k = moved.length();
+                Guide::Line {
+                    origin: t.transform_point3(*origin),
+                    dir: moved.normalize_or_zero(),
+                    finite: finite.map(|(a, b)| (a * k, b * k)),
+                }
+            }
+            Guide::Point { pos } => Guide::Point {
+                pos: t.transform_point3(*pos),
+            },
+        }),
+        EntityView::Text(text) => EntityRecord::Text(text.clone()),
+        EntityView::Dimension(dim) => EntityRecord::Dimension(dim.clone()),
+        EntityView::SectionPlane(s) => {
+            let mut s = s.clone();
+            s.plane = s.plane.transformed(t);
+            EntityRecord::SectionPlane(s)
+        }
+        EntityView::Edge(_) | EntityView::Face(_) => return None,
+    })
 }
 
 /// What `capture` collected from the source container.
 struct Captured {
-    /// The definition's contents, in definition coordinates.
-    entities: crate::document::Entities,
+    /// The complete definition contents, in definition coordinates.
+    entities: Entities,
     /// Selected faces (removed from the source).
     faces: Vec<FaceId>,
     /// Edges that go with the selection (removed when no face needs them).
     edges: Vec<EdgeId>,
-    /// Non-mesh entities to move into the definition.
+    /// Non-mesh entities that moved into the definition.
     others: Vec<EntityId>,
     /// Bounding-box minimum (container coordinates): the definition origin.
     origin: DVec3,
 }
 
-/// Copies the selected geometry into a new `Entities` relative to its
-/// bounding-box minimum.
+/// Copies the selection into a new, complete `Entities` relative to its
+/// bounding-box minimum: faces and edges with curves, flags, materials and
+/// organization rows, plus the selected non-mesh entities with theirs. The
+/// definition must be complete before it is inserted, because undo/redo
+/// restore it from the `DefinitionInserted` snapshot.
 fn capture(
     tx: &mut Transaction<'_>,
     target: &Target,
@@ -112,81 +159,41 @@ fn capture(
     let origin = if bb.is_empty() { DVec3::ZERO } else { bb.min };
     let shift = translation(-origin);
 
-    // Indexed form of the captured geometry.
-    let mut vertex_index: BTreeMap<VertexId, u32> = BTreeMap::new();
-    let mut indexed = IndexedMesh::default();
-    let mut edge_index: BTreeMap<EdgeId, u32> = BTreeMap::new();
-    for &e in &edges {
-        let (a, b) = mesh.edge_endpoints(e)?;
-        let mut idx = |v: VertexId, indexed: &mut IndexedMesh| -> Result<u32, CommandError> {
-            if let Some(&i) = vertex_index.get(&v) {
-                return Ok(i);
-            }
-            let i = indexed.vertices.len() as u32;
-            indexed.vertices.push(mesh.position(v)? - origin);
-            vertex_index.insert(v, i);
-            Ok(i)
-        };
-        let (ia, ib) = (idx(a, &mut indexed)?, idx(b, &mut indexed)?);
-        edge_index.insert(e, indexed.edges.len() as u32);
-        indexed.edges.push(IndexedEdge {
-            a: ia,
-            b: ib,
-            flags: mesh.edge(e).map(|x| x.flags).unwrap_or(EdgeFlags::NONE),
-            curve: None,
-        });
-    }
-    for &f in &faces {
-        let face = mesh.face_ref(f)?;
-        let mut loops = Vec::new();
-        for cycle in mesh.face_cycles(f)? {
-            let mut directed = Vec::with_capacity(cycle.len());
-            for h in cycle {
-                let he = mesh.he(h)?;
-                let i = edge_index[&he.edge];
-                let forward = mesh.edge(he.edge).is_some_and(|x| x.he == h);
-                directed.push(if forward {
-                    DirectedEdgeIndex::forward(i)
-                } else {
-                    DirectedEdgeIndex::reversed(i)
-                });
-            }
-            loops.push(directed);
-        }
-        indexed.faces.push(IndexedFace {
-            loops,
-            plane: Some(face.plane.transformed(&shift)),
-            sides: face.sides.clone(),
-        });
-    }
+    let piece = mesh_piece(mesh, &faces, &edges)?;
+    let indexed = transform_indexed(&piece.indexed, &shift);
     let built = HalfEdgeMesh::from_indexed(&indexed, doc.tolerances())?;
 
-    // Bind pids (edges then faces, the indexed order) and carry tags/hidden.
-    let mut entities = crate::document::Entities::new();
+    // Organization rows: mesh elements (edges then faces, the indexed order)
+    // and the moved non-mesh entities.
+    let mut entities = Entities::new();
     *entities.mesh_mut() = built;
     let (_, ids_map) = entities.mesh().to_indexed();
-    let mut rows = Vec::new();
-    for (i, &e) in edges.iter().enumerate() {
-        rows.push((EntityId::Edge(ids_map.edges[i]), EntityId::Edge(e)));
+    let mut mesh_rows = Vec::new();
+    for (i, &e) in piece.edges.iter().enumerate() {
+        let id = EntityId::Edge(e);
+        mesh_rows.push((EntityId::Edge(ids_map.edges[i]), SideRows::of(source, id)));
     }
-    for (j, &f) in faces.iter().enumerate() {
-        rows.push((EntityId::Face(ids_map.faces[j]), EntityId::Face(f)));
+    for (j, &f) in piece.faces.iter().enumerate() {
+        let id = EntityId::Face(f);
+        mesh_rows.push((EntityId::Face(ids_map.faces[j]), SideRows::of(source, id)));
     }
-    let carried: Vec<(EntityId, Option<crate::ids::TagId>, bool)> = rows
+    let moved: Vec<(EntityRecord, SideRows)> = others
         .iter()
-        .map(|&(new, old)| (new, source.tag_of(old), source.is_hidden(old)))
+        .filter_map(|&id| {
+            let record = moved_record(source.view(id)?, &shift)?;
+            Some((record, SideRows::of(source, id)))
+        })
         .collect();
-    for (new, tag, hidden) in carried {
+    let internal = |e: crate::document::HierarchyError| CommandError::Internal(e.to_string());
+    for (new, rows) in mesh_rows {
         let pid = tx.allocate_pid();
-        entities
-            .bind_pid(new, pid, None)
-            .map_err(|e| CommandError::Internal(e.to_string()))?;
-        if tag.is_some() {
-            let _ = entities.set_tag(new, tag);
-        }
-        if hidden {
-            let _ = entities.set_hidden(new, true);
-        }
+        entities.bind_pid(new, pid, None).map_err(internal)?;
+        rows.write_into(&mut entities, new)?;
+    }
+    for (record, rows) in moved {
+        let pid = tx.allocate_pid();
+        let new = entities.insert(record, pid).map_err(internal)?;
+        rows.write_into(&mut entities, new)?;
     }
     Ok(Captured {
         entities,
@@ -197,13 +204,13 @@ fn capture(
     })
 }
 
-/// Moves the captured selection into definition `d` (already inserted) and
-/// removes it from the source container.
-fn hand_over(
+/// Removes the captured selection from the source container (the
+/// definition already holds its copy). Edges an unselected face still needs
+/// stay (docs/05 Decisions).
+fn remove_captured(
     tx: &mut Transaction<'_>,
     target: &Target,
     captured: &Captured,
-    d: crate::ids::DefinitionId,
 ) -> Result<(), CommandError> {
     let container = target.container;
     let (faces, edges) = (captured.faces.clone(), captured.edges.clone());
@@ -225,47 +232,8 @@ fn hand_over(
             Ok(())
         })
     })?;
-    let shift = translation(-captured.origin);
     for &id in &captured.others {
-        let record = match tx.document().container(container).and_then(|e| e.view(id)) {
-            Some(EntityView::Group(g)) => EntityRecord::Group(Group {
-                transform: shift * g.transform,
-                ..g.clone()
-            }),
-            Some(EntityView::Instance(i)) => EntityRecord::Instance(ComponentInstance {
-                transform: shift * i.transform,
-                ..i.clone()
-            }),
-            Some(EntityView::Image(i)) => {
-                let mut i = i.clone();
-                i.transform = shift * i.transform;
-                EntityRecord::Image(i)
-            }
-            Some(EntityView::Guide(g)) => EntityRecord::Guide(match g {
-                Guide::Line {
-                    origin,
-                    dir,
-                    finite,
-                } => Guide::Line {
-                    origin: *origin - captured.origin,
-                    dir: *dir,
-                    finite: *finite,
-                },
-                Guide::Point { pos } => Guide::Point {
-                    pos: *pos - captured.origin,
-                },
-            }),
-            Some(EntityView::Text(t)) => EntityRecord::Text(t.clone()),
-            Some(EntityView::Dimension(dim)) => EntityRecord::Dimension(dim.clone()),
-            Some(EntityView::SectionPlane(s)) => {
-                let mut s = s.clone();
-                s.plane = s.plane.transformed(&shift);
-                EntityRecord::SectionPlane(s)
-            }
-            _ => continue,
-        };
         tx.remove_entity(container, id)?;
-        tx.insert_entity(ContainerRef::Definition(d), record)?;
     }
     Ok(())
 }
@@ -332,13 +300,13 @@ impl Command for MakeGroup {
         }
         refuse_locked(tx, target.container, &ids)?;
         let uuid = definition_uuid(tx.document());
-        let captured = capture(tx, &target, &ids)?;
+        let mut captured = capture(tx, &target, &ids)?;
         let name = p.name.unwrap_or_default();
         let mut def = ComponentDefinition::new(uuid, format!("Group {}", uuid.as_u64_pair().1));
         def.is_internal_group = true;
-        def.entities = captured.entities.clone();
+        def.entities = std::mem::take(&mut captured.entities);
         let d = tx.insert_definition(def)?;
-        hand_over(tx, &target, &captured, d)?;
+        remove_captured(tx, &target, &captured)?;
         let (_, pid) = tx.insert_entity(
             target.container,
             EntityRecord::Group(Group {
@@ -467,15 +435,15 @@ impl Command for MakeComponent {
         }
         refuse_locked(tx, target.container, &ids)?;
         let uuid = definition_uuid(tx.document());
-        let captured = capture(tx, &target, &ids)?;
+        let mut captured = capture(tx, &target, &ids)?;
         let mut def = ComponentDefinition::new(uuid, p.name.clone());
         def.description = p.description.clone();
         def.behavior = behavior_of(&p)?;
-        def.entities = captured.entities.clone();
+        def.entities = std::mem::take(&mut captured.entities);
         let d = tx.insert_definition(def)?;
         let mut instance = None;
         if p.replace_selection {
-            hand_over(tx, &target, &captured, d)?;
+            remove_captured(tx, &target, &captured)?;
             let (_, pid) = tx.insert_entity(
                 target.container,
                 EntityRecord::Instance(ComponentInstance {
@@ -533,7 +501,12 @@ pub struct ExplodeOutput {
 #[derive(Debug, Default, Clone, Copy)]
 pub struct Explode;
 
-/// Redraws one occurrence's contents into its parent container.
+/// Moves one occurrence's contents into its parent container under the
+/// occurrence transform. Geometry that touches nothing in the parent is
+/// inserted exactly (faces with their holes, face-less edges, curves, flags);
+/// geometry that touches the parent is redrawn with `add_edge` so it merges
+/// with what is there (docs/05 §5.3, Decisions). Organization rows and
+/// nested entities come along.
 fn explode_one(
     tx: &mut Transaction<'_>,
     container: ContainerRef,
@@ -553,64 +526,39 @@ fn explode_one(
     let Some(def) = doc.definition(d) else {
         return Ok(());
     };
-    let mesh = def.entities.mesh();
-    let segments = mesh
-        .edges()
-        .map(|(e, edge)| {
-            let s = mesh.edge_segment(e)?;
-            Ok((t.transform_point3(s.a), t.transform_point3(s.b), edge.flags))
-        })
-        .collect::<Result<Vec<_>, CommandError>>()?;
-    let faces: Vec<FaceCopy> = mesh
-        .faces()
-        .map(|(_, face)| {
-            let outer = mesh.loop_positions(face.outer)?;
-            let mut sides = face.sides.clone();
-            if sides.material_front.is_none() {
-                sides.material_front = override_material;
-            }
-            if sides.material_back.is_none() {
-                sides.material_back = override_material;
-            }
-            Ok((
-                outer.iter().map(|&p| t.transform_point3(p)).collect(),
-                face.plane.transformed(&t),
-                sides,
-            ))
-        })
-        .collect::<Result<_, CommandError>>()?;
-    let nested: Vec<EntityRecord> = def
-        .entities
+    let inner = &def.entities;
+    let mesh = inner.mesh();
+    let (indexed, local) = mesh.to_indexed();
+    let mut piece = transform_indexed(&indexed, &t);
+    for face in &mut piece.faces {
+        if face.sides.material_front.is_none() {
+            face.sides.material_front = override_material;
+        }
+        if face.sides.material_back.is_none() {
+            face.sides.material_back = override_material;
+        }
+    }
+    let edge_rows: Vec<SideRows> = local
+        .edges
         .iter()
-        .filter_map(|cid| match def.entities.view(cid)? {
-            EntityView::Group(g) => Some(EntityRecord::Group(Group {
-                transform: t * g.transform,
-                ..g.clone()
-            })),
-            EntityView::Instance(i) => Some(EntityRecord::Instance(ComponentInstance {
-                transform: t * i.transform,
-                ..i.clone()
-            })),
-            EntityView::Guide(g) => Some(EntityRecord::Guide(match g {
-                Guide::Line {
-                    origin,
-                    dir,
-                    finite,
-                } => Guide::Line {
-                    origin: t.transform_point3(*origin),
-                    dir: t.transform_vector3(*dir).normalize_or_zero(),
-                    finite: *finite,
-                },
-                Guide::Point { pos } => Guide::Point {
-                    pos: t.transform_point3(*pos),
-                },
-            })),
-            _ => None,
+        .map(|&e| SideRows::of(inner, EntityId::Edge(e)))
+        .collect();
+    let face_rows: Vec<SideRows> = local
+        .faces
+        .iter()
+        .map(|&f| SideRows::of(inner, EntityId::Face(f)))
+        .collect();
+    let nested: Vec<(EntityRecord, SideRows)> = inner
+        .iter()
+        .filter_map(|cid| {
+            let record = moved_record(inner.view(cid)?, &t)?;
+            Some((record, SideRows::of(inner, cid)))
         })
         .collect();
-    redraw_geometry(tx, container, &segments, &faces)?;
-    for record in nested {
-        tx.insert_entity(container, record)?;
+    place_geometry(tx, container, &piece, edge_rows, face_rows)?;
+    for (record, rows) in nested {
+        let (new, _) = tx.insert_entity(container, record)?;
+        rows.apply(tx, container, new)?;
     }
     remove_container_entity(tx, container, id)
 }

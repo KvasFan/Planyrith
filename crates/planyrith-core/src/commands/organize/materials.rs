@@ -7,7 +7,7 @@ use std::collections::{BTreeSet, VecDeque};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::commands::common::targets_in;
+use crate::commands::common::{make_group_private, targets_in};
 use crate::commands::organize::tags::parse_color;
 use crate::commands::params::target_container;
 use crate::commands::{
@@ -151,7 +151,16 @@ impl Command for MaterialEdit {
     }
 
     fn validate(&self, doc: &Document, p: &MaterialEditParams) -> Result<(), CommandError> {
-        material_named(doc, &p.material)?;
+        let id = material_named(doc, &p.material)?;
+        if let Some(name) = &p.name
+            && (name.trim().is_empty()
+                || doc.materials.by_name(name).is_some_and(|other| other != id))
+        {
+            return Err(CommandError::invalid_param(
+                "name",
+                "must be a new, non-empty material name",
+            ));
+        }
         if let Some(c) = &p.color {
             parse_color("color", c)?;
         }
@@ -424,21 +433,33 @@ impl Command for MaterialApply {
                 }
                 Some(EntityView::Group(g)) => {
                     // Groups have no override: paint the default-material
-                    // faces of their private definition instead.
+                    // sides of their private definition instead (after
+                    // copy-on-edit, so copies of the group keep theirs).
                     let d = ContainerRef::Definition(g.definition);
+                    make_group_private(tx, target.container, id)?;
+                    let front = matches!(p.side, Side::Front | Side::Both);
+                    let back = matches!(p.side, Side::Back | Side::Both);
                     let plain: Vec<(FaceId, FaceSides)> = tx
                         .document()
                         .container(d)
                         .map(|e| {
                             e.mesh()
                                 .faces()
-                                .filter(|(_, x)| x.sides.material_front.is_none())
+                                .filter(|(_, x)| {
+                                    (front && x.sides.material_front.is_none())
+                                        || (back && x.sides.material_back.is_none())
+                                })
                                 .map(|(f, x)| (f, x.sides.clone()))
                                 .collect()
                         })
                         .unwrap_or_default();
                     for (f, mut sides) in plain {
-                        sides.material_front = value;
+                        if front && sides.material_front.is_none() {
+                            sides.material_front = value;
+                        }
+                        if back && sides.material_back.is_none() {
+                            sides.material_back = value;
+                        }
                         tx.set_face_sides(d, f, sides)?;
                     }
                     occurrences += 1;

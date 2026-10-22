@@ -64,11 +64,16 @@ impl Command for PushPull {
         "push-pull"
     }
 
-    fn validate(&self, _doc: &Document, p: &PushPullParams) -> Result<(), CommandError> {
+    fn validate(&self, doc: &Document, p: &PushPullParams) -> Result<(), CommandError> {
         match (p.distance, p.to) {
-            (Some(d), _) if !d.as_mm().is_finite() || d.as_mm() == 0.0 => Err(
-                CommandError::invalid_param("distance", "must be a non-zero length"),
-            ),
+            (Some(d), _)
+                if !d.as_mm().is_finite() || d.as_mm().abs() <= doc.tolerances().length =>
+            {
+                Err(CommandError::invalid_param(
+                    "distance",
+                    "must be a non-zero length",
+                ))
+            }
             (Some(_), _) => Ok(()),
             (None, Some(to)) => check_point("to", to),
             (None, None) => Err(CommandError::invalid_param(
@@ -84,7 +89,7 @@ impl Command for PushPull {
         p: PushPullParams,
     ) -> Result<PushPullOutput, CommandError> {
         let target = target_container(tx, &p.common)?;
-        let resolved = resolve_ref(tx, &p.face)?;
+        let resolved = resolve_ref(tx, &target.context, "face", &p.face)?;
         let EntityId::Face(face) = resolved.id else {
             return Err(CommandError::NotApplicable(format!(
                 "{} is not a face",

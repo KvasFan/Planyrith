@@ -543,6 +543,7 @@ impl Command for Pie {
         drawn.edges.extend(radii.edges);
         drawn.faces_created.extend(radii.faces_created);
         drawn.faces_split.extend(radii.faces_split);
+        drawn.split_from.extend(radii.split_from);
         let face = face_of_chain(tx, &target, &drawn)?;
         Ok(shape(drawn, face, p.segments))
     }
