@@ -38,8 +38,9 @@ pub use materials::{
 };
 pub use scenes::{Scene, Scenes};
 pub use selection::{
-    CmpOp, EditContext, EntityKey, EntityPath, EntityRef, InstancePath, Query, QueryAtom, QueryEnv,
-    QueryError, QueryExpr, QueryKey, QueryKeyword, SelectMode, Selection,
+    CmpOp, EditContext, EntityKey, EntityPath, EntityRef, InstancePath, Measures, Query, QueryAtom,
+    QueryEnv, QueryError, QueryExpr, QueryKey, QueryKeyword, SelectMode, Selection,
+    measure_occurrence,
 };
 pub use shadows::{Date, ShadowSettings, SunModel, TimeOfDay};
 pub use stable_map::StableMap;
@@ -48,6 +49,8 @@ pub use styles::{
     Watermark, WatermarkPlacement,
 };
 pub use tags::{LineStyle, Tag, TagError, TagFolder, Tags};
+
+use std::collections::BTreeMap;
 
 use glam::DAffine3;
 use serde::{Deserialize, Serialize};
@@ -448,6 +451,57 @@ impl Document {
             world *= transform;
         }
         Ok((container, world))
+    }
+
+    /// The number of groups and instances that use each definition, over
+    /// every container (docs/04 §3.3 `usage_count`; a group's private
+    /// definition counts its group).
+    pub fn usage_counts(&self) -> BTreeMap<DefinitionId, u32> {
+        let mut counts: BTreeMap<DefinitionId, u32> =
+            self.definitions.iter().map(|(d, _)| (d, 0)).collect();
+        for c in self.containers() {
+            if let Some(entities) = self.container(c) {
+                let users = entities
+                    .groups()
+                    .map(|(_, g)| g.definition)
+                    .chain(entities.instances().map(|(_, i)| i.definition));
+                for d in users {
+                    if let Some(n) = counts.get_mut(&d) {
+                        *n = n.saturating_add(1);
+                    }
+                }
+            }
+        }
+        counts
+    }
+
+    /// Recomputes every definition's cached `usage_count` (after commands,
+    /// undo/redo and repair; the cache is derived data, not undoable state).
+    pub fn refresh_usage_counts(&mut self) {
+        for (d, n) in self.usage_counts() {
+            if let Some(def) = self.definitions.get_mut(d) {
+                def.usage_count = n;
+            }
+        }
+    }
+
+    /// The deepest nesting in the document, or the first violation of
+    /// docs/04 §13 (cycle) or §14 (hard depth limit), over the model and
+    /// every definition (also those no occurrence reaches).
+    pub fn nesting_depth(&self) -> Result<usize, HierarchyError> {
+        let mut memo = BTreeMap::new();
+        let mut depth = 0;
+        for c in self.containers() {
+            let Some(entities) = self.container(c) else {
+                continue;
+            };
+            let mut stack: Vec<DefinitionId> = match c {
+                ContainerRef::Model => Vec::new(),
+                ContainerRef::Definition(d) => vec![d],
+            };
+            depth = depth.max(entities.depth_below(&self.definitions, &mut memo, &mut stack)?);
+        }
+        Ok(depth)
     }
 
     /// The first locked group or instance on `path`, if any: its contents

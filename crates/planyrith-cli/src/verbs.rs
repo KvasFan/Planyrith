@@ -5,19 +5,19 @@ use std::path::Path;
 use std::time::Instant;
 
 use clap::{Args, Command, FromArgMatches};
-use planyrith_core::commands::CommandRegistry;
+use planyrith_core::commands::{CommandError, CommandRegistry};
 use planyrith_core::diagnostics::{RepairFixes, repair, statistics, validate};
 use planyrith_core::document::{
-    ContainerRef, Document, EntityPath, EntityView, FrontOrBack, Query,
+    Document, EntityPath, EntityView, FrontOrBack, Query, QueryEnv, measure_occurrence,
 };
 use planyrith_core::ids::EntityId;
 use planyrith_core::io::export::json::{canonicalize, document_to_json};
-use planyrith_core::io::native::{WriteOptions, write_document};
 use planyrith_core::io::storage::{NativeFs, Storage};
 use planyrith_core::units::LengthUnit;
 use serde_json::{Map, Value, json};
 
 use crate::args;
+use crate::out;
 use crate::session::{Session, key};
 use crate::shell;
 use crate::{CliError, Global, Verb};
@@ -46,7 +46,24 @@ pub fn dispatch(global: Global, verb: Verb) -> Result<(), CliError> {
     }
 }
 
-/// Prints a success envelope (docs/08 §7) or the human form.
+/// The warnings commands emitted in a session, as JSON objects.
+fn warnings_of(session: Option<&Session>, from: usize) -> Vec<Value> {
+    session
+        .map(|s| {
+            s.warnings
+                .borrow()
+                .iter()
+                .skip(from)
+                .map(|w| json!({ "code": w.code.as_str(), "message": w.message }))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Prints the result (docs/08 §7): one JSON envelope in `--json`/`--jsonl`
+/// mode, the human form otherwise. With `error` (problems that remain after
+/// `validate`/`repair`), the envelope is `ok: false` and carries both the
+/// output and the error, so JSON mode still prints exactly one document.
 fn emit(
     global: &Global,
     command: &str,
@@ -54,16 +71,20 @@ fn emit(
     session: Option<&Session>,
     saved: Option<String>,
     started: Instant,
-) {
-    let warnings: Vec<Value> = session
-        .map(|s| {
-            s.warnings
-                .borrow()
-                .iter()
-                .map(|w| json!({ "code": w.code.as_str(), "message": w.message }))
-                .collect()
-        })
-        .unwrap_or_default();
+    error: Option<&CliError>,
+) -> Result<(), CliError> {
+    let warnings = warnings_of(session, 0);
+    // With `-o -` standard output carries the document itself: the report
+    // goes to standard error so the document stays intact.
+    let to_stderr = saved.as_deref() == Some("-");
+    let print = |text: String| {
+        if to_stderr {
+            out::diagnostic(text);
+            Ok(())
+        } else {
+            out::line(text)
+        }
+    };
     if global.json || global.jsonl {
         let document = session.map(|s| {
             json!({
@@ -72,37 +93,50 @@ fn emit(
                 "generation": s.engine.generation(),
             })
         });
-        let envelope = json!({
-            "ok": true,
+        let mut envelope = json!({
+            "ok": error.is_none(),
             "command": command,
             "output": output,
             "warnings": warnings,
             "document": document,
             "timing_ms": started.elapsed().as_secs_f64() * 1000.0,
         });
-        println!("{envelope}");
-        return;
+        if let Some(e) = error {
+            envelope["error"] = e.to_json()["error"].clone();
+        }
+        return print(envelope.to_string());
     }
     for w in &warnings {
-        eprintln!(
+        out::diagnostic(format!(
             "warning[{}]: {}",
             w["code"].as_str().unwrap_or(""),
             w["message"].as_str().unwrap_or("")
-        );
+        ));
     }
     match output {
         Value::Null => {}
-        Value::String(s) => println!("{s}"),
-        other => println!(
-            "{}",
-            serde_json::to_string_pretty(&other).unwrap_or_default()
-        ),
+        Value::String(s) => print(s)?,
+        other => print(serde_json::to_string_pretty(&other).unwrap_or_default())?,
     }
     if let Some(path) = saved
         && path != "-"
     {
-        eprintln!("saved {path}");
+        out::diagnostic(format!("saved {path}"));
     }
+    Ok(())
+}
+
+/// Reads a text input file (batch script, params file); a missing or
+/// unreadable file is an I/O error (`E1403`, exit 4) like a missing document.
+fn read_input(path: &Path) -> Result<String, CliError> {
+    std::fs::read_to_string(path).map_err(|e| {
+        let name = path.display().to_string();
+        CliError::io(if e.kind() == std::io::ErrorKind::NotFound {
+            planyrith_core::io::IoError::NotFound(name)
+        } else {
+            planyrith_core::io::IoError::storage(name, e.to_string())
+        })
+    })
 }
 
 // ----- new ------------------------------------------------------------------------------
@@ -138,37 +172,18 @@ fn new(global: &Global, template: &str, title: Option<String>) -> Result<(), Cli
     if let Some(t) = title {
         doc.info.title = t;
     }
-    let now = crate::session::now_rfc3339();
-    let opts = WriteOptions {
-        deterministic: global.deterministic,
-        created: now.clone(),
-        modified: now,
-        include_history: false,
-        ..WriteOptions::default()
-    };
-    let bytes =
-        write_document(&doc, &[], &opts, &planyrith_core::io::NoProgress).map_err(CliError::io)?;
-    let saved = if path.as_os_str() == "-" {
-        use std::io::Write;
-        std::io::stdout()
-            .write_all(&bytes)
-            .map_err(|e| CliError::usage(e.to_string()))?;
-        "-".to_string()
-    } else {
-        NativeFs::new()
-            .write(&key(&path), &bytes)
-            .map_err(CliError::io)?;
-        path.display().to_string()
-    };
+    // The usual session rules apply: `--no-save`/`--dry-run` write nothing.
+    let session = Session::create(doc, Some(path));
+    let saved = session.save(global)?;
     emit(
         global,
         "new",
         json!({ "template": template }),
-        None,
-        Some(saved),
+        Some(&session),
+        saved,
         started,
-    );
-    Ok(())
+        None,
+    )
 }
 
 // ----- info -----------------------------------------------------------------------------
@@ -191,8 +206,7 @@ fn info(global: &Global) -> Result<(), CliError> {
         },
         "problems": report.problems.len(),
     });
-    emit(global, "info", output, Some(&session), None, started);
-    Ok(())
+    emit(global, "info", output, Some(&session), None, started, None)
 }
 
 // ----- tool -----------------------------------------------------------------------------
@@ -281,8 +295,7 @@ fn parse_tool_args(
         base = parse_object(text)?;
     }
     if let Some(path) = matches.get_one::<String>("params_file") {
-        let text = std::fs::read_to_string(path)
-            .map_err(|e| CliError::usage(format!("--params-file {path}: {e}")))?;
+        let text = read_input(Path::new(path))?;
         base = parse_object(&text)?;
     }
     let info = if matches.get_flag("schema") {
@@ -318,12 +331,12 @@ struct ToolInvocation {
 }
 
 impl ToolInvocation {
+    /// The params object. Under `--dry-run` commands still run, on the
+    /// in-memory session only (nothing is saved or journaled), so a dry run
+    /// reports the errors the real run would (docs/08 Decisions).
     fn params(&self, session: &Session, global: &Global) -> Result<Value, CliError> {
         let unit = session.unit(global)?;
-        let mut map = args::collect(&self.matches, &self.specs, unit, self.base.clone())?;
-        if global.dry_run {
-            map.insert("dry_run".into(), Value::Bool(true));
-        }
+        let map = args::collect(&self.matches, &self.specs, unit, self.base.clone())?;
         Ok(Value::Object(map))
     }
 }
@@ -341,29 +354,27 @@ fn tool(global: &Global, name: Option<String>, raw: Vec<String>) -> Result<(), C
     let registry = CommandRegistry::with_builtins();
     let name = name.filter(|n| n != "--help" && n != "-h");
     let Some(name) = name else {
-        if !global.json {
-            println!("Usage: planyrith tool <NAME> [OPTIONS]   (planyrith tool <NAME> --help)\n");
-        }
         let list = registry.list();
-        if global.json {
-            emit(
+        if global.json || global.jsonl {
+            return emit(
                 global,
                 "tool",
                 serde_json::to_value(list).unwrap_or(Value::Null),
                 None,
                 None,
                 started,
+                None,
             );
-        } else {
-            let width = list.iter().map(|c| c.name.len()).max().unwrap_or(0);
-            for c in list {
-                println!(
-                    "{:<width$} {:<10} {}",
-                    c.name,
-                    format!("{:?}", c.category).to_lowercase(),
-                    c.label
-                );
-            }
+        }
+        out::line("Usage: planyrith tool <NAME> [OPTIONS]   (planyrith tool <NAME> --help)\n")?;
+        let width = list.iter().map(|c| c.name.len()).max().unwrap_or(0);
+        for c in list {
+            out::line(format!(
+                "{:<width$} {:<10} {}",
+                c.name,
+                format!("{:?}", c.category).to_lowercase(),
+                c.label
+            ))?;
         }
         return Ok(());
     };
@@ -374,11 +385,7 @@ fn tool(global: &Global, name: Option<String>, raw: Vec<String>) -> Result<(), C
     };
     let global = global.merged(&invocation.globals);
     if let Some(info) = invocation.info.clone() {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&info).unwrap_or_default()
-        );
-        return Ok(());
+        return out::line(serde_json::to_string_pretty(&info).unwrap_or_default());
     }
     let run = || -> Result<(), CliError> {
         let mut session = Session::open(&global, true)?;
@@ -387,11 +394,14 @@ fn tool(global: &Global, name: Option<String>, raw: Vec<String>) -> Result<(), C
             .engine
             .execute_erased(&invocation.name, params.clone())
             .map_err(CliError::from_command)?;
-        let saved = if global.dry_run {
-            None
+        let (output, saved) = if global.dry_run {
+            (
+                json!({ "dry_run": true, "valid": true, "output": output }),
+                None,
+            )
         } else {
             session.journal(&invocation.name, &params, None, &global);
-            session.save(&global)?
+            (output, session.save(&global)?)
         };
         emit(
             &global,
@@ -400,14 +410,14 @@ fn tool(global: &Global, name: Option<String>, raw: Vec<String>) -> Result<(), C
             Some(&session),
             saved,
             started,
-        );
-        Ok(())
+            None,
+        )
     };
     // Options after the tool name may switch on JSON output: report errors
     // in that mode here.
     run().map_err(|mut e| {
-        if global.json && !e.reported {
-            println!("{}", e.to_json());
+        if (global.json || global.jsonl) && !e.reported {
+            let _ = out::line(e.to_json());
             e.reported = true;
         }
         e
@@ -428,7 +438,7 @@ fn query_verb(
     let engine = &session.engine;
     let expr = Query::new(query)
         .parse()
-        .map_err(|e| CliError::usage(format!("query: {e}")))?;
+        .map_err(|e| CliError::invalid("query", e.to_string()))?;
     let env = planyrith_core::document::QueryEnv {
         selection: engine.selection(),
         last: engine.last_created(),
@@ -436,17 +446,17 @@ fn query_verb(
     };
     let selection = expr
         .eval(engine.document(), &env)
-        .map_err(|e| CliError::usage(format!("query: {e}")))?;
+        .map_err(|e| CliError::invalid("query", e.to_string()))?;
     if count {
-        emit(
+        return emit(
             global,
             "query",
             json!(selection.len()),
             Some(&session),
             None,
             started,
+            None,
         );
-        return Ok(());
     }
     let mut fields: Vec<String> = if fields.is_empty() {
         vec!["pid".into(), "kind".into(), "path".into()]
@@ -464,7 +474,7 @@ fn query_verb(
     let mut rows = Vec::new();
     let (mut total_length, mut total_area, mut total_volume) = (0.0, 0.0, 0.0);
     for path in selection.iter() {
-        let row = entity_row(doc, path, &fields)?;
+        let row = entity_row(doc, &env, path, &fields)?;
         total_length += row.get("length").and_then(Value::as_f64).unwrap_or(0.0);
         total_area += row.get("area").and_then(Value::as_f64).unwrap_or(0.0);
         total_volume += row.get("volume").and_then(Value::as_f64).unwrap_or(0.0);
@@ -491,24 +501,29 @@ fn query_verb(
             .collect();
         Value::String(lines.join("\n"))
     };
-    emit(global, "query", output, Some(&session), None, started);
-    Ok(())
+    emit(global, "query", output, Some(&session), None, started, None)
 }
 
-/// The requested fields of one entity occurrence.
+/// The requested fields of one entity occurrence. Lengths, areas, volumes
+/// and bounding boxes are measured in the edit context's frame, exactly as
+/// the query predicates measure them (docs/08 Decisions).
 fn entity_row(
     doc: &Document,
+    env: &QueryEnv<'_>,
     path: &EntityPath,
     fields: &[String],
 ) -> Result<Map<String, Value>, CliError> {
     let resolved = doc
         .resolve(path)
-        .map_err(|e| CliError::usage(format!("{path}: {e}")))?;
-    let entities = doc
-        .container(resolved.container)
-        .ok_or_else(|| CliError::usage("container vanished"))?;
+        .map_err(|e| CliError::invalid("query", format!("{path}: {e}")))?;
+    let entities = doc.container(resolved.container).ok_or_else(|| {
+        CliError::from_command(CommandError::Internal("container vanished".into()))
+    })?;
     let id = resolved.entity;
     let mesh = entities.mesh();
+    let measures = measure_occurrence(doc, env, path);
+    let to_context = measures.map_or(resolved.world, |m| m.to_context);
+    let number = |x: Option<f64>| x.map_or(Value::Null, |v| json!(v));
     let mut row = Map::new();
     for field in fields {
         let value = match field.as_str() {
@@ -541,39 +556,14 @@ fn entity_row(
                     .unwrap_or(Value::Null),
                 _ => Value::Null,
             },
-            "length" => match id {
-                EntityId::Edge(e) => mesh
-                    .edge_segment(e)
-                    .map(|s| json!(s.transformed(&resolved.world).length()))
-                    .unwrap_or(Value::Null),
-                _ => Value::Null,
-            },
-            "area" => match id {
-                EntityId::Face(f) => mesh.face_area(f).map(|a| json!(a)).unwrap_or(Value::Null),
-                _ => Value::Null,
-            },
-            "volume" | "is_solid" => {
-                let definition = entities.definition_of(id).and_then(|d| doc.definition(d));
-                let local = entities.transform_of(id);
-                match (definition, local) {
-                    (Some(def), Some(t)) => {
-                        let solid = def.entities.mesh().is_solid();
-                        if field == "is_solid" {
-                            json!(solid)
-                        } else {
-                            def.entities
-                                .mesh()
-                                .volume()
-                                .map(|v| json!((v * t.matrix3.determinant()).abs()))
-                                .unwrap_or(Value::Null)
-                        }
-                    }
-                    _ if field == "is_solid" && resolved.container == ContainerRef::Model => {
-                        Value::Null
-                    }
-                    _ => Value::Null,
-                }
-            }
+            "length" => number(measures.and_then(|m| m.length)),
+            "area" => number(measures.and_then(|m| m.area)),
+            "volume" => number(measures.and_then(|m| m.volume)),
+            "is_solid" => entities
+                .definition_of(id)
+                .and_then(|d| doc.definition(d))
+                .map(|def| json!(def.entities.mesh().is_solid()))
+                .unwrap_or(Value::Null),
             "name" => match entities.view(id) {
                 Some(EntityView::Group(g)) => json!(g.name),
                 Some(EntityView::Instance(i)) => json!(i.name),
@@ -594,12 +584,9 @@ fn entity_row(
                 let bb = match id {
                     EntityId::Edge(e) => mesh
                         .edge_segment(e)
-                        .map(|s| s.transformed(&resolved.world).aabb())
+                        .map(|s| s.transformed(&to_context).aabb())
                         .ok(),
-                    EntityId::Face(f) => mesh
-                        .face_aabb(f)
-                        .map(|b| b.transformed(&resolved.world))
-                        .ok(),
+                    EntityId::Face(f) => mesh.face_aabb(f).map(|b| b.transformed(&to_context)).ok(),
                     _ => entities
                         .definition_of(id)
                         .and_then(|d| doc.definition(d))
@@ -607,7 +594,7 @@ fn entity_row(
                         .map(|(def, t)| {
                             def.entities
                                 .local_aabb(&doc.definitions, false)
-                                .transformed(&(resolved.world * t))
+                                .transformed(&(to_context * t))
                         }),
                 };
                 bb.filter(|b| !b.is_empty())
@@ -626,7 +613,10 @@ fn entity_row(
                         .map(|v| serde_json::to_value(v).unwrap_or(Value::Null))
                         .unwrap_or(Value::Null)
                 } else {
-                    return Err(CliError::usage(format!("unknown field `{other}`")));
+                    return Err(CliError::invalid(
+                        "fields",
+                        format!("unknown field `{other}`"),
+                    ));
                 }
             }
         };
@@ -671,8 +661,7 @@ fn export(
     }
     .map_err(|e| CliError::usage(e.to_string()))?;
     if output.as_os_str() == "-" {
-        println!("{text}");
-        return Ok(());
+        return out::line(text);
     }
     NativeFs::new()
         .write(&key(output), text.as_bytes())
@@ -684,8 +673,8 @@ fn export(
         Some(&session),
         None,
         started,
-    );
-    Ok(())
+        None,
+    )
 }
 
 // ----- validate / repair -----------------------------------------------------------------
@@ -694,7 +683,13 @@ fn validate_verb(global: &Global) -> Result<(), CliError> {
     let started = Instant::now();
     let session = Session::open(global, false)?;
     let report = validate(session.engine.document());
-    let errors = report.has_errors();
+    let problems = report.has_errors().then(|| CliError {
+        exit: 3,
+        code: None,
+        message: format!("{} problem(s) found", report.problems.len()),
+        param: None,
+        reported: global.json || global.jsonl,
+    });
     emit(
         global,
         "validate",
@@ -702,17 +697,9 @@ fn validate_verb(global: &Global) -> Result<(), CliError> {
         Some(&session),
         None,
         started,
-    );
-    if errors {
-        return Err(CliError {
-            exit: 3,
-            code: None,
-            message: format!("{} problem(s) found", report.problems.len()),
-            param: None,
-            reported: false,
-        });
-    }
-    Ok(())
+        problems.as_ref(),
+    )?;
+    problems.map_or(Ok(()), Err)
 }
 
 fn repair_verb(global: &Global, fix: &str) -> Result<(), CliError> {
@@ -726,7 +713,7 @@ fn repair_verb(global: &Global, fix: &str) -> Result<(), CliError> {
                 "merge-vertices" => f.merge_vertices = true,
                 "degenerate-faces" => f.degenerate_faces = true,
                 "dangling-refs" => f.dangling_refs = true,
-                other => return Err(CliError::usage(format!("unknown fix `{other}`"))),
+                other => return Err(CliError::invalid("fix", format!("unknown fix `{other}`"))),
             }
         }
         f
@@ -737,7 +724,13 @@ fn repair_verb(global: &Global, fix: &str) -> Result<(), CliError> {
     let mut session = session;
     session.engine.replace_document(doc);
     let saved = session.save(global)?;
-    let remaining = report.remaining.has_errors();
+    let remaining = report.remaining.has_errors().then(|| CliError {
+        exit: 3,
+        code: None,
+        message: "problems remain after repair".into(),
+        param: None,
+        reported: global.json || global.jsonl,
+    });
     emit(
         global,
         "repair",
@@ -745,17 +738,9 @@ fn repair_verb(global: &Global, fix: &str) -> Result<(), CliError> {
         Some(&session),
         saved,
         started,
-    );
-    if remaining {
-        return Err(CliError {
-            exit: 3,
-            code: None,
-            message: "problems remain after repair".into(),
-            param: None,
-            reported: false,
-        });
-    }
-    Ok(())
+        remaining.as_ref(),
+    )?;
+    remaining.map_or(Ok(()), Err)
 }
 
 // ----- batch -------------------------------------------------------------------------------
@@ -763,13 +748,15 @@ fn repair_verb(global: &Global, fix: &str) -> Result<(), CliError> {
 fn batch(global: &Global, script: Option<&Path>) -> Result<(), CliError> {
     let started = Instant::now();
     let text = match script {
-        Some(p) if p.as_os_str() != "-" => std::fs::read_to_string(p)
-            .map_err(|e| CliError::usage(format!("{}: {e}", p.display())))?,
+        Some(p) if p.as_os_str() != "-" => read_input(p)?,
         _ => {
             let mut s = String::new();
-            std::io::stdin()
-                .read_to_string(&mut s)
-                .map_err(|e| CliError::usage(e.to_string()))?;
+            std::io::stdin().read_to_string(&mut s).map_err(|e| {
+                CliError::io(planyrith_core::io::IoError::storage(
+                    "standard input",
+                    e.to_string(),
+                ))
+            })?;
             s
         }
     };
@@ -778,33 +765,47 @@ fn batch(global: &Global, script: Option<&Path>) -> Result<(), CliError> {
     let token = session.engine.begin_group("Batch");
     let mut results = Vec::new();
     for (line_no, line) in text.lines().enumerate() {
+        let line_no = line_no + 1;
         let commands = shell::split_line(line)
-            .map_err(|e| CliError::usage(format!("line {}: {e}", line_no + 1)))?;
+            .map_err(|e| CliError::usage(format!("line {line_no}: {e}")))
+            .map_err(|e| stream_error(global, line_no, None, e))?;
         for words in commands {
             let (name, rest) = words
                 .split_first()
-                .ok_or_else(|| CliError::usage(format!("line {}: empty command", line_no + 1)))?;
-            let inv = parse_tool_args(&registry, name, rest, false).map_err(|mut e| {
-                e.message = format!("line {}: {}", line_no + 1, e.message);
-                e
-            })?;
-            let params = inv.params(&session, global)?;
-            let output = session
-                .engine
-                .execute_erased(name, params.clone())
-                .map_err(|e| {
-                    let mut err = CliError::from_command(e);
-                    err.message = format!("line {} ({name}): {}", line_no + 1, err.message);
-                    err
+                .ok_or_else(|| CliError::usage(format!("line {line_no}: empty command")))
+                .map_err(|e| stream_error(global, line_no, None, e))?;
+            let warned = session.warnings.borrow().len();
+            let run = |session: &mut Session| -> Result<Value, CliError> {
+                let inv = parse_tool_args(&registry, name, rest, false).map_err(|mut e| {
+                    e.message = format!("line {line_no}: {}", e.message);
+                    e
                 })?;
-            session.journal(name, &params, Some("Batch"), global);
+                let params = inv.params(session, global)?;
+                let output = session
+                    .engine
+                    .execute_erased(name, params.clone())
+                    .map_err(|e| {
+                        let mut err = CliError::from_command(e);
+                        err.message = format!("line {line_no} ({name}): {}", err.message);
+                        err
+                    })?;
+                if !global.dry_run {
+                    session.journal(name, &params, Some("Batch"), global);
+                }
+                Ok(output)
+            };
+            let output = run(&mut session)
+                .map_err(|e| stream_error(global, line_no, Some(name.as_str()), e))?;
             if global.jsonl {
-                println!(
-                    "{}",
-                    json!({ "ok": true, "line": line_no + 1, "command": name, "output": output })
-                );
+                out::line(json!({
+                    "ok": true,
+                    "line": line_no,
+                    "command": name,
+                    "output": output,
+                    "warnings": warnings_of(Some(&session), warned),
+                }))?;
             }
-            results.push(json!({ "line": line_no + 1, "command": name, "output": output }));
+            results.push(json!({ "line": line_no, "command": name, "output": output }));
         }
     }
     session
@@ -812,14 +813,43 @@ fn batch(global: &Global, script: Option<&Path>) -> Result<(), CliError> {
         .end_group(token)
         .map_err(CliError::from_command)?;
     let saved = session.save(global)?;
-    if global.jsonl {
-        return Ok(());
-    }
-    let output = if global.json {
-        Value::Array(results)
+    let output = if global.json || global.jsonl {
+        let mut summary = json!({ "applied": results.len() });
+        if global.json {
+            summary = Value::Array(results);
+        }
+        if global.dry_run {
+            summary = json!({ "dry_run": true, "valid": true, "output": summary });
+        }
+        summary
+    } else if global.dry_run {
+        Value::String(format!(
+            "{} command(s) would apply (dry run: nothing saved)",
+            results.len()
+        ))
     } else {
         Value::String(format!("{} command(s) applied", results.len()))
     };
-    emit(global, "batch", output, Some(&session), saved, started);
-    Ok(())
+    emit(
+        global,
+        "batch",
+        output,
+        Some(&session),
+        saved,
+        started,
+        None,
+    )
+}
+
+/// In `--jsonl` mode a failing batch line is reported as one more stream
+/// object, `{"ok": false, "line": N, "command": …, "error": {…}}`.
+fn stream_error(global: &Global, line: usize, command: Option<&str>, mut e: CliError) -> CliError {
+    if global.jsonl && !e.reported {
+        let mut object = e.to_json();
+        object["line"] = json!(line);
+        object["command"] = json!(command);
+        let _ = out::line(object);
+        e.reported = true;
+    }
+    e
 }

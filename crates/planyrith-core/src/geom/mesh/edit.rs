@@ -272,9 +272,13 @@ impl HalfEdgeMesh {
             let Some(sample) = planar::region_sample(self, &frame, region, tol)? else {
                 continue;
             };
+            // A merged region's sample may lie on the removed edges between
+            // the two faces: inside or on either old face counts. (Old
+            // boundaries other than the removed edges are still in the graph,
+            // so no region interior crosses them.)
             if old
                 .iter()
-                .any(|(o, h)| planar::strictly_inside(sample, o, h, tol))
+                .any(|(o, h)| planar::inside_or_on(sample, o, h, tol))
             {
                 chosen.push(i);
             }

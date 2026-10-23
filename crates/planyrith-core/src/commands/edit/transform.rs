@@ -182,7 +182,6 @@ fn copy_entities(
         .document()
         .container(container)
         .ok_or_else(|| CommandError::Internal("edit context vanished".into()))?;
-    let mesh = entities.mesh();
     let mut edges: Vec<EdgeId> = Vec::new();
     let mut faces: Vec<FaceId> = Vec::new();
     for id in ids {
@@ -192,7 +191,7 @@ fn copy_entities(
             _ => {}
         }
     }
-    let piece = mesh_piece(mesh, &faces, &edges)?;
+    let piece = mesh_piece(entities, &faces, &edges)?;
     let edge_rows: Vec<SideRows> = piece
         .edges
         .iter()

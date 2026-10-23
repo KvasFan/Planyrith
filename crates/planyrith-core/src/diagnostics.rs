@@ -93,6 +93,8 @@ pub enum ProblemKind {
     UnreferencedImage,
     /// A definition contains itself directly or indirectly.
     CyclicNesting,
+    /// Nesting deeper than the hard limit of docs/04 §14.
+    NestingTooDeep,
     /// Two tags share a name.
     DuplicateTagName,
     /// Scene refers to a deleted tag/style.
@@ -330,17 +332,27 @@ pub fn validate(doc: &Document) -> Report {
             message,
         });
     };
-    // Cyclic nesting anywhere (also in definitions not reachable from the model).
-    for c in doc.containers() {
-        if let Some(entities) = doc.container(c)
-            && let Err(err) = entities.nesting_depth(&doc.definitions)
-        {
+    // Cyclic or too deep nesting anywhere (also in definitions not reachable
+    // from the model).
+    if let Err(err) = doc.nesting_depth() {
+        let kind = match err {
+            crate::document::HierarchyError::TooDeep(_) => ProblemKind::NestingTooDeep,
+            _ => ProblemKind::CyclicNesting,
+        };
+        doc_problem(kind, Severity::Error, err.to_string());
+    }
+    let counts = doc.usage_counts();
+    for (d, def) in doc.definitions.iter() {
+        let actual = counts.get(&d).copied().unwrap_or(0);
+        if def.usage_count != actual {
             doc_problem(
-                ProblemKind::CyclicNesting,
-                Severity::Error,
-                format!("{c:?}: {err}"),
+                ProblemKind::UsageCount,
+                Severity::Warning,
+                format!(
+                    "definition `{}` records {} uses but has {actual}",
+                    def.name, def.usage_count
+                ),
             );
-            break;
         }
     }
     let mut names = BTreeSet::new();
@@ -475,6 +487,8 @@ pub fn repair(doc: &mut Document, fixes: &RepairFixes) -> RepairReport {
             doc.images.remove(r);
         }
     }
+    // The usage counts are a cache: always recomputed.
+    doc.refresh_usage_counts();
     let mut max_pid = 0;
     for c in doc.containers() {
         if let Some(entities) = doc.container(c) {

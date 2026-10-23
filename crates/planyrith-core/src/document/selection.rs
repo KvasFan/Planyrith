@@ -130,6 +130,35 @@ pub struct EntityPath {
 }
 
 impl EntityPath {
+    /// The same occurrence with every step and the target keyed by pid
+    /// when the entity has one, else by id, so equal occurrences compare
+    /// equal however they were named (selection sets, docs/04 §11). A path
+    /// that does not resolve is returned unchanged.
+    pub fn canonical(&self, doc: &Document) -> EntityPath {
+        let mut container = ContainerRef::Model;
+        let mut steps = Vec::with_capacity(self.instances.steps.len());
+        for &step in &self.instances.steps {
+            let Some(entities) = doc.container(container) else {
+                return self.clone();
+            };
+            let Some(id) = entities.key_to_id(step) else {
+                return self.clone();
+            };
+            let Some(definition) = entities.definition_of(id) else {
+                return self.clone();
+            };
+            steps.push(key_of(entities, id));
+            container = ContainerRef::Definition(definition);
+        }
+        let Some(entities) = doc.container(container) else {
+            return self.clone();
+        };
+        let Some(id) = entities.key_to_id(self.target) else {
+            return self.clone();
+        };
+        EntityPath::new(InstancePath { steps }, key_of(entities, id))
+    }
+
     /// An entity in the model root.
     pub fn in_model(target: EntityKey) -> Self {
         EntityPath {
@@ -391,6 +420,14 @@ impl Selection {
             self.items.first()
         } else {
             None
+        }
+    }
+
+    /// The same occurrences with every path in its canonical key form
+    /// ([`EntityPath::canonical`]), duplicates merged in first-seen order.
+    pub fn normalized(&self, doc: &Document) -> Selection {
+        Selection {
+            items: self.items.iter().map(|p| p.canonical(doc)).collect(),
         }
     }
 
@@ -1581,6 +1618,41 @@ enum Node {
     Not(Box<Node>),
     And(Vec<Node>),
     Or(Vec<Node>),
+}
+
+/// Length, area and volume of one occurrence as the `length`, `area` and
+/// `volume` predicates see them: in the frame of the edit context (docs/08
+/// §5 and its Decisions), `None` where a measure does not apply (volume:
+/// solid groups and instances only).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Measures {
+    /// Edge length.
+    pub length: Option<f64>,
+    /// Face area (holes excluded).
+    pub area: Option<f64>,
+    /// Enclosed volume of a solid group or instance.
+    pub volume: Option<f64>,
+    /// Transform from the entity's container to the context frame.
+    pub to_context: DAffine3,
+}
+
+/// [`Measures`] of the occurrence `path` (which must lie in or below the
+/// context of `env`); `None` when it does not.
+pub fn measure_occurrence(
+    doc: &Document,
+    env: &QueryEnv<'_>,
+    path: &EntityPath,
+) -> Option<Measures> {
+    let (context, _) = doc.resolve_container(&env.context.path).ok()?;
+    let mut evaluator = Evaluator::new(doc, *env, context);
+    let cand = evaluator.cand_from_path(path)?;
+    let entities = doc.container(cand.container)?;
+    Some(Measures {
+        length: evaluator.measure(entities, &cand, Measure::Length),
+        area: evaluator.measure(entities, &cand, Measure::Area),
+        volume: evaluator.measure(entities, &cand, Measure::Volume),
+        to_context: cand.local.unwrap_or(DAffine3::IDENTITY),
+    })
 }
 
 struct Evaluator<'a> {

@@ -327,3 +327,25 @@ On failure: `{"ok": false, "error": {"code": "E1002", "message": "...", "param":
   `export` writes `json` only in 0.1 (`E1401`-class error, exit code 4, for other formats).
 - 2026-10-22 — Errors from evaluating a query name the parameter that holds it (`targets`,
   `query`, `face`, `edges`), not always `targets`.
+- 2026-10-23 — **Dry runs run.** `tool --dry-run` and `batch --dry-run` execute the commands on the
+  in-memory session and write and journal nothing, so a dry run reports the errors the real run
+  would (a batch line sees what earlier lines created); the output is
+  `{"dry_run": true, "valid": true, "output": …}`. This replaces the validate-only dry run of the
+  2026-10-20 CLI draft entry for the CLI (`execute_erased` with `"dry_run": true` still only
+  validates, for RPC callers that want that). `new` follows the same `--no-save`/`--dry-run`
+  rules as the other session verbs and reports its document in the envelope.
+- 2026-10-23 — **One JSON document, and streams.** `validate`/`repair` with problems left print a
+  single envelope with `"ok": false`, the report under `output` and the error under `error`
+  (exit code 3). In `--jsonl` mode a failing batch line is reported as a stream object
+  `{"ok": false, "line": N, "command": …, "error": {…}}`, each line object carries the warnings
+  its command raised, and the final envelope follows the last line. With `-o -` standard output
+  carries the document, so the report goes to standard error. A closed standard output (the
+  reader went away) ends the program quietly with the command's own exit code; it is not an
+  internal error.
+- 2026-10-23 — **Error codes of inputs.** A missing or unreadable batch script or `--params-file`
+  is `E1403` (exit 4), like a missing document. A malformed option value is `E1001` and a value
+  outside the schema's bounds (`minimum`/`maximum`, integer formats) `E1002`, both naming the
+  parameter (exit 2); a malformed `query` is `E1001` with `param: "query"`.
+- 2026-10-23 — `query --fields length,area,volume,bbox` and `--stats` measure in the edit
+  context's frame, exactly as the `length`/`area`/`volume` predicates do
+  (`document::measure_occurrence`); `volume` is reported for solid groups and instances only.

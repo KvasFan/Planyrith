@@ -2,7 +2,7 @@
 //! engine, save once.
 
 use std::cell::RefCell;
-use std::io::{Read, Write};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -46,9 +46,12 @@ impl Session {
             None => return Err(CliError::usage("this verb needs a document: -f <path>")),
             Some(p) if p.as_os_str() == "-" => {
                 let mut bytes = Vec::new();
-                std::io::stdin()
-                    .read_to_end(&mut bytes)
-                    .map_err(|e| CliError::usage(format!("reading standard input: {e}")))?;
+                std::io::stdin().read_to_end(&mut bytes).map_err(|e| {
+                    CliError::io(planyrith_core::io::IoError::storage(
+                        "standard input",
+                        e.to_string(),
+                    ))
+                })?;
                 let size = bytes.len() as u64;
                 let mut loaded = read_document(&bytes, &NoProgress).map_err(CliError::io)?;
                 let doc = std::mem::take(&mut loaded.document);
@@ -70,6 +73,25 @@ impl Session {
                 (doc, Some(loaded), Some(p.clone()), Some(size))
             }
         };
+        let mut session = Session::build(registry, doc, loaded, path, file_size);
+        session.apply_view_options(global)?;
+        Ok(session)
+    }
+
+    /// A session on a document that exists only in memory so far (`new`);
+    /// `save` writes it to `path` (or `-o`).
+    pub fn create(doc: Document, path: Option<PathBuf>) -> Session {
+        let registry = Arc::new(CommandRegistry::with_builtins());
+        Session::build(registry, doc, None, path, None)
+    }
+
+    fn build(
+        registry: Arc<CommandRegistry>,
+        doc: Document,
+        loaded: Option<LoadedDocument>,
+        path: Option<PathBuf>,
+        file_size: Option<u64>,
+    ) -> Session {
         let history = loaded
             .as_ref()
             .map(|l| l.history.clone())
@@ -85,16 +107,14 @@ impl Session {
                 sink.borrow_mut().push(w.clone());
             }
         }));
-        let mut session = Session {
+        Session {
             path,
             engine,
             loaded,
             history,
             warnings,
             file_size,
-        };
-        session.apply_view_options(global)?;
-        Ok(session)
+        }
     }
 
     /// `--context` and `--select`.
@@ -168,9 +188,7 @@ impl Session {
         let bytes = write_document(self.engine.document(), &self.history, &opts, &NoProgress)
             .map_err(CliError::io)?;
         if target.as_os_str() == "-" {
-            std::io::stdout()
-                .write_all(&bytes)
-                .map_err(|e| CliError::usage(format!("writing standard output: {e}")))?;
+            crate::out::bytes(&bytes)?;
             return Ok(Some("-".into()));
         }
         NativeFs::new()

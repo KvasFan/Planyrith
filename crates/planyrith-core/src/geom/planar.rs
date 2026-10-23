@@ -547,15 +547,29 @@ fn rebuild_plane(
             let (outer, holes) = orient(mesh, &regions[i], flip)?;
             oriented.push((regions[i].area, outer, holes));
         }
+        // Pieces in geometric order, so ids and pids do not depend on the
+        // slot layout (which a save/reload renumbers, docs/03 Decisions).
+        let mut keyed = Vec::with_capacity(oriented.len());
+        for piece in oriented {
+            keyed.push((position_key(mesh, &piece.1)?, piece));
+        }
+        keyed.sort_by(|a, b| compare_keys(&a.0, &b.0));
+        let mut oriented: Vec<_> = keyed.into_iter().map(|(_, piece)| piece).collect();
         // The piece that keeps the whole old outer boundary keeps the id (hole
-        // situation); otherwise the largest piece does (ties: first region).
+        // situation); otherwise the largest piece does (ties: the first in
+        // geometric order).
         let keeper = oriented
             .iter()
             .position(|(_, outer, _)| old_outer.iter().all(|h| outer.contains(h)))
             .unwrap_or_else(|| {
+                // Areas within what the length tolerance can change (a square's
+                // area shifted by `length` on each side) count as equal.
+                let same = |a: f64, b: f64| {
+                    (a - b).abs() <= tol.length_sq + 2.0 * tol.length * a.abs().max(b.abs()).sqrt()
+                };
                 let mut best = 0;
                 for (k, piece) in oriented.iter().enumerate() {
-                    if piece.0 > oriented[best].0 {
+                    if piece.0 > oriented[best].0 && !same(piece.0, oriented[best].0) {
                         best = k;
                     }
                 }
@@ -588,10 +602,16 @@ fn rebuild_plane(
         }
     }
 
-    // Regions no face covers: new faces when bounded by a seed edge.
+    // Regions no face covers: new faces when bounded by a seed edge, created
+    // in geometric order.
     let want = default_face_normal(&input.plane, tol);
     let preferred_flip = want.dot(frame.normal) < 0.0;
+    let mut keyed = Vec::with_capacity(unowned.len());
     for i in unowned {
+        keyed.push((position_key(mesh, &regions[i].outer)?, i));
+    }
+    keyed.sort_by(|a, b| compare_keys(&a.0, &b.0));
+    for (_, i) in keyed {
         let region = &regions[i];
         let mut seeded = false;
         for &h in &region.outer {
@@ -608,6 +628,30 @@ fn rebuild_plane(
         }
     }
     Ok(result)
+}
+
+/// A key of a cycle that depends only on positions: the mean of its
+/// vertices, then its lexicographically lowest vertex. Distinct regions of one
+/// arrangement never share it.
+fn position_key(mesh: &HalfEdgeMesh, cycle: &[HalfEdgeId]) -> Result<[f64; 6], GeometryError> {
+    let points = mesh.cycle_positions(cycle)?;
+    let n = points.len().max(1) as f64;
+    let mean = points.iter().fold(glam::DVec3::ZERO, |a, p| a + *p) / n;
+    let lowest = points
+        .iter()
+        .copied()
+        .min_by(|a, b| compare_keys(&a.to_array(), &b.to_array()))
+        .unwrap_or_default();
+    Ok([mean.x, mean.y, mean.z, lowest.x, lowest.y, lowest.z])
+}
+
+/// Lexicographic total order of position keys.
+fn compare_keys(a: &[f64], b: &[f64]) -> std::cmp::Ordering {
+    a.iter()
+        .zip(b)
+        .map(|(x, y)| x.total_cmp(y))
+        .find(|o| o.is_ne())
+        .unwrap_or(std::cmp::Ordering::Equal)
 }
 
 /// Creates the face of an unowned region (docs/03 §4.3 step 3). The front
@@ -1073,15 +1117,15 @@ pub(crate) fn face_polygon(
     Ok((outer, loops))
 }
 
-/// `p` is strictly inside the polygon `outer` minus `holes`.
-pub(crate) fn strictly_inside(
+/// `p` lies inside the polygon (holes excluded) or on its boundary.
+pub(crate) fn inside_or_on(
     p: DVec2,
     outer: &[DVec2],
     holes: &[Vec<DVec2>],
     tol: &Tolerances,
 ) -> bool {
     let hole_refs: Vec<&[DVec2]> = holes.iter().map(Vec::as_slice).collect();
-    polygon::point_in_polygon(p, outer, &hole_refs, tol) == PointInPolygon::Inside
+    polygon::point_in_polygon(p, outer, &hole_refs, tol).is_inside_or_on()
 }
 
 /// A point strictly inside a region: the centroid of its largest ear-clipping

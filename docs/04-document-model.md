@@ -288,3 +288,16 @@ tags, non-invertible transforms, `next_pid` monotonicity. `repair` fixes what it
 - 2026-10-22 — Forking a definition (copy-on-edit, docs/05 Decisions) clones it with a fresh UUID
   and fresh pids for all its entities (pids are document-unique, §2); ids, order and side rows are
   kept. `Document::locked_step` finds the first locked group or instance on a context path.
+- 2026-10-23 — `ComponentDefinition::usage_count` is maintained: recomputed after every command,
+  undo and redo (it is derived data, not an undoable change) and by `repair`; `validate` warns when
+  a stored count differs (`usage-count`). A group's private definition counts its group.
+- 2026-10-23 — The nesting limit of §14 is enforced: a command that would nest deeper than 256
+  levels (or create a cycle, §13) fails with `E1201` and changes nothing; `validate` reports a
+  too deep chain as `nesting-too-deep`, distinct from `cyclic-nesting`.
+- 2026-10-23 — Selections hold each occurrence once, in a canonical key form (pid when the entity
+  has one, else id, for every step and the target): `#Model/FaceId…` and `@pid` naming the same
+  face are one item for `add`, `remove` and `toggle` (§11).
+- 2026-10-23 — Camera rays (§8): a view along the up vector (top/bottom view with up = +Z) takes
+  its screen axes from the world axis least aligned with the view (a top view has +X right and +Y
+  up, like a plan); two-point perspective uses a vertical image plane with the vertical shear that
+  keeps the target centered, so vertical lines stay vertical.

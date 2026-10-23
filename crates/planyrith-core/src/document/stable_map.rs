@@ -140,29 +140,45 @@ impl<'de, K: Key + Deserialize<'de>, V: Deserialize<'de>> Deserialize<'de> for S
     }
 }
 
+/// Highest slot index a stored key may use (live and reserved keys of one
+/// collection; docs/09 Decisions). Bounds the memory a hostile file can make
+/// the loader allocate.
+pub const MAX_SLOT_INDEX: usize = 1 << 22;
+
 impl<K: Key, V> StableMap<K, V> {
     /// Rebuilds a map whose live keys are exactly `pairs`' keys. The key
     /// allocator is reconstructed through `slotmap`'s own serialized form
-    /// (one slot per index, occupied slots carrying their odd generation).
+    /// (one `(value, version)` slot per index, occupied slots carrying their
+    /// odd generation), encoded compactly; indices above
+    /// [`MAX_SLOT_INDEX`] are refused before anything is allocated.
     fn from_pairs(pairs: Vec<(K, V)>) -> Result<Self, String> {
-        let mut slots: Vec<serde_json::Value> =
-            vec![serde_json::json!({ "value": null, "version": 0 })];
+        let mut highest = 0;
         for (k, _) in &pairs {
             let ffi = k.data().as_ffi();
             let (idx, version) = ((ffi & 0xffff_ffff) as usize, (ffi >> 32) as u32);
             if idx == 0 || version % 2 == 0 {
                 return Err(format!("invalid key (slot {idx}, version {version})"));
             }
-            if slots.len() <= idx {
-                slots.resize(idx + 1, serde_json::json!({ "value": null, "version": 0 }));
+            if idx > MAX_SLOT_INDEX {
+                return Err(format!(
+                    "key slot {idx} exceeds the limit of {MAX_SLOT_INDEX} slots"
+                ));
             }
-            if !slots[idx]["value"].is_null() {
+            highest = highest.max(idx);
+        }
+        // (value, version) per slot; slot 0 is slotmap's sentinel.
+        let mut slots: Vec<(Option<u8>, u32)> = vec![(None, 0); highest + 1];
+        for (k, _) in &pairs {
+            let ffi = k.data().as_ffi();
+            let (idx, version) = ((ffi & 0xffff_ffff) as usize, (ffi >> 32) as u32);
+            if slots[idx].0.is_some() {
                 return Err(format!("key for slot {idx} given twice"));
             }
-            slots[idx] = serde_json::json!({ "value": 0, "version": version });
+            slots[idx] = (Some(0), version);
         }
-        let keys: SlotMap<K, u8> =
-            serde_json::from_value(serde_json::Value::Array(slots)).map_err(|e| e.to_string())?;
+        let encoded = rmp_serde::to_vec(&slots).map_err(|e| e.to_string())?;
+        drop(slots);
+        let keys: SlotMap<K, u8> = rmp_serde::from_slice(&encoded).map_err(|e| e.to_string())?;
         let mut values = SecondaryMap::new();
         for (k, v) in pairs {
             values.insert(k, v);

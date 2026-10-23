@@ -586,7 +586,8 @@ impl Engine {
 
     /// Replaces the selection and emits `SelectionChanged` (not undoable).
     pub fn set_selection(&mut self, selection: Selection) {
-        self.selection = selection;
+        // One key form per occurrence (`#…/FaceId…` and `@pid` are the same).
+        self.selection = selection.normalized(&self.doc);
         let snapshot = self.selection.clone();
         self.events.emit(&Event::SelectionChanged(snapshot));
     }
@@ -682,7 +683,17 @@ impl Engine {
             self.last_created.clone(),
             self.context.clone(),
         );
-        let output = match apply(&mut tx) {
+        // docs/04 §13–§14: a command may not create a cycle or nest deeper
+        // than the hard limit (checked when occurrences or definitions changed).
+        let applied = apply(&mut tx).and_then(|output| {
+            if tx.deltas().iter().any(Delta::may_change_nesting) {
+                tx.document()
+                    .nesting_depth()
+                    .map_err(|e| CommandError::NotApplicable(e.to_string()))?;
+            }
+            Ok(output)
+        });
+        let output = match applied {
             Ok(output) => output,
             Err(err) => {
                 tx.rollback(&mut self.aliases).map_err(|e| {
@@ -700,6 +711,7 @@ impl Engine {
             self.last_created = committed.created.clone();
         }
         if !committed.deltas.is_empty() {
+            self.doc.refresh_usage_counts();
             self.generation += 1;
             self.events.emit(&Event::DocumentChanged {
                 label: committed.label.clone(),
@@ -816,6 +828,7 @@ impl Engine {
     }
 
     fn after_history_move(&mut self, label: String, applied: Vec<Delta>) {
+        self.doc.refresh_usage_counts();
         self.generation += 1;
         self.last_created.clear();
         self.events.emit(&Event::DocumentChanged {

@@ -433,3 +433,11 @@ within `tolerances.length`.
   under similarity transforms (rotation, uniform scale, translation, mirror; a mirrored arc flips
   its normal so its sweep keeps its sign); under non-uniform scaling or shear the curve is dropped
   and its edges become plain (§3.3).
+- 2026-10-23 — **No dependence on slot order.** Ties are broken by geometry, never by
+  `EdgeId`/`HalfEdgeId`/`FaceId` order, which a save/reload renumbers: when a face splits into
+  pieces of equal area (within what the length tolerance can change), the piece with the smaller
+  position key (mean of its outer vertices, then its lowest vertex) keeps the id, and new pieces
+  and new faces are created in position-key order. Copies, definitions and explode take edges
+  and faces in container (pid) order. Merging two faces keeps every region whose sample point
+  lies inside or on either old face (the sample of the merged region may lie on the removed
+  edges).

@@ -376,6 +376,18 @@ pub enum Delta {
 }
 
 impl Delta {
+    /// `true` for changes that can alter the definition graph (occurrences
+    /// inserted or re-pointed, definitions inserted).
+    pub fn may_change_nesting(&self) -> bool {
+        match self {
+            Delta::EntityInserted { record, .. } => {
+                matches!(**record, EntityRecord::Group(_) | EntityRecord::Instance(_))
+            }
+            Delta::EntityChanged { .. } | Delta::DefinitionInserted { .. } => true,
+            _ => false,
+        }
+    }
+
     /// The inverse delta (swaps before/after, inserted/removed, bound/unbound).
     pub fn inverse(&self) -> Delta {
         match self.clone() {

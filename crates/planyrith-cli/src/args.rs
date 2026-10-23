@@ -45,6 +45,9 @@ pub struct ParamSpec {
     pub repeated: bool,
     /// Required by the schema (and without default).
     pub required: bool,
+    /// Inclusive numeric bounds from the schema (`minimum`/`maximum`, or
+    /// implied by an integer `format` such as `uint32`).
+    pub bounds: (Option<f64>, Option<f64>),
     /// Help text.
     pub help: String,
 }
@@ -86,6 +89,7 @@ pub fn specs(schema: &Value) -> Vec<ParamSpec> {
             kind,
             repeated,
             required: required.contains(&field.as_str()) && sub.get("default").is_none(),
+            bounds: bounds_of(sub, &defs, 0),
             help: help.trim().to_string(),
         });
     }
@@ -114,6 +118,43 @@ fn type_hint(kind: &ParamKind) -> String {
         ParamKind::Enum(values) => values.join("|"),
         ParamKind::Json => "JSON".into(),
     }
+}
+
+/// Numeric bounds of a property schema (of its items for a list).
+fn bounds_of(sub: &Value, defs: &Value, depth: u8) -> (Option<f64>, Option<f64>) {
+    if depth > 8 {
+        return (None, None);
+    }
+    if let Some(def) = referenced(sub, defs) {
+        return bounds_of(def, defs, depth + 1);
+    }
+    for key in ["anyOf", "oneOf"] {
+        if let Some(variants) = sub.get(key).and_then(Value::as_array) {
+            let non_null: Vec<&Value> = variants
+                .iter()
+                .filter(|v| v.get("type").and_then(Value::as_str) != Some("null"))
+                .collect();
+            if non_null.len() == 1 {
+                return bounds_of(non_null[0], defs, depth + 1);
+            }
+        }
+    }
+    if let Some(items) = sub.get("items") {
+        return bounds_of(items, defs, depth + 1);
+    }
+    let (implied_min, implied_max) = match sub.get("format").and_then(Value::as_str) {
+        Some("uint8") => (Some(0.0), Some(f64::from(u8::MAX))),
+        Some("uint16") => (Some(0.0), Some(f64::from(u16::MAX))),
+        Some("uint32") => (Some(0.0), Some(f64::from(u32::MAX))),
+        Some("uint" | "uint64") => (Some(0.0), None),
+        Some("int8") => (Some(f64::from(i8::MIN)), Some(f64::from(i8::MAX))),
+        Some("int16") => (Some(f64::from(i16::MIN)), Some(f64::from(i16::MAX))),
+        Some("int32") => (Some(f64::from(i32::MIN)), Some(f64::from(i32::MAX))),
+        _ => (None, None),
+    };
+    let min = sub.get("minimum").and_then(Value::as_f64).or(implied_min);
+    let max = sub.get("maximum").and_then(Value::as_f64).or(implied_max);
+    (min, max)
 }
 
 /// Classifies a property schema; the flag says whether it is a list.
@@ -252,23 +293,51 @@ fn value_name(kind: &ParamKind) -> String {
     .to_string()
 }
 
-/// Converts one option value.
+/// Converts one option value. A malformed value is `E1001` and a value
+/// outside the schema's bounds `E1002`, both naming the parameter (docs/08
+/// §7, §9).
 fn convert(spec: &ParamSpec, text: &str, unit: LengthUnit) -> Result<Value, CliError> {
-    let bad = |why: String| CliError::usage(format!("--{}: {why}", spec.flag));
+    let bad = |why: String| CliError::invalid(&spec.field, why);
+    let in_bounds = |x: f64| -> Result<f64, CliError> {
+        let (min, max) = spec.bounds;
+        if min.is_some_and(|m| x < m) || max.is_some_and(|m| x > m) {
+            let range = match (min, max) {
+                (Some(a), Some(b)) => format!("between {a} and {b}"),
+                (Some(a), None) => format!("at least {a}"),
+                (None, Some(b)) => format!("at most {b}"),
+                (None, None) => String::new(),
+            };
+            return Err(CliError::from_command(
+                planyrith_core::commands::CommandError::OutOfRange {
+                    name: spec.field.clone(),
+                    reason: format!("`{text}` must be {range}"),
+                },
+            ));
+        }
+        Ok(x)
+    };
     Ok(match &spec.kind {
         ParamKind::Cli(t) => {
             parse_cli_value(*t, &spec.field, text, unit).map_err(CliError::from_command)?
         }
-        ParamKind::Number => Value::from(
-            text.trim()
+        ParamKind::Number => {
+            let x = text
+                .trim()
                 .parse::<f64>()
-                .map_err(|_| bad(format!("`{text}` is not a number")))?,
-        ),
-        ParamKind::Integer => Value::from(
-            text.trim()
+                .ok()
+                .filter(|x| x.is_finite())
+                .ok_or_else(|| bad(format!("`{text}` is not a number")))?;
+            Value::from(in_bounds(x)?)
+        }
+        ParamKind::Integer => {
+            let n = text
+                .trim()
                 .parse::<i64>()
-                .map_err(|_| bad(format!("`{text}` is not an integer")))?,
-        ),
+                .map_err(|_| bad(format!("`{text}` is not an integer")))?;
+            // `as f64` is exact for every integer the bounds can name.
+            in_bounds(n as f64)?;
+            Value::from(n)
+        }
         ParamKind::Bool => Value::Bool(matches!(text, "true" | "1" | "yes")),
         ParamKind::Text | ParamKind::Enum(_) => Value::String(text.to_string()),
         ParamKind::Json => {

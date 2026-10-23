@@ -12,6 +12,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
 mod args;
+mod out;
 mod session;
 mod shell;
 mod verbs;
@@ -214,6 +215,11 @@ impl CliError {
         CliError::from_command(CommandError::Io(err))
     }
 
+    /// Exit code 2, `E1001`: an invalid value for parameter `param`.
+    pub fn invalid(param: &str, reason: impl Into<String>) -> Self {
+        CliError::from_command(CommandError::invalid_param(param, reason))
+    }
+
     /// JSON form (docs/08 §7).
     pub fn to_json(&self) -> Value {
         json!({
@@ -231,17 +237,18 @@ fn main() -> ExitCode {
         Ok(Err((err, json_mode))) => {
             if err.reported {
             } else if json_mode {
-                println!("{}", err.to_json());
+                // Nothing more can be done when standard output is gone.
+                let _ = out::line(err.to_json());
             } else {
                 match &err.code {
-                    Some(code) => eprintln!("error[{code}]: {}", err.message),
-                    None => eprintln!("error: {}", err.message),
+                    Some(code) => out::diagnostic(format!("error[{code}]: {}", err.message)),
+                    None => out::diagnostic(format!("error: {}", err.message)),
                 }
             }
             ExitCode::from(err.exit)
         }
         Err(_) => {
-            eprintln!("internal error: a bug was detected (panic); please report it");
+            out::diagnostic("internal error: a bug was detected (panic); please report it");
             ExitCode::from(70)
         }
     }
@@ -269,7 +276,7 @@ fn run(raw: Vec<String>) -> Result<(), (CliError, bool)> {
         }
     };
     init_logging(&cli.global);
-    let json_mode = cli.global.json;
+    let json_mode = cli.global.json || cli.global.jsonl;
     verbs::dispatch(cli.global, cli.verb).map_err(|e| (e, json_mode))
 }
 

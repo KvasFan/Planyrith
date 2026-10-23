@@ -15,8 +15,8 @@ use glam::DAffine3;
 
 use crate::document::{ContainerRef, Document, Entities, EntityKey, InstancePath, Tags};
 use crate::geom::HalfEdgeMesh;
-use crate::ids::EntityId;
 use crate::ids::TagId;
+use crate::ids::{DefinitionId, EntityId};
 use crate::math::Plane;
 use crate::tolerance::Tolerances;
 
@@ -102,18 +102,29 @@ fn entity_hidden_in(doc: &Document, entities: &Entities, id: EntityId) -> bool {
     !tag_visible(&doc.tags, tag)
 }
 
-/// Depth-first walk over groups and instances in container order.
+/// At most this many container occurrences are indexed (docs/09 §8: a
+/// damaged or hostile file must not exhaust memory through fan-out).
+const MAX_OCCURRENCES: usize = 1 << 22;
+
+/// Depth-first walk over groups and instances in container order. A
+/// definition already on the current chain is skipped (cyclic nesting in a
+/// damaged file, docs/04 §13), as is everything past the nesting limit (§14)
+/// or past [`MAX_OCCURRENCES`].
 fn collect_occurrences(
     doc: &Document,
     path: &InstancePath,
     container: ContainerRef,
     world: DAffine3,
     hidden: bool,
+    chain: &mut Vec<DefinitionId>,
     out: &mut Vec<Occurrence>,
 ) {
     let Some(entities) = doc.container(container) else {
         return;
     };
+    if out.len() >= MAX_OCCURRENCES {
+        return;
+    }
     out.push(Occurrence {
         path: path.clone(),
         container,
@@ -121,7 +132,6 @@ fn collect_occurrences(
         hidden,
     });
     if path.depth() >= Entities::MAX_DEPTH {
-        // Nesting limit (docs/04 §14); also stops self-referencing definitions.
         return;
     }
     for id in entities.iter().filter(|id| id.is_container_instance()) {
@@ -129,18 +139,21 @@ fn collect_occurrences(
         else {
             continue;
         };
-        if doc.definition(def).is_none() {
+        if doc.definition(def).is_none() || chain.contains(&def) {
             continue;
         }
         let child_hidden = hidden || entity_hidden_in(doc, entities, id);
+        chain.push(def);
         collect_occurrences(
             doc,
             &path.child(EntityKey::Id(id)),
             ContainerRef::Definition(def),
             world * local,
             child_hidden,
+            chain,
             out,
         );
+        chain.pop();
     }
 }
 
@@ -157,6 +170,7 @@ impl InstanceProvider for Document {
             ContainerRef::Model,
             DAffine3::IDENTITY,
             false,
+            &mut Vec::new(),
             &mut out,
         );
         out

@@ -952,14 +952,21 @@ impl Entities {
         definitions: &StableMap<DefinitionId, ComponentDefinition>,
         visible_only: bool,
     ) -> Aabb {
-        self.aabb_at_depth(definitions, visible_only, 0)
+        let mut memo = BTreeMap::new();
+        let mut chain = Vec::new();
+        self.aabb_below(definitions, visible_only, &mut memo, &mut chain)
     }
 
-    fn aabb_at_depth(
+    /// Bounds with each definition's box computed once (`memo`) and the
+    /// definitions on the current chain skipped (a cycle in a damaged file
+    /// counts as empty), so the walk is linear in the number of definitions
+    /// and occurrences whatever the file holds (docs/09 §8).
+    fn aabb_below(
         &self,
         definitions: &StableMap<DefinitionId, ComponentDefinition>,
         visible_only: bool,
-        depth: usize,
+        memo: &mut BTreeMap<DefinitionId, Aabb>,
+        chain: &mut Vec<DefinitionId>,
     ) -> Aabb {
         let shown = |id: EntityId| !visible_only || !self.hidden.contains(&id);
         let mut bb = Aabb::EMPTY;
@@ -986,7 +993,7 @@ impl Entities {
         } else {
             bb = bb.union(&self.mesh.aabb());
         }
-        if depth < Self::MAX_DEPTH {
+        if chain.len() < Self::MAX_DEPTH {
             let nested = self
                 .groups
                 .iter()
@@ -997,16 +1004,26 @@ impl Entities {
                         .map(|(i, x)| (EntityId::Instance(i), x.definition, x.transform)),
                 );
             for (id, definition, transform) in nested {
-                if !shown(id) {
+                if !shown(id) || chain.contains(&definition) {
                     continue;
                 }
-                if let Some(def) = definitions.get(definition) {
-                    let inner = def
-                        .entities
-                        .aabb_at_depth(definitions, visible_only, depth + 1);
-                    if !inner.is_empty() {
-                        bb = bb.union(&inner.transformed(&transform));
+                let inner = match memo.get(&definition) {
+                    Some(known) => *known,
+                    None => {
+                        let Some(def) = definitions.get(definition) else {
+                            continue;
+                        };
+                        chain.push(definition);
+                        let known = def
+                            .entities
+                            .aabb_below(definitions, visible_only, memo, chain);
+                        chain.pop();
+                        memo.insert(definition, known);
+                        known
                     }
+                };
+                if !inner.is_empty() {
+                    bb = bb.union(&inner.transformed(&transform));
                 }
             }
         }
@@ -1038,8 +1055,9 @@ impl Entities {
     }
 
     /// Depth below this container with memoization per definition and the
-    /// current definition chain for cycle detection.
-    fn depth_below(
+    /// current definition chain for cycle detection. The chain never grows
+    /// past the hard limit, so the recursion is bounded for any input.
+    pub(crate) fn depth_below(
         &self,
         definitions: &StableMap<DefinitionId, ComponentDefinition>,
         memo: &mut BTreeMap<DefinitionId, usize>,
@@ -1062,6 +1080,9 @@ impl Entities {
                     let Some(def) = definitions.get(d) else {
                         continue;
                     };
+                    if stack.len() >= Self::MAX_DEPTH {
+                        return Err(HierarchyError::TooDeep(stack.len() + 1));
+                    }
                     stack.push(d);
                     let known = def.entities.depth_below(definitions, memo, stack)?;
                     stack.pop();

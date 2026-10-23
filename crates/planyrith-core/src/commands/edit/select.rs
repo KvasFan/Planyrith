@@ -61,8 +61,8 @@ impl Command for Select {
     ) -> Result<SelectOutput, CommandError> {
         let context = command_context(tx, &p.common);
         let matches = select(tx, &context, "query", &p.query)?;
-        let mut selection = tx.query_env().selection.clone();
-        selection.apply(p.mode, &matches);
+        let mut selection = tx.query_env().selection.normalized(tx.document());
+        selection.apply(p.mode, &matches.normalized(tx.document()));
         let mut kinds = BTreeMap::new();
         for path in selection.iter() {
             if let Ok(r) = tx.document().resolve(path) {

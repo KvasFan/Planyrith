@@ -170,17 +170,33 @@ pub(crate) struct MeshPiece {
     pub(crate) faces: Vec<FaceId>,
 }
 
-/// Extracts `faces` (with their boundary edges) and `edges` from `mesh`.
+/// Extracts `faces` (with their boundary edges) and `edges` from the mesh
+/// of `entities`. Edges come in the container's order (pid order), not in
+/// slot order, so the result does not depend on the slot layout (which a
+/// save/reload renumbers).
 pub(crate) fn mesh_piece(
-    mesh: &HalfEdgeMesh,
+    entities: &Entities,
     faces: &[FaceId],
     edges: &[EdgeId],
 ) -> Result<MeshPiece, CommandError> {
+    let mesh = entities.mesh();
     let mut edge_set: BTreeSet<EdgeId> = edges.iter().copied().collect();
     for &f in faces {
         edge_set.extend(mesh.face_edges(f)?);
     }
-    let edges: Vec<EdgeId> = edge_set.iter().copied().collect();
+    let rank: BTreeMap<EntityId, usize> = entities
+        .order()
+        .iter()
+        .enumerate()
+        .map(|(i, id)| (*id, i))
+        .collect();
+    let mut edges: Vec<EdgeId> = edge_set.iter().copied().collect();
+    edges.sort_by_key(|e| {
+        (
+            rank.get(&EntityId::Edge(*e)).copied().unwrap_or(usize::MAX),
+            *e,
+        )
+    });
 
     // Curves whose members all come along keep their descriptor.
     let mut indexed = IndexedMesh::default();

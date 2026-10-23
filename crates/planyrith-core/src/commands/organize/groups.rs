@@ -159,7 +159,7 @@ fn capture(
     let origin = if bb.is_empty() { DVec3::ZERO } else { bb.min };
     let shift = translation(-origin);
 
-    let piece = mesh_piece(mesh, &faces, &edges)?;
+    let piece = mesh_piece(source, &faces, &edges)?;
     let indexed = transform_indexed(&piece.indexed, &shift);
     let built = HalfEdgeMesh::from_indexed(&indexed, doc.tolerances())?;
 
@@ -528,7 +528,25 @@ fn explode_one(
     };
     let inner = &def.entities;
     let mesh = inner.mesh();
-    let (indexed, local) = mesh.to_indexed();
+    // Container order (pid order), not slot order: the result must not depend
+    // on the slot layout, which a save/reload renumbers.
+    let edge_order: Vec<EdgeId> = inner
+        .order()
+        .iter()
+        .filter_map(|id| match id {
+            EntityId::Edge(e) => Some(*e),
+            _ => None,
+        })
+        .collect();
+    let face_order: Vec<FaceId> = inner
+        .order()
+        .iter()
+        .filter_map(|id| match id {
+            EntityId::Face(f) => Some(*f),
+            _ => None,
+        })
+        .collect();
+    let (indexed, local) = mesh.to_indexed_ordered(&edge_order, &face_order);
     let mut piece = transform_indexed(&indexed, &t);
     for face in &mut piece.faces {
         if face.sides.material_front.is_none() {

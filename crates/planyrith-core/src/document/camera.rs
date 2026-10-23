@@ -65,9 +65,21 @@ impl Camera {
         (self.target - self.eye).normalize_or_zero()
     }
 
-    /// Unit right vector (`forward × up`).
+    /// Unit right vector (`forward × up`). Looking along the up vector (a
+    /// top or bottom view with up = +Z, docs/06 §7) the screen axes come from
+    /// the world axis least aligned with the view instead: a top view has
+    /// right = +X and screen up = +Y, like a plan.
     pub fn right(&self) -> DVec3 {
-        self.forward().cross(self.up).normalize_or_zero()
+        let f = self.forward();
+        let right = f.cross(self.up);
+        if right.length_squared() > 1e-18 {
+            return right.normalize();
+        }
+        let axis = [DVec3::Y, DVec3::X, DVec3::Z]
+            .into_iter()
+            .min_by(|a, b| a.dot(f).abs().total_cmp(&b.dot(f).abs()))
+            .unwrap_or(DVec3::Y);
+        f.cross(axis).normalize_or_zero()
     }
 
     /// Distance from eye to target.
@@ -82,7 +94,23 @@ impl Camera {
         let r = self.right();
         let u = r.cross(f);
         match self.projection {
-            Projection::Perspective { fov_y_deg } | Projection::TwoPoint { fov_y_deg } => {
+            Projection::TwoPoint { fov_y_deg } => {
+                // Vertical image plane (verticals stay vertical, docs/06 §7)
+                // with the vertical shear that keeps the target centered.
+                let half_h = libm::tan(fov_y_deg.to_radians() * 0.5);
+                let half_w = half_h * self.aspect;
+                let up = self.up.normalize_or_zero();
+                let level = (f - up * f.dot(up)).normalize_or_zero();
+                if level == DVec3::ZERO {
+                    // Looking straight up or down: no horizon to keep level.
+                    return Ray::new(self.eye, f + r * (ndc.x * half_w) + u * (ndc.y * half_h));
+                }
+                let side = level.cross(up).normalize_or_zero();
+                let shear = f.dot(up) / f.dot(level);
+                let dir = level + side * (ndc.x * half_w) + up * (ndc.y * half_h + shear);
+                Ray::new(self.eye, dir)
+            }
+            Projection::Perspective { fov_y_deg } => {
                 let half_h = libm::tan(fov_y_deg.to_radians() * 0.5);
                 let half_w = half_h * self.aspect;
                 Ray::new(self.eye, f + r * (ndc.x * half_w) + u * (ndc.y * half_h))
@@ -134,6 +162,31 @@ mod tests {
             (c.world_per_pixel_at(2.0, 100.0) - 2.0 * c.world_per_pixel_at(1.0, 100.0)).abs()
                 < 1e-15
         );
+
+        let top = Camera {
+            eye: DVec3::new(0.0, 0.0, 10_000.0),
+            target: DVec3::ZERO,
+            ..c
+        };
+        let left = top.ray_through_ndc(glam::DVec2::new(-1.0, 0.0));
+        let right = top.ray_through_ndc(glam::DVec2::new(1.0, 0.0));
+        assert!(
+            left.dir.x < 0.0 && right.dir.x > 0.0,
+            "a top view has +X to the right"
+        );
+        let two_point = Camera {
+            projection: Projection::TwoPoint { fov_y_deg: 35.0 },
+            aspect: 1.0,
+            ..c
+        };
+        // A vertical line maps to one screen column: its rays share the
+        // horizontal direction.
+        let ray = two_point.ray_through_ndc(glam::DVec2::new(0.3, -0.5));
+        let other = two_point.ray_through_ndc(glam::DVec2::new(0.3, 0.5));
+        let flat = |d: DVec3| DVec3::new(d.x, d.y, 0.0).normalize();
+        assert!((flat(ray.dir) - flat(other.dir)).length() < 1e-12);
+        let center = two_point.ray_through_ndc(glam::DVec2::ZERO);
+        assert!(center.dir.normalize().distance(two_point.forward()) < 1e-12);
 
         let ortho = Camera {
             projection: Projection::Parallel { height_mm: 1000.0 },

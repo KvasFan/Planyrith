@@ -163,3 +163,9 @@ save unless `--no-thumbnail`. `manifest.json` carries `title`, `author`, `descri
   the same bytes, and a re-saved file is byte-identical. On load meshes are rebuilt leniently
   (structure and orientation checked, planarity left to `planyrith validate`, which knows the
   document's tolerances). Format version stays 1 (no file of the earlier draft form was released).
+- 2026-10-23 — **Bounded loading.** A stable-id collection (definitions, materials, tags, groups,
+  instances, …) may use key slots up to index 4 194 304 (`StableMap::MAX_SLOT_INDEX`); a larger
+  index is a corrupt file (`E1402`), refused before anything is allocated. Hierarchy walks
+  (bounds, nesting checks, picking occurrences) skip definitions already on the current chain and
+  stop at the nesting limit, so a damaged file with cyclic nesting loads, validates (reporting the
+  cycle) and reports its bounds instead of hanging.
