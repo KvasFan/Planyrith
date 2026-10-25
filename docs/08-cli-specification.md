@@ -230,6 +230,7 @@ On failure: `{"ok": false, "error": {"code": "E1002", "message": "...", "param":
 | W2003 | detached dimension anchors |
 | W2004 | unsupported import entity skipped |
 | W2005 | texture downscaled |
+| W2006 | damaged or unusable part dropped while loading (journal, unwritable part name, part missing from the container) |
 
 ## 10. Determinism and reproducibility
 
@@ -349,3 +350,11 @@ On failure: `{"ok": false, "error": {"code": "E1002", "message": "...", "param":
 - 2026-10-23 — `query --fields length,area,volume,bbox` and `--stats` measure in the edit
   context's frame, exactly as the `length`/`area`/`volume` predicates do
   (`document::measure_occurrence`); `volume` is reported for solid groups and instances only.
+- 2026-10-25 — **`last` after a closed shape.** When a closed shape drawn on a face splits it,
+  `last` is the shape's edges and the face inside the shape, not the remaining piece(s) of the old
+  face, which keep their identity: the shape's face always takes a new pid and the old pid stays
+  on a remaining piece (pids are swapped when the split rule left it on the shape). `push-pull --face '{face & last}'` after drawing a
+  groove that cuts a face in three pushes the groove, never an ambiguous pair.
+- 2026-10-25 — **Separate invocations equal one batch** in geometry, orientation and pids
+  (docs/03 Decisions, slot order); §10's byte identity is promised for the same batch only,
+  because group, instance and definition keys reserved for undo inside a session are not saved.

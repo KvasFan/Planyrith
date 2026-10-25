@@ -81,3 +81,10 @@ humans or GUI automation before releases, with expected screenshots.
   writes both documents with the same counter; everything else must be byte-identical. Implemented
   for every 0.1 command in `commands::undo_tests` (drawing, editing and organizing sequences, each
   step undone and redone in place).
+- 2026-10-25 — **Engine fuzz** (`commands::fuzz_tests`, §1–§2): random sequences of drawing,
+  push/pull, offset, move/rotate/scale (with copies), erase modes, delete, grouping, explode,
+  hide, tags and materials on a 100 mm lattice, targets picked by pid. After every successful
+  command the document validates clean; a failed command leaves the bytes unchanged; replaying
+  gives the same bytes; saving and reopening after every command gives the same document up to
+  reserved keys; undoing everything gives the empty document and redoing everything the final
+  one. `PLANYRITH_FUZZ_CASES` sets the number of sequences (24 by default).

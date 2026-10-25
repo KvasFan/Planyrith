@@ -154,7 +154,8 @@ perpendicular to hovered edge); `Esc` = cancel current step (second `Esc` = canc
 - **Purpose:** translate (and optionally copy) entities or vertices/edges/faces with auto-fold.
 - **Params:** `targets: Sel`, `from: Point` (grab point), `to: Point` | `delta: Vector`,
   `copy: bool` (false; `Ctrl` toggles), `copies: Count` (1) with `array: Linear { count, spacing: Between|Total } | None`,
-  `check_intersections: bool` (false), `auto_fold: bool` (true; `Alt` forces).
+  `check_intersections: bool` (false: a move whose edges would cross other edges is refused;
+  true: those edges are split, docs/03 §4.8), `auto_fold: bool` (true; `Alt` forces).
 - **Interactive:** hover an entity (auto-select if nothing selected; with a selection, moving any
   selected entity moves all) → click grab point → move (inference everywhere; value field distance or
   coordinate) → click. After a copy-move, value field `*5` / `5x` makes 5 copies at that spacing,

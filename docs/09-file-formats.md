@@ -169,3 +169,8 @@ save unless `--no-thumbnail`. `manifest.json` carries `title`, `author`, `descri
   (bounds, nesting checks, picking occurrences) skip definitions already on the current chain and
   stop at the nesting limit, so a damaged file with cyclic nesting loads, validates (reporting the
   cycle) and reports its bounds instead of hanging.
+- 2026-10-25 — **Journal cap and damaged parts.** Writing keeps the journal under 64 MB by
+  dropping its oldest rows (a quarter at a time), so a long-lived document can always be saved.
+  Reading never fails because of an optional part: a journal that is too large or undecodable, a
+  preserved part whose name could not be written back, and a part the manifest lists but the
+  container lacks are dropped with a `W2006` warning; the document itself still loads.

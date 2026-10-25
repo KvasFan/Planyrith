@@ -301,3 +301,12 @@ tags, non-invertible transforms, `next_pid` monotonicity. `repair` fixes what it
   its screen axes from the world axis least aligned with the view (a top view has +X right and +Y
   up, like a plan); two-point perspective uses a vertical image plane with the vertical shear that
   keeps the target centered, so vertical lines stay vertical.
+- 2026-10-25 — **More validation, transactional repair** (§13). `validate` also reports
+  inconsistent tolerances, references to definitions, materials, tags or images that do not exist,
+  a definition order that misses or repeats a definition, and images used by watermarks and
+  thumbnails count as used. `repair` runs through the command transaction like any edit, so pids
+  and side tables follow the merged vertices and removed faces; dangling references fall back to
+  the default material, untagged, removal of groups and instances of a missing definition, or
+  dropping the texture.
+- 2026-10-25 — `next_pid` is capped at 2⁶² (a file storing more is refused when read), so
+  allocation can never wrap; a stored 0 reads as 1.

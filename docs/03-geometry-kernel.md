@@ -174,8 +174,11 @@ Deletes the face only; edges stay (unless `erase_orphans=true`, used by Eraser w
    triangulate the face along the shortest diagonal that restores planar pieces (the new interior
    edges are flagged `SOFT|SMOOTH|HIDDEN` so the fold is invisible). This is the behavior users
    expect when dragging one vertex of a quad.
-3. Re-check for intersections with other edges/faces only if `check_intersections=true`
-   (Move tool default *off* for speed; Intersect Faces is explicit).
+3. Intersection pass over the moved edges (and fold edges): with `check_intersections=true`
+   edges they cross are split and the faces those pieces cross re-split; with the default
+   `false` a move whose edges would cross or touch other edges is refused (`E1302`). Either way
+   invariant 4 holds after a move. Moved faces passing through other faces' interiors are the job
+   of Intersect Faces, which is explicit.
 
 ### 4.9 Extrude face (Push/Pull core)
 `extrude_face(f, distance, options{ create_new_start_face: bool })`:
@@ -441,3 +444,50 @@ within `tolerances.length`.
   and faces in container (pid) order. Merging two faces keeps every region whose sample point
   lies inside or on either old face (the sample of the merged region may lie on the removed
   edges).
+- 2026-10-25 — **Extrude phases** (refines the 2026-10-20 extrude entry; found by the 0.1 review
+  and randomized command sequences). The generic case runs in phases: (A) vertical and cap edges
+  are inserted without face finding, splitting existing faces they cross; (B) on a join the cap
+  outline is cut into the landing face and the inside piece removed, its identity passing to the
+  face it merges with; (C) side strips occupied from the other side are cancelled (§4.9 entry);
+  (D) face finding builds the side faces first, from the side planes only, then the cap, and a new
+  face must be bounded by extrusion edges only (base, vertical and cap edges) and touch at least
+  one swept edge; (E) hole tops and swept edges no face uses are removed, then each side merges
+  into coplanar neighbors across its base edge (and its top edge when joining), repeatedly, as
+  step 3 requires. Building the sides first gives the top of a hole ring to the hole's sides
+  before the cap plane is searched, whatever the order of the vertices. A join needs a landing
+  face that **covers** the cap outline: the outline lies inside or on the landing polygon, no
+  landing vertex lies strictly inside the cap and the rings do not cross; otherwise the pull is an
+  ordinary extrusion. Pushing a stretchable face (the top of a box) to or past the shallowest of
+  its neighbors would turn the solid inside out and is refused (`E1301`); `through_hole` is
+  reported only when a face of a solid is pushed through.
+- 2026-10-25 — **Moves never leave crossings** (§4.8 step 3). Without `check_intersections` the
+  intersection pass still runs, in detection mode: if it would split anything the move is refused
+  (`E1302`) and rolled back, so a document never holds edges that cross away from a shared vertex
+  (invariant 4, which `validate` checks). With it, the moved edges are not drawn: the pieces only
+  re-split the faces they now cross, they never create a face of their own (seed rule), so a
+  move cannot re-create an erased face or fill a hole. Curve descriptors follow a move when every
+  member edge moves with them (§3.3, `CurveDescriptor::transformed`), otherwise they are dropped.
+  A hole loop moved out of its face is dropped from it (the face closes over where it was);
+  `validate` reports a hole loop outside its outer loop as an invariant-2 violation.
+- 2026-10-25 — `add_edge` always splits an existing edge at an endpoint of the new segment that
+  lies inside it, whatever the contact classification says (a long, nearly collinear edge can be
+  reported as a single mid-stretch contact). Offset takes the ring of largest signed area as the
+  outer ring of its result.
+- 2026-10-25 — **Slot order, continued.** Besides the ties of the 2026-10-23 entry, the order of
+  work itself is geometric where it decides ids or orientation: face finding visits touched
+  vertices in position order and the edges around each by far-end position (the first plane
+  found fixes the orientation of the faces after it); a loop starts at the half-edge whose
+  (origin, next origin) positions are lowest; Newell's sums start at the lowest point, so every
+  rotation of a loop fits the same plane to the bit; `add_edge` splits the edges it meets in
+  order along the new segment, and the intersection pass splits at the vertex or crossing
+  nearest the start of the edge; faces that face finding splits, and faces a move detaches and
+  re-attaches (or folds), are handled in position-key order. A document saved and reopened between commands therefore gives
+  the same geometry, orientations and pids as one session (checked by
+  `commands::fuzz_tests`); only the keys of groups, instances and definitions may be numbered
+  differently, because a session keeps the keys of removed ones reserved for undo.
+- 2026-10-25 — **Numeric details.** Closest points between segments use the common normal
+  `n = d1 × d2` (parallel when `|n|² ≤ 1e-24 · |d1|² · |d2|²`), and a collinear contact is tested
+  in both directions. A transform is invertible when its linear part is well conditioned (the
+  product of the Frobenius norms of the matrix and its inverse below `1 / parametric`), not when
+  the raw determinant exceeds a constant: a uniform scale by 0.001 is invertible, a matrix that
+  squashes one axis to nearly nothing is not.

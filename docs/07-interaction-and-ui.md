@@ -212,3 +212,6 @@ collected by clicks: e.g. segments for Circle, array count, copy toggle).
 - 2026-10-20 — value field remains editable after an action to re-execute the last command with a new value.
 - 2026-10-20 — Click-move-click is the default drawing style (drag style is a preference).
 - 2026-10-20 — Fluent for localization; English source.
+- 2026-10-25 — A bare signed or decimal number in the value field (`-45`, `22.5`) is a length in
+  the document unit where the step wants a length and an angle in degrees where it wants an
+  angle; bare unsigned integers stay counts where a count is expected.
