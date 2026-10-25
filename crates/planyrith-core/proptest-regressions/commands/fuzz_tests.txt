@@ -10,3 +10,5 @@ cc 0ad9485c55889f5d987cab1d0301fe435814546061d1dff07d08dd0d0df504dd # shrinks to
 cc 6f95c292786aba5e199e481be44495fe0eb2b229fd838d0f31304005ea9d2647 # shrinks to cmds = [Circle([3, 2, 0], 1, 0), Circle([0, 0, 0], 1, 1), Erase(16, 3), PushPull(0, 1), Rect([0, 0, 0], [1, 1], 0)]
 cc 671a2c683528d3cb227519ec8fcbd75860eee0ce9153e569dde0a9dcd54fc96b # shrinks to cmds = [Rect([0, 0, 0], [1, 1], 0), Group(false), Explode(0), Group(false)]
 cc 210e3d851da22356cf7219eb880384ae122d0b9453693c0da1031585d715530b # shrinks to cmds = [Line([0, 0, 0], [2, 2, 0]), Circle([0, 2, 0], 1, 0), Group(false), Rect([1, 0, 0], [2, 2], 2), Explode(0)]
+cc 68bca073dadb39167bae4b914f1478ca047762b78c543363af652cb22a17d38e # shrinks to cmds = [Rect([3, 4, 0], [1, 2], 1), PushPull(0, -1), Delete(61), PushPull(51, 1), Circle([3, 2, 1], 2, 0)]
+cc 58caaab1a5563880d58d5a442f61482ab57b4fe4abdc844eea19e536e621fcd2 # shrinks to cmds = [Circle([0, 0, 0], 2, 0), PushPull(0, -1), PushPull(27, -2), Scale(Face(0), [1, 3, 1])]

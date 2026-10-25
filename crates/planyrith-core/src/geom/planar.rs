@@ -598,8 +598,24 @@ fn rebuild_plane(
         }
         let old_outer: BTreeSet<HalfEdgeId> =
             mesh.loop_half_edges(face.outer)?.into_iter().collect();
-        changed.push((f, list, flip, face.plane, face.sides.clone(), old_outer));
+        let key = position_key(mesh, &mesh.loop_half_edges(face.outer)?)?;
+        changed.push((
+            key,
+            f,
+            list,
+            flip,
+            face.plane,
+            face.sides.clone(),
+            old_outer,
+        ));
     }
+    // Faces in position-key order, not slot order: their new pieces are
+    // created in this order (docs/03 Decisions, slot order).
+    changed.sort_by(|a, b| compare_keys(&a.0, &b.0).then(a.1.cmp(&b.1)));
+    let changed: Vec<_> = changed
+        .into_iter()
+        .map(|(_, f, l, x, p, s, o)| (f, l, x, p, s, o))
+        .collect();
     for (f, ..) in &changed {
         mesh.detach_face(*f, d)?;
     }
@@ -700,7 +716,10 @@ fn rebuild_plane(
 /// A key of a cycle that depends only on positions: the mean of its
 /// vertices, then its lexicographically lowest vertex. Distinct regions of one
 /// arrangement never share it.
-fn position_key(mesh: &HalfEdgeMesh, cycle: &[HalfEdgeId]) -> Result<[f64; 6], GeometryError> {
+pub(crate) fn position_key(
+    mesh: &HalfEdgeMesh,
+    cycle: &[HalfEdgeId],
+) -> Result<[f64; 6], GeometryError> {
     let points = mesh.cycle_positions(cycle)?;
     let n = points.len().max(1) as f64;
     let mean = points.iter().fold(glam::DVec3::ZERO, |a, p| a + *p) / n;
@@ -726,7 +745,7 @@ fn by_position(
 }
 
 /// Lexicographic total order of position keys.
-fn compare_keys(a: &[f64], b: &[f64]) -> std::cmp::Ordering {
+pub(crate) fn compare_keys(a: &[f64], b: &[f64]) -> std::cmp::Ordering {
     a.iter()
         .zip(b)
         .map(|(x, y)| x.total_cmp(y))

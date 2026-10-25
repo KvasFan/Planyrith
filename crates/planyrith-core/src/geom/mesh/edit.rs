@@ -472,8 +472,16 @@ impl HalfEdgeMesh {
                 }
             }
         }
-        let mut detached = Vec::with_capacity(affected.len());
+        // Position-key order, not slot order: folds and re-attachments
+        // create edges in this order (docs/03 Decisions, slot order).
+        let mut keyed = Vec::with_capacity(affected.len());
         for f in affected {
+            let outer = self.loop_half_edges(self.face_ref(f)?.outer)?;
+            keyed.push((planar::position_key(self, &outer)?, f));
+        }
+        keyed.sort_by(|a, b| planar::compare_keys(&a.0, &b.0).then(a.1.cmp(&b.1)));
+        let mut detached = Vec::with_capacity(keyed.len());
+        for (_, f) in keyed {
             let cycles = self
                 .face_cycles(f)?
                 .into_iter()
