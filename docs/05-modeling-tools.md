@@ -26,7 +26,7 @@ default = current), `dry_run: bool` (validate + report only).
 Common value field grammar (`units.rs`): `1200` (document units), `1.2m`, `47in`, `3' 6"`, `3'6`,
 `120cm`, lengths with `,` as pair separator for 2D (`800,600`), `/` for divisions (`/5`),
 `*` or `x` for multiples (`*3`, `3x`), angles `45` or `45deg` or `0.785rad`, slopes `1:12`,
-counts `3`. Negative values reverse direction. Pressing Enter without a value confirms the
+counts `3`, segment or side counts `48s`, radii `500r` or `1.2m r`. Negative values reverse direction. Pressing Enter without a value confirms the
 current inferred value.
 
 ## 2. Inference and constraints (shared by all drawing/editing tools)

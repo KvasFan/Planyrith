@@ -11,11 +11,12 @@ use crate::commands::common::{make_group_private, targets_in};
 use crate::commands::organize::tags::parse_color;
 use crate::commands::params::target_container;
 use crate::commands::{
-    Command, CommandCategory, CommandError, CommandMeta, CommonParams, Transaction,
+    Command, CommandCategory, CommandError, CommandMeta, CommonParams, ToolStep, Transaction,
 };
 use crate::document::{ContainerRef, Document, EntityRecord, EntityView, Material, Query};
 use crate::geom::FaceSides;
 use crate::ids::{EntityId, FaceId, MaterialId};
+use crate::inference::InferenceKind;
 
 fn meta(name: &str, label: &str) -> CommandMeta {
     CommandMeta {
@@ -474,7 +475,16 @@ impl Command for MaterialApply {
     }
 
     fn meta(&self) -> CommandMeta {
-        meta("material-apply", "Paint")
+        CommandMeta {
+            steps: vec![ToolStep {
+                prompt: "Click a face, group or component to paint (Ctrl connected faces, \
+                         Shift faces with the same material, Alt samples)"
+                    .into(),
+                value_field: String::new(),
+                inference: vec![InferenceKind::OnFace],
+            }],
+            ..meta("material-apply", "Paint")
+        }
     }
 }
 

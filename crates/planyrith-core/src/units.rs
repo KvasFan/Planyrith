@@ -456,6 +456,10 @@ pub enum ValueFieldInput {
     Angle(Angle),
     /// A plain count (`3`), e.g. segments or array copies.
     Count(u32),
+    /// A segment or side count (`48s`, docs/05 §3.5–§3.7).
+    Segments(u32),
+    /// A radius (`500r`, `1.2mr`; docs/05 §3.7 arcs).
+    Radius(Length),
     /// A bare signed or decimal number without unit (`-45`, `22.5`): a length
     /// in the document unit or an angle in degrees, depending on the step.
     Number(f64),
@@ -1006,7 +1010,8 @@ pub fn format_angle(value: Angle, precision: u8) -> String {
 /// Dispatch, in order: `[x,y,z]` / `<x,y,z>` coordinates (empty components keep
 /// the current value), `/n` divisions, `*n` and `nx` multiples, `a,b` pairs,
 /// angles (anything containing `:` or ending in `%`, `deg`, `rad` or `°`), a
-/// bare unsigned integer as a `Count`, and finally a length. Tools expecting a
+/// bare unsigned integer as a `Count`, `Ns` segment counts, `Rr` radii, and
+/// finally a length. Tools expecting a
 /// length or an angle coerce a `Count` with [`ValueFieldInput::as_length`] /
 /// [`ValueFieldInput::as_angle`].
 pub fn parse_value_field(
@@ -1065,6 +1070,17 @@ pub fn parse_value_field(
         && let Ok(n) = text.parse::<u32>()
     {
         return Ok(ValueFieldInput::Count(n));
+    }
+    if let Some(rest) = text.strip_suffix(['s', 'S'])
+        && !rest.is_empty()
+        && rest.chars().all(|c| c.is_ascii_digit())
+    {
+        return parse_count(rest, text, "segment count").map(ValueFieldInput::Segments);
+    }
+    if let Some(rest) = text.strip_suffix(['r', 'R'])
+        && !rest.trim().is_empty()
+    {
+        return parse_length(rest.trim(), default_unit).map(ValueFieldInput::Radius);
     }
     if is_bare_number(text)
         && let Ok(x) = text.parse::<f64>()
@@ -1459,6 +1475,19 @@ mod tests {
         assert_eq!(p("1.5m").as_length(mm), Some(Length::mm(1500.0)));
 
         // Errors.
+        assert_eq!(
+            parse_value_field("48s", mm),
+            Ok(ValueFieldInput::Segments(48))
+        );
+        assert_eq!(
+            parse_value_field("500r", mm),
+            Ok(ValueFieldInput::Radius(Length::mm(500.0)))
+        );
+        assert_eq!(
+            parse_value_field("1.2m r", mm),
+            Ok(ValueFieldInput::Radius(Length::mm(1200.0)))
+        );
+        assert!(parse_value_field("0s", mm).is_err());
         assert_eq!(parse_value_field("", mm), Err(UnitsError::Empty));
         assert!(matches!(
             parse_value_field("/0", mm),
