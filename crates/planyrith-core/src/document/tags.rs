@@ -189,7 +189,7 @@ impl Tags {
     }
 
     /// Position of a tag in the insertion order (captured before removal so
-    /// undo can restore it with [`Tags::restore`]).
+    /// undo can put the tag back where it was).
     pub fn position(&self, id: TagId) -> Option<usize> {
         self.order.iter().position(|x| *x == id)
     }

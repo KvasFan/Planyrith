@@ -1,0 +1,66 @@
+# Changelog
+
+All notable changes to Planyrith are recorded here. Versions follow
+[Semantic Versioning](https://semver.org/); before 1.0, minor versions are milestones of
+[`docs/13-roadmap.md`](docs/13-roadmap.md).
+
+## 0.1.0 — Core kernel and CLI foundation (2026-10-25)
+
+The first code release: a headless modeler driven entirely from the command line. There is no
+viewport or GUI yet (milestone 0.2).
+
+### Kernel and document
+
+- Half-edge mesh with the invariants of docs/03 §3.1, automatic face finding on coplanar closed
+  loops, edge splitting at intersections, face splitting and merging, erasing, and vertex moves
+  with auto-fold of faces that would bend.
+- Push/pull with the cases of docs/03 §4.9: extrusion of faces with holes, notches and grooves
+  at a face boundary, stretching the top of a box, joining onto a coplanar face, cutting through
+  holes, and refusal of pushes that would turn a solid inside out.
+- 2D offset of face loops with clipping, tessellation and spatial indexes.
+- Document model: edges and faces, groups, components (definitions and instances), tags and tag
+  folders, color materials, scenes (camera), attributes, stable persistent ids (`@pid`), entity
+  paths and the selection query language of docs/08 §5.
+- Command system with typed, JSON-schema-described parameters, transactions and byte-exact
+  undo/redo.
+
+### Commands
+
+`line`, `rectangle`, `circle`, `polygon`, `arc-2point`, `arc-3point`, `arc-bulge`, `pie`,
+`push-pull`, `offset`, `move` and `rotate` (with copies and arrays), `scale`, `erase` (erase,
+soften, smooth, hide and their inverses), `delete`, `select`, `hide`, `unhide`, `lock`,
+`unlock`, `make-group`, `make-component`, `explode`, `tag-create`, `tag-rename`, `tag-delete`,
+`tag-assign`, `tag-set-visible`, `tag-folder-create`, `tag-folder-delete`, `material-create`,
+`material-edit`, `material-apply`, `material-delete`, `material-purge`.
+
+### Files
+
+- Native `.plyr` container (docs/09): versioned manifest, checksummed parts, optional edit
+  journal, deterministic output; damaged optional parts are dropped with a warning.
+- `json` export, with a canonical form for version control.
+- `validate` and `repair` (merge near vertices, remove degenerate faces, fix dangling
+  references).
+
+### Command line
+
+- Session verbs `new`, `info`, `query`, `tool`, `export`, `validate`, `repair` and `batch`;
+  every command is `planyrith tool <name>` with options generated from its schema, units on
+  every length, `--json`/`--jsonl` output and stable exit codes.
+- `serve`: a JSON-RPC 2.0 server over standard input and output, through which every command,
+  undo/redo, queries, selection and context are reachable.
+- Same commands, same bytes: documents are bit-identical across runs and platforms, and a script
+  run as separate invocations gives the same document as one batch.
+
+### Quality
+
+- Property tests for the math and kernel, randomized kernel operation sequences, an engine fuzz
+  test over random command sequences (validation, undo/redo and save/reopen checks), undo/redo
+  byte equality for every command, and a CLI golden test per command.
+- Milestone acceptance: a batch script builds a furnished room (walls with a door and a window, a
+  table, four chairs as instances of one component), the file validates clean and re-saves
+  byte-identically.
+
+### Not yet
+
+The viewport, GUI and headless `render` (0.2), interactive tools and inference (0.3), importers
+(0.5), scripting (0.6), the server's socket transport and `repl` (0.2).

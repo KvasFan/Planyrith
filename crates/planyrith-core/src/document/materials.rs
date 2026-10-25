@@ -286,7 +286,7 @@ impl Materials {
     }
 
     /// Position of a material in the insertion order (captured before
-    /// removal so undo can restore it with [`Materials::restore`]).
+    /// removal so undo can put the material back where it was).
     pub fn position(&self, id: MaterialId) -> Option<usize> {
         self.order.iter().position(|x| *x == id)
     }

@@ -11,15 +11,13 @@
 //!
 //! The module tree follows `docs/01-architecture.md` §2 exactly; every module
 //! starts with a `//!` comment naming the specification section it implements.
-//! The current state of the crate is the **skeleton contract** described in
-//! `docs/dev/skeleton-contract.md`: public types, traits and signatures are
-//! final enough for parallel implementation, and operation bodies are
-//! `todo!("docs/0X §Y")` placeholders that cite the section they implement.
-//!
-//! Version 0.0.0 is specification-only. The complete design lives in the
-//! repository's `docs/` directory, starting with `docs/00-overview.md` and
-//! `docs/01-architecture.md`. Implementation starts at milestone 0.1
-//! (`docs/13-roadmap.md`).
+//! Version 0.1 implements milestone 0.1 of `docs/13-roadmap.md`: the kernel,
+//! the document model, the 0.1 commands with undo/redo, native `.plyr`
+//! read/write, the JSON export and validation/repair. Modules of later
+//! milestones keep the signatures of the skeleton contract
+//! (`docs/dev/skeleton-contract.md`) with `todo!("docs/0X §Y")` bodies. The
+//! complete design lives in the repository's `docs/` directory, starting with
+//! `docs/00-overview.md` and `docs/01-architecture.md`.
 
 #![forbid(unsafe_code)]
 // TODO(skeleton): these allowances keep the signature-only draft quiet. Each

@@ -5,12 +5,12 @@ implementation stands, what is done, what remains, and how to resume. Update it 
 every working session. Ground truth for *what to build* stays in `docs/00`–`docs/15`; this file
 is only *progress state*.
 
-_Last updated: 2026-10-21 (0.1 hardening: fuzzing, per-command goldens, deterministic math)._
+_Last updated: 2026-10-25 (release 0.1.0: review fixes, engine fuzz, `serve`)._
 
 ## 1. Where we are
 
-Milestone 0.1 ("core kernel and CLI foundation", `docs/13-roadmap.md`) is **functionally
-complete as a draft**: every 0.1 command exists, and the acceptance test of docs/13 passes
+Milestone 0.1 ("core kernel and CLI foundation", `docs/13-roadmap.md`) is **released as
+0.1.0** (see `CHANGELOG.md`): every 0.1 command exists, and the acceptance test of docs/13 passes
 (`crates/planyrith-cli/tests/cli.rs::furnished_room_acceptance`: a batch builds walls with a door
 and a window, a table group and four chairs as instances of one component; the file validates
 clean and re-saves byte-identically). Undo/redo is byte-exact for every 0.1 command
@@ -19,7 +19,11 @@ clean and re-saves byte-identically). Undo/redo is byte-exact for every 0.1 comm
 moves, push/pull and offsets) stands in for cargo-fuzz; 100 000 cases ran clean on 2026-10-21.
 Every registered command has a CLI golden test (`tests/commands/<name>.plyrb` →
 `tests/golden/commands/<name>.json`). Transcendental math goes through `libm` so output is
-bit-identical across OSes (docs/02 Decisions).
+bit-identical across OSes (docs/02 Decisions). An engine-level fuzz test
+(`commands/fuzz_tests.rs`, `random_command_sequences`) runs random sequences of all 0.1 command
+families and checks validation after every command, unchanged bytes after a failed one, replay,
+save/reopen equivalence and undo/redo; 10 000 sequences ran clean on 2026-10-25. Every command is
+also reachable through `planyrith serve` (JSON-RPC over stdio).
 
 Build/test commands used in this project (do not build the GUI/render crates while working on
 the core — they pull heavy GPU deps; the CLI does not depend on render unless built with
@@ -31,7 +35,8 @@ cargo test    -p planyrith-cli          # integration tests in crates/planyrith-
 cargo clippy  -p planyrith-core -p planyrith-cli --all-targets
 cargo fmt --all
 PLANYRITH_UPDATE_GOLDEN=1 cargo test -p planyrith-cli    # accept a changed golden export
-PLANYRITH_FUZZ_CASES=20000 cargo test -p planyrith-core --release random_operation   # long fuzz
+PLANYRITH_FUZZ_CASES=20000 cargo test -p planyrith-core --release random_operation   # long kernel fuzz
+PLANYRITH_FUZZ_CASES=10000 cargo test -p planyrith-core --release random_command_sequences   # engine fuzz
 ```
 
 ## 2. Module status (`planyrith-core`)
@@ -52,21 +57,20 @@ Frontends:
 
 | Crate | Status |
 |---|---|
-| `planyrith-cli` | **DRAFT (0.1 scope)** — `new`, `info`, `query`, `tool`, `export` (json), `validate`, `repair`, `batch`; schema-driven tool options; JSON envelopes; exit codes. Later: `import` (0.5), `render` (0.2), `script` (0.6), `serve`, `repl`. |
+| `planyrith-cli` | **0.1.0** — `new`, `info`, `query`, `tool`, `export` (json), `validate`, `repair`, `batch`, `serve` (stdio); schema-driven tool options; JSON envelopes; exit codes. Later: `render` and the socket transport/`repl` (0.2), `import` (0.5), `script` (0.6). |
 | `planyrith-render` | scaffold only (0.2). |
 | `planyrith-gui` | scaffold only (0.2). |
 
 ## 3. What next
 
-1. **Keep hardening 0.1**: rerun the long fuzz after kernel changes; extend it with moves of
-   several vertices, rotations and copies. `cargo deny check` reports four "unmaintained"
-   advisories in GUI-side transitive dependencies (`ttf-parser`, `zbus_names`, `zvariant`,
-   `zvariant_derive`), new in the advisory database since 2026-10-20 — review them with the
-   0.2 GUI work (replace, or add dated `deny.toml` ignores with a reason).
-2. **`serve` / `repl`** (docs/08 §3): JSON-RPC over stdio on top of `Engine::execute_erased` — the
-   GUI-attach protocol; not required by the 0.1 acceptance but cheap now.
-3. **Milestone 0.2** (docs/13): `io/render_mesh.rs` extraction, `planyrith-render` passes and
-   headless `render`, the eframe shell in `planyrith-gui`.
+1. **Milestone 0.2** (docs/13): `io/render_mesh.rs` extraction, `planyrith-render` passes and
+   headless `render`, the eframe shell in `planyrith-gui`, the `serve` socket transport with
+   `--token`, `command.preview`/`document.render_mesh`, and `repl`.
+2. **Keep the fuzzers running** after kernel changes (both commands above). Work order in the
+   kernel must stay geometric (docs/03 Decisions, slot order): the engine fuzz's save/reopen
+   check catches any new dependence on slot layout.
+3. Review the "unmaintained" advisories `cargo deny check` may report for GUI-side transitive
+   dependencies with the 0.2 GUI work (replace, or add dated `deny.toml` ignores with a reason).
 4. Open design question recorded in docs/03 Decisions: `reverse-faces` on part of a connected
    face group (needs either whole-group reversal or decoupling the front side from the loop
    direction) — decide before milestone 0.4.
@@ -101,12 +105,14 @@ Frontends:
 
 ## 4. Repository state
 
-- Branch `main`; local commits ahead of `origin/main` are **not pushed** (push only when the
-  draft builds and tests green, per the user's standing rule).
+- Branch `main`, tagged `v0.1.0` locally; local commits ahead of `origin/main` are **not
+  pushed** until the user asks (one push, to limit CI runs).
+- The 0.1 review fixes were made on branch `review-fixes` in the worktree `../Planyrith-fixes`
+  and fast-forwarded into `main`; the branch and worktree can be removed.
 - The multi-agent workflow run `wf_54e380cb-960` produced the foundations/spatial/io-native
   commits. Later sub-agents implemented the selection query language (merged) — two more were
   started for offset and tags/materials but stopped on a usage limit before writing anything;
-  that work was done directly. No worktrees or extra branches remain; the repo has only `main`.
+  that work was done directly.
 - Commits from that workflow carry a `Co-Authored-By: Claude Fable 5.1` line; later commits use
   the model in use at the time. Attribution lines are harness-provided and not significant.
 

@@ -585,7 +585,7 @@ impl HalfEdgeMesh {
     }
 
     /// Outgoing half-edges of a vertex (unsorted; see
-    /// [`planar::sort_star_by_angle`](crate::geom::planar::sort_star_by_angle)).
+    /// [`crate::geom::planar::sort_star_by_angle`]).
     pub fn vertex_star(&self, v: VertexId) -> &[HalfEdgeId] {
         self.vertex_edges.get(v).map(Vec::as_slice).unwrap_or(&[])
     }

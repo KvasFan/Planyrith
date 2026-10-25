@@ -196,3 +196,8 @@ powerful but add ~10 MB and do not run inside the web build; they are a post-1.0
   feature, so the same input gives the same bits on every OS (docs/08 §10). Square roots and
   arithmetic are exactly rounded by IEEE 754 everywhere and need nothing. A crate-level
   `crates/planyrith-core/clippy.toml` forbids the `std` methods in the core.
+- 2026-10-25 — `deny.toml` ignores four "unmaintained" advisories (RUSTSEC-2026-0192 `ttf-parser`,
+  -0370 `zvariant`, -0371 `zbus_names`, -0372 `zvariant_derive`; no known vulnerability) that only
+  the GUI placeholder pulls in through eframe 0.36 (window decorations and Linux accessibility).
+  Accepted for 0.1, where the GUI is not implemented; to be reviewed with the 0.2 GUI work
+  (replace or keep, with a new dated entry).

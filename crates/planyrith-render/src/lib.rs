@@ -12,7 +12,7 @@
 //! section cuts (`§9`), the id buffer used for picking acceleration (`§8`) and
 //! deterministic headless output (`§11`).
 //!
-//! Version 0.0.0 is a scaffold; the first renderer lands at milestone 0.2
+//! In 0.1 this crate is a scaffold; the first renderer lands at milestone 0.2
 //! (`docs/13-roadmap.md`).
 
 #![forbid(unsafe_code)]

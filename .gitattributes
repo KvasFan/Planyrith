@@ -1,0 +1,6 @@
+# Golden files, fixtures and batch scripts are compared byte for byte
+# (docs/12 §3): check text out with LF on every platform.
+* text=auto eol=lf
+*.plyr binary
+*.png binary
+*.jpg binary

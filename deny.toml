@@ -1,5 +1,6 @@
 # cargo-deny configuration — enforces the project's licensing policy.
-# Run with: cargo deny check licenses bans sources
+# CI runs: cargo deny check licenses bans sources; `cargo deny check` (with
+# advisories) must pass locally before a release (AGENTS.md §3).
 # Policy details: docs/02-technology-stack.md, section "Licensing policy".
 
 [licenses]
@@ -45,3 +46,17 @@ deny = [
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+
+[advisories]
+# "Unmaintained" notices (no known vulnerability) for crates that only the GUI
+# placeholder pulls in through eframe 0.36: AT-SPI accessibility over D-Bus on
+# Linux (accesskit_unix → zbus/zvariant) and the window decorations' font
+# parser (winit → sctk-adwaita → ab_glyph → ttf-parser). Accepted on 2026-10-25
+# for 0.1, where the GUI is not implemented; review with the 0.2 GUI work
+# (docs/02-technology-stack.md Decisions).
+ignore = [
+    { id = "RUSTSEC-2026-0192", reason = "ttf-parser unmaintained; GUI window decorations only (winit/sctk-adwaita); review in 0.2" },
+    { id = "RUSTSEC-2026-0370", reason = "zvariant unmaintained; GUI accessibility on Linux only (accesskit_unix); review in 0.2" },
+    { id = "RUSTSEC-2026-0371", reason = "zbus_names unmaintained; GUI accessibility on Linux only (accesskit_unix); review in 0.2" },
+    { id = "RUSTSEC-2026-0372", reason = "zvariant_derive unmaintained; GUI accessibility on Linux only (accesskit_unix); review in 0.2" },
+]

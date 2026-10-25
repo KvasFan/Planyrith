@@ -5,10 +5,11 @@ architecture, interiors, landscape, woodworking and product mock-ups. It is writ
 entirely in Rust, runs on Linux, macOS, Windows and in the browser (WebAssembly), and is
 built *CLI-first*: every modeling tool exists as a command before it gets a button.
 
-> **Status: version 0.0.0 — specification only.**
-> This repository currently contains the complete design documents and a workspace
-> scaffold with pinned dependencies. No feature is implemented yet. Implementation follows the
-> milestones in [`docs/13-roadmap.md`](docs/13-roadmap.md).
+> **Status: version 0.1.0 — headless core and command line.**
+> The geometry kernel, the document model, the 0.1 modeling commands, the native file format
+> and the `planyrith` command line (with a JSON-RPC server) work; there is no viewport or GUI
+> yet. See [`CHANGELOG.md`](CHANGELOG.md) and the milestones in
+> [`docs/13-roadmap.md`](docs/13-roadmap.md).
 
 ## What Planyrith will be
 
@@ -51,13 +52,22 @@ built *CLI-first*: every modeling tool exists as a command before it gets a butt
 5. **Precision by default.** Geometry is computed in `f64` millimeters with explicit
    tolerances; rendering uses `f32`.
 
-## Building (scaffold)
+## Building and trying it
 
 ```sh
-cargo check --workspace
-cargo run -p planyrith-cli      # prints the version
-cargo run -p planyrith-gui      # prints the version
+cargo build --release -p planyrith-cli        # the `planyrith` binary
+
+planyrith new -f box.plyr
+planyrith -f box.plyr tool rectangle --corner-a 0,0,0 --corner-b 1m,600mm,0
+planyrith -f box.plyr tool push-pull --face '{face & last}' --distance 450mm
+planyrith -f box.plyr query 'face' --fields pid,area
+planyrith -f box.plyr validate
+planyrith tool                                # every command; `planyrith tool <name> --help`
 ```
+
+Longer scripts run as one undo step with `planyrith -f room.plyr batch room.plyrb`; see
+[`docs/08-cli-specification.md`](docs/08-cli-specification.md) and the acceptance script
+[`crates/planyrith-cli/tests/batches/furnished-room.plyrb`](crates/planyrith-cli/tests/batches/furnished-room.plyrb).
 
 ## License
 
