@@ -876,23 +876,34 @@ impl Renderer {
                 &DAffine3::IDENTITY,
                 &camera,
             );
-            // Segments are cut at the near plane here, in f64: clipping a
-            // segment kilometres long behind the eye in the vertex shader is
-            // not exact enough on every device.
-            let forward = camera.forward();
-            let near = depth.near.max(camera.distance() * 0.01).max(1.0);
-            let perspective = !matches!(camera.projection, Projection::Parallel { .. });
+            // Segments are cut to the view (four times the screen, in front
+            // of the eye) here, in f64: a segment reaching far off screen
+            // becomes a quad too long and thin for every rasterizer to clip
+            // exactly (software adapters drop it).
+            let clip_f64 = camera.clip_from_local(&DAffine3::IDENTITY, depth);
             let clip_to_view = |a: DVec3, b: DVec3| -> Option<(DVec3, DVec3)> {
-                if !perspective {
-                    return Some((a, b));
+                let (ca, cb) = (clip_f64 * a.extend(1.0), clip_f64 * b.extend(1.0));
+                let guard = 4.0;
+                let tests = |c: glam::DVec4| {
+                    [
+                        c.w - 1e-3,
+                        guard * c.w - c.x,
+                        guard * c.w + c.x,
+                        guard * c.w - c.y,
+                        guard * c.w + c.y,
+                    ]
+                };
+                let (fa, fb) = (tests(ca), tests(cb));
+                let (mut t0, mut t1) = (0.0f64, 1.0f64);
+                for (va, vb) in fa.iter().zip(fb.iter()) {
+                    match (*va >= 0.0, *vb >= 0.0) {
+                        (true, true) => {}
+                        (false, false) => return None,
+                        (true, false) => t1 = t1.min(va / (va - vb)),
+                        (false, true) => t0 = t0.max(va / (va - vb)),
+                    }
                 }
-                let (da, db) = ((a - camera.eye).dot(forward), (b - camera.eye).dot(forward));
-                match (da >= near, db >= near) {
-                    (true, true) => Some((a, b)),
-                    (false, false) => None,
-                    (true, false) => Some((a, a + (b - a) * ((near - da) / (db - da)))),
-                    (false, true) => Some((a + (b - a) * ((near - da) / (db - da)), b)),
-                }
+                (t0 < t1).then(|| (a + (b - a) * t0, a + (b - a) * t1))
             };
             let segments = |sign: f64| -> Vec<EdgeInstance> {
                 [DVec3::X, DVec3::Y, DVec3::Z]
