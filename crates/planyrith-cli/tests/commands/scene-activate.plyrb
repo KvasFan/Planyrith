@@ -1,0 +1,7 @@
+# Activating a scene restores its camera and tag visibility.
+tag-create --name Walls
+camera-standard --view top
+scene-add --name Plan
+camera-standard --view front
+tag-set-visible --tag Walls --no-visible
+scene-activate --scene Plan

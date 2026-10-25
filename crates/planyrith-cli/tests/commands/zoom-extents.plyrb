@@ -1,0 +1,5 @@
+# Fit the whole model, then one face.
+rectangle --corner-a 0,0,0 --corner-b 1000,600,0
+push-pull --face '{face & last}' --distance 400
+zoom-extents
+zoom-extents --targets 'face & normal:z & plane:xy@400'

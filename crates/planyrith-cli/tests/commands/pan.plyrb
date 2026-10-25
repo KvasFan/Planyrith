@@ -1,0 +1,2 @@
+# Move eye and target together.
+pan --delta 250,-100,0

@@ -1,4 +1,4 @@
-//! Implements docs/05-modeling-tools.md §5. Organization tools (category `organize`): `make-group`, `make-component`, `explode`, `make-unique`, `tag-*`, `material-*`, `purge-unused`, …
+//! Implements docs/05-modeling-tools.md §5. Organization tools (category `organize`): `make-group`, `make-component`, `explode`, `make-unique`, `tag-*`, `material-*`, `scene-*`, `purge-unused`, …
 //!
 //! Each tool is one `Command` implementation in its own file with a serde
 //! `Params` struct (flattening `commands::CommonParams`) and an `Output`
@@ -11,6 +11,7 @@
 
 mod groups;
 mod materials;
+mod scenes;
 mod tags;
 
 pub use groups::{
@@ -21,6 +22,11 @@ pub use materials::{
     Fill, MaterialApply, MaterialApplyOutput, MaterialApplyParams, MaterialCreate,
     MaterialCreateParams, MaterialDelete, MaterialDeleteParams, MaterialEdit, MaterialEditParams,
     MaterialOutput, MaterialPurge, MaterialPurgeOutput, MaterialPurgeParams, Side,
+};
+pub use scenes::{
+    SceneActivate, SceneActivateParams, SceneAdd, SceneAddParams, SceneCapture, SceneDelete,
+    SceneDeleteParams, SceneOutput, SceneRename, SceneRenameParams, SceneReorder,
+    SceneReorderParams, SceneUpdate, SceneUpdateParams,
 };
 pub use tags::{
     TagAssign, TagAssignOutput, TagAssignParams, TagCreate, TagCreateParams, TagDelete,
@@ -49,6 +55,12 @@ pub fn register(registry: &mut CommandRegistry) {
     registry.register(MaterialDelete);
     registry.register(MaterialApply);
     registry.register(MaterialPurge);
+    registry.register(SceneAdd);
+    registry.register(SceneUpdate);
+    registry.register(SceneDelete);
+    registry.register(SceneRename);
+    registry.register(SceneReorder);
+    registry.register(SceneActivate);
 }
 
 #[cfg(test)]

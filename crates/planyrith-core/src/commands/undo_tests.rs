@@ -172,3 +172,33 @@ fn organizing() {
         ("unlock", json!({ "targets": "instance" })),
     ]);
 }
+
+#[test]
+fn scenes() {
+    check(&[
+        (
+            "rectangle",
+            json!({ "corner_a": [0,0,0], "corner_b": [400,400,0] }),
+        ),
+        ("scene-add", json!({ "name": "Plan" })),
+        (
+            "tag-create",
+            json!({ "name": "Hidden", "color": "#336699" }),
+        ),
+        (
+            "tag-set-visible",
+            json!({ "tag": "Hidden", "visible": false }),
+        ),
+        (
+            "scene-add",
+            json!({ "name": "Detail", "capture": { "camera": false } }),
+        ),
+        ("scene-update", json!({ "scene": "Plan" })),
+        (
+            "scene-rename",
+            json!({ "scene": "Plan", "new_name": "Overview" }),
+        ),
+        ("scene-reorder", json!({ "scene": "Detail", "index": 0 })),
+        ("scene-delete", json!({ "scene": "Overview" })),
+    ]);
+}

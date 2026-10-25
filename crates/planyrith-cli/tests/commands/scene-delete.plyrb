@@ -1,0 +1,3 @@
+scene-add --name Plan
+scene-add --name Front
+scene-delete --scene Plan

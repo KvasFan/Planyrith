@@ -104,6 +104,25 @@ impl InstancePath {
     pub fn is_prefix_of(&self, other: &InstancePath) -> bool {
         other.steps.starts_with(&self.steps)
     }
+
+    /// The same occurrence with every step keyed by pid (see
+    /// [`EntityPath::canonical`]); a path that does not resolve is returned
+    /// unchanged.
+    pub fn canonical(&self, doc: &Document) -> InstancePath {
+        match self.steps.split_last() {
+            None => self.clone(),
+            Some((&last, parent)) => {
+                let path = EntityPath::new(
+                    InstancePath {
+                        steps: parent.to_vec(),
+                    },
+                    last,
+                )
+                .canonical(doc);
+                path.instances.child(path.target)
+            }
+        }
+    }
 }
 
 impl fmt::Display for InstancePath {
@@ -130,6 +149,24 @@ pub struct EntityPath {
 }
 
 impl EntityPath {
+    /// What a click on this occurrence selects in edit context `context`
+    /// (docs/07 §10, docs/06 §8): the element itself when it lies in the
+    /// context's container, else the outermost group or instance below the
+    /// context that holds it; `None` outside the context. Both paths are
+    /// compared in canonical form.
+    pub fn selectable_in(&self, doc: &Document, context: &InstancePath) -> Option<EntityPath> {
+        let hit = self.canonical(doc);
+        let context = context.canonical(doc);
+        if !context.is_prefix_of(&hit.instances) {
+            return None;
+        }
+        let depth = context.depth();
+        if hit.instances.depth() == depth {
+            return Some(hit);
+        }
+        Some(EntityPath::new(context, hit.instances.steps[depth]))
+    }
+
     /// The same occurrence with every step and the target keyed by pid
     /// when the entity has one, else by id, so equal occurrences compare
     /// equal however they were named (selection sets, docs/04 §11). A path

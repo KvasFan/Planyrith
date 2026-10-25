@@ -34,9 +34,9 @@ use serde::{Deserialize, Serialize};
 use crate::commands::CommandError;
 use crate::diagnostics::Warning;
 use crate::document::{
-    AttributeDictionaries, ComponentDefinition, ContainerRef, Document, EditContext, Entities,
-    EntityKey, EntityPath, EntityRecord, EntityRef, HierarchyError, Material, ModelInfo, QueryEnv,
-    RenderingOptions, Scene, Selection, Style, Tag, TagFolder, Value,
+    AttributeDictionaries, Camera, ComponentDefinition, ContainerRef, Document, EditContext,
+    Entities, EntityKey, EntityPath, EntityRecord, EntityRef, HierarchyError, Material, ModelInfo,
+    QueryEnv, RenderingOptions, Scene, Selection, Style, Tag, TagFolder, Value,
 };
 use crate::geom::{DeltaSink, FaceSides, GeometryError, HalfEdgeMesh, MeshDelta, ReplayIds};
 use crate::ids::{
@@ -1059,6 +1059,19 @@ pub struct TxView {
     pub selection_out: Option<Selection>,
     /// Edit context to apply after commit.
     pub context_out: Option<EditContext>,
+    /// Camera to apply after commit (docs/05 §9: view changes are not undoable).
+    pub camera_out: Option<Camera>,
+}
+
+/// The view changes a committed command asked for (applied by the engine).
+#[derive(Debug, Clone, Default)]
+pub struct ViewChanges {
+    /// New selection.
+    pub selection: Option<Selection>,
+    /// New edit context.
+    pub context: Option<EditContext>,
+    /// New camera.
+    pub camera: Option<Camera>,
 }
 
 /// An open transaction: the only way commands mutate a document
@@ -1206,9 +1219,25 @@ impl<'a> Transaction<'a> {
         self.view.context_out = Some(context);
     }
 
+    /// Asks the engine to replace the camera after commit (docs/05 §9: not
+    /// undoable, does not dirty the document).
+    pub fn set_camera(&mut self, camera: Camera) {
+        self.view.camera_out = Some(camera);
+    }
+
+    /// The camera as the command sees it: the one it already asked for, else
+    /// the document's.
+    pub fn camera(&self) -> Camera {
+        self.view.camera_out.unwrap_or(self.doc.camera)
+    }
+
     /// Takes the view changes requested by the command.
-    pub fn take_view_changes(&mut self) -> (Option<Selection>, Option<EditContext>) {
-        (self.view.selection_out.take(), self.view.context_out.take())
+    pub fn take_view_changes(&mut self) -> ViewChanges {
+        ViewChanges {
+            selection: self.view.selection_out.take(),
+            context: self.view.context_out.take(),
+            camera: self.view.camera_out.take(),
+        }
     }
 
     fn entities(&self, c: ContainerRef) -> Result<&Entities, CommandError> {

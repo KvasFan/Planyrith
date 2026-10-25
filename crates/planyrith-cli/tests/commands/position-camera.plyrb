@@ -1,0 +1,2 @@
+# Place the eye and the target.
+position-camera --eye 3000,-2000,1500 --target 500,300,0

@@ -28,7 +28,8 @@ mod undo_tests;
 pub mod view;
 
 pub use transaction::{
-    AttrTarget, CommittedTransaction, Delta, MeshAliases, Transaction, TxView, UndoEntry, UndoStack,
+    AttrTarget, CommittedTransaction, Delta, MeshAliases, Transaction, TxView, UndoEntry,
+    UndoStack, ViewChanges,
 };
 
 use std::collections::BTreeMap;
@@ -594,6 +595,13 @@ impl Engine {
         self.events.emit(&Event::SelectionChanged(snapshot));
     }
 
+    /// Replaces the document camera and emits `CameraChanged` (docs/05 §9:
+    /// not undoable, no new generation, so the document is not dirtied).
+    pub fn set_camera(&mut self, camera: Camera) {
+        self.doc.camera = camera;
+        self.events.emit(&Event::CameraChanged(camera));
+    }
+
     /// Current edit context.
     pub fn context(&self) -> &EditContext {
         &self.context
@@ -704,7 +712,7 @@ impl Engine {
                 return Err(err);
             }
         };
-        let (selection, context) = tx.take_view_changes();
+        let view = tx.take_view_changes();
         let committed = tx.commit();
         for warning in &committed.warnings {
             self.events.emit(&Event::Warning(warning.clone()));
@@ -725,11 +733,14 @@ impl Engine {
                 self.emit_history();
             }
         }
-        if let Some(selection) = selection {
+        if let Some(selection) = view.selection {
             self.set_selection(selection);
         }
-        if let Some(context) = context {
+        if let Some(context) = view.context {
             self.set_context(context)?;
+        }
+        if let Some(camera) = view.camera {
+            self.set_camera(camera);
         }
         Ok(output)
     }

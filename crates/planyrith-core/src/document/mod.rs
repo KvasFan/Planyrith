@@ -26,7 +26,7 @@ pub mod styles;
 pub mod tags;
 
 pub use attributes::{AttributeDictionaries, Value};
-pub use camera::{Camera, Projection};
+pub use camera::{Camera, DepthRange, Projection, StandardView};
 pub use entities::{
     Anchor, AnchorKind, ArrowStyle, ComponentBehavior, ComponentDefinition, ComponentInstance,
     DimStyle, Dimension, GlueTo, Group, Guide, ImageEntity, RadialKind, SectionPlane, SnapTo, Text,
@@ -531,6 +531,28 @@ impl Document {
     /// World-space bounds of the model (instances expanded).
     pub fn aabb(&self) -> Aabb {
         self.model.local_aabb(&self.definitions, false)
+    }
+
+    /// World bounds of an entity occurrence (docs/06 §7 zoom to selection):
+    /// an edge's segment, a face's loops, or a group's or instance's
+    /// contents; `None` for other entities and paths that do not resolve.
+    pub fn occurrence_aabb(&self, path: &EntityPath) -> Option<Aabb> {
+        let resolved = self.resolve(path).ok()?;
+        let entities = self.container(resolved.container)?;
+        let mesh = entities.mesh();
+        let world = resolved.world;
+        let bounds = match resolved.entity {
+            EntityId::Edge(e) => mesh.edge_segment(e).ok()?.aabb().transformed(&world),
+            EntityId::Face(f) => mesh.face_aabb(f).ok()?.transformed(&world),
+            id => {
+                let def = self.definition(entities.definition_of(id)?)?;
+                let local = entities.transform_of(id)?;
+                def.entities
+                    .local_aabb(&self.definitions, false)
+                    .transformed(&(world * local))
+            }
+        };
+        (!bounds.is_empty()).then_some(bounds)
     }
 
     /// Lightweight clone for previews: copy-on-write at container granularity

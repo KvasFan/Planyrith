@@ -290,3 +290,55 @@ fn materials_create_apply_fill_delete_and_purge() {
     assert_eq!(err.code(), "E1201");
     assert_valid(&e);
 }
+
+#[test]
+fn scenes_capture_and_restore_camera_tags_and_style() {
+    let mut e = engine();
+    boxed(&mut e, 0.0, 0.0, 1000.0);
+    run(&mut e, "tag-create", json!({ "name": "Walls" }));
+    run(
+        &mut e,
+        "camera-standard",
+        json!({ "view": "top", "extents": true }),
+    );
+    let top = e.document().camera;
+    run(&mut e, "scene-add", json!({ "name": "Plan" }));
+    // View commands neither enter the history nor start a new generation.
+    let (generation, undo) = (e.generation(), e.history().applied());
+    run(&mut e, "camera-standard", json!({ "view": "iso" }));
+    run(&mut e, "orbit", json!({ "yaw": 0.5, "pitch": 0.2 }));
+    assert_eq!((e.generation(), e.history().applied()), (generation, undo));
+    assert_ne!(e.document().camera, top);
+    run(
+        &mut e,
+        "tag-set-visible",
+        json!({ "tag": "Walls", "visible": false }),
+    );
+
+    run(&mut e, "scene-activate", json!({ "scene": "Plan" }));
+    assert_eq!(e.document().camera, top);
+    let walls = e.document().tags.by_name("Walls").unwrap();
+    assert!(e.document().tags.get(walls).unwrap().visible);
+    // Activation is not an undo step: undo reverts `tag-set-visible`'s own change.
+    assert_eq!(e.history().undo_label(), Some("Tag Visibility"));
+
+    // A scene without the camera leaves it alone.
+    run(
+        &mut e,
+        "scene-add",
+        json!({ "name": "Tags only", "capture": { "camera": false, "style": false } }),
+    );
+    run(&mut e, "zoom", json!({ "factor": 2.0 }));
+    let zoomed = e.document().camera;
+    run(&mut e, "scene-activate", json!({ "scene": "Tags only" }));
+    assert_eq!(e.document().camera, zoomed);
+
+    let err = e
+        .execute_erased("scene-add", json!({ "name": "Plan" }))
+        .unwrap_err();
+    assert_eq!(err.code(), "E1001");
+    let err = e
+        .execute_erased("zoom-extents", json!({ "targets": "group" }))
+        .unwrap_err();
+    assert_eq!(err.code(), "E1201");
+}

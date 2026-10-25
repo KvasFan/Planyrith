@@ -280,7 +280,8 @@ perpendicular to hovered edge); `Esc` = cancel current step (second `Esc` = canc
 ### 5.7 `scene-add`, `scene-update`, `scene-delete`, `scene-reorder`, `scene-activate`, `scene-rename`
 - `scene-add { name, capture: SceneCaptureFlags }` captures the current camera/tags/hidden/
   sections/style/shadows per flags. `scene-activate` is a view command (animates in GUI;
-  `--no-transition`).
+  `--no-transition`). `scene-update { scene, capture }`, `scene-delete { scene }`,
+  `scene-rename { scene, new_name }`, `scene-reorder { scene, index }`.
 
 ### 5.8 `material-create`, `material-edit`, `material-delete`, `material-apply`, `material-sample`, `material-purge`
 - `material-apply { targets: Sel, material: String, side: Front|Back|Both(Front), fill: Single|Connected|SameMaterial|Object|All }`
@@ -371,14 +372,14 @@ perpendicular to hovered edge); `Esc` = cancel current step (second `Esc` = canc
 
 ## 9. View tools (category `view`) — not undoable, do not dirty the document
 
-- `orbit { delta: (f32,f32) | to: Camera }` — middle-drag; `Shift` = pan; orbits about the
+- `orbit { yaw: Angle, pitch: Angle, pivot?: Point }` — middle-drag; `Shift` = pan; orbits about the
   point under the cursor at drag start (if geometry) else about the model center.
-- `pan`, `zoom { factor | window: Rect | to: Sel }`, `zoom-extents`, `zoom-selection`,
-  `zoom-previous`/`zoom-next`.
+- `pan { delta: Vector }`, `zoom { factor, toward?: Point | window: Rect }`, `zoom-extents
+  { targets?: Sel }` (with `targets`: zoom to selection), `zoom-previous`/`zoom-next`.
 - `look-around { yaw, pitch }`, `walk { forward, strafe, eye_height: Length(1700) }` (with
   collision against faces optional), `position-camera { eye: Point, target: Point | look_dir }`.
 - `camera-set { projection: Perspective|Parallel|TwoPoint, fov?: Angle }`, `camera-standard
-  { view: Top|Bottom|Front|Back|Left|Right|Iso }`, `camera-align-to-face { face }`.
+  { view: Top|Bottom|Front|Back|Left|Right|Iso, extents: bool (false) }`, `camera-align-to-face { face }`.
 - `field-of-view` (interactive drag changes FOV; value field degrees or `35mm` focal length).
 - `style-set`, `shadows-set`, `fog-set`, `show-hidden-geometry`, `show-guides`, `show-section-planes`,
   `show-section-cuts`, `show-section-fill`, `xray`, `show-axes`.
@@ -512,3 +513,13 @@ UI hints are generated from one source.
   that nothing else uses (recursively). Validation of lengths and angles uses the tolerances
   (`distance` within `length` of zero is `E1001`, as is a `from_point`/`to_point` within `length`
   of the rotation axis), so `--dry-run` agrees with the real run.
+- 2026-10-25 — **View commands and scenes (0.2).** Camera view commands (`camera-set`,
+  `camera-standard`, `position-camera`, `orbit`, `pan`, `zoom`, `zoom-extents`) hand the new camera
+  to the engine, which stores it as the document camera and emits `CameraChanged`; they are not
+  undo steps and do not start a new document generation (the camera is still saved with the
+  file). `camera-set` keeps the target's apparent size when switching between perspective and
+  parallel. `position-camera` takes `eye` and `target`; its `look_dir` form is not implemented yet.
+  In 0.2 `SceneCaptureFlags` is `{ camera, tags, style }` (all on by default): scenes capture and
+  `scene-activate` restores the camera, the visibility of every tag and the active style; hidden
+  entities, section planes, shadows and axes arrive with those features. Activation is a view
+  command, so restoring tag visibility is not an undo step either.

@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 
 use glam::{DVec2, DVec3};
 
-use crate::geom::{GeometryError, HalfEdgeMesh};
+use crate::geom::{EdgeFlags, GeometryError, HalfEdgeMesh};
 use crate::ids::{FaceId, VertexId};
 use crate::tolerance::Tolerances;
 
@@ -146,18 +146,81 @@ pub fn tessellate_polygon_2d(
 
 /// Per-vertex shading normals for a tessellated face: the face normal, except
 /// across `SOFT` edges where adjacent face normals are angle-weighted averaged
-/// (docs/03 §5, docs/06 §2).
-///
-/// The draft returns the face normal for every vertex; soft-edge averaging is a
-/// rendering refinement scheduled with the renderer (docs/06 §2) and recorded
-/// as a decision in docs/03.
+/// (docs/03 §5, docs/06 §2). At each vertex the faces reachable from `f`
+/// through soft edges incident to the vertex form the smoothing group; each
+/// contributes its normal weighted by its corner angle at the vertex.
 pub fn vertex_normals(
     mesh: &HalfEdgeMesh,
     f: FaceId,
     tess: &FaceTessellation,
 ) -> Result<Vec<DVec3>, GeometryError> {
     let n = mesh.face_normal(f)?;
-    Ok(vec![n; tess.vertices.len()])
+    tess.vertices
+        .iter()
+        .map(|&v| smooth_normal(mesh, f, v, n))
+        .collect()
+}
+
+/// The shading normal of face `f` at vertex `v` (see [`vertex_normals`]).
+fn smooth_normal(
+    mesh: &HalfEdgeMesh,
+    f: FaceId,
+    v: VertexId,
+    face_normal: DVec3,
+) -> Result<DVec3, GeometryError> {
+    let mut soft = Vec::new();
+    for &h in mesh.vertex_star(v) {
+        let e = mesh.he(h)?.edge;
+        if mesh
+            .edge(e)
+            .is_some_and(|x| x.flags.contains(EdgeFlags::SOFT))
+        {
+            soft.push(mesh.edge_faces(e)?);
+        }
+    }
+    if soft.is_empty() {
+        return Ok(face_normal);
+    }
+    let mut group = vec![f];
+    let mut grown = true;
+    while grown {
+        grown = false;
+        for &[a, b] in &soft {
+            if let (Some(a), Some(b)) = (a, b) {
+                for (x, y) in [(a, b), (b, a)] {
+                    if group.contains(&x) && !group.contains(&y) {
+                        group.push(y);
+                        grown = true;
+                    }
+                }
+            }
+        }
+    }
+    if group.len() == 1 {
+        return Ok(face_normal);
+    }
+    let mut sum = DVec3::ZERO;
+    for g in group {
+        sum += mesh.face_normal(g)? * corner_angle(mesh, g, v)?;
+    }
+    Ok(sum.try_normalize().unwrap_or(face_normal))
+}
+
+/// The interior angle of face `f` at vertex `v` (0 when `v` is not on `f`).
+fn corner_angle(mesh: &HalfEdgeMesh, f: FaceId, v: VertexId) -> Result<f64, GeometryError> {
+    for cycle in mesh.face_cycles(f)? {
+        for h in cycle {
+            let he = mesh.he(h)?;
+            if he.origin != v {
+                continue;
+            }
+            let p = mesh.position(v)?;
+            let a = mesh.position(mesh.he(he.prev)?.origin)? - p;
+            let b = mesh.position(mesh.dest(h)?)? - p;
+            return Ok(libm::atan2(a.cross(b).length(), a.dot(b)));
+        }
+    }
+    Ok(0.0)
 }
 
 /// Deterministic hash of the face's loop positions (bit patterns, loop order),

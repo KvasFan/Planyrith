@@ -1,0 +1,4 @@
+# Orbit about the target, then about a pivot.
+rectangle --corner-a 0,0,0 --corner-b 1000,600,0
+orbit --yaw 30 --pitch -10
+orbit --yaw -15 --pivot 0,0,0

@@ -1,19 +1,30 @@
 //! Implements docs/06-rendering-and-viewport.md §2 (render data extraction)
 //! and the incremental cache of docs/01 §5: GPU-agnostic `RenderMesh` buffers
 //! per `Entities` container (plain `Vec<f32>`/`Vec<u32>`), coordinates relative
-//! to the container origin, smooth normals across `SOFT` edges.
+//! to the container origin, smooth normals across `SOFT` edges; and the flat
+//! draw list of docs/06 §2 ("the renderer walks the hierarchy each frame"):
+//! one item per container occurrence with its world transform, material
+//! override, selection and edit-context state.
 //!
-//! Owner key: `later` (milestone 0.2; depends on `geom::tessellate`).
+//! Determinism: faces and edges are taken in container (pid) order, material
+//! ranges in key order, draw items in depth-first container order, so the
+//! same document gives the same buffers before and after a save/reload.
 
 use std::collections::BTreeMap;
 use std::ops::Range;
 
+use glam::{DAffine3, DVec2, DVec3};
+
 use crate::commands::transaction::Delta;
-use crate::document::{ContainerRef, Document, Entities, FrontOrBack, Materials};
-use crate::geom::GeometryError;
-use crate::ids::MaterialId;
+use crate::document::{
+    ContainerRef, Document, EditContext, Entities, EntityKey, EntityView, FrontOrBack,
+    InstancePath, Selection, UvMap,
+};
+use crate::geom::tessellate::{tessellate_face, vertex_normals};
+use crate::geom::{EdgeFlags, GeometryError};
+use crate::ids::{EdgeId, EntityId, FaceId, MaterialId};
 use crate::math::Aabb;
-use crate::tolerance::Tolerances;
+use crate::spatial::InstanceProvider;
 
 /// Bits of `EdgeBuffers::flags` (docs/06 §2).
 pub mod edge_flag_bits {
@@ -23,16 +34,20 @@ pub mod edge_flag_bits {
     pub const SOFT: u8 = 0b0000_0010;
     /// `EdgeFlags::SMOOTH`.
     pub const SMOOTH: u8 = 0b0000_0100;
-    /// `EdgeFlags::HIDDEN`.
+    /// Hidden: `EdgeFlags::HIDDEN`, or the edge entity is hidden (itself or
+    /// through its tag). Present only with `ExtractOptions::include_hidden`.
     pub const HIDDEN: u8 = 0b0000_1000;
-    /// Edge between two segments of one curve descriptor.
+    /// A segment of a curve descriptor (arc, circle).
     pub const CURVE_SEAM: u8 = 0b0001_0000;
 }
+
+/// "No face" in [`EdgeBuffers::faces`].
+pub const NO_FACE: u32 = u32::MAX;
 
 /// Material resolution per face side (docs/06 §2 `MaterialKey`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct MaterialKey {
-    /// `None` = the document default for `side`.
+    /// `None` = the document default for `side` (or an instance override).
     pub material: Option<MaterialId>,
     /// Which side of the face.
     pub side: FrontOrBack,
@@ -47,32 +62,59 @@ pub struct EdgeBuffers {
     pub edge_ids: Vec<u32>,
     /// Flag bits per edge ([`edge_flag_bits`]).
     pub flags: Vec<u8>,
+    /// The local indices of the (up to two) faces each edge borders,
+    /// [`NO_FACE`] for an open side (profile edges, docs/06 §5).
+    pub faces: Vec<[u32; 2]>,
 }
 
-/// Extracted buffers for one container (docs/06 §2 `RenderMesh`). Back faces
-/// are emitted as separate index ranges with flipped winding.
+/// Extracted buffers for one container (docs/06 §2 `RenderMesh`). Every face
+/// is emitted twice: its front side (counter-clockwise, normals along the
+/// face normal) and its back side (flipped winding and normals), each in the
+/// index range of its own material key.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct RenderMesh {
     /// Vertex positions (container-local, f32).
     pub positions: Vec<[f32; 3]>,
     /// Shading normals.
     pub normals: Vec<[f32; 3]>,
-    /// Texture coordinates.
+    /// Texture coordinates in tiles of the side's texture (0 without one).
     pub uvs: Vec<[f32; 2]>,
     /// Local face index per vertex (picking/highlight).
     pub face_ids: Vec<u32>,
     /// Triangle indices into the vertex arrays.
     pub indices: Vec<u32>,
-    /// Index ranges grouped by material and side.
+    /// Index ranges grouped by material and side, in key order.
     pub indices_by_material: Vec<(MaterialKey, Range<u32>)>,
     /// Edge lines.
     pub edges: EdgeBuffers,
     /// Local bounds.
     pub bounds: Aabb,
     /// Local face index → `FaceId` lookup (parallel to `face_ids` values).
-    pub face_lookup: Vec<crate::ids::FaceId>,
+    pub face_lookup: Vec<FaceId>,
+    /// Face normal per local face (profile edges, docs/06 §5).
+    pub face_normals: Vec<[f32; 3]>,
+    /// Per local face: hidden (present only with `include_hidden`).
+    pub face_hidden: Vec<bool>,
     /// Local edge index → `EdgeId` lookup.
-    pub edge_lookup: Vec<crate::ids::EdgeId>,
+    pub edge_lookup: Vec<EdgeId>,
+}
+
+impl RenderMesh {
+    /// The local index of a face, if extracted.
+    pub fn face_index(&self, f: FaceId) -> Option<u32> {
+        self.face_lookup
+            .iter()
+            .position(|&x| x == f)
+            .map(|i| i as u32)
+    }
+
+    /// The local index of an edge, if extracted.
+    pub fn edge_index(&self, e: EdgeId) -> Option<u32> {
+        self.edge_lookup
+            .iter()
+            .position(|&x| x == e)
+            .map(|i| i as u32)
+    }
 }
 
 /// Extraction options.
@@ -93,21 +135,179 @@ impl Default for ExtractOptions {
     }
 }
 
+/// `true` when an entity is hidden by its own flag or a hidden tag (docs/04 §5).
+fn entity_hidden(doc: &Document, entities: &Entities, id: EntityId) -> bool {
+    entities.is_hidden(id)
+        || !doc
+            .tags
+            .is_visible(entities.tag_of(id).unwrap_or_else(|| doc.tags.untagged()))
+}
+
+/// Texture coordinates of `p` on one side of a face (docs/04 §4): the UV map
+/// takes the point in the face frame (or the projection plane's frame) to
+/// texture millimeters, which are divided by the texture's tile size; fixed
+/// pins are already in tiles.
+fn uv_of(
+    map: Option<&UvMap>,
+    frame_point: DVec2,
+    vertex: crate::ids::VertexId,
+    p: DVec3,
+    tile: Option<DVec2>,
+) -> [f32; 2] {
+    let Some(tile) = tile else {
+        return [0.0, 0.0];
+    };
+    let mm = match map {
+        None => frame_point,
+        Some(UvMap::Affine(a)) => a.transform_point2(frame_point),
+        Some(UvMap::Projected { plane, affine }) => affine.transform_point2(plane.frame().to_2d(p)),
+        Some(UvMap::Projective(m)) => {
+            let h = *m * frame_point.extend(1.0);
+            if h.z.abs() <= f64::MIN_POSITIVE {
+                return [0.0, 0.0];
+            }
+            DVec2::new(h.x / h.z, h.y / h.z)
+        }
+        Some(UvMap::Fixed(pins)) => {
+            let uv = pins
+                .iter()
+                .find(|(v, _)| *v == vertex)
+                .map_or(frame_point / tile, |(_, uv)| *uv);
+            return [uv.x as f32, uv.y as f32];
+        }
+    };
+    let uv = mm / tile.max(DVec2::splat(f64::MIN_POSITIVE));
+    [uv.x as f32, uv.y as f32]
+}
+
+fn f32x3(v: DVec3) -> [f32; 3] {
+    [v.x as f32, v.y as f32, v.z as f32]
+}
+
 /// Extracts the buffers of one container (docs/06 §2). Deterministic: faces
-/// and edges in slot order, material ranges sorted by key.
+/// and edges in container (pid) order, material ranges sorted by key.
 pub fn extract(
-    entities: &Entities,
-    materials: &Materials,
+    doc: &Document,
+    container: ContainerRef,
     opts: ExtractOptions,
-    tol: &Tolerances,
 ) -> Result<RenderMesh, GeometryError> {
-    todo!("docs/06 §2 render mesh extraction")
+    let entities = doc
+        .container(container)
+        .ok_or_else(|| GeometryError::NotFound(format!("container {container:?}")))?;
+    let mesh = entities.mesh();
+    let tol = doc.tolerances();
+    let mut out = RenderMesh::default();
+    let mut buckets: BTreeMap<MaterialKey, Vec<u32>> = BTreeMap::new();
+    let mut bounds = Aabb::EMPTY;
+
+    let mut face_index: BTreeMap<FaceId, u32> = BTreeMap::new();
+    for &id in entities.order() {
+        let EntityId::Face(f) = id else { continue };
+        let Some(face) = mesh.face(f) else { continue };
+        let hidden = entity_hidden(doc, entities, id);
+        if hidden && !opts.include_hidden {
+            continue;
+        }
+        // A face that cannot be triangulated is skipped, not fatal: the
+        // rest of the model still renders (validate reports the defect).
+        let Ok(tess) = tessellate_face(mesh, f, tol) else {
+            continue;
+        };
+        let normal = mesh.face_normal(f)?;
+        let normals = if opts.smooth_normals {
+            vertex_normals(mesh, f, &tess)?
+        } else {
+            vec![normal; tess.vertices.len()]
+        };
+        let local = out.face_lookup.len() as u32;
+        face_index.insert(f, local);
+        out.face_lookup.push(f);
+        out.face_normals.push(f32x3(normal));
+        out.face_hidden.push(hidden);
+        let frame = face.plane.frame();
+        for side in [FrontOrBack::Front, FrontOrBack::Back] {
+            let (material, map) = match side {
+                FrontOrBack::Front => (face.sides.material_front, face.sides.uv_front.as_ref()),
+                FrontOrBack::Back => (face.sides.material_back, face.sides.uv_back.as_ref()),
+            };
+            let tile = doc
+                .materials
+                .get(doc.materials.resolve(material, side))
+                .and_then(|m| m.texture.as_ref())
+                .map(|t| t.size_mm);
+            let base = out.positions.len() as u32;
+            let flip = if side == FrontOrBack::Front {
+                1.0
+            } else {
+                -1.0
+            };
+            for (k, &p) in tess.positions.iter().enumerate() {
+                bounds = bounds.including(p);
+                out.positions.push(f32x3(p));
+                out.normals.push(f32x3(normals[k] * flip));
+                out.uvs
+                    .push(uv_of(map, frame.to_2d(p), tess.vertices[k], p, tile));
+                out.face_ids.push(local);
+            }
+            let bucket = buckets.entry(MaterialKey { material, side }).or_default();
+            for t in &tess.triangles {
+                if side == FrontOrBack::Front {
+                    bucket.extend([base + t[0], base + t[1], base + t[2]]);
+                } else {
+                    bucket.extend([base + t[0], base + t[2], base + t[1]]);
+                }
+            }
+        }
+    }
+    for (key, list) in buckets {
+        let start = out.indices.len() as u32;
+        out.indices.extend(list);
+        out.indices_by_material
+            .push((key, start..out.indices.len() as u32));
+    }
+
+    for &id in entities.order() {
+        let EntityId::Edge(e) = id else { continue };
+        let Some(edge) = mesh.edge(e) else { continue };
+        let hidden = edge.flags.contains(EdgeFlags::HIDDEN) || entity_hidden(doc, entities, id);
+        if hidden && !opts.include_hidden {
+            continue;
+        }
+        let seg = mesh.edge_segment(e)?;
+        bounds = bounds.including(seg.a).including(seg.b);
+        let mut bits = 0u8;
+        if edge.flags.contains(EdgeFlags::SOFT) {
+            bits |= edge_flag_bits::SOFT;
+        }
+        if edge.flags.contains(EdgeFlags::SMOOTH) {
+            bits |= edge_flag_bits::SMOOTH;
+        }
+        if hidden {
+            bits |= edge_flag_bits::HIDDEN;
+        }
+        if edge.curve.is_some() {
+            bits |= edge_flag_bits::CURVE_SEAM;
+        }
+        let [a, b] = mesh.edge_faces(e)?;
+        let local = |f: Option<FaceId>| {
+            f.and_then(|f| face_index.get(&f).copied())
+                .unwrap_or(NO_FACE)
+        };
+        out.edges.edge_ids.push(out.edge_lookup.len() as u32);
+        out.edge_lookup.push(e);
+        out.edges.positions.push(f32x3(seg.a));
+        out.edges.positions.push(f32x3(seg.b));
+        out.edges.flags.push(bits);
+        out.edges.faces.push([local(a), local(b)]);
+    }
+    out.bounds = bounds;
+    Ok(out)
 }
 
 /// Per-container cache invalidated by deltas (docs/01 §5).
 #[derive(Debug, Default)]
 pub struct RenderMeshCache {
-    entries: BTreeMap<ContainerRef, (u64, RenderMesh)>,
+    entries: BTreeMap<ContainerRef, (ExtractOptions, RenderMesh)>,
     generation: u64,
 }
 
@@ -117,21 +317,38 @@ impl RenderMeshCache {
         Self::default()
     }
 
-    /// Returns the cached mesh for a container, extracting on a miss.
+    /// Returns the cached mesh for a container, extracting on a miss (or
+    /// when it was extracted with other options).
     pub fn get_or_extract(
         &mut self,
         doc: &Document,
         container: ContainerRef,
         opts: ExtractOptions,
     ) -> Result<&RenderMesh, GeometryError> {
-        todo!("docs/01 §5 render mesh cache lookup")
+        let fresh = self
+            .entries
+            .get(&container)
+            .is_some_and(|(o, _)| *o == opts);
+        if !fresh {
+            let mesh = extract(doc, container, opts)?;
+            self.entries.insert(container, (opts, mesh));
+        }
+        self.entries
+            .get(&container)
+            .map(|(_, m)| m)
+            .ok_or_else(|| GeometryError::NotFound(format!("container {container:?}")))
     }
 
-    /// Drops containers touched by `deltas`.
+    /// Drops containers touched by `deltas`. Document-wide changes (tag
+    /// visibility, materials, definitions) can change any container's
+    /// buffers and clear the cache.
     pub fn apply_deltas(&mut self, deltas: &[Delta]) {
         for delta in deltas {
-            if let Some(c) = delta.container() {
-                self.entries.remove(&c);
+            match delta.container() {
+                Some(c) => {
+                    self.entries.remove(&c);
+                }
+                None => self.entries.clear(),
             }
         }
         self.generation += 1;
@@ -158,9 +375,129 @@ impl RenderMeshCache {
     }
 }
 
+/// One container occurrence to draw (docs/06 §2 `DrawList`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct DrawItem {
+    /// The occurrence, every step keyed by pid.
+    pub path: InstancePath,
+    /// The container it opens.
+    pub container: ContainerRef,
+    /// Container-to-world transform.
+    pub world: DAffine3,
+    /// Material for the default-material faces: the innermost instance
+    /// override on the path (docs/05 §5.8).
+    pub material_override: Option<MaterialId>,
+    /// Hidden itself or through a step or tag (listed with `include_hidden`).
+    pub hidden: bool,
+    /// The whole occurrence is selected (it or an enclosing group or
+    /// instance is in the selection).
+    pub selected: bool,
+    /// Selected faces of this occurrence.
+    pub selected_faces: Vec<FaceId>,
+    /// Selected edges of this occurrence.
+    pub selected_edges: Vec<EdgeId>,
+    /// Outside the active edit context (drawn faded, docs/06 §9).
+    pub faded: bool,
+}
+
+/// The draw list of a document (docs/06 §2): every container occurrence in
+/// depth-first container order, with selection and edit-context state.
+/// Hidden occurrences are left out unless `include_hidden`.
+pub fn draw_list(
+    doc: &Document,
+    selection: &Selection,
+    context: &EditContext,
+    include_hidden: bool,
+) -> Vec<DrawItem> {
+    let mut items: Vec<DrawItem> = Vec::new();
+    for occ in InstanceProvider::occurrences(doc) {
+        if occ.hidden && !include_hidden {
+            continue;
+        }
+        // Walk the path once: canonical keys and the innermost override.
+        let mut container = ContainerRef::Model;
+        let mut steps = Vec::with_capacity(occ.path.depth());
+        let mut material_override = None;
+        for &step in &occ.path.steps {
+            let Some(entities) = doc.container(container) else {
+                break;
+            };
+            let Some(id) = entities.key_to_id(step) else {
+                break;
+            };
+            if let Some(EntityView::Instance(i)) = entities.view(id)
+                && i.material_override.is_some()
+            {
+                material_override = i.material_override;
+            }
+            steps.push(
+                entities
+                    .pid_of(id)
+                    .map_or(EntityKey::Id(id), EntityKey::Pid),
+            );
+            let Some(def) = entities.definition_of(id) else {
+                break;
+            };
+            container = ContainerRef::Definition(def);
+        }
+        items.push(DrawItem {
+            path: InstancePath { steps },
+            container: occ.container,
+            world: occ.world,
+            material_override,
+            hidden: occ.hidden,
+            selected: false,
+            selected_faces: Vec::new(),
+            selected_edges: Vec::new(),
+            faded: false,
+        });
+    }
+
+    let index: BTreeMap<InstancePath, usize> = items
+        .iter()
+        .enumerate()
+        .map(|(i, item)| (item.path.clone(), i))
+        .collect();
+    let mut whole: Vec<InstancePath> = Vec::new();
+    for path in selection.iter() {
+        let path = path.canonical(doc);
+        let Ok(resolved) = doc.resolve(&path) else {
+            continue;
+        };
+        match resolved.entity {
+            EntityId::Face(f) => {
+                if let Some(&i) = index.get(&path.instances) {
+                    items[i].selected_faces.push(f);
+                }
+            }
+            EntityId::Edge(e) => {
+                if let Some(&i) = index.get(&path.instances) {
+                    items[i].selected_edges.push(e);
+                }
+            }
+            EntityId::Group(_) | EntityId::Instance(_) => {
+                whole.push(path.instances.child(path.target));
+            }
+            _ => {}
+        }
+    }
+    let context = context.path.canonical(doc);
+    for item in &mut items {
+        item.selected = whole.iter().any(|w| w.is_prefix_of(&item.path));
+        item.faded = !context.is_prefix_of(&item.path);
+    }
+    items
+}
+
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use serde_json::json;
+
     use super::*;
+    use crate::commands::{CommandRegistry, Engine};
+    use crate::document::EntityPath;
 
     #[test]
     fn material_keys_order_front_before_back() {
@@ -174,5 +511,220 @@ mod tests {
         };
         assert!(a < b);
         assert!(RenderMesh::default().bounds.is_empty());
+    }
+
+    fn engine() -> Engine {
+        Engine::new(Document::new(), Arc::new(CommandRegistry::with_builtins()))
+    }
+
+    fn run(e: &mut Engine, name: &str, params: serde_json::Value) -> serde_json::Value {
+        e.execute_erased(name, params)
+            .unwrap_or_else(|err| panic!("{name}: {err}"))
+    }
+
+    fn cube(e: &mut Engine) {
+        run(
+            e,
+            "rectangle",
+            json!({ "corner_a": [0, 0, 0], "corner_b": [1000, 1000, 0] }),
+        );
+        run(
+            e,
+            "push-pull",
+            json!({ "face": { "Query": "face & last" }, "distance": 1000.0 }),
+        );
+    }
+
+    #[test]
+    fn a_box_gives_two_sided_triangles_and_twelve_edges() {
+        let mut e = engine();
+        cube(&mut e);
+        let m = extract(e.document(), ContainerRef::Model, ExtractOptions::default()).unwrap();
+        assert_eq!(m.face_lookup.len(), 6);
+        // 6 quads, 2 triangles each, front and back.
+        assert_eq!(m.indices.len(), 6 * 2 * 2 * 3);
+        assert_eq!(m.positions.len(), 6 * 4 * 2);
+        assert_eq!(m.positions.len(), m.normals.len());
+        assert_eq!(m.positions.len(), m.uvs.len());
+        assert_eq!(m.positions.len(), m.face_ids.len());
+        let sides: Vec<FrontOrBack> = m.indices_by_material.iter().map(|(k, _)| k.side).collect();
+        assert_eq!(sides, vec![FrontOrBack::Front, FrontOrBack::Back]);
+        assert_eq!(m.edge_lookup.len(), 12);
+        assert_eq!(m.edges.positions.len(), 24);
+        // Every box edge borders two faces, and each front triangle winds
+        // with its face normal.
+        assert!(
+            m.edges
+                .faces
+                .iter()
+                .all(|[a, b]| *a != NO_FACE && *b != NO_FACE)
+        );
+        let (_, front) = &m.indices_by_material[0];
+        for t in m.indices[front.start as usize..front.end as usize].chunks(3) {
+            let p = |i: u32| glam::Vec3::from(m.positions[i as usize]);
+            let n = (p(t[1]) - p(t[0])).cross(p(t[2]) - p(t[0]));
+            let face_n = glam::Vec3::from(m.face_normals[m.face_ids[t[0] as usize] as usize]);
+            assert!(n.dot(face_n) > 0.0);
+        }
+        assert_eq!(m.bounds.max, DVec3::splat(1000.0));
+    }
+
+    #[test]
+    fn soft_edges_smooth_normals_and_hidden_entities_are_left_out() {
+        let mut e = engine();
+        cube(&mut e);
+        run(
+            &mut e,
+            "erase",
+            json!({ "targets": "edge", "mode": "soften" }),
+        );
+        run(
+            &mut e,
+            "hide",
+            json!({ "targets": "face & normal:z & plane:xy@1000" }),
+        );
+        let doc = e.document();
+        let m = extract(doc, ContainerRef::Model, ExtractOptions::default()).unwrap();
+        assert_eq!(m.face_lookup.len(), 5);
+        let soft = m
+            .edges
+            .flags
+            .iter()
+            .filter(|f| **f & edge_flag_bits::SOFT != 0)
+            .count();
+        assert_eq!(soft, 12);
+        // Across soft edges neighboring faces share averaged normals.
+        let bent = m
+            .normals
+            .iter()
+            .filter(|n| n[0].abs() > 0.1 && n[1].abs() > 0.1)
+            .count();
+        assert!(bent > 0);
+        let all = extract(
+            doc,
+            ContainerRef::Model,
+            ExtractOptions {
+                include_hidden: true,
+                smooth_normals: false,
+            },
+        )
+        .unwrap();
+        assert_eq!(all.face_lookup.len(), 6);
+        assert_eq!(all.face_hidden.iter().filter(|h| **h).count(), 1);
+        assert!(
+            all.normals
+                .iter()
+                .all(|n| n.iter().filter(|c| c.abs() > 0.5).count() == 1)
+        );
+    }
+
+    #[test]
+    fn draw_list_follows_instances_selection_and_context() {
+        let mut e = engine();
+        cube(&mut e);
+        run(
+            &mut e,
+            "make-component",
+            json!({ "targets": "all", "name": "Crate" }),
+        );
+        run(
+            &mut e,
+            "move",
+            json!({ "targets": "instance", "delta": [2000, 0, 0], "copy": true }),
+        );
+        run(
+            &mut e,
+            "material-create",
+            json!({ "name": "Oak", "color": "#A0522D" }),
+        );
+        run(
+            &mut e,
+            "material-apply",
+            json!({ "targets": "instance", "material": "Oak" }),
+        );
+        let doc = e.document();
+        let items = draw_list(doc, &Selection::new(), &EditContext::model(), false);
+        assert_eq!(items.len(), 3);
+        assert!(items[0].path.is_root());
+        assert_eq!(items[1].container, items[2].container);
+        assert_eq!(items[2].world.translation, DVec3::new(2000.0, 0.0, 0.0));
+        assert!(items[1].material_override.is_some());
+        assert!(items.iter().all(|i| !i.selected && !i.faded));
+
+        // Select the second instance; enter the first.
+        let second = items[2].path.clone();
+        let (last, parent) = second.steps.split_last().unwrap();
+        let selection = Selection::single(EntityPath::new(
+            InstancePath {
+                steps: parent.to_vec(),
+            },
+            *last,
+        ));
+        let context = EditContext {
+            path: items[1].path.clone(),
+        };
+        let items = draw_list(doc, &selection, &context, false);
+        assert!(!items[1].selected && items[2].selected);
+        assert!(items[0].faded && !items[1].faded && items[2].faded);
+
+        // A click on a face inside an instance selects the instance from
+        // the model, the face from inside it.
+        let hit = EntityPath::new(items[1].path.clone(), {
+            let def = doc.container(items[1].container).unwrap();
+            let f = def
+                .order()
+                .iter()
+                .find(|id| matches!(id, EntityId::Face(_)))
+                .unwrap();
+            EntityKey::Pid(def.pid_of(*f).unwrap())
+        });
+        let from_model = hit.selectable_in(doc, &InstancePath::root()).unwrap();
+        assert!(from_model.instances.is_root());
+        assert_eq!(from_model.target, items[1].path.steps[0]);
+        assert_eq!(hit.selectable_in(doc, &items[1].path), Some(hit.clone()));
+        assert_eq!(hit.selectable_in(doc, &items[2].path), None);
+    }
+
+    #[test]
+    fn the_cache_reextracts_touched_containers() {
+        let mut e = engine();
+        cube(&mut e);
+        let mut cache = RenderMeshCache::new();
+        let opts = ExtractOptions::default();
+        assert_eq!(
+            cache
+                .get_or_extract(e.document(), ContainerRef::Model, opts)
+                .unwrap()
+                .face_lookup
+                .len(),
+            6
+        );
+        assert_eq!(cache.len(), 1);
+        let before = e.history().applied();
+        run(
+            &mut e,
+            "delete",
+            json!({ "targets": "face & normal:z & plane:xy@1000" }),
+        );
+        assert!(e.history().applied() > before);
+        let deltas: Vec<Delta> = e
+            .history()
+            .entries()
+            .last()
+            .unwrap()
+            .transactions
+            .iter()
+            .flat_map(|t| t.deltas.clone())
+            .collect();
+        cache.apply_deltas(&deltas);
+        assert!(cache.is_empty());
+        assert_eq!(
+            cache
+                .get_or_extract(e.document(), ContainerRef::Model, opts)
+                .unwrap()
+                .face_lookup
+                .len(),
+            5
+        );
     }
 }

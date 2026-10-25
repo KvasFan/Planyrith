@@ -491,3 +491,8 @@ within `tolerances.length`.
   product of the Frobenius norms of the matrix and its inverse below `1 / parametric`), not when
   the raw determinant exceeds a constant: a uniform scale by 0.001 is invertible, a matrix that
   squashes one axis to nearly nothing is not.
+- 2026-10-25 — **Smooth normals** (§5). At each vertex the faces reachable from the face through
+  `SOFT` edges incident to that vertex form the smoothing group; the shading normal is the sum of
+  their normals weighted by their corner angles at the vertex (`atan2`, deterministic),
+  normalized. Faces sharing an edge always agree on orientation (invariant 2), so normals never
+  cancel.

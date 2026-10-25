@@ -1,0 +1,4 @@
+# Re-capture a scene after changing the view.
+scene-add --name Plan
+camera-standard --view top
+scene-update --scene Plan

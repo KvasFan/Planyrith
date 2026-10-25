@@ -200,3 +200,33 @@ exposes a frame-time overlay (`F11` panel).
 - 2026-10-20 — Reversed-Z, camera-relative `f64`→`f32` for precision.
 - 2026-10-20 — ID-buffer hover + CPU-exact confirmation; CPU ray casting is authoritative.
 - 2026-10-20 — Stencil capping only for containers that are solids.
+- 2026-10-25 — **Projection matrices** (§3.2, `document::camera`). Perspective and two-point
+  views use reversed Z with an **infinite** far plane (depth = near / distance), so nothing is
+  ever clipped behind the model; the near plane is 90 % of the nearest bounds corner, at least
+  1 mm. Parallel views map the bounds' depth span (plus 1 %) linearly to 1…0 and may start
+  behind the eye. Two-point views project on a vertical image plane with the vertical shear that
+  keeps the target centered. Every matrix is the exact inverse of `ray_through_ndc`, so picking
+  rays and drawing agree; the clip-from-local matrix is composed in `f64` relative to the eye and
+  only then narrowed to `f32`.
+- 2026-10-25 — **Extraction** (§2, `io::render_mesh`). `extract(doc, container, options)` takes
+  the document (tag visibility and materials decide what is hidden and the texture tile size).
+  Faces and edges come in container (pid) order. Each face is emitted twice, front side
+  (counter-clockwise, normals along the face normal) and back side (flipped winding and
+  normals), each in the index range of its own `MaterialKey`, so back-face culling draws the
+  right material on each side. Hidden faces and edges (own flag, `HIDDEN` edge flag or hidden
+  tag) are left out unless `include_hidden`, which keeps them with `face_hidden`/`HIDDEN` bits.
+  `CURVE_SEAM` marks edges that are segments of a curve. The buffers also carry per-face normals
+  and the two faces of every edge for profile edges. UVs are in texture tiles: the face's UV map
+  takes the point in the face frame (or the projection plane's frame) to texture millimeters,
+  divided by the texture's tile size; fixed pins are already in tiles; without a texture UVs
+  are 0. The cache drops a container on any delta that names it and everything on document-wide
+  deltas (tags, materials, definitions).
+- 2026-10-25 — **Draw list in the core.** `io::render_mesh::draw_list(doc, selection, context,
+  include_hidden)` walks the occurrences (parents first, children in container order) into items
+  with canonical (pid-keyed) paths, world transforms, the innermost instance material override,
+  selection (whole occurrences for selected groups/instances and everything inside them;
+  selected faces and edges per occurrence) and the faded state outside the edit context. Being
+  GPU-free it is unit-tested in the core and shared by the GUI and headless rendering.
+- 2026-10-25 — **What a click selects** (§8, docs/07 §10): `EntityPath::selectable_in(doc,
+  context)` — the element itself when it lies in the context's container, else the outermost
+  group or instance below the context that holds it; nothing outside the context.

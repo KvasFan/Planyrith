@@ -1,0 +1,5 @@
+# Switch to a parallel projection and back with a wider field of view.
+rectangle --corner-a 0,0,0 --corner-b 1000,600,0
+camera-set --projection parallel
+camera-set --projection perspective --fov 50
+camera-set --projection two-point

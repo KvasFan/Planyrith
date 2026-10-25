@@ -1,0 +1,4 @@
+scene-add --name Plan
+scene-add --name Front
+scene-add --name Side
+scene-reorder --scene Side --index 0

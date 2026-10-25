@@ -1,0 +1,5 @@
+# Standard views keep the distance; --extents also fits the model.
+rectangle --corner-a 0,0,0 --corner-b 1000,600,0
+push-pull --face '{face & last}' --distance 400
+camera-standard --view top
+camera-standard --view iso --extents
