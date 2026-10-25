@@ -4,6 +4,22 @@ All notable changes to Planyrith are recorded here. Versions follow
 [Semantic Versioning](https://semver.org/); before 1.0, minor versions are milestones of
 [`docs/13-roadmap.md`](docs/13-roadmap.md).
 
+## Unreleased — 0.3 Interactive modeling with inference
+
+- **Inference engine** (`planyrith_core::inference`, docs/03 §7): endpoint, midpoint,
+  intersection, center, on-edge, on-face, tangent, perpendicular, parallel, from-point, on-axis
+  and on-plane inferences ranked by priority, with occlusion, hover references, axis and `Shift`
+  locks and tool constraints. `planyrith infer` runs it for one ray (golden-tested).
+- **Interactive tools** in the GUI for every 0.1 drawing and editing command: Select, Line,
+  Rectangle, Circle, Polygon, Arc, 2 Point Arc, 3 Point Arc, Pie, Push/Pull, Offset, Move,
+  Rotate, Scale, Eraser and Paint, with single-letter shortcuts, a toolbar and Draw/Tools menus.
+- **Value field**: type without focusing; lengths, coordinates, `w,h`, angles, `Ns` segment
+  counts, `500r` radii, `*N`/`/N` arrays; a value typed right after a tool completes replaces the
+  last command.
+- **Previews**: tools show the result on a copy of the document while the pointer moves.
+- **Panels**: Tool Help shows the active tool's steps; Tool Options shows its settings (segments,
+  sides, paint material).
+
 ## 0.2.0 — Viewport (2026-10-25)
 
 - **Renderer** (`planyrith-render`): offscreen wgpu rendering of the draw list with 4× MSAA and

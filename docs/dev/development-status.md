@@ -5,7 +5,7 @@ implementation stands, what is done, what remains, and how to resume. Update it 
 every working session. Ground truth for *what to build* stays in `docs/00`–`docs/15`; this file
 is only *progress state*.
 
-_Last updated: 2026-10-25 (release 0.2.0: renderer, `render`, GUI shell, server sockets)._
+_Last updated: 2026-10-25 (0.3 in progress: inference engine, `infer`, interactive GUI tools)._
 
 ## 1. Where we are
 
@@ -59,19 +59,26 @@ Frontends:
 |---|---|
 | `planyrith-cli` | **0.1.0** — `new`, `info`, `query`, `tool`, `export` (json), `validate`, `repair`, `batch`, `serve` (stdio); schema-driven tool options; JSON envelopes; exit codes. Later: `render` and the socket transport/`repl` (0.2), `import` (0.5), `script` (0.6). |
 | `planyrith-render` | **0.2.0** — offscreen renderer (styles, edges with GPU profiles, transparency, selection, id buffer), headless `render_image`; snapshot tests on three OSes. Not yet: shadows, section caps, fog, sky, watermarks. |
-| `planyrith-gui` | **0.2.0** — eframe shell, `egui_tiles` docks, viewport (navigation, selection, double-click to open), Entity Info, Tags, Scenes, Outliner, undo/redo, open/save; tested with synthetic egui input. Interactive modeling tools are 0.3. |
+| `planyrith-gui` | **0.2.0 + 0.3 work** — eframe shell, `egui_tiles` docks, viewport (navigation, selection, double-click to open), Entity Info, Tags, Scenes, Outliner, Tool Options, Tool Help, undo/redo, open/save. 0.3: `tools/` (one state machine per 0.1 command: Select, Line, Rectangle, Circle, Polygon, the four arcs, Push/Pull, Offset, Move, Rotate, Scale, Eraser, Paint), inference overlay, value field with replace-after-completion, previews on a forked engine (`Session::preview`). Tested with synthetic egui input, including a whole-window test (`app::tests`) that draws, pushes, corrects and moves a box. |
 
 ## 3. What next
 
-1. **Milestone 0.3** (docs/13): the inference engine (`inference/mod.rs`), the value field, an
-   interactive tool for every 0.1 command with previews, modifiers and shortcuts, the Tool Help
-   panel. 0.2.0 is released (tag `v0.2.0`).
-2. **Keep the fuzzers running** after kernel changes (both commands above). Work order in the
+1. **Milestone 0.3** (docs/13): done — the inference engine and `infer`, the value field, a tool
+   per 0.1 command with previews, modifiers and shortcuts, Tool Help. Left for the 0.3
+   acceptance: write and run the "model a room in 10 steps" QA script with mouse and keyboard
+   (docs/12), fix what it finds, then release 0.3.0. Known gaps (docs/07 Decisions): previews
+   use the active style, inference labels have no delay/fade, no `Tab` candidate cycling, no
+   Backspace-removes-last-point in line chains.
+2. **Journal and undo.** The journal (`history.msgpack`, docs/09 §3) is append-only and every
+   frontend journals executed commands but not undo/redo, so after an undo it lists a command
+   that is no longer in the document. Decide whether undo/redo are journaled (entries) or the
+   journal follows the undo stack, for the GUI, `serve` and `repl` alike.
+3. **Keep the fuzzers running** after kernel changes (both commands above). Work order in the
    kernel must stay geometric (docs/03 Decisions, slot order): the engine fuzz's save/reopen
    check catches any new dependence on slot layout.
-3. Review the "unmaintained" advisories `cargo deny check` may report for GUI-side transitive
+4. Review the "unmaintained" advisories `cargo deny check` may report for GUI-side transitive
    dependencies with the 0.2 GUI work (replace, or add dated `deny.toml` ignores with a reason).
-4. Open design question recorded in docs/03 Decisions: `reverse-faces` on part of a connected
+5. Open design question recorded in docs/03 Decisions: `reverse-faces` on part of a connected
    face group (needs either whole-group reversal or decoupling the front side from the loop
    direction) — decide before milestone 0.4.
 

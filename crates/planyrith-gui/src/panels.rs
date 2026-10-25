@@ -1,5 +1,5 @@
-//! Dock panels (docs/07 §6): Entity Info, Tags, Scenes, Outliner and Tool
-//! Options. Panels read the document and dispatch commands; they never
+//! Dock panels (docs/07 §6): Entity Info, Tags, Scenes, Outliner, Tool
+//! Options and Tool Help. Panels read the document and dispatch commands; they never
 //! change it directly.
 
 use egui::{Color32, RichText};
@@ -11,6 +11,7 @@ use planyrith_core::ids::EntityId;
 use serde_json::{Value, json};
 
 use crate::session::Session;
+use crate::tools::{Cx, Tool};
 
 /// Text being edited in the panels.
 #[derive(Default)]
@@ -613,13 +614,48 @@ fn outline_level(
 
 // ----- Tool Options -------------------------------------------------------------------------
 
-/// Tool Options (docs/07 §6, left dock): the active tool's help. The
-/// interactive tools arrive in 0.3; 0.2 has selection and navigation.
-pub fn tool_options(ui: &mut egui::Ui) {
-    ui.heading("Select");
-    ui.label("Click selects; Ctrl adds, Shift toggles, Ctrl+Shift removes.");
-    ui.label("Double-click a group or component to edit inside it; Esc leaves it.");
-    ui.label("Delete removes the selection.");
+/// Tool Options (docs/07 §6, left dock): the active tool's parameters that
+/// clicks do not collect.
+pub fn tool_options(ui: &mut egui::Ui, tool: &mut dyn Tool, cx: &Cx<'_>) {
+    ui.heading(tool.label());
+    tool.options(ui, cx);
+}
+
+/// Tool Help (docs/07 §4, §6): the active tool's steps from its command's
+/// metadata, the current one highlighted, and the shared keys.
+pub fn tool_help(ui: &mut egui::Ui, session: &Session, tool: &dyn Tool) {
+    ui.heading(tool.label());
+    if let Some(command) = session.engine.registry().get(tool.command()) {
+        let meta = command.meta();
+        ui.weak(format!("Command `{}`", meta.name));
+        for (i, step) in meta.steps.iter().enumerate() {
+            let mut text = RichText::new(format!("{}. {}", i + 1, step.prompt));
+            if i == tool.step() {
+                text = text.strong();
+            }
+            ui.label(text);
+            if !step.value_field.is_empty() {
+                ui.weak(format!("    Value field: {}", step.value_field));
+            }
+            if !step.inference.is_empty() {
+                let kinds: Vec<String> = step
+                    .inference
+                    .iter()
+                    .map(|k| {
+                        serde_json::to_value(k)
+                            .ok()
+                            .and_then(|v| v.as_str().map(str::to_string))
+                            .unwrap_or_default()
+                    })
+                    .collect();
+                ui.weak(format!("    Snaps: {}", kinds.join(", ")));
+            }
+        }
+    }
+    ui.separator();
+    ui.label("Shift locks the current inference; arrow keys lock an axis (→ X, ← Y, ↑ Z, ↓ parallel/perpendicular).");
+    ui.label("Type a value and press Enter; right after a tool completes, a new value replaces the last one.");
+    ui.label("Esc cancels the step, then clears the selection, then leaves the open group.");
     ui.separator();
     ui.heading("Navigate");
     ui.label("Middle-drag orbits about the point under the cursor.");

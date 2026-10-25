@@ -240,3 +240,39 @@ collected by clicks: e.g. segments for Circle, array count, copy toggle).
 - 2026-10-25 — The GUI journals the commands it runs like the CLI (with timestamps) and writes
   `planyrith-gui <version>` as the generator. The viewport shows the renderer's color texture
   through an `Rgba8Unorm` view, because egui composites in gamma space.
+- 2026-10-25 — **Tools (0.3).** A tool is a state machine (`planyrith-gui::tools::Tool`) that
+  receives the pointer already resolved by the inference engine, and answers each input with
+  *continue*, *run these commands*, *select* or *open this group*; the shell runs the commands
+  (each one undo step), so tools never touch the document. The §3 sketch maps onto it as:
+  `activate` = a fresh tool instance, `pointer` = `hover`/`click`/`double_click`/
+  `triple_click`/`drag`, `key` = `arrow`/`escape`, `value_field` = `value`, `draw_overlay` =
+  `shapes`, plus `options` for Tool Options and `revalue` for the value-after-completion rule.
+  Every tool's prompts and value field label come from its command's `CommandMeta.steps`; Tool
+  Help (a right-dock tab) lists them with the current step highlighted. Undo or redo while a
+  tool is mid-step restarts the tool, because its picked points may refer to what was undone.
+- 2026-10-25 — **Value field keys.** With no text field focused, a digit or one of
+  `- + . , [ < ' " * / ( ~` starts a value; once the value field is non-empty every typed
+  character goes to it (units, `s` segments, `r` radius, `x` copies), so single-letter tool
+  shortcuts act only while it is empty. `Backspace` edits it, `Enter` applies it, `Esc` clears it
+  first, then cancels the tool's step, then clears the selection, then leaves the open group. The
+  Select tool takes no value. A value replaces the last command (undo, then the same command with
+  the new value, still one undo step) only when the tool is back at its first step and no
+  pointer button was pressed since; in the middle of a line chain a typed length extends the
+  chain instead.
+- 2026-10-25 — **Previews (0.3).** The shell applies the tool's preview command to a fork of the
+  engine (a copy of the document with the same selection, edit context and `last`) and draws
+  the copy instead of the document; only the containers the command changed are
+  re-tessellated. The preview is recomputed when the request or the document changes; when one
+  took more than 16 ms, the next is computed only after the request has been stable for 150 ms,
+  and meanwhile only the rubber bands show. A preview that fails is not drawn and its error is
+  shown in the status bar. In 0.3 the preview is drawn with the active style, not a
+  semi-transparent preview style.
+- 2026-10-25 — **Inference display (0.3).** Marks, directional guide lines (dashed, colored by
+  axis, bold when locked) and the label are painted over the viewport image with the UI
+  painter, not by the GPU renderer; the label shows immediately next to the cursor (the 300 ms
+  delay and fading, and `Tab` cycling of candidates, come later). They are not shown for Select
+  and Eraser. `Shift` locks the current inference only once the tool is past its first step,
+  so `Shift` stays a selection or fill modifier on first clicks; arrow keys go to the tool first
+  (Rectangle, Circle, Polygon, the arcs and Rotate use them to force their plane before the
+  first click) and otherwise lock an axis. A single row of tool buttons sits under the menu bar
+  until icons exist; Draw and Tools menus list the same tools.

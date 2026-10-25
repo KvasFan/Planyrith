@@ -1,8 +1,9 @@
 //! `planyrith-gui` graphical frontend (docs/07): an eframe shell with docks
 //! (`egui_tiles`), the wgpu viewport of `planyrith-render`, navigation,
-//! selection, Entity Info, Tags, Scenes and Outliner panels, undo/redo and
-//! open/save. Every document change is a registered command (docs/01 §3.3);
-//! interactive modeling tools arrive in milestone 0.3 (docs/13).
+//! selection, the interactive tools with inference and the value field
+//! (docs/07 §2–§5), Entity Info, Tags, Scenes, Outliner, Tool Options and
+//! Tool Help panels, undo/redo and open/save. Every document change is a
+//! registered command (docs/01 §3.3); tools only collect parameters.
 //!
 //! Usage: `planyrith-gui [model.plyr]`.
 
@@ -11,6 +12,7 @@
 mod app;
 mod panels;
 mod session;
+mod tools;
 mod viewport;
 
 use std::path::PathBuf;

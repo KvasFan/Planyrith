@@ -2,14 +2,16 @@
 //! viewport needs (docs/07 §1, docs/09). The GUI never mutates the document
 //! itself: every change is a registered command (docs/01 §3.3).
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use planyrith_core::commands::{CommandRegistry, Delta, Engine, Event};
-use planyrith_core::document::Document;
+use planyrith_core::document::{ContainerRef, Document};
+use planyrith_core::inference::{Inference, InferenceEngine, InferenceRequest};
 use planyrith_core::io::NoProgress;
 use planyrith_core::io::native::{
     HistoryEntry, LoadedDocument, WriteOptions, read_document, write_document,
@@ -33,6 +35,7 @@ pub struct Session {
     /// Warnings the engine emitted, for the status bar.
     warnings: Rc<RefCell<Vec<String>>>,
     index: Option<(u64, DocumentIndex)>,
+    registry: Arc<CommandRegistry>,
 }
 
 impl Session {
@@ -65,7 +68,8 @@ impl Session {
             .as_ref()
             .map(|l| l.history.clone())
             .unwrap_or_default();
-        let mut engine = Engine::new(doc, Arc::new(CommandRegistry::with_builtins()));
+        let registry = Arc::new(CommandRegistry::with_builtins());
+        let mut engine = Engine::new(doc, Arc::clone(&registry));
         if let Some(last) = history.last() {
             engine.set_last_created(last.created.clone());
         }
@@ -90,6 +94,7 @@ impl Session {
             deltas,
             warnings,
             index: None,
+            registry,
         }
     }
 
@@ -171,6 +176,45 @@ impl Session {
         Ok(target)
     }
 
+    /// Runs a command on a copy of the document (a tool's preview, docs/07
+    /// §3): the copy and the containers the command changed. The document
+    /// itself, its history and its journal are untouched.
+    pub fn preview(
+        &self,
+        name: &str,
+        params: Value,
+    ) -> Result<(Document, BTreeSet<ContainerRef>), String> {
+        let mut fork = Engine::new(self.doc().clone(), Arc::clone(&self.registry));
+        fork.set_last_created(self.engine.last_created().to_vec());
+        fork.set_context(self.engine.context().clone())
+            .map_err(|e| e.to_string())?;
+        fork.set_selection(self.engine.selection().clone());
+        let touched: Rc<RefCell<BTreeSet<ContainerRef>>> = Rc::default();
+        let everything = Rc::new(Cell::new(false));
+        let (t, all) = (Rc::clone(&touched), Rc::clone(&everything));
+        fork.events_mut().subscribe(Box::new(move |event| {
+            if let Event::DocumentChanged { deltas, .. } = event {
+                for delta in deltas.iter() {
+                    match delta.container() {
+                        Some(c) => {
+                            t.borrow_mut().insert(c);
+                        }
+                        None => all.set(true),
+                    }
+                }
+            }
+        }));
+        fork.execute_erased(name, params)
+            .map_err(|e| format!("{name}: {e}"))?;
+        let doc = fork.into_document();
+        let mut touched = touched.take();
+        if everything.get() {
+            touched.extend(self.doc().containers());
+            touched.extend(doc.containers());
+        }
+        Ok((doc, touched))
+    }
+
     /// Takes the deltas since the last call.
     pub fn take_deltas(&self) -> Vec<Delta> {
         std::mem::take(&mut *self.deltas.borrow_mut())
@@ -181,16 +225,33 @@ impl Session {
         std::mem::take(&mut *self.warnings.borrow_mut())
     }
 
-    /// Ray cast for picking (docs/06 §8), with the spatial index rebuilt
-    /// when the document changed.
-    pub fn ray_cast(&mut self, ray: &Ray, filter: &HitFilter) -> Vec<Hit> {
+    fn ensure_index(&mut self) {
         let generation = self.engine.generation();
         if self.index.as_ref().is_none_or(|(g, _)| *g != generation) {
             self.index = Some((generation, DocumentIndex::build(self.engine.document())));
         }
+    }
+
+    /// Ray cast for picking (docs/06 §8), with the spatial index rebuilt
+    /// when the document changed.
+    pub fn ray_cast(&mut self, ray: &Ray, filter: &HitFilter) -> Vec<Hit> {
+        self.ensure_index();
         match &self.index {
             Some((_, index)) => index.ray_cast(self.engine.document(), ray, filter),
             None => Vec::new(),
+        }
+    }
+
+    /// The inference for a request (docs/03 §7).
+    pub fn infer(&mut self, engine: &InferenceEngine, req: &InferenceRequest) -> Inference {
+        self.ensure_index();
+        match &self.index {
+            Some((_, index)) => engine.infer(self.engine.document(), index, req),
+            None => engine.infer(
+                self.engine.document(),
+                &DocumentIndex::build(self.engine.document()),
+                req,
+            ),
         }
     }
 }

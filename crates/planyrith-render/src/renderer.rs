@@ -404,6 +404,12 @@ impl Renderer {
         }
     }
 
+    /// Drops one container's buffers (it changed, or a preview drew another
+    /// version of it).
+    pub fn invalidate(&mut self, container: ContainerRef) {
+        self.meshes.remove(&container);
+    }
+
     /// Drops every cached buffer and texture (another document).
     pub fn clear_cache(&mut self) {
         self.meshes.clear();
