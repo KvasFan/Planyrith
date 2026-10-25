@@ -511,6 +511,10 @@ impl HalfEdgeMesh {
                     doomed.insert(self.he(h)?.edge);
                 }
             }
+            // Geometric order: the edges are re-created in this order and
+            // their pieces get pids in it (docs/03 Decisions, slot order).
+            let mut doomed: Vec<EdgeId> = doomed.into_iter().collect();
+            doomed.sort_by(|x, y| self.segment_order(*x, *y));
             for e in doomed {
                 let (a, b) = self.edge_endpoints(e)?;
                 let flags = self.edge(e).map(|x| x.flags).unwrap_or_default();
