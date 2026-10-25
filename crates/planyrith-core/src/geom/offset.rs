@@ -92,8 +92,15 @@ pub fn offset_face_boundary(
         }
         out.edges.retain(|e| m.edge(*e).is_some());
         out.faces_split.retain(|g| m.face(*g).is_some());
-        // The face bounded by the first (outer) offset ring.
-        let wanted: Vec<_> = loops3[0]
+        // The face bounded by the outer offset ring: the one with the
+        // largest signed area (holes are clockwise), wherever it comes in
+        // the list.
+        let outer = loops
+            .iter()
+            .enumerate()
+            .max_by(|a, b| polygon::signed_area(a.1).total_cmp(&polygon::signed_area(b.1)))
+            .map_or(0, |(i, _)| i);
+        let wanted: Vec<_> = loops3[outer]
             .iter()
             .filter_map(|&p| m.find_vertex_near(p, tol))
             .collect();

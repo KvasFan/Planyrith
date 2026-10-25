@@ -929,13 +929,38 @@ impl DocumentIndex {
                 if !filter.include_hidden && provider.is_entity_hidden(leaf.container, target) {
                     continue;
                 }
-                let point = leaf.world.transform_point3(hit.point);
-                let t = ray.closest_param(point);
+                let (t, point) = match hit.kind {
+                    // An edge's closest point is recomputed in world space:
+                    // the local closest point is not the world closest one
+                    // under non-uniform scaling (an affine map keeps the
+                    // segment parameter, so the world segment is exact).
+                    HitKind::Edge(e) => {
+                        let Ok(seg) = mesh.edge_segment(e) else {
+                            continue;
+                        };
+                        let world_seg = Segment::new(
+                            leaf.world.transform_point3(seg.a),
+                            leaf.world.transform_point3(seg.b),
+                        );
+                        let (t, t_edge, distance) =
+                            ray_segment_closest(ray, &world_seg, max_t, tol);
+                        if distance > proximity {
+                            continue;
+                        }
+                        (t, world_seg.point_at(t_edge))
+                    }
+                    _ => {
+                        let point = leaf.world.transform_point3(hit.point);
+                        let t = ray.closest_param(point);
+                        // The local tolerance was conservative; confirm in
+                        // world units.
+                        if hit.kind.priority() < 2 && ray.at(t).distance(point) > proximity {
+                            continue;
+                        }
+                        (t, point)
+                    }
+                };
                 if t > max_t {
-                    continue;
-                }
-                // The local tolerance was conservative; confirm in world units.
-                if hit.kind.priority() < 2 && ray.at(t).distance(point) > proximity {
                     continue;
                 }
                 hits.push(Hit {

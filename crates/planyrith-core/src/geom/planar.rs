@@ -94,7 +94,7 @@ pub fn find_faces(
 /// prefers the stored plane of an existing face that contains the edges.
 pub fn candidate_planes(mesh: &HalfEdgeMesh, touched: &[VertexId], tol: &Tolerances) -> Vec<Plane> {
     let seeds = incident_edges(mesh, touched).unwrap_or_default();
-    let touched: BTreeSet<VertexId> = touched.iter().copied().collect();
+    let touched = by_position(mesh, touched.iter().copied()).unwrap_or_default();
     candidate_planes_seeded(mesh, &touched, &seeds.into_iter().collect(), tol).unwrap_or_default()
 }
 
@@ -252,18 +252,73 @@ pub(crate) fn find_faces_seeded(
     tol: &Tolerances,
     d: &mut dyn DeltaSink,
 ) -> Result<FaceFindingResult, GeometryError> {
+    find_faces_rule(mesh, touched, seeds, seeds, None, tol, d)
+}
+
+/// Face finding with the two jobs of the edges separated: `plane_edges`
+/// choose the candidate planes (faces they cross are re-split), and only
+/// regions bounded by a `seeds` edge may become new faces. With no seeds the
+/// pass only splits and reshapes existing faces.
+pub(crate) fn find_faces_split(
+    mesh: &mut HalfEdgeMesh,
+    touched: &[VertexId],
+    plane_edges: &[EdgeId],
+    seeds: &[EdgeId],
+    tol: &Tolerances,
+    d: &mut dyn DeltaSink,
+) -> Result<FaceFindingResult, GeometryError> {
+    find_faces_rule(mesh, touched, plane_edges, seeds, None, tol, d)
+}
+
+/// Like [`find_faces_split`], but a new face also needs its whole outer
+/// boundary made of `allowed` edges (push/pull builds exactly its sides and
+/// cap, nothing else the swept edges happen to close).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn find_faces_within(
+    mesh: &mut HalfEdgeMesh,
+    touched: &[VertexId],
+    plane_edges: &[EdgeId],
+    seeds: &[EdgeId],
+    allowed: &[EdgeId],
+    tol: &Tolerances,
+    d: &mut dyn DeltaSink,
+) -> Result<FaceFindingResult, GeometryError> {
+    let allowed: BTreeSet<EdgeId> = allowed.iter().copied().collect();
+    find_faces_rule(mesh, touched, plane_edges, seeds, Some(&allowed), tol, d)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn find_faces_rule(
+    mesh: &mut HalfEdgeMesh,
+    touched: &[VertexId],
+    plane_edges: &[EdgeId],
+    seeds: &[EdgeId],
+    allowed: Option<&BTreeSet<EdgeId>>,
+    tol: &Tolerances,
+    d: &mut dyn DeltaSink,
+) -> Result<FaceFindingResult, GeometryError> {
+    let plane_edges: BTreeSet<EdgeId> = plane_edges
+        .iter()
+        .copied()
+        .filter(|&e| mesh.edge(e).is_some())
+        .collect();
     let seeds: BTreeSet<EdgeId> = seeds
         .iter()
         .copied()
         .filter(|&e| mesh.edge(e).is_some())
         .collect();
-    let touched: BTreeSet<VertexId> = touched
-        .iter()
-        .copied()
-        .filter(|&v| mesh.vertex(v).is_some())
-        .collect();
+    // Geometric order, not slot order: the plane found first fixes the
+    // orientation of the faces after it, and a reopened document has a
+    // different slot layout (docs/08 §10).
+    let touched = by_position(
+        mesh,
+        touched
+            .iter()
+            .copied()
+            .filter(|&v| mesh.vertex(v).is_some()),
+    )?;
     let mut result = FaceFindingResult::default();
-    for plane in candidate_planes_seeded(mesh, &touched, &seeds, tol)? {
+    for plane in candidate_planes_seeded(mesh, &touched, &plane_edges, tol)? {
         let mut start = Vec::new();
         for &v in &touched {
             if on_plane(mesh, &plane, v, tol)? {
@@ -283,6 +338,7 @@ pub(crate) fn find_faces_seeded(
                 edges: &graph.edges,
                 faces: &graph.faces,
                 seeds: &seeds,
+                allowed,
             },
             tol,
             d,
@@ -297,7 +353,7 @@ pub(crate) fn find_faces_seeded(
 /// by two edges at a touched vertex where at least one is a seed.
 fn candidate_planes_seeded(
     mesh: &HalfEdgeMesh,
-    touched: &BTreeSet<VertexId>,
+    touched: &[VertexId],
     seeds: &BTreeSet<EdgeId>,
     tol: &Tolerances,
 ) -> Result<Vec<Plane>, GeometryError> {
@@ -315,7 +371,7 @@ fn candidate_planes_seeded(
         for &h in mesh.vertex_star(v) {
             star.push((h, mesh.he(h)?.edge, mesh.position(mesh.dest(h)?)?));
         }
-        star.sort_by_key(|x| x.0);
+        star.sort_by(|a, b| compare_keys(&a.2.to_array(), &b.2.to_array()).then(a.0.cmp(&b.0)));
         stars.push((v, star));
     }
     for (v, star) in &stars {
@@ -330,7 +386,13 @@ fn candidate_planes_seeded(
         }
         faces.sort();
         faces.dedup();
+        let mut keyed = Vec::with_capacity(faces.len());
         for f in faces {
+            let p = mesh.face_ref(f)?.plane;
+            keyed.push(([p.normal.x, p.normal.y, p.normal.z, p.d], f));
+        }
+        keyed.sort_by(|a, b| compare_keys(&a.0, &b.0).then(a.1.cmp(&b.1)));
+        for (_, f) in keyed {
             let plane = mesh.face_ref(f)?.plane;
             let holds_seed = star.iter().any(|&(_, e, pw)| {
                 seeds.contains(&e)
@@ -481,6 +543,8 @@ struct RebuildInput<'a> {
     edges: &'a BTreeSet<EdgeId>,
     faces: &'a BTreeSet<FaceId>,
     seeds: &'a BTreeSet<EdgeId>,
+    /// When given, a new face also needs every outer edge in this set.
+    allowed: Option<&'a BTreeSet<EdgeId>>,
 }
 
 /// docs/03 §4.3 step 3–4, §4.4, §4.5: reconcile the arrangement's regions with
@@ -614,12 +678,15 @@ fn rebuild_plane(
     for (_, i) in keyed {
         let region = &regions[i];
         let mut seeded = false;
+        let mut within = true;
         for &h in &region.outer {
-            if input.seeds.contains(&mesh.he(h)?.edge) {
-                seeded = true;
-                break;
+            let edge = mesh.he(h)?.edge;
+            seeded |= input.seeds.contains(&edge);
+            if input.allowed.is_some_and(|a| !a.contains(&edge)) {
+                within = false;
             }
         }
+        let seeded = seeded && within;
         if !seeded {
             continue;
         }
@@ -643,6 +710,19 @@ fn position_key(mesh: &HalfEdgeMesh, cycle: &[HalfEdgeId]) -> Result<[f64; 6], G
         .min_by(|a, b| compare_keys(&a.to_array(), &b.to_array()))
         .unwrap_or_default();
     Ok([mean.x, mean.y, mean.z, lowest.x, lowest.y, lowest.z])
+}
+
+/// Distinct vertices in lexicographic position order.
+fn by_position(
+    mesh: &HalfEdgeMesh,
+    vertices: impl Iterator<Item = VertexId>,
+) -> Result<Vec<VertexId>, GeometryError> {
+    let mut keyed = Vec::new();
+    for v in vertices.collect::<BTreeSet<_>>() {
+        keyed.push((mesh.position(v)?.to_array(), v));
+    }
+    keyed.sort_by(|a, b| compare_keys(&a.0, &b.0).then(a.1.cmp(&b.1)));
+    Ok(keyed.into_iter().map(|(_, v)| v).collect())
 }
 
 /// Lexicographic total order of position keys.
@@ -801,6 +881,7 @@ pub(crate) fn rebuild_faces(
             edges,
             faces,
             seeds,
+            allowed: None,
         },
         tol,
         d,

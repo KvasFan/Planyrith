@@ -1508,9 +1508,30 @@ impl HalfEdgeMesh {
         Ok(())
     }
 
-    /// Wires a validated cycle as a loop of face `f`.
+    /// Wires a validated cycle as a loop of face `f`. The loop starts at the
+    /// half-edge with the lowest (origin, next origin) position, so the start
+    /// does not depend on slot layout: a document reopened from its file
+    /// continues exactly like the session that saved it (docs/08 §10).
     fn wire_loop(&mut self, f: FaceId, cycle: &[HalfEdgeId]) -> Result<LoopId, GeometryError> {
         let n = cycle.len();
+        let mut start = 0;
+        let mut lowest: Option<[f64; 6]> = None;
+        for i in 0..n {
+            let a = self.position(self.he(cycle[i])?.origin)?;
+            let b = self.position(self.he(cycle[(i + 1) % n])?.origin)?;
+            let key = [a.x, a.y, a.z, b.x, b.y, b.z];
+            let lower = lowest.is_none_or(|k| {
+                key.iter()
+                    .zip(&k)
+                    .map(|(x, y)| x.total_cmp(y))
+                    .find(|o| o.is_ne())
+                    .is_some_and(|o| o.is_lt())
+            });
+            if lower {
+                lowest = Some(key);
+                start = i;
+            }
+        }
         for i in 0..n {
             let next = cycle[(i + 1) % n];
             let prev = cycle[(i + n - 1) % n];
@@ -1520,7 +1541,7 @@ impl HalfEdgeMesh {
             he.face = Some(f);
         }
         Ok(self.loops.insert(Loop {
-            start: cycle[0],
+            start: cycle[start],
             face: f,
         }))
     }
@@ -1585,6 +1606,31 @@ impl HalfEdgeMesh {
             return Err(err);
         }
         Ok(f)
+    }
+
+    /// Gives face `keep` the loops and plane of face `from` and deletes `from`
+    /// (recorded as a reshape of `keep`, which therefore keeps its pid): the
+    /// identity of a split face moves to another of its pieces.
+    pub(crate) fn transfer_face(
+        &mut self,
+        keep: FaceId,
+        from: FaceId,
+        tol: &Tolerances,
+        d: &mut dyn DeltaSink,
+    ) -> Result<(), GeometryError> {
+        if keep == from {
+            return Ok(());
+        }
+        let cycles = self.face_cycles(from)?;
+        let plane = self.face_ref(from)?.plane;
+        let sides = self.face_ref(keep)?.sides.clone();
+        self.detach_face(keep, d)?;
+        self.detach_face(from, d)?;
+        self.discard_detached_face(from)?;
+        let (outer, holes) = cycles
+            .split_first()
+            .ok_or_else(|| broken("face without loops"))?;
+        self.attach_face(keep, outer, holes, plane, sides, tol, d)
     }
 
     /// Releases a face's half-edges and loops, recording `FaceRemoved`. The
@@ -1791,6 +1837,34 @@ impl HalfEdgeMesh {
             }
         }
         Ok(out)
+    }
+
+    /// Face finding where a new face needs its whole outer boundary in
+    /// `allowed` (see [`planar::find_faces_within`]).
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn find_faces_within(
+        &mut self,
+        touched: &[VertexId],
+        plane_edges: &[EdgeId],
+        seeds: &[EdgeId],
+        allowed: &[EdgeId],
+        tol: &Tolerances,
+        d: &mut dyn DeltaSink,
+    ) -> Result<planar::FaceFindingResult, GeometryError> {
+        planar::find_faces_within(self, touched, plane_edges, seeds, allowed, tol, d)
+    }
+
+    /// Face finding with separate plane edges and new-face seeds (see
+    /// [`planar::find_faces_split`]).
+    pub(crate) fn find_faces(
+        &mut self,
+        touched: &[VertexId],
+        plane_edges: &[EdgeId],
+        seeds: &[EdgeId],
+        tol: &Tolerances,
+        d: &mut dyn DeltaSink,
+    ) -> Result<planar::FaceFindingResult, GeometryError> {
+        planar::find_faces_split(self, touched, plane_edges, seeds, tol, d)
     }
 
     /// Runs face finding (docs/03 §4.3) for the given touched vertices, where

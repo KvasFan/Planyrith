@@ -60,19 +60,18 @@ impl SegmentContact {
 /// clamping (docs/03 §4.2, §8). Works for coplanar and skew segments alike:
 /// skew segments whose closest points are within `tol.length` touch.
 ///
-/// Collinear segments (both endpoints of `b` within `tol.length` of the line
-/// of `a`) report an `Overlap` when the shared part is longer than
+/// Collinear segments (both endpoints of one within `tol.length` of the line
+/// of the other, tested both ways so the answer does not depend on the
+/// argument order) report an `Overlap` when the shared part is longer than
 /// `tol.length`, a `Point` when they merely touch end to end, and `None`
 /// otherwise.
 pub fn segment_segment(a: &Segment, b: &Segment, tol: &Tolerances) -> SegmentContact {
     let la = a.length();
     let lb = b.length();
     // Collinear case first: the closest-points formula degenerates there.
-    if la > 0.0
-        && lb > 0.0
-        && a.distance_to_line(b.a) <= tol.length
-        && a.distance_to_line(b.b) <= tol.length
-    {
+    let b_on_a = a.distance_to_line(b.a) <= tol.length && a.distance_to_line(b.b) <= tol.length;
+    let a_on_b = b.distance_to_line(a.a) <= tol.length && b.distance_to_line(a.b) <= tol.length;
+    if la > 0.0 && lb > 0.0 && (b_on_a || a_on_b) {
         let t0 = a.line_param(b.a);
         let t1 = a.line_param(b.b);
         let lo = t0.min(t1).max(0.0);

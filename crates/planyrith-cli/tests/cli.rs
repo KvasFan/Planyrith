@@ -315,8 +315,9 @@ fn furnished_room_acceptance() {
     let expected = 2200.0 * 800.0 * 30.0 + 4.0 * 60.0 * 60.0 * 690.0;
     assert!((table["output"][0]["volume"].as_f64().unwrap() - expected).abs() < 1e-3);
 
-    // Door and window cut through: four reveal faces each (the walls are
-    // open underneath, so the door keeps a threshold face).
+    // Door and window cut through: the window has four reveal faces, the
+    // door two jambs and a head (its threshold is coplanar with the floor
+    // and merges into it, docs/03 §4.9 step 3).
     let reveals = json_of(
         &planyrith()
             .args([
@@ -332,7 +333,7 @@ fn furnished_room_acceptance() {
             .get_output()
             .stdout,
     );
-    assert_eq!(reveals["output"], 4 + 4);
+    assert_eq!(reveals["output"], 3 + 4);
 
     // Reopen and re-save without changes: identical bytes.
     let again = dir.join("again.plyr");

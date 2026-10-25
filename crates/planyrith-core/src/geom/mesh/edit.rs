@@ -14,7 +14,7 @@ use super::{
 use crate::geom::planar;
 use crate::geom::tessellate::tessellate_polygon_2d;
 use crate::geom::{DeltaSink, FaceSides, GeometryError, MeshDelta};
-use crate::ids::{EdgeId, FaceId, HalfEdgeId, VertexId};
+use crate::ids::{CurveId, EdgeId, FaceId, HalfEdgeId, VertexId};
 use crate::math::intersect::{SegmentContact, segment_segment};
 use crate::math::{Plane, Segment, polygon};
 use crate::tolerance::Tolerances;
@@ -41,6 +41,25 @@ impl HalfEdgeMesh {
         tol: &Tolerances,
         d: &mut dyn DeltaSink,
     ) -> Result<AddEdgeResult, GeometryError> {
+        let (mut result, touched) = self.insert_edge_chain(a, b, tol, d)?;
+        // Steps 3–4: face finding. Every chain edge is a seed, so drawing over
+        // an existing edge re-creates a face the user erased there.
+        let found = self.find_faces_seeded(&touched, &result.edges, tol, d)?;
+        result.new_faces = found.new_faces;
+        result.split_faces = found.split_faces;
+        Ok(result)
+    }
+
+    /// Steps 1–2 of `add_edge` (docs/03 §4.2): snaps the ends, splits the
+    /// edges the segment meets and adds the chain of edges along it, without
+    /// face finding. Returns the chain (in `edges`) and the touched vertices.
+    pub(crate) fn insert_edge_chain(
+        &mut self,
+        a: DVec3,
+        b: DVec3,
+        tol: &Tolerances,
+        d: &mut dyn DeltaSink,
+    ) -> Result<(AddEdgeResult, Vec<VertexId>), GeometryError> {
         if !tol.in_range(a) || !tol.in_range(b) {
             return Err(GeometryError::OutOfRange);
         }
@@ -65,30 +84,44 @@ impl HalfEdgeMesh {
         let mut splits: BTreeMap<EdgeId, Vec<DVec3>> = BTreeMap::new();
         for e in self.edges_near(&bbox)? {
             let es = self.edge_segment(e)?;
-            match segment_segment(&seg, &es, tol) {
-                SegmentContact::None => {}
-                SegmentContact::Point { point, .. } => {
-                    let q = if tol.same_point(point, pa) {
-                        pa
-                    } else if tol.same_point(point, pb) {
-                        pb
-                    } else {
-                        point
-                    };
-                    if tol.point_inside_segment(q, &es) {
-                        splits.entry(e).or_default().push(q);
-                    }
+            // An end of the new segment inside an existing edge always splits
+            // it, whatever the contact classification (a nearly collinear
+            // long edge may be reported as one mid-stretch point).
+            for q in [pa, pb] {
+                if tol.point_inside_segment(q, &es) {
+                    splits.entry(e).or_default().push(q);
                 }
-                SegmentContact::Overlap { .. } => {
-                    for q in [pa, pb] {
-                        if tol.point_inside_segment(q, &es) {
-                            splits.entry(e).or_default().push(q);
-                        }
-                    }
+            }
+            if let SegmentContact::Point { point, .. } = segment_segment(&seg, &es, tol) {
+                let q = if tol.same_point(point, pa) {
+                    pa
+                } else if tol.same_point(point, pb) {
+                    pb
+                } else {
+                    point
+                };
+                if tol.point_inside_segment(q, &es) {
+                    splits.entry(e).or_default().push(q);
                 }
             }
         }
-        for (e, mut points) in splits {
+        // Along the new segment, not in slot order: the order of the splits
+        // decides the pids of the pieces (docs/08 §10).
+        let mut splits: Vec<(f64, EdgeId, Vec<DVec3>)> = splits
+            .into_iter()
+            .map(|(e, points)| {
+                let first = points
+                    .iter()
+                    .map(|q| seg.closest_param(*q))
+                    .fold(f64::INFINITY, f64::min);
+                (first, e, points)
+            })
+            .collect();
+        splits.sort_by(|x, y| {
+            x.0.total_cmp(&y.0)
+                .then_with(|| self.segment_order(x.1, y.1))
+        });
+        for (_, e, mut points) in splits {
             let es = self.edge_segment(e)?;
             points.sort_by(|x, y| es.closest_param(*x).total_cmp(&es.closest_param(*y)));
             points.dedup_by(|x, y| tol.same_point(*x, *y));
@@ -132,13 +165,7 @@ impl HalfEdgeMesh {
             result.edges.push(e);
         }
 
-        // Steps 3–4: face finding. Every chain edge is a seed, so drawing over
-        // an existing edge re-creates a face the user erased there.
-        let touched: Vec<VertexId> = touched.into_iter().collect();
-        let found = self.find_faces_seeded(&touched, &result.edges, tol, d)?;
-        result.new_faces = found.new_faces;
-        result.split_faces = found.split_faces;
-        Ok(result)
+        Ok((result, touched.into_iter().collect()))
     }
 
     // ----- §4.6 erase edge / merge --------------------------------------------------
@@ -405,6 +432,37 @@ impl HalfEdgeMesh {
             }
         }
 
+        // Curves (docs/03 §3.3): a curve that moves as a whole follows the
+        // transform when it stays circular; any other edit of its members
+        // drops the descriptor. Descriptors come back after the move.
+        let mut curves: BTreeSet<CurveId> = BTreeSet::new();
+        for &v in &moved {
+            for &h in self.vertex_star(v) {
+                if let Some(c) = self.edge(self.he(h)?.edge).and_then(|e| e.curve) {
+                    curves.insert(c);
+                }
+            }
+        }
+        let mut moved_curves = Vec::new();
+        for c in curves {
+            let members = self.curve_edges(c)?;
+            let mut whole = true;
+            for &e in &members {
+                let (a, b) = self.edge_endpoints(e)?;
+                if [a, b]
+                    .iter()
+                    .any(|x| !moved.contains(x) || merge_into.contains_key(x))
+                {
+                    whole = false;
+                }
+            }
+            let descriptor = self.curve(c).cloned();
+            self.drop_curve_inner(c, d)?;
+            if whole && let Some(next) = descriptor.and_then(|x| x.transformed(t)) {
+                moved_curves.push((next, members));
+            }
+        }
+
         // Detach every face with a moving vertex; it is re-attached afterwards.
         let mut affected: BTreeSet<FaceId> = BTreeSet::new();
         for &v in &moved {
@@ -480,22 +538,40 @@ impl HalfEdgeMesh {
         for face in detached {
             self.reattach_moved_face(face, &map, opts, tol, d, &mut result)?;
         }
+        for (descriptor, members) in moved_curves {
+            if members.iter().all(|e| self.edge(*e).is_some()) {
+                self.add_curve_inner(descriptor, &members, false, d)?;
+            }
+        }
 
-        // Step 3: optional intersection check (moved edges and fold edges).
+        // Step 3: intersection pass (moved edges and fold edges). Invariant 4
+        // holds either way: without `check_intersections` a move whose edges
+        // would cross other edges is refused instead of splitting them
+        // (docs/03 Decisions, crossing moves).
+        let mut edges: BTreeSet<EdgeId> = result.fold_edges.iter().copied().collect();
+        for &(_, v) in &kept {
+            for &h in self.vertex_star(v) {
+                edges.insert(self.he(h)?.edge);
+            }
+        }
+        for &w in merge_into.values() {
+            for &h in self.vertex_star(w) {
+                edges.insert(self.he(h)?.edge);
+            }
+        }
+        let count = self.edge_count();
+        let (touched, pieces) = self.integrate_edges(edges.into_iter().collect(), tol, d)?;
         if opts.check_intersections {
-            let mut edges: BTreeSet<EdgeId> = result.fold_edges.iter().copied().collect();
-            for &(_, v) in &kept {
-                for &h in self.vertex_star(v) {
-                    edges.insert(self.he(h)?.edge);
-                }
-            }
-            for &w in merge_into.values() {
-                for &h in self.vertex_star(w) {
-                    edges.insert(self.he(h)?.edge);
-                }
-            }
-            let (touched, pieces) = self.integrate_edges(edges.into_iter().collect(), tol, d)?;
-            self.find_faces_seeded(&touched, &pieces, tol, d)?;
+            // The pieces re-split the faces they now cross, but a moved edge
+            // is not drawn: it must not re-create an erased face or fill a
+            // hole (docs/03 Decisions, seed rule).
+            self.find_faces(&touched, &pieces, &[], tol, d)?;
+        } else if self.edge_count() != count {
+            return Err(GeometryError::Invariant(
+                "the moved edges would cross other edges; move with intersection checks to \
+                 split them, or choose another position"
+                    .into(),
+            ));
         }
         Ok(result)
     }
@@ -536,8 +612,23 @@ impl HalfEdgeMesh {
         }
         match planar::fit_plane(self, &outer_h, &holes_h, tol)? {
             Some(plane) => {
+                // A hole moved out of its face no longer belongs to it: the
+                // face closes over where it was and the hole's half-edges stay
+                // free (docs/03 §3.1 invariant 2).
+                let frame = plane.frame();
+                let ring = frame.project_all(&self.cycle_positions(&outer_h)?);
+                let mut kept_holes = Vec::with_capacity(holes_h.len());
+                for hole in holes_h {
+                    let inside = self.cycle_positions(&hole)?.iter().all(|&p| {
+                        polygon::point_in_ring(frame.to_2d(p), &ring, tol)
+                            == polygon::PointInPolygon::Inside
+                    });
+                    if inside {
+                        kept_holes.push(hole);
+                    }
+                }
                 if self
-                    .attach_face(face.f, &outer_h, &holes_h, plane, face.sides, tol, d)
+                    .attach_face(face.f, &outer_h, &kept_holes, plane, face.sides, tol, d)
                     .is_err()
                 {
                     self.discard_detached_face(face.f)?;
@@ -793,13 +884,19 @@ impl HalfEdgeMesh {
         d: &mut dyn DeltaSink,
     ) -> Result<(Vec<VertexId>, Vec<EdgeId>), GeometryError> {
         let mut work = edges;
+        // Popped from the end: the lowest segment first.
+        work.sort_by(|a, b| self.segment_order(*b, *a));
         let mut done = Vec::new();
         let mut touched = BTreeSet::new();
+        // Each split replaces one item by two and may re-queue one more, so
+        // the budget grows with the splits; it only stops a pass that makes
+        // no progress.
         let limit = 4 * (self.edge_count() + work.len()) + 16;
         let mut steps = 0;
+        let mut splits = 0;
         while let Some(e) = work.pop() {
             steps += 1;
-            if steps > limit {
+            if steps > limit + 3 * splits {
                 return Err(GeometryError::NonRobust(
                     "intersection check did not converge".into(),
                 ));
@@ -810,19 +907,25 @@ impl HalfEdgeMesh {
             let seg = self.edge_segment(e)?;
             let (ea, eb) = self.edge_endpoints(e)?;
             let bbox = seg.aabb().expanded(tol.length);
-            // A vertex lying inside `e`.
+            // The vertex lying inside `e` nearest its start; else the crossing
+            // nearest its start (geometric order, not slot order: docs/08 §10).
             let mut split_at: Option<DVec3> = None;
+            let mut nearest = f64::INFINITY;
             for (v, vert) in self.vertices() {
                 if v != ea
                     && v != eb
                     && bbox.contains_point(vert.position)
                     && tol.point_inside_segment(vert.position, &seg)
                 {
-                    split_at = Some(vert.position);
-                    break;
+                    let t = seg.closest_param(vert.position);
+                    if t < nearest {
+                        nearest = t;
+                        split_at = Some(vert.position);
+                    }
                 }
             }
             if split_at.is_none() {
+                let mut crossing: Option<(f64, EdgeId, DVec3)> = None;
                 for g in self.edges_near(&bbox)? {
                     if g == e {
                         continue;
@@ -840,22 +943,34 @@ impl HalfEdgeMesh {
                     if let SegmentContact::Point { point, .. } = contact
                         && tol.point_inside_segment(point, &gs)
                     {
-                        let (m, parts) = self.split_edge_at(g, point, tol, d)?;
-                        touched.insert(m);
-                        // A pending edge split from this side still needs
-                        // its own check, piece by piece.
-                        if work.contains(&g) {
-                            work.retain(|w| *w != g);
-                            work.extend(parts);
+                        let t = seg.closest_param(point);
+                        let closer = crossing.is_none_or(|(u, h, _)| {
+                            t.total_cmp(&u)
+                                .then_with(|| self.segment_order(g, h))
+                                .is_lt()
+                        });
+                        if closer {
+                            crossing = Some((t, g, point));
                         }
-                        split_at = Some(self.position(m)?);
-                        break;
                     }
+                }
+                if let Some((_, g, point)) = crossing {
+                    let (m, parts) = self.split_edge_at(g, point, tol, d)?;
+                    splits += 1;
+                    touched.insert(m);
+                    // A pending edge split from this side still needs its own
+                    // check, piece by piece.
+                    if work.contains(&g) {
+                        work.retain(|w| *w != g);
+                        work.extend(parts);
+                    }
+                    split_at = Some(self.position(m)?);
                 }
             }
             match split_at {
                 Some(p) if tol.point_inside_segment(p, &seg) => {
                     let (m, parts) = self.split_edge_at(e, p, tol, d)?;
+                    splits += 1;
                     touched.insert(m);
                     work.extend(parts);
                 }
@@ -870,6 +985,40 @@ impl HalfEdgeMesh {
         done.sort();
         done.dedup();
         Ok((touched.into_iter().collect(), done))
+    }
+}
+
+impl HalfEdgeMesh {
+    /// Geometric order of two edges: by their lower endpoint, then the
+    /// higher one (lexicographic positions), then id. Missing edges sort
+    /// last.
+    fn segment_order(&self, a: EdgeId, b: EdgeId) -> std::cmp::Ordering {
+        let key = |e: EdgeId| {
+            self.edge_segment(e).ok().map(|s| {
+                let (p, q) = (s.a.to_array(), s.b.to_array());
+                let lex = |x: &[f64; 3], y: &[f64; 3]| {
+                    x.iter()
+                        .zip(y)
+                        .map(|(u, v)| u.total_cmp(v))
+                        .find(|o| o.is_ne())
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                };
+                if lex(&p, &q).is_le() { [p, q] } else { [q, p] }
+            })
+        };
+        match (key(a), key(b)) {
+            (Some(x), Some(y)) => x
+                .iter()
+                .flatten()
+                .zip(y.iter().flatten())
+                .map(|(u, v)| u.total_cmp(v))
+                .find(|o| o.is_ne())
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then(a.cmp(&b)),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => a.cmp(&b),
+        }
     }
 }
 

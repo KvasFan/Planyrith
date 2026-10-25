@@ -456,6 +456,9 @@ pub enum ValueFieldInput {
     Angle(Angle),
     /// A plain count (`3`), e.g. segments or array copies.
     Count(u32),
+    /// A bare signed or decimal number without unit (`-45`, `22.5`): a length
+    /// in the document unit or an angle in degrees, depending on the step.
+    Number(f64),
     /// Absolute `[x,y,z]` or relative `<x,y,z>` coordinates.
     Coordinate {
         /// `true` for `[x,y,z]`, `false` for `<x,y,z>`.
@@ -480,6 +483,9 @@ impl ValueFieldInput {
                 f64::from(*n),
                 default_unit.bare_number_unit(),
             )),
+            ValueFieldInput::Number(x) => {
+                Some(Length::in_unit(*x, default_unit.bare_number_unit()))
+            }
             _ => None,
         }
     }
@@ -491,6 +497,7 @@ impl ValueFieldInput {
         match self {
             ValueFieldInput::Angle(a) => Some(*a),
             ValueFieldInput::Count(n) => Some(Angle::degrees(f64::from(*n))),
+            ValueFieldInput::Number(x) => Some(Angle::degrees(*x)),
             _ => None,
         }
     }
@@ -1059,7 +1066,22 @@ pub fn parse_value_field(
     {
         return Ok(ValueFieldInput::Count(n));
     }
+    if is_bare_number(text)
+        && let Ok(x) = text.parse::<f64>()
+        && x.is_finite()
+    {
+        return Ok(ValueFieldInput::Number(x));
+    }
     parse_length(text, default_unit).map(ValueFieldInput::Length)
+}
+
+/// An optional sign, digits and at most one decimal point, nothing else.
+fn is_bare_number(text: &str) -> bool {
+    let body = text.strip_prefix(['-', '+']).unwrap_or(text);
+    !body.is_empty()
+        && body.chars().any(|c| c.is_ascii_digit())
+        && body.chars().all(|c| c.is_ascii_digit() || c == '.')
+        && body.chars().filter(|&c| c == '.').count() <= 1
 }
 
 fn ends_with_word(text: &str, word: &str) -> bool {
@@ -1376,8 +1398,13 @@ mod tests {
         let mm = LengthUnit::Millimeter;
         let p = |s: &str| parse_value_field(s, mm).unwrap_or_else(|e| panic!("{s}: {e}"));
         assert_eq!(p("1200"), ValueFieldInput::Count(1200));
-        assert_eq!(p("1200.0"), ValueFieldInput::Length(Length::mm(1200.0)));
-        assert_eq!(p("-1200"), ValueFieldInput::Length(Length::mm(-1200.0)));
+        assert_eq!(p("1200.0"), ValueFieldInput::Number(1200.0));
+        assert_eq!(p("-1200"), ValueFieldInput::Number(-1200.0));
+        assert_eq!(p("-1200").as_length(mm), Some(Length::mm(-1200.0)));
+        // Bare signed or decimal numbers are degrees where a step wants an angle.
+        assert_eq!(p("-45").as_angle(), Some(Angle::degrees(-45.0)));
+        assert_eq!(p("22.5").as_angle(), Some(Angle::degrees(22.5)));
+        assert_eq!(p("22.5").as_count(), None);
         assert_eq!(p("1.2m"), ValueFieldInput::Length(Length::mm(1200.0)));
         assert_eq!(p("3' 6\""), ValueFieldInput::Length(Length::inches(42.0)));
         assert_eq!(
@@ -1533,18 +1560,19 @@ mod tests {
             prop_assert!((parsed.as_mm() - expected).abs() <= expected.abs() * 1e-12 + 1e-9);
         }
 
-        /// Bare unsigned integers are counts; everything else that is a plain
-        /// decimal is a length in the default unit.
+        /// Bare unsigned integers are counts; other plain decimals are bare
+        /// numbers, lengths in the default unit where a length is expected.
         #[test]
         fn value_field_counts_and_lengths(n in 0u32..u32::MAX, frac in 1u32..1000) {
             prop_assert_eq!(parse_value_field(&n.to_string(), LengthUnit::Millimeter), Ok(ValueFieldInput::Count(n)));
             let text = format!("{n}.{frac:03}");
-            match parse_value_field(&text, LengthUnit::Centimeter) {
-                Ok(ValueFieldInput::Length(l)) => {
+            let parsed = parse_value_field(&text, LengthUnit::Centimeter);
+            match parsed.as_ref().ok().and_then(|v| v.as_length(LengthUnit::Centimeter)) {
+                Some(l) => {
                     let expected = (f64::from(n) + f64::from(frac) / 1000.0) * 10.0;
                     prop_assert!((l.as_mm() - expected).abs() <= expected.abs() * 1e-12 + 1e-9);
                 }
-                other => prop_assert!(false, "{text}: {other:?}"),
+                None => prop_assert!(false, "{text}: {parsed:?}"),
             }
         }
     }

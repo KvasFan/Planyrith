@@ -216,6 +216,24 @@ impl HalfEdgeMesh {
                     detail: format!("{f} has zero area"),
                 });
             }
+            // Holes lie inside the outer loop (invariant 2).
+            if let Ok(outer) = self.loop_positions(face.outer) {
+                let outer = frame.project_all(&outer);
+                for &l in &face.holes {
+                    let Ok(points) = self.loop_positions(l) else {
+                        continue;
+                    };
+                    if points.iter().any(|&p| {
+                        polygon::point_in_ring(frame.to_2d(p), &outer, tol)
+                            == polygon::PointInPolygon::Outside
+                    }) {
+                        out.push(MeshViolation {
+                            invariant: 2,
+                            detail: format!("hole {l} of {f} lies outside its outer loop"),
+                        });
+                    }
+                }
+            }
         }
     }
 

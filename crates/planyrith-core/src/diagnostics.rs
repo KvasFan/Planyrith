@@ -11,7 +11,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::document::{Anchor, ContainerRef, Dimension, Document, EntityCounts, ImageRef};
+use crate::document::{
+    Anchor, ContainerRef, Dimension, Document, Entities, EntityCounts, ImageRef,
+};
 use crate::geom::NoDeltas;
 use crate::ids::{EntityId, FaceId, Pid};
 use crate::math::transform::is_invertible;
@@ -31,6 +33,10 @@ pub enum WarningCode {
     W2004,
     /// Texture downscaled.
     W2005,
+    /// A damaged or unusable part was dropped while loading (journal,
+    /// a part whose name cannot be written back, a part the manifest lists
+    /// but the container lacks).
+    W2006,
 }
 
 impl WarningCode {
@@ -42,6 +48,7 @@ impl WarningCode {
             WarningCode::W2003 => "W2003",
             WarningCode::W2004 => "W2004",
             WarningCode::W2005 => "W2005",
+            WarningCode::W2006 => "W2006",
         }
     }
 }
@@ -107,6 +114,11 @@ pub enum ProblemKind {
     PidBookkeeping,
     /// Definition `usage_count` differs from the actual count.
     UsageCount,
+    /// A reference to a definition, material, tag or image that does not
+    /// exist, or a definition missing from (or doubled in) the definition order.
+    DanglingReference,
+    /// The document tolerances are inconsistent (docs/03 §2).
+    InvalidTolerances,
 }
 
 /// One problem (docs/04 §13).
@@ -321,6 +333,14 @@ pub fn validate(doc: &Document) -> Report {
                 format!("{id} has a detached anchor (W2003)"),
             );
         }
+        for (pid, message) in dangling_references(doc, entities) {
+            push(
+                ProblemKind::DanglingReference,
+                Severity::Error,
+                pid,
+                message,
+            );
+        }
     }
 
     let mut doc_problem = |kind: ProblemKind, severity: Severity, message: String| {
@@ -332,6 +352,46 @@ pub fn validate(doc: &Document) -> Report {
             message,
         });
     };
+    if let Err(e) = doc.tolerances().validate() {
+        doc_problem(
+            ProblemKind::InvalidTolerances,
+            Severity::Error,
+            format!("document tolerances: {e}"),
+        );
+    }
+    let mut ordered = BTreeSet::new();
+    for &d in &doc.definition_order {
+        if doc.definition(d).is_none() || !ordered.insert(d) {
+            doc_problem(
+                ProblemKind::DanglingReference,
+                Severity::Error,
+                format!("the definition order lists {d} that is missing or doubled"),
+            );
+        }
+    }
+    for (d, def) in doc.definitions.iter() {
+        if !ordered.contains(&d) {
+            doc_problem(
+                ProblemKind::DanglingReference,
+                Severity::Error,
+                format!(
+                    "definition `{}` is not in the definition order (its contents are not checked)",
+                    def.name
+                ),
+            );
+        }
+    }
+    for (_, m) in doc.materials.iter() {
+        if let Some(t) = &m.texture
+            && doc.images.get(t.image).is_none()
+        {
+            doc_problem(
+                ProblemKind::DanglingReference,
+                Severity::Error,
+                format!("material `{}` uses a texture image that is missing", m.name),
+            );
+        }
+    }
     // Cyclic or too deep nesting anywhere (also in definitions not reachable
     // from the model).
     if let Err(err) = doc.nesting_depth() {
@@ -409,6 +469,66 @@ fn image_used(doc: &Document, image: ImageRef) -> bool {
     doc.materials
         .iter()
         .any(|(_, m)| m.texture.as_ref().is_some_and(|t| t.image == image))
+        || doc
+            .styles
+            .iter()
+            .any(|(_, s)| s.watermarks.iter().any(|w| w.image == image))
+        || doc
+            .definitions
+            .iter()
+            .any(|(_, d)| d.thumbnail == Some(image))
+}
+
+/// References of one container's entities to things that do not exist:
+/// definitions of groups/instances, face and override materials, tags.
+fn dangling_references(doc: &Document, entities: &Entities) -> Vec<(Option<Pid>, String)> {
+    let mut out = Vec::new();
+    for (g, x) in entities.groups() {
+        if doc.definition(x.definition).is_none() {
+            let id = EntityId::Group(g);
+            out.push((
+                entities.pid_of(id),
+                format!("{id} names a missing definition"),
+            ));
+        }
+    }
+    for (i, x) in entities.instances() {
+        let id = EntityId::Instance(i);
+        if doc.definition(x.definition).is_none() {
+            out.push((
+                entities.pid_of(id),
+                format!("{id} names a missing definition"),
+            ));
+        }
+        if x.material_override
+            .is_some_and(|m| doc.materials.get(m).is_none())
+        {
+            out.push((
+                entities.pid_of(id),
+                format!("{id} overrides with a missing material"),
+            ));
+        }
+    }
+    for (f, face) in entities.mesh().faces() {
+        let sides = [face.sides.material_front, face.sides.material_back];
+        if sides
+            .into_iter()
+            .flatten()
+            .any(|m| doc.materials.get(m).is_none())
+        {
+            let id = EntityId::Face(f);
+            out.push((entities.pid_of(id), format!("{id} uses a missing material")));
+        }
+    }
+    for id in entities.iter() {
+        if entities
+            .tag_of(id)
+            .is_some_and(|t| doc.tags.get(t).is_none())
+        {
+            out.push((entities.pid_of(id), format!("{id} has a missing tag")));
+        }
+    }
+    out
 }
 
 /// Applies the enabled fixes and re-validates (docs/04 §13 `repair`). Repairs
@@ -418,48 +538,49 @@ pub fn repair(doc: &mut Document, fixes: &RepairFixes) -> RepairReport {
     let before = validate(doc);
     let mut warnings = Vec::new();
     let tol = *doc.tolerances();
-    for c in doc.containers() {
-        let mut next_pid = doc.info.next_pid;
-        let Some(entities) = doc.container_mut(c) else {
-            continue;
-        };
-        let mut changed = false;
-        if fixes.merge_vertices {
-            let merged = merge_near_vertices(entities.mesh_mut(), &tol);
-            if merged > 0 {
-                changed = true;
-                warnings.push(Warning::new(
-                    WarningCode::W2002,
-                    format!("{merged} vertex pairs merged in {c:?}"),
-                ));
-            }
-        }
-        if fixes.degenerate_faces {
-            let degenerate: Vec<FaceId> = entities
-                .mesh()
-                .faces()
-                .map(|(f, _)| f)
-                .filter(|f| {
-                    entities
-                        .mesh()
-                        .face_area(*f)
-                        .is_ok_and(|a| a <= tol.length_sq)
-                })
-                .collect();
-            for f in degenerate {
-                if entities
-                    .mesh_mut()
-                    .erase_face(f, false, &tol, &mut NoDeltas)
-                    .is_ok()
+    // Mesh fixes run in a transaction so re-created edges and faces keep
+    // their pids, order slots, tags, hidden state and attributes (the same
+    // identity rules as commands, docs/03 Decisions); the deltas are not kept.
+    {
+        let mut tx = crate::commands::Transaction::new(doc, "Repair");
+        for c in tx.document().containers() {
+            if fixes.merge_vertices {
+                let merged = tx.with_mesh(c, |mesh, tol, d| Ok(merge_near_vertices(mesh, tol, d)));
+                if let Ok(merged) = merged
+                    && merged > 0
                 {
-                    changed = true;
+                    warnings.push(Warning::new(
+                        WarningCode::W2002,
+                        format!("{merged} vertex pairs merged in {c:?}"),
+                    ));
+                }
+            }
+            if fixes.degenerate_faces {
+                let degenerate: Vec<FaceId> = tx
+                    .document()
+                    .container(c)
+                    .map(|e| {
+                        e.mesh()
+                            .faces()
+                            .map(|(f, _)| f)
+                            .filter(|f| e.mesh().face_area(*f).is_ok_and(|a| a <= tol.length_sq))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                for f in degenerate {
+                    let _ = tx.with_mesh(c, |mesh, tol, d| mesh.erase_face(f, false, tol, d));
                 }
             }
         }
-        if changed {
+        let _ = tx.commit();
+    }
+    for c in doc.containers() {
+        let mut next_pid = doc.info.next_pid;
+        if let Some(entities) = doc.container_mut(c) {
+            // Anything a damaged file left unbound gets a pid.
             entities.sync_mesh_pids(&mut next_pid);
-            doc.info.next_pid = next_pid;
         }
+        doc.info.next_pid = next_pid;
     }
     if fixes.dangling_refs {
         let tags: BTreeSet<_> = doc.tags.iter().map(|(t, _)| t).collect();
@@ -486,6 +607,7 @@ pub fn repair(doc: &mut Document, fixes: &RepairFixes) -> RepairReport {
         for r in unused {
             doc.images.remove(r);
         }
+        repair_references(doc, &mut warnings);
     }
     // The usage counts are a cache: always recomputed.
     doc.refresh_usage_counts();
@@ -515,11 +637,114 @@ pub fn repair(doc: &mut Document, fixes: &RepairFixes) -> RepairReport {
     }
 }
 
+/// Repairs dangling references (docs/04 §13): faces and overrides fall back
+/// to the default material, entities with a missing tag become untagged,
+/// groups and instances of a missing definition are removed, the
+/// definition order lists every definition once, and textures whose image is
+/// missing are dropped.
+fn repair_references(doc: &mut Document, warnings: &mut Vec<Warning>) {
+    let mut fixed = 0usize;
+    // The definition order.
+    let mut seen = BTreeSet::new();
+    let defs: BTreeSet<_> = doc.definitions.iter().map(|(d, _)| d).collect();
+    let before = doc.definition_order.len();
+    doc.definition_order
+        .retain(|d| defs.contains(d) && seen.insert(*d));
+    fixed += before - doc.definition_order.len();
+    for d in defs {
+        if !seen.contains(&d) {
+            doc.definition_order.push(d);
+            fixed += 1;
+        }
+    }
+    // Textures.
+    let materials: Vec<_> = doc.materials.iter().map(|(id, _)| id).collect();
+    for id in materials {
+        let Some(m) = doc.materials.get(id) else {
+            continue;
+        };
+        if let Some(t) = &m.texture
+            && doc.images.get(t.image).is_none()
+        {
+            let mut m = m.clone();
+            m.texture = None;
+            if doc.materials.replace(id, m).is_ok() {
+                fixed += 1;
+            }
+        }
+    }
+    // Entities.
+    let materials: BTreeSet<_> = doc.materials.iter().map(|(id, _)| id).collect();
+    let tags: BTreeSet<_> = doc.tags.iter().map(|(id, _)| id).collect();
+    let definitions: BTreeSet<_> = doc.definitions.iter().map(|(d, _)| d).collect();
+    for c in doc.containers() {
+        let Some(entities) = doc.container_mut(c) else {
+            continue;
+        };
+        let faces: Vec<(FaceId, crate::geom::FaceSides)> = entities
+            .mesh()
+            .faces()
+            .map(|(f, x)| (f, x.sides.clone()))
+            .collect();
+        for (f, mut sides) in faces {
+            let mut changed = false;
+            for m in [&mut sides.material_front, &mut sides.material_back] {
+                if m.is_some_and(|m| !materials.contains(&m)) {
+                    *m = None;
+                    changed = true;
+                }
+            }
+            if changed
+                && entities
+                    .mesh_mut()
+                    .set_face_sides(f, sides, &mut NoDeltas)
+                    .is_ok()
+            {
+                fixed += 1;
+            }
+        }
+        let ids: Vec<EntityId> = entities.iter().collect();
+        for id in ids {
+            if entities.tag_of(id).is_some_and(|t| !tags.contains(&t))
+                && entities.set_tag(id, None).is_ok()
+            {
+                fixed += 1;
+            }
+            let missing_definition = entities
+                .definition_of(id)
+                .is_some_and(|d| !definitions.contains(&d));
+            if missing_definition && entities.remove(id).is_ok() {
+                fixed += 1;
+                continue;
+            }
+            if let Some(crate::document::EntityView::Instance(i)) = entities.view(id)
+                && i.material_override.is_some_and(|m| !materials.contains(&m))
+            {
+                let mut i = i.clone();
+                i.material_override = None;
+                if entities
+                    .replace(id, crate::document::EntityRecord::Instance(i))
+                    .is_ok()
+                {
+                    fixed += 1;
+                }
+            }
+        }
+    }
+    if fixed > 0 {
+        warnings.push(Warning::new(
+            WarningCode::W2006,
+            format!("{fixed} dangling reference(s) repaired"),
+        ));
+    }
+}
+
 /// Merges vertex pairs closer than the tolerance by moving one onto the
 /// other (the kernel's merge-on-move welds them). Returns the merge count.
 fn merge_near_vertices(
     mesh: &mut crate::geom::HalfEdgeMesh,
     tol: &crate::tolerance::Tolerances,
+    d: &mut dyn crate::geom::DeltaSink,
 ) -> usize {
     let mut merged = 0;
     // Bounded: each successful merge removes a vertex.
@@ -542,13 +767,8 @@ fn merge_near_vertices(
             break;
         };
         let t = glam::DAffine3::from_translation(keep - p);
-        let moved = mesh.transform_vertices(
-            &[v],
-            &t,
-            crate::geom::TransformOptions::default(),
-            tol,
-            &mut NoDeltas,
-        );
+        let moved =
+            mesh.transform_vertices(&[v], &t, crate::geom::TransformOptions::default(), tol, d);
         match moved {
             Ok(r) if r.merged_vertices > 0 => merged += 1,
             _ => break,

@@ -43,7 +43,7 @@ use serde::{Deserialize, Serialize};
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, DateTime, System, ZipArchive, ZipWriter};
 
-use crate::diagnostics::Warning;
+use crate::diagnostics::{Warning, WarningCode};
 use crate::document::{Document, FORMAT_VERSION, ImageData, ImageFormat, ImageRef, ImageStore};
 use crate::io::storage::{Storage, StorageKey};
 use crate::io::{IoError, Progress};
@@ -414,10 +414,22 @@ pub fn write_document(
                 row
             })
             .collect();
-        let bytes = rmp_serde::to_vec_named(&rows)
-            .map_err(|e| IoError::corrupt(parts::HISTORY, format!("serialization failed: {e}")))?;
-        check_part_size(parts::HISTORY, bytes.len() as u64, MAX_JOURNAL_SIZE)?;
-        entries.push((parts::HISTORY.to_string(), bytes, payload_method));
+        // The journal is optional and capped (docs/09 §3): past the cap the
+        // oldest rows go, so a long-lived document can always be saved.
+        let mut rows = rows;
+        let encode = |rows: &[HistoryEntry]| {
+            rmp_serde::to_vec_named(rows)
+                .map_err(|e| IoError::corrupt(parts::HISTORY, format!("serialization failed: {e}")))
+        };
+        let mut bytes = encode(&rows)?;
+        while bytes.len() as u64 > MAX_JOURNAL_SIZE && !rows.is_empty() {
+            let drop = (rows.len() / 4).max(1);
+            rows.drain(..drop);
+            bytes = encode(&rows)?;
+        }
+        if !rows.is_empty() {
+            entries.push((parts::HISTORY.to_string(), bytes, payload_method));
+        }
     }
 
     let (ext, other): (Vec<_>, Vec<_>) = opts
@@ -667,6 +679,8 @@ pub fn read_document(bytes: &[u8], progress: &dyn Progress) -> Result<LoadedDocu
     let mut history = Vec::new();
     let mut thumbnail = None;
     let mut extra_parts = BTreeMap::new();
+    let mut warnings = Vec::new();
+    let dropped = |what: String| Warning::new(WarningCode::W2006, what);
     let total = names.len().max(1) as f32;
     for (i, name) in names.iter().enumerate() {
         progress.check_cancelled()?;
@@ -698,15 +712,36 @@ pub fn read_document(bytes: &[u8], progress: &dyn Progress) -> Result<LoadedDocu
                 )?);
             }
             PartKind::History => {
-                let bytes = read_checked_part(&mut archive, &manifest, name, MAX_JOURNAL_SIZE)?;
-                history = rmp_serde::from_slice(&bytes).map_err(|e| {
-                    IoError::corrupt(parts::HISTORY, format!("undecodable journal: {e}"))
-                })?;
+                // The journal is optional: a damaged one is dropped, it never
+                // keeps an intact document from loading (docs/09 §3).
+                let rows = read_checked_part(&mut archive, &manifest, name, MAX_JOURNAL_SIZE)
+                    .and_then(|bytes| {
+                        rmp_serde::from_slice(&bytes).map_err(|e| {
+                            IoError::corrupt(parts::HISTORY, format!("undecodable journal: {e}"))
+                        })
+                    });
+                match rows {
+                    Ok(rows) => history = rows,
+                    Err(e) => warnings.push(dropped(format!("history journal dropped: {e}"))),
+                }
             }
             PartKind::Other => {
+                if validate_extra_part_name(name).is_err() {
+                    warnings.push(dropped(format!(
+                        "part `{name}` dropped: its name cannot be written back"
+                    )));
+                    continue;
+                }
                 let bytes = read_checked_part(&mut archive, &manifest, name, MAX_PART_SIZE)?;
                 extra_parts.insert(name.clone(), bytes);
             }
+        }
+    }
+    for part in &manifest.parts {
+        if !names.contains(part) && part != parts::MIMETYPE && part != parts::MANIFEST {
+            warnings.push(dropped(format!(
+                "part `{part}` is listed in the manifest but missing from the container"
+            )));
         }
     }
     progress.report(1.0, "done");
@@ -716,7 +751,7 @@ pub fn read_document(bytes: &[u8], progress: &dyn Progress) -> Result<LoadedDocu
         history,
         thumbnail,
         extra_parts,
-        warnings: Vec::new(),
+        warnings,
     })
 }
 

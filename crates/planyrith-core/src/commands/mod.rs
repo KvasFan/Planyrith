@@ -18,6 +18,8 @@ pub(crate) mod common;
 pub mod draw;
 pub mod edit;
 pub mod file;
+#[cfg(test)]
+mod fuzz_tests;
 pub mod organize;
 pub mod params;
 pub mod transaction;

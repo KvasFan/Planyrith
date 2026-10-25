@@ -96,11 +96,28 @@ impl Plane {
     /// Plane of a closed polygon by Newell's method (docs/03 §8): the normal is
     /// the area vector of the loop, so the orientation follows the winding
     /// (counter-clockwise seen from the front). `None` when the polygon has
-    /// fewer than three points or its area is below `tol.length²`.
+    /// fewer than three points or its area is below `tol.length²`. The sums
+    /// start at the lowest point, so every rotation of the same loop gives
+    /// the same bits (docs/08 §10).
     pub fn from_polygon(points: &[DVec3], tol: &Tolerances) -> Option<Self> {
         if points.len() < 3 {
             return None;
         }
+        let first = (0..points.len())
+            .min_by(|&i, &j| {
+                let (a, b) = (points[i], points[j]);
+                a.x.total_cmp(&b.x)
+                    .then(a.y.total_cmp(&b.y))
+                    .then(a.z.total_cmp(&b.z))
+                    .then(i.cmp(&j))
+            })
+            .unwrap_or(0);
+        let rotated: Vec<DVec3> = points[first..]
+            .iter()
+            .chain(&points[..first])
+            .copied()
+            .collect();
+        let points = rotated.as_slice();
         let centroid = mean(points);
         let area_vector = newell_area_vector(points, centroid);
         // |area_vector| is twice the polygon area.

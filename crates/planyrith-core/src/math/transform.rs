@@ -37,11 +37,23 @@ pub fn is_mirrored(t: &DAffine3) -> bool {
     t.matrix3.determinant() < 0.0
 }
 
-/// `true` when the linear part is invertible: `|det| > tol.parametric`
-/// (docs/04 §13 flags non-invertible transforms).
+/// `true` when the linear part is well-conditioned enough to invert: its
+/// Frobenius condition number `‖M‖·‖M⁻¹‖` stays below `1 / tol.parametric`
+/// (docs/04 §13 flags non-invertible transforms). Unlike a bound on the
+/// determinant this does not depend on the overall scale: any uniform scale
+/// is invertible, a flattening one is not.
 pub fn is_invertible(t: &DAffine3, tol: &Tolerances) -> bool {
-    let det = t.matrix3.determinant();
-    det.is_finite() && det.abs() > tol.parametric
+    let m = t.matrix3;
+    let det = m.determinant();
+    if !det.is_finite() || det.abs() < f64::MIN_POSITIVE {
+        return false;
+    }
+    let inverse = m.inverse();
+    let norm = |a: DMat3| {
+        (a.x_axis.length_squared() + a.y_axis.length_squared() + a.z_axis.length_squared()).sqrt()
+    };
+    let condition = norm(m) * norm(inverse);
+    condition.is_finite() && condition < 1.0 / tol.parametric
 }
 
 /// Transforms a normal with the inverse transpose of the linear part and
@@ -250,6 +262,11 @@ mod tests {
         assert!(is_invertible(&t, &Tolerances::default()));
         let flat = DAffine3::from_scale(DVec3::new(1.0, 1.0, 0.0));
         assert!(!is_invertible(&flat, &Tolerances::default()));
+        // A uniform scale is invertible whatever its size.
+        let tiny = DAffine3::from_scale(DVec3::splat(0.001));
+        assert!(is_invertible(&tiny, &Tolerances::default()));
+        let squashed = DAffine3::from_scale(DVec3::new(1000.0, 1000.0, 1e-9));
+        assert!(!is_invertible(&squashed, &Tolerances::default()));
     }
 
     #[test]

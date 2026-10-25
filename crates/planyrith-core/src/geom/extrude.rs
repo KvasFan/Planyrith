@@ -91,10 +91,68 @@ pub fn extrude_face(
     mesh.face_ref(f)?;
     mesh.transact(tol, sink, |m, log| {
         if !opts.create_new_start_face && stretchable(m, f, tol)? {
-            return stretch(m, f, d, tol, log);
+            refuse_inverting(m, f, d, tol)?;
+            // A stretched face that lands on a coplanar face joins it: the
+            // generic path cuts the landing face (docs/03 Decisions).
+            if !opts.push_through || landing_of(m, f, d, tol)?.is_none() {
+                return stretch(m, f, d, tol, log);
+            }
         }
         extrude_generic(m, f, d, opts, tol, log)
     })
+}
+
+/// `E1301` when pushing a face whose neighbors all stand on it (a box top)
+/// at least as deep as the shallowest neighbor reaches would collapse or
+/// invert the solid (docs/03 Decisions).
+fn refuse_inverting(
+    m: &HalfEdgeMesh,
+    f: FaceId,
+    d: f64,
+    tol: &Tolerances,
+) -> Result<(), GeometryError> {
+    if d >= 0.0 {
+        return Ok(());
+    }
+    let n = m.face_normal(f)?;
+    let origin = m.position(m.face_vertices(f)?[0])?;
+    let mut depth = f64::INFINITY;
+    for cycle in m.face_cycles(f)? {
+        for h in cycle {
+            if let Some(g) = m.he(m.twin_of(h)?)?.face {
+                let mut reach: f64 = 0.0;
+                for v in m.face_vertices(g)? {
+                    reach = reach.max(-(m.position(v)? - origin).dot(n));
+                }
+                depth = depth.min(reach);
+            }
+        }
+    }
+    if -d >= depth - tol.length {
+        return Err(GeometryError::Degenerate(format!(
+            "pushing {:.3} mm would collapse or invert the solid (its sides are {depth:.3} mm deep)",
+            -d
+        )));
+    }
+    Ok(())
+}
+
+/// The landing face of extruding `f` by `d`, if any.
+fn landing_of(
+    m: &HalfEdgeMesh,
+    f: FaceId,
+    d: f64,
+    tol: &Tolerances,
+) -> Result<Option<FaceId>, GeometryError> {
+    let n = m.face_ref(f)?.plane.normal;
+    let w = n * d;
+    let rings: Vec<Vec<DVec3>> = m
+        .face_cycles(f)?
+        .iter()
+        .map(|c| m.cycle_positions(c))
+        .collect::<Result<_, _>>()?;
+    let cap_plane = Plane::from_point_normal(rings[0][0] + w, n);
+    landing_face(m, f, &cap_plane, &rings, w, tol)
 }
 
 /// Every boundary edge borders another face that contains the face normal.
@@ -189,10 +247,10 @@ fn extrude_generic(
         .map(|&h| m.he(h).map(|x| x.edge))
         .collect::<Result<_, _>>()?;
 
-    // Join target: a coplanar face containing the whole cap outline.
+    // Join target: a coplanar face covering the whole cap outline.
     let cap_plane = Plane::from_point_normal(rings[0][0] + w, n);
     let join = if opts.push_through {
-        landing_face(m, f, &cap_plane, &rings[0], w, tol)?
+        landing_face(m, f, &cap_plane, &rings, w, tol)?
     } else {
         None
     };
@@ -219,61 +277,128 @@ fn extrude_generic(
         m.remove_face(f, log)?;
         result.removed_faces.push(f);
     }
-
     let pre_existing: BTreeSet<FaceId> = m.faces().map(|(id, _)| id).collect();
     let first_new = log.len();
-    let mut swept: Vec<EdgeId> = Vec::new();
-    let add_ring = |m: &mut HalfEdgeMesh,
-                    ring: &[DVec3],
-                    log: &mut Vec<MeshDelta>,
-                    swept: &mut Vec<EdgeId>|
-     -> Result<(), GeometryError> {
-        for i in 0..ring.len() {
-            let r = m.add_edge_inner(ring[i] + w, ring[(i + 1) % ring.len()] + w, tol, log)?;
-            swept.extend(r.edges);
-        }
-        Ok(())
-    };
-    if join.is_some() {
-        for ring in &rings {
-            add_ring(m, ring, log, &mut swept)?;
-        }
-        // The piece of the landing face inside the outline is interior now.
-        for g in faces_bounded_by(m, &rings[0], w, tol)? {
-            m.remove_face(g, log)?;
-            result.removed_faces.push(g);
-        }
-        result.through_hole = d < 0.0;
-    }
+
+    // Phase A: the swept edges (verticals, then the cap rings) without face
+    // finding, then one pass that only splits the faces they cross. Nothing
+    // is created yet, so no new face can block another (docs/03 Decisions).
+    let mut verticals: Vec<EdgeId> = Vec::new();
+    let mut cap_edges: Vec<EdgeId> = Vec::new();
+    let mut touched: BTreeSet<VertexId> = BTreeSet::new();
     for ring in &rings {
         for &p in ring {
-            let r = m.add_edge_inner(p, p + w, tol, log)?;
-            swept.extend(r.edges);
+            let (r, t) = m.insert_edge_chain(p, p + w, tol, log)?;
+            verticals.extend(r.edges);
+            touched.extend(t);
         }
     }
-    if join.is_none() {
-        // Hole rings first. Face finding closes each one at the top; that
-        // fill is removed at once (the hole stays open), so the outer ring,
-        // added last, yields the cap with its holes and no orientation clash.
-        for ring in rings.iter().skip(1) {
-            let mark = log.len();
-            add_ring(m, ring, log, &mut swept)?;
-            let fresh: BTreeSet<FaceId> = log[mark..]
-                .iter()
-                .filter_map(|delta| match delta {
-                    MeshDelta::FaceAdded { id, .. } if !pre_existing.contains(id) => Some(*id),
-                    _ => None,
-                })
-                .collect();
-            for g in faces_bounded_by(m, ring, w, tol)? {
-                if fresh.contains(&g) {
+    for ring in &rings {
+        for i in 0..ring.len() {
+            let (r, t) =
+                m.insert_edge_chain(ring[i] + w, ring[(i + 1) % ring.len()] + w, tol, log)?;
+            cap_edges.extend(r.edges);
+            touched.extend(t);
+        }
+    }
+    let swept: Vec<EdgeId> = verticals.iter().chain(&cap_edges).copied().collect();
+    let touched_list: Vec<VertexId> = touched.iter().copied().collect();
+    m.find_faces(&touched_list, &swept, &[], tol, log)?;
+
+    // Phase B (join): the piece of the landing face inside the outline is
+    // interior now; it opens a hole (pushing) or joins the volumes (pulling).
+    if join.is_some() {
+        for g in faces_bounded_by(m, &rings[0], w, tol)? {
+            // When the inside piece is the one that kept the landing face's
+            // id, the identity moves to the piece that remains.
+            let rest = log[first_new..].iter().find_map(|delta| match delta {
+                MeshDelta::FaceSplit { old, new } if *old == g && m.face(new[1]).is_some() => {
+                    Some(new[1])
+                }
+                _ => None,
+            });
+            match rest {
+                Some(other) => m.transfer_face(g, other, tol, log)?,
+                None => {
                     m.remove_face(g, log)?;
+                    result.removed_faces.push(g);
                 }
             }
         }
-        add_ring(m, &rings[0], log, &mut swept)?;
+        // Pushing a face of a solid through cuts a hole; pushing a lone face
+        // onto another only joins them.
+        result.through_hole = d < 0.0 && !free;
     }
-    clear_coincident_sides(m, &side_half_edges, &swept, w, tol, log)?;
+
+    // Phase C: side strips that existing geometry occupies from the other
+    // side cancel out: the occupying piece goes, and so does the base edge.
+    let cancelled = cancel_coincident_sides(m, &side_half_edges, w, tol, log)?;
+    result.removed_faces.extend(cancelled);
+
+    // Phase D: face finding builds the sides, then (unless joining) the cap:
+    // a new face must be bounded by extrusion edges only (base, swept and
+    // cap edges), so no unrelated region the swept edges close (e.g. the
+    // underside of open walls) becomes a face. The sides go first so the
+    // top of a hole ring is taken by the hole's sides before the cap plane
+    // is searched.
+    let alive = |m: &HalfEdgeMesh, es: &[EdgeId]| -> Vec<EdgeId> {
+        es.iter()
+            .copied()
+            .filter(|e| m.edge(*e).is_some())
+            .collect()
+    };
+    let mut plane_edges = alive(m, &swept);
+    plane_edges.extend(base_edges.iter().copied().filter(|e| m.edge(*e).is_some()));
+    // In a join the cap ring must not close a cap (it would take the
+    // half-edges the sides need), so only the verticals seed there.
+    let seeds = if join.is_some() {
+        alive(m, &verticals)
+    } else {
+        alive(m, &swept)
+    };
+    let mut allowed = alive(m, &swept);
+    allowed.extend(base_edges.iter().copied().filter(|e| m.edge(*e).is_some()));
+    let mut touched_now: BTreeSet<VertexId> = BTreeSet::new();
+    for &e in &plane_edges {
+        let (a, b) = m.edge_endpoints(e)?;
+        touched_now.extend([a, b]);
+    }
+    let touched_now: Vec<VertexId> = touched_now.into_iter().collect();
+    let sides = alive(m, &verticals);
+    let mut side_touched: BTreeSet<VertexId> = BTreeSet::new();
+    for &e in &sides {
+        let (a, b) = m.edge_endpoints(e)?;
+        side_touched.extend([a, b]);
+    }
+    let side_touched: Vec<VertexId> = side_touched.into_iter().collect();
+    m.find_faces_within(&side_touched, &sides, &sides, &allowed, tol, log)?;
+    m.find_faces_within(&touched_now, &plane_edges, &seeds, &allowed, tol, log)?;
+    if join.is_some() {
+        // A cap closed over the joined region is interior.
+        for g in faces_bounded_by(m, &rings[0], w, tol)? {
+            if !pre_existing.contains(&g) {
+                m.remove_face(g, log)?;
+            }
+        }
+    }
+
+    // Phase E: hole rings stay open at the top, and swept edges no face
+    // needs go.
+    for ring in rings.iter().skip(1) {
+        for g in faces_bounded_by(m, ring, w, tol)? {
+            if !pre_existing.contains(&g) {
+                m.remove_face(g, log)?;
+            }
+        }
+    }
+    for e in swept {
+        if m.edge(e).is_some() && m.edge_faces(e)? == [None, None] {
+            let (a, b) = m.edge_endpoints(e)?;
+            m.delete_edge(e, log)?;
+            m.delete_if_isolated(a, log)?;
+            m.delete_if_isolated(b, log)?;
+        }
+    }
 
     // Classify the faces this operation created.
     let mut created: Vec<FaceId> = Vec::new();
@@ -296,30 +421,51 @@ fn extrude_generic(
     result.cap = cap;
     let mut sides: Vec<FaceId> = created.into_iter().filter(|g| Some(*g) != cap).collect();
 
-    // Step 3: merge side faces into coplanar neighbors across their base edge.
+    // Step 3: merge side faces into coplanar neighbors across their base
+    // edge, or, when joining, across their top edge as well.
     if opts.merge_coplanar {
+        let cap_set: BTreeSet<EdgeId> = cap_edges.iter().copied().collect();
+        let mergeable =
+            |e: &EdgeId| base_edges.contains(e) || (join.is_some() && cap_set.contains(e));
         let mut kept_sides = Vec::new();
         for s in sides {
-            let mut merged = false;
-            for e in m.face_edges(s)? {
-                if !base_edges.contains(&e) {
-                    continue;
-                }
-                let [a, b] = m.edge_faces(e)?;
-                let other = if a == Some(s) { b } else { a };
-                let Some(nb) = other else {
-                    continue;
-                };
-                if nb != s
-                    && tol.is_coplanar_same_side(&m.face_ref(nb)?.plane, &m.face_ref(s)?.plane)
-                {
-                    m.merge_faces_inner(nb, s, tol, log)?;
-                    result.merged_faces.push(s);
-                    merged = true;
-                    break;
-                }
+            if m.face(s).is_none() {
+                continue;
             }
-            if !merged {
+            // Merge repeatedly: a side that joins two walls (pulling one box
+            // onto another) merges with both.
+            let mut current = s;
+            let mut absorbed = false;
+            loop {
+                let mut target = None;
+                for e in m.face_edges(current)? {
+                    if !mergeable(&e) {
+                        continue;
+                    }
+                    let [a, b] = m.edge_faces(e)?;
+                    let other = if a == Some(current) { b } else { a };
+                    if let Some(nb) = other
+                        && nb != current
+                        && tol.is_coplanar_same_side(
+                            &m.face_ref(nb)?.plane,
+                            &m.face_ref(current)?.plane,
+                        )
+                    {
+                        target = Some(nb);
+                        break;
+                    }
+                }
+                let Some(nb) = target else {
+                    break;
+                };
+                m.merge_faces_inner(nb, current, tol, log)?;
+                if current == s {
+                    result.merged_faces.push(s);
+                    absorbed = true;
+                }
+                current = nb;
+            }
+            if !absorbed {
                 kept_sides.push(s);
             }
         }
@@ -335,19 +481,20 @@ fn extrude_generic(
     Ok(result)
 }
 
-/// Removes faces that occupy a side strip from the wrong side (an opening that
-/// reaches another face, e.g. a door down to the floor: the wall's underside
-/// under the door), drops the edges that became wires, and lets face finding
-/// build the side faces those faces were blocking.
-fn clear_coincident_sides(
+/// Removes faces that occupy a side strip from the other side of its base
+/// edge (a notch, step or recess cut at the boundary of the face: the
+/// neighbor's piece in the strip; a door down to the floor: the wall's
+/// underside under the door) and the base edges left without faces. Returns
+/// the removed faces.
+fn cancel_coincident_sides(
     m: &mut HalfEdgeMesh,
     side_half_edges: &[(EdgeId, crate::ids::HalfEdgeId)],
-    swept: &[EdgeId],
     w: DVec3,
     tol: &Tolerances,
     log: &mut Vec<MeshDelta>,
-) -> Result<(), GeometryError> {
+) -> Result<Vec<FaceId>, GeometryError> {
     let mut doomed = BTreeSet::new();
+    let mut lost_edges = Vec::new();
     for &(e, needed) in side_half_edges {
         if m.edge(e).is_none() || m.half_edge(needed).is_none() {
             continue;
@@ -380,41 +527,21 @@ fn clear_coincident_sides(
             });
         if inside {
             doomed.insert(x);
+            lost_edges.push(e);
         }
     }
-    if doomed.is_empty() {
-        return Ok(());
-    }
-    for x in doomed {
+    for &x in &doomed {
         m.remove_face(x, log)?;
     }
-    let mut touched = BTreeSet::new();
-    let mut seeds = Vec::new();
-    let candidates: BTreeSet<EdgeId> = side_half_edges
-        .iter()
-        .map(|(e, _)| *e)
-        .chain(swept.iter().copied())
-        .collect();
-    for e in candidates {
-        if m.edge(e).is_none() {
-            continue;
-        }
-        let (a, b) = m.edge_endpoints(e)?;
-        if m.edge_faces(e)? == [None, None] {
+    for e in lost_edges {
+        if m.edge(e).is_some() && m.edge_faces(e)? == [None, None] {
+            let (a, b) = m.edge_endpoints(e)?;
             m.delete_edge(e, log)?;
             m.delete_if_isolated(a, log)?;
             m.delete_if_isolated(b, log)?;
-        } else {
-            touched.extend([a, b]);
-            seeds.push(e);
         }
     }
-    let touched: Vec<VertexId> = touched
-        .into_iter()
-        .filter(|v| m.vertex(*v).is_some())
-        .collect();
-    m.find_faces_seeded(&touched, &seeds, tol, log)?;
-    Ok(())
+    Ok(doomed.into_iter().collect())
 }
 
 /// Curves all of whose members lie on the face boundary.
@@ -524,18 +651,24 @@ fn translated(c: &CurveDescriptor, w: DVec3) -> CurveDescriptor {
     c
 }
 
-/// A face other than `f`, coplanar with `cap_plane`, whose polygon contains
-/// every cap outline point (`outer + w`).
+/// A face other than `f`, coplanar with `cap_plane`, that covers the whole
+/// cap region (`rings + w`): every cap outline point lies inside it or on its
+/// boundary, and none of its boundary reaches into the cap's material (no
+/// vertex of its rings strictly inside the cap region, no ring crossing the
+/// cap outline). A face with a hole or notch under the cap does not cover it.
 fn landing_face(
     m: &HalfEdgeMesh,
     f: FaceId,
     cap_plane: &Plane,
-    outer: &[DVec3],
+    rings: &[Vec<DVec3>],
     w: DVec3,
     tol: &Tolerances,
 ) -> Result<Option<FaceId>, GeometryError> {
-    let points: Vec<DVec3> = outer.iter().map(|&p| p + w).collect();
-    let bbox = crate::math::Aabb::from_points(points.iter().copied()).expanded(tol.length);
+    let cap: Vec<Vec<DVec3>> = rings
+        .iter()
+        .map(|r| r.iter().map(|&p| p + w).collect())
+        .collect();
+    let bbox = crate::math::Aabb::from_points(cap[0].iter().copied()).expanded(tol.length);
     for g in m.coplanar_faces_near(cap_plane, &bbox, tol)? {
         if g == f {
             continue;
@@ -543,11 +676,20 @@ fn landing_face(
         let frame = m.face_ref(g)?.plane.frame();
         let (ring, holes) = planar::face_polygon(m, g, &frame)?;
         let hole_refs: Vec<&[glam::DVec2]> = holes.iter().map(Vec::as_slice).collect();
-        let inside = points.iter().all(|&p| {
-            polygon::point_in_polygon(frame.to_2d(p), &ring, &hole_refs, tol)
-                != PointInPolygon::Outside
+        let cap2: Vec<Vec<glam::DVec2>> = cap.iter().map(|r| frame.project_all(r)).collect();
+        let cap_holes: Vec<&[glam::DVec2]> = cap2[1..].iter().map(Vec::as_slice).collect();
+        let outline_inside = cap2[0].iter().all(|&p| {
+            polygon::point_in_polygon(p, &ring, &hole_refs, tol) != PointInPolygon::Outside
         });
-        if inside {
+        if !outline_inside {
+            continue;
+        }
+        let reaches_in = std::iter::once(&ring).chain(holes.iter()).any(|r| {
+            r.iter().any(|&p| {
+                polygon::point_in_polygon(p, &cap2[0], &cap_holes, tol) == PointInPolygon::Inside
+            }) || polygon::rings_cross(r, &cap2[0], tol)
+        });
+        if !reaches_in {
             return Ok(Some(g));
         }
     }

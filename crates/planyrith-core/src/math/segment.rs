@@ -124,9 +124,11 @@ impl Segment {
     /// Parameters `(t_self, t_other)` of the closest points of two segments,
     /// clamped to `[0, 1]` with `tol.parametric` (docs/03 §8).
     ///
-    /// For parallel segments (direction cross product below `tol.angle`) the
-    /// midpoint of the overlapping parameter range on `self` is returned so the
-    /// result is deterministic and symmetric.
+    /// Nearly parallel segments use the well-conditioned form of the line
+    /// parameter (through `d1 × d2`), so long, slightly tilted segments still
+    /// get their true closest points. Only numerically parallel segments take
+    /// the midpoint of the overlapping parameter range on `self`, which is
+    /// deterministic and symmetric.
     pub fn closest_params(&self, other: &Segment, tol: &Tolerances) -> (f64, f64) {
         let d1 = self.b - self.a;
         let d2 = other.b - other.a;
@@ -158,10 +160,11 @@ impl Segment {
         }
 
         let b = d1.dot(d2);
-        let denom = a * e - b * b; // = |d1 × d2|², ≥ 0
-        let parallel = d1.cross(d2).length() <= tol.angle * (a * e).sqrt();
+        let n = d1.cross(d2);
+        let nn = n.length_squared();
+        let parallel = nn <= 1e-24 * a * e;
 
-        let s = if parallel || denom <= 0.0 {
+        let s = if parallel {
             // Parallel: pick the midpoint of other's projection onto self,
             // clamped, which is symmetric in the two segments' roles.
             let t0 = self.line_param(other.a);
@@ -176,7 +179,7 @@ impl Segment {
                 0.0
             }
         } else {
-            snap((b * f - c * e) / denom)
+            snap((other.a - self.a).cross(d2).dot(n) / nn)
         };
         // Closest point on other's line to self.point_at(s).
         let t = (b * s + f) / e;

@@ -168,22 +168,26 @@ pub(crate) fn face_of_chain(
     let Some(f) = shape else {
         return Ok(None);
     };
-    let pid = pid_of(tx, target.container, EntityId::Face(f))?;
-    if drawn.faces_created.contains(&pid) || drawn.faces_split.contains(&pid) {
-        return Ok(Some(pid));
+    let mut pid = pid_of(tx, target.container, EntityId::Face(f))?;
+    if !drawn.faces_created.contains(&pid)
+        && !drawn.faces_split.contains(&pid)
+        && let Some(&(_, leftover)) = drawn.split_from.iter().find(|(kept, _)| *kept == pid)
+        && let Some(other) = tx
+            .document()
+            .container(target.container)
+            .and_then(|e| e.id_of(leftover))
+    {
+        tx.swap_pids(target.container, EntityId::Face(f), other)?;
+        pid = leftover;
     }
-    let Some(&(_, leftover)) = drawn.split_from.iter().find(|(kept, _)| *kept == pid) else {
-        return Ok(Some(pid));
-    };
-    let Some(other) = tx
-        .document()
-        .container(target.container)
-        .and_then(|e| e.id_of(leftover))
-    else {
-        return Ok(Some(pid));
-    };
-    tx.swap_pids(target.container, EntityId::Face(f), other)?;
-    Ok(Some(leftover))
+    // The other pieces of the faces the shape split are fragments of faces
+    // the user already had: `last` names the shape (docs/08 Decisions).
+    for &piece in &drawn.faces_split {
+        if piece != pid {
+            tx.forget_created(piece);
+        }
+    }
+    Ok(Some(pid))
 }
 
 /// `E1001` unless `n` is within `lo..=hi`.

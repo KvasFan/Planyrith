@@ -1156,6 +1156,12 @@ impl<'a> Transaction<'a> {
         &self.warnings
     }
 
+    /// Treats `pid` as not created by this command: it stays in the
+    /// document but `last` does not name it (fragments, docs/08 Decisions).
+    pub fn forget_created(&mut self, pid: Pid) {
+        self.created.retain(|p| *p != pid);
+    }
+
     /// Pids created so far.
     pub fn created(&self) -> &[Pid] {
         &self.created

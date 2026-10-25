@@ -1,0 +1,12 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 6f0fbc5159f5c7cddbe452c03f4fde1750096a4aa7cf963e23492721f3b7af83 # shrinks to cmds = [Rect([2, 1, 0], [2, 1], 1), PushPull(0, 1), Rect([0, 0, 0], [1, 1], 0), Rotate(Face(16), 1, 0)]
+cc 19d3fd81b27df6798014fcbbf724f0822a92c74ceba1eef72e9fdcc11dc622fd # shrinks to cmds = [Rect([0, 0, 0], [1, 1], 0), Line([0, 0, 0], [1, 0, 0]), Group(false), Rect([0, 0, 0], [1, 1], 0)]
+cc 0ad9485c55889f5d987cab1d0301fe435814546061d1dff07d08dd0d0df504dd # shrinks to cmds = [Rect([2, 2, 0], [2, 2], 0), Rect([2, 2, 0], [3, 1], 0), PushPull(4, -1), Rect([0, 0, 0], [1, 1], 0)]
+cc 6f95c292786aba5e199e481be44495fe0eb2b229fd838d0f31304005ea9d2647 # shrinks to cmds = [Circle([3, 2, 0], 1, 0), Circle([0, 0, 0], 1, 1), Erase(16, 3), PushPull(0, 1), Rect([0, 0, 0], [1, 1], 0)]
+cc 671a2c683528d3cb227519ec8fcbd75860eee0ce9153e569dde0a9dcd54fc96b # shrinks to cmds = [Rect([0, 0, 0], [1, 1], 0), Group(false), Explode(0), Group(false)]
+cc 210e3d851da22356cf7219eb880384ae122d0b9453693c0da1031585d715530b # shrinks to cmds = [Line([0, 0, 0], [2, 2, 0]), Circle([0, 2, 0], 1, 0), Group(false), Rect([1, 0, 0], [2, 2], 2), Explode(0)]

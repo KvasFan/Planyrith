@@ -200,13 +200,31 @@ pub enum PidParseError {
 
 /// Monotonic allocator behind `ModelInfo::next_pid` (docs/04 §2, §10).
 ///
-/// Serializes transparently as the next free `u64`, which is exactly the file
-/// field `next_pid`. Undo never rewinds the counter (docs/04 §13 checks
-/// monotonicity).
+/// Serializes as the next free `u64`, which is exactly the file field
+/// `next_pid`. Undo never rewinds the counter (docs/04 §13 checks
+/// monotonicity). A stored 0 reads as 1 (`@0` is reserved); a counter above
+/// [`PidAllocator::MAX`] is refused, so allocation can never wrap.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(transparent)]
+#[serde(try_from = "u64", into = "u64")]
 pub struct PidAllocator {
     next: u64,
+}
+
+impl TryFrom<u64> for PidAllocator {
+    type Error = String;
+
+    fn try_from(next: u64) -> Result<Self, String> {
+        if next > PidAllocator::MAX {
+            return Err(format!("next_pid {next} exceeds {}", PidAllocator::MAX));
+        }
+        Ok(PidAllocator::starting_at(next))
+    }
+}
+
+impl From<PidAllocator> for u64 {
+    fn from(a: PidAllocator) -> u64 {
+        a.next
+    }
 }
 
 impl Default for PidAllocator {
@@ -216,6 +234,10 @@ impl Default for PidAllocator {
 }
 
 impl PidAllocator {
+    /// Highest counter a document may store (2⁶²): far beyond any real
+    /// document, and far from `u64::MAX`, so `allocate` never overflows.
+    pub const MAX: u64 = 1 << 62;
+
     /// Allocator whose first allocation returns `Pid(1)`.
     pub fn new() -> Self {
         Self::default()
@@ -229,7 +251,7 @@ impl PidAllocator {
     /// Returns a fresh pid and advances the counter.
     pub fn allocate(&mut self) -> Pid {
         let pid = Pid(self.next);
-        self.next += 1;
+        self.next = self.next.saturating_add(1);
         pid
     }
 
@@ -242,7 +264,7 @@ impl PidAllocator {
     /// Number of pids handed out so far (`next - 1`), for statistics and
     /// validation (docs/04 §13 monotonicity).
     pub const fn allocated(&self) -> u64 {
-        self.next - 1
+        self.next.saturating_sub(1)
     }
 
     /// The raw `next_pid` file value.
@@ -259,7 +281,7 @@ impl PidAllocator {
     /// documents or repairing files).
     pub fn observe(&mut self, pid: Pid) {
         if pid.0 >= self.next {
-            self.next = pid.0 + 1;
+            self.next = pid.0.saturating_add(1);
         }
     }
 }

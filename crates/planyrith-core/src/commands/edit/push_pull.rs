@@ -117,7 +117,14 @@ impl Command for PushPull {
                 return Err(CommandError::invalid_param("distance", "missing"));
             }
         };
-        let start_pid = pid_of(tx, target.container, EntityId::Face(face))?;
+        // Pids of the faces before the operation: removed faces are reported
+        // by the pid they had (the start face, landing pieces, cancelled
+        // strips).
+        let before: std::collections::BTreeMap<crate::ids::FaceId, Pid> = entities
+            .mesh()
+            .faces()
+            .filter_map(|(f, _)| entities.pid_of(EntityId::Face(f)).map(|pid| (f, pid)))
+            .collect();
         let opts = ExtrudeOptions {
             create_new_start_face: p.keep_start_face,
             ..ExtrudeOptions::default()
@@ -129,11 +136,11 @@ impl Command for PushPull {
         for f in result.cap.iter().chain(&result.side_faces) {
             new_faces.push(pid_of(tx, target.container, EntityId::Face(*f))?);
         }
-        let removed_faces = if result.removed_faces.contains(&face) {
-            vec![start_pid]
-        } else {
-            Vec::new()
-        };
+        let removed_faces: Vec<Pid> = result
+            .removed_faces
+            .iter()
+            .filter_map(|f| before.get(f).copied())
+            .collect();
         let solid_after = tx
             .document()
             .container(target.container)
