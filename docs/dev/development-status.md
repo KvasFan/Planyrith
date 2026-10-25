@@ -105,10 +105,11 @@ Frontends:
 
 ## 4. Repository state
 
-- Branch `main`, tagged `v0.1.0` locally; local commits ahead of `origin/main` are **not
-  pushed** until the user asks (one push, to limit CI runs).
-- The 0.1 review fixes were made on branch `review-fixes` in the worktree `../Planyrith-fixes`
-  and fast-forwarded into `main`; the branch and worktree can be removed.
+- Branch `main`, release `v0.1.0` tagged and pushed (2026-10-25). The user wants finished work
+  pushed, in batches: run the full local check once per batch, then push once (each push to
+  `main` runs the CI matrix; tags do not).
+- The 0.1 review fixes were made on a temporary branch and worktree, fast-forwarded into `main`
+  and removed; the repo has only `main`.
 - The multi-agent workflow run `wf_54e380cb-960` produced the foundations/spatial/io-native
   commits. Later sub-agents implemented the selection query language (merged) — two more were
   started for offset and tags/materials but stopped on a usage limit before writing anything;
