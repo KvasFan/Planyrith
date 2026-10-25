@@ -539,7 +539,7 @@ fn serve_answers_json_rpc_over_stdio() {
         json!({ "jsonrpc": "2.0", "method": "history.undo", "params": { "doc_id": "d1" } }),
     ];
     let (r, events) = serve(&["--deterministic"], &frames);
-    assert_eq!(r[&1]["result"]["features"]["transports"], json!(["stdio"]));
+    assert_eq!(r[&1]["result"]["features"]["transports"][0], "stdio");
     assert_eq!(r[&2]["result"]["doc_id"], "d1");
     assert_eq!(r[&4]["result"]["output"]["face"], 5);
     assert_eq!(r[&5]["result"]["output"]["solid_after"], true);
@@ -695,4 +695,259 @@ fn render_writes_images() {
         ])
         .assert()
         .code(2);
+}
+
+/// docs/08 §3: render buffers and previews over JSON-RPC.
+#[test]
+fn serve_extracts_render_meshes_and_previews_commands() {
+    use serde_json::json;
+    let frames = [
+        rpc(1, "session.new", json!({})),
+        rpc(
+            2,
+            "command.execute",
+            json!({ "doc_id": "d1", "name": "rectangle",
+            "params": { "corner_a": [0, 0, 0], "corner_b": [1000, 500, 0] } }),
+        ),
+        rpc(3, "document.render_mesh", json!({ "doc_id": "d1" })),
+        rpc(
+            4,
+            "command.preview",
+            json!({ "doc_id": "d1", "name": "push-pull",
+            "params": { "face": { "Query": "face & last" }, "distance": 300 } }),
+        ),
+        rpc(
+            5,
+            "document.query",
+            json!({ "doc_id": "d1", "query": "face" }),
+        ),
+        rpc(
+            6,
+            "document.render_mesh",
+            json!({ "doc_id": "d1", "path": "#Model/@1" }),
+        ),
+    ];
+    let (r, _) = serve(&[], &frames);
+    let mesh = &r[&3]["result"];
+    assert_eq!(mesh["container"], "model");
+    // One face, both sides, four vertices each; 12 bytes per position.
+    assert_eq!(mesh["vertex_count"], 8);
+    assert_eq!(
+        mesh["positions"].as_str().unwrap().len(),
+        (8 * 12usize).div_ceil(3) * 4
+    );
+    assert_eq!(mesh["edges"]["count"], 4);
+    assert_eq!(mesh["face_pids"], json!([5]));
+    assert_eq!(mesh["ranges"].as_array().unwrap().len(), 2);
+    let preview = &r[&4]["result"];
+    assert_eq!(preview["output"]["solid_after"], true);
+    assert_eq!(preview["containers"][0]["container"], "model");
+    assert_eq!(preview["containers"][0]["vertex_count"], 6 * 4 * 2);
+    // The preview ran on a copy.
+    assert_eq!(r[&5]["result"].as_array().unwrap().len(), 1);
+    assert_eq!(r[&6]["error"]["code"], -32602, "an edge opens no container");
+}
+
+/// Reads one length-prefixed frame.
+fn read_frame(stream: &mut impl std::io::Read) -> Value {
+    let mut len = [0u8; 4];
+    stream.read_exact(&mut len).unwrap();
+    let mut buf = vec![0u8; u32::from_le_bytes(len) as usize];
+    stream.read_exact(&mut buf).unwrap();
+    serde_json::from_slice(&buf).unwrap()
+}
+
+fn write_frame(stream: &mut impl std::io::Write, frame: &Value) {
+    let bytes = frame.to_string().into_bytes();
+    stream
+        .write_all(&(bytes.len() as u32).to_le_bytes())
+        .unwrap();
+    stream.write_all(&bytes).unwrap();
+}
+
+/// Sends a request and returns its reply (skipping event notifications).
+fn call(stream: &mut (impl std::io::Read + std::io::Write), frame: Value) -> Value {
+    write_frame(stream, &frame);
+    loop {
+        let reply = read_frame(stream);
+        if reply["method"] != "event" {
+            return reply;
+        }
+    }
+}
+
+/// Starts `planyrith serve` with `args`; returns the child and the address
+/// it prints on standard error.
+fn spawn_server(args: &[&str]) -> (std::process::Child, String) {
+    use std::io::BufRead;
+    let mut child = std::process::Command::new(assert_cmd::cargo::cargo_bin("planyrith"))
+        .arg("serve")
+        .args(args)
+        .stderr(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut line = String::new();
+    std::io::BufReader::new(child.stderr.take().unwrap())
+        .read_line(&mut line)
+        .unwrap();
+    let addr = line
+        .trim()
+        .strip_prefix("listening on ")
+        .unwrap_or_else(|| panic!("unexpected server output: {line}"))
+        .to_string();
+    (child, addr)
+}
+
+/// docs/08 §3: the TCP transport needs `server.auth`; documents outlive a
+/// connection.
+#[test]
+fn serve_over_tcp_requires_the_token() {
+    use serde_json::json;
+    planyrith()
+        .args(["serve", "--socket", "0"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("--token"));
+    let (mut child, addr) = spawn_server(&["--socket", "0", "--token", "s3cret"]);
+    let result = std::panic::catch_unwind(|| {
+        let mut stream = std::net::TcpStream::connect(&addr).unwrap();
+        let r = call(&mut stream, rpc(1, "server.capabilities", json!({})));
+        assert_eq!(r["error"]["code"], -32001);
+        let r = call(
+            &mut stream,
+            rpc(2, "server.auth", json!({ "token": "wrong" })),
+        );
+        assert_eq!(r["error"]["code"], -32001);
+        let r = call(
+            &mut stream,
+            rpc(3, "server.auth", json!({ "token": "s3cret" })),
+        );
+        assert_eq!(r["result"]["authenticated"], true);
+        let r = call(&mut stream, rpc(4, "session.new", json!({})));
+        assert_eq!(r["result"]["doc_id"], "d1");
+        let r = call(
+            &mut stream,
+            rpc(
+                5,
+                "command.execute",
+                json!({ "doc_id": "d1", "name": "rectangle",
+                "params": { "corner_a": [0, 0, 0], "corner_b": [100, 100, 0] } }),
+            ),
+        );
+        assert_eq!(r["result"]["output"]["face"], 5);
+        drop(stream);
+        // A new connection authenticates again and finds the document.
+        let mut stream = std::net::TcpStream::connect(&addr).unwrap();
+        let r = call(
+            &mut stream,
+            rpc(
+                6,
+                "document.query",
+                json!({ "doc_id": "d1", "query": "face" }),
+            ),
+        );
+        assert_eq!(r["error"]["code"], -32001);
+        call(
+            &mut stream,
+            rpc(7, "server.auth", json!({ "token": "s3cret" })),
+        );
+        let r = call(
+            &mut stream,
+            rpc(
+                8,
+                "document.query",
+                json!({ "doc_id": "d1", "query": "face" }),
+            ),
+        );
+        assert_eq!(r["result"].as_array().unwrap().len(), 1);
+    });
+    let _ = child.kill();
+    let _ = child.wait();
+    if let Err(e) = result {
+        std::panic::resume_unwind(e);
+    }
+}
+
+/// docs/08 §3: a Unix socket only this user may open.
+#[cfg(unix)]
+#[test]
+fn serve_over_a_unix_socket() {
+    use serde_json::json;
+    use std::os::unix::fs::PermissionsExt;
+    // Short: macOS limits socket paths to about 104 bytes.
+    let path = std::env::temp_dir().join(format!("ply-{}.sock", std::process::id()));
+    let (mut child, addr) = spawn_server(&["--socket", path.to_str().unwrap()]);
+    let result = std::panic::catch_unwind(|| {
+        assert_eq!(addr, path.display().to_string());
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+        let mut stream = std::os::unix::net::UnixStream::connect(&path).unwrap();
+        let r = call(&mut stream, rpc(1, "server.capabilities", json!({})));
+        assert_eq!(
+            r["result"]["features"]["transports"],
+            json!(["stdio", "tcp", "unix"])
+        );
+    });
+    let _ = child.kill();
+    let _ = child.wait();
+    if let Err(e) = result {
+        std::panic::resume_unwind(e);
+    }
+}
+
+/// docs/08 §3: `repl` runs lines as they come and saves at the end.
+#[test]
+fn repl_runs_lines_and_saves() {
+    let dir = scratch("repl");
+    let file = dir.join("repl.plyr");
+    let f = file.to_str().unwrap();
+    let input = "\
+rectangle --corner-a 0,0,0 --corner-b 1m,600mm,0
+push-pull --face '{face & last}' --distance 400
+:undo
+:json on
+no-such-command
+select --query face
+:q
+";
+    let output = planyrith()
+        .args(["repl", "-f", f])
+        .write_stdin(input)
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let text = String::from_utf8(output).unwrap();
+    assert!(text.contains("\"undone\""), "{text}");
+    assert!(text.contains("\"ok\":false"), "{text}");
+    assert!(
+        text.contains("\"count\":1"),
+        "after the undo one face is left: {text}"
+    );
+    let info = json_of(
+        &planyrith()
+            .args(["info", "-f", f, "--json"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout,
+    );
+    assert_eq!(info["output"]["counts"]["model"]["faces"], 1);
+    // `:q!` leaves the file as it was.
+    planyrith()
+        .args(["repl", "-f", f])
+        .write_stdin("rectangle --corner-a 0,0,0 --corner-b 1,1,0\n:q!\n")
+        .assert()
+        .success();
+    let info = json_of(
+        &planyrith()
+            .args(["info", "-f", f, "--json"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout,
+    );
+    assert_eq!(info["output"]["counts"]["model"]["faces"], 1);
 }

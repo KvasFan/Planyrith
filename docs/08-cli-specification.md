@@ -137,6 +137,7 @@ a Unix socket / localhost TCP). Methods:
 | `selection.get` / `selection.set` / `context.get` / `context.set` | |
 | `events.subscribe` | `{kinds}` → notifications `event` with deltas (`docs/01 §8`) |
 | `server.capabilities` | → `{schema_version, formats, features}` |
+| `server.auth` | `{token}` → `{authenticated}` (socket servers started with `--token`) |
 
 Errors use JSON-RPC error objects with `code` from §9 and `data.details`. Concurrency: one
 writer; `command.execute` calls are serialized per document. The GUI's "attach to server" mode
@@ -381,3 +382,25 @@ On failure: `{"ok": false, "error": {"code": "E1002", "message": "...", "param":
   accepted and prints a warning until shadows are rendered. A machine without any graphics
   adapter, hardware or software, fails with an I/O-class error (`E1403`, exit 4). JSON output:
   `{images, width, height, adapter}`. `--animation` follows with scene transitions.
+- 2026-10-25 — **`serve` transports (0.2)**, completing the 0.1 entry. `--socket <port>` listens on
+  127.0.0.1 (port 0 picks a free one) and requires `--token`, since any local user could connect;
+  `--socket <path>` creates a Unix socket readable and writable by this user only (mode 0600),
+  replacing a stale socket file but refusing one a server still answers on. Socket frames are the
+  JSON text prefixed by its byte length as a little-endian `u32` (at most 64 MiB). The server
+  prints `listening on <address>` on standard error and serves one client at a time; documents
+  stay open across connections, while event subscriptions and authentication are per
+  connection. With a token, every method but `server.auth {token}` answers JSON-RPC error
+  −32001 until the client authenticated (compared in constant time).
+- 2026-10-25 — **`document.render_mesh {doc_id, path?}`** returns the extraction of the model, or of
+  the definition a group or component path opens, as JSON: buffers are base64 of little-endian
+  arrays (`positions`, `normals`, `uvs` as `f32`; `face_ids`, `indices`, `edges.faces` as `u32`;
+  `edges.flags` as `u8`), plus `ranges` (material name or `null`, side, start, end), `bounds`,
+  `vertex_count`, `edges.count` and the pids of faces and edges by local index.
+  **`command.preview {doc_id, name, params}`** runs the command on a copy of the document with the
+  same selection, `last` and context, and returns `{output, containers}` with the render meshes of
+  the containers it changed; the document is untouched (allowed with `--readonly`).
+- 2026-10-25 — **`repl`** reads lines from standard input: each is a `batch` line run at once as its
+  own undo step (an error is printed and the next line is read); `:undo`, `:redo`, `:save`,
+  `:json on|off`, `:help`, `:q` (save and quit) and `:q!` (quit without saving); the end of input
+  saves like `:q`, unless `--no-save`. A prompt is shown only on a terminal. Completion and line
+  editing need a line-editor dependency and are deferred (docs/02 policy).

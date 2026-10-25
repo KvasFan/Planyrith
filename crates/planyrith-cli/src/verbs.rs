@@ -45,6 +45,7 @@ pub fn dispatch(global: Global, verb: Verb) -> Result<(), CliError> {
         Verb::Batch { script } => batch(&global, script.as_deref()),
         #[cfg(feature = "render")]
         Verb::Render(args) => crate::render::render(&global, &args),
+        Verb::Repl => crate::repl::repl(&global),
         Verb::Serve {
             stdio: _,
             socket,
@@ -226,7 +227,7 @@ pub(crate) fn document_info(session: &Session) -> Value {
 // ----- tool -----------------------------------------------------------------------------
 
 /// Parses a tool's options from `args` (`name` first is not included).
-fn parse_tool_args(
+pub(crate) fn parse_tool_args(
     registry: &CommandRegistry,
     name: &str,
     raw: &[String],
@@ -335,7 +336,7 @@ fn parse_tool_args(
     })
 }
 
-struct ToolInvocation {
+pub(crate) struct ToolInvocation {
     name: String,
     matches: clap::ArgMatches,
     specs: Vec<args::ParamSpec>,
@@ -348,7 +349,7 @@ impl ToolInvocation {
     /// The params object. Under `--dry-run` commands still run, on the
     /// in-memory session only (nothing is saved or journaled), so a dry run
     /// reports the errors the real run would (docs/08 Decisions).
-    fn params(&self, session: &Session, global: &Global) -> Result<Value, CliError> {
+    pub(crate) fn params(&self, session: &Session, global: &Global) -> Result<Value, CliError> {
         let unit = session.unit(global)?;
         let map = args::collect(&self.matches, &self.specs, unit, self.base.clone())?;
         Ok(Value::Object(map))

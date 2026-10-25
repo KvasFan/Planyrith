@@ -1,18 +1,22 @@
 //! `planyrith serve` (docs/08 §3): a JSON-RPC 2.0 server over standard input
-//! and output, one JSON frame per line. Milestone 0.1 serves the stdio
-//! transport and every method that does not need the renderer; the socket
-//! transport, `command.preview` and `document.render_mesh` arrive with the GUI
-//! attach mode (0.2, docs/08 Decisions).
+//! and output (one JSON frame per line) or over a Unix socket or a localhost
+//! TCP port (frames prefixed by their length as a little-endian `u32`). A TCP
+//! server requires `--token`: clients authenticate with `server.auth` before
+//! any other method (docs/08 Decisions).
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
-use std::io::BufRead;
+use std::io::{BufRead, Read, Write};
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::Arc;
 
-use planyrith_core::commands::{CommandError, CommandRegistry, Event, GroupToken};
-use planyrith_core::document::{Document, EditContext, EntityPath, EntityRef, Query, QueryEnv};
-use planyrith_core::ids::Pid;
+use planyrith_core::commands::{CommandError, CommandRegistry, Engine, Event, GroupToken};
+use planyrith_core::document::{
+    ContainerRef, Document, EditContext, EntityPath, EntityRef, FrontOrBack, Query, QueryEnv,
+};
+use planyrith_core::ids::{EntityId, Pid};
+use planyrith_core::io::render_mesh::{ExtractOptions, RenderMesh, extract};
 use serde_json::{Map, Value, json};
 
 use crate::out;
@@ -26,6 +30,10 @@ const INVALID_REQUEST: i64 = -32600;
 const METHOD_NOT_FOUND: i64 = -32601;
 const INVALID_PARAMS: i64 = -32602;
 const INTERNAL_ERROR: i64 = -32603;
+/// Server-defined: authenticate first (`server.auth`).
+const UNAUTHORIZED: i64 = -32001;
+/// Largest socket frame accepted (64 MiB).
+const MAX_FRAME: usize = 64 << 20;
 
 /// Every field `document.get` returns (the `query --fields` names).
 const ALL_FIELDS: [&str; 15] = [
@@ -62,31 +70,33 @@ const EVENT_KINDS: [&str; 9] = [
     "history_changed",
 ];
 
-/// Runs the server until standard input closes.
+/// Runs the server until standard input closes (stdio) or forever (socket).
 pub fn serve(
     global: &Global,
     socket: Option<&str>,
     token: Option<&str>,
     readonly: bool,
 ) -> Result<(), CliError> {
-    if socket.is_some() || token.is_some() {
-        return Err(CliError::usage(
-            "the socket transport (and its --token) arrives with the GUI attach mode in 0.2; \
-             0.1 serves standard input and output (--stdio)",
-        ));
+    if socket.is_none() && token.is_some() {
+        return Err(CliError::usage("--token applies to --socket"));
     }
     let mut server = Server {
         global: global.clone(),
         readonly,
-        registry: CommandRegistry::with_builtins(),
+        registry: Arc::new(CommandRegistry::with_builtins()),
         docs: BTreeMap::new(),
         next_doc: 1,
         kinds: BTreeSet::new(),
         events: Rc::default(),
+        token: token.map(str::to_string),
+        authenticated: token.is_none(),
     };
     if global.file.is_some() {
         let session = Session::open(global, false)?;
         server.adopt(session);
+    }
+    if let Some(spec) = socket {
+        return serve_socket(&mut server, spec);
     }
     let stdin = std::io::stdin();
     for line in stdin.lock().lines() {
@@ -115,6 +125,81 @@ pub fn serve(
 /// Writes one frame; a closed output ends the server quietly.
 fn send(frame: &Value) -> Result<(), CliError> {
     out::line(frame)
+}
+
+fn io_error(what: &str, e: &std::io::Error) -> CliError {
+    CliError::io(planyrith_core::io::IoError::storage(what, e.to_string()))
+}
+
+/// Listens on a localhost TCP port (a number; 0 picks a free one) or a Unix
+/// socket path, and serves one client at a time. The documents stay open
+/// across connections.
+fn serve_socket(server: &mut Server, spec: &str) -> Result<(), CliError> {
+    if let Ok(port) = spec.parse::<u16>() {
+        if server.token.is_none() {
+            return Err(CliError::usage(
+                "a TCP socket needs --token <secret>: any local user can connect to it",
+            ));
+        }
+        let listener =
+            std::net::TcpListener::bind(("127.0.0.1", port)).map_err(|e| io_error("socket", &e))?;
+        let addr = listener.local_addr().map_err(|e| io_error("socket", &e))?;
+        out::diagnostic(format!("listening on {addr}"));
+        for stream in listener.incoming() {
+            let stream = stream.map_err(|e| io_error("socket", &e))?;
+            let _ = stream.set_nodelay(true);
+            let reader = stream.try_clone().map_err(|e| io_error("socket", &e))?;
+            if let Err(e) = server.connection(reader, stream) {
+                out::diagnostic(format!("connection closed: {e}"));
+            }
+        }
+        return Ok(());
+    }
+    serve_unix(server, spec)
+}
+
+#[cfg(unix)]
+fn serve_unix(server: &mut Server, path: &str) -> Result<(), CliError> {
+    use std::os::unix::fs::PermissionsExt;
+    use std::os::unix::net::{UnixListener, UnixStream};
+    let path = std::path::Path::new(path);
+    if path.exists() {
+        if UnixStream::connect(path).is_ok() {
+            return Err(CliError::usage(format!(
+                "{} is in use by another server",
+                path.display()
+            )));
+        }
+        // A stale socket from a server that did not exit cleanly.
+        std::fs::remove_file(path).map_err(|e| io_error("socket", &e))?;
+    }
+    let listener = UnixListener::bind(path).map_err(|e| io_error("socket", &e))?;
+    // Only this user may connect (docs/08 Decisions).
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+        .map_err(|e| io_error("socket", &e))?;
+    out::diagnostic(format!("listening on {}", path.display()));
+    for stream in listener.incoming() {
+        let stream = stream.map_err(|e| io_error("socket", &e))?;
+        let reader = stream.try_clone().map_err(|e| io_error("socket", &e))?;
+        if let Err(e) = server.connection(reader, stream) {
+            out::diagnostic(format!("connection closed: {e}"));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn serve_unix(_server: &mut Server, path: &str) -> Result<(), CliError> {
+    Err(CliError::usage(format!(
+        "`{path}` is not a port number, and Unix sockets are not available on this system"
+    )))
+}
+
+fn write_frame(writer: &mut impl Write, frame: &Value) -> std::io::Result<()> {
+    let bytes = frame.to_string().into_bytes();
+    writer.write_all(&(bytes.len() as u32).to_le_bytes())?;
+    writer.write_all(&bytes)?;
+    writer.flush()
 }
 
 /// A JSON-RPC error.
@@ -188,7 +273,11 @@ struct Doc {
 struct Server {
     global: Global,
     readonly: bool,
-    registry: CommandRegistry,
+    registry: Arc<CommandRegistry>,
+    /// The shared secret socket clients present with `server.auth`.
+    token: Option<String>,
+    /// The current client presented it (always true without a token).
+    authenticated: bool,
     docs: BTreeMap<String, Doc>,
     next_doc: u64,
     /// Subscribed event kinds.
@@ -198,6 +287,45 @@ struct Server {
 }
 
 impl Server {
+    /// Serves one socket client until it disconnects.
+    fn connection(&mut self, mut reader: impl Read, mut writer: impl Write) -> std::io::Result<()> {
+        self.authenticated = self.token.is_none();
+        self.kinds.clear();
+        self.events.borrow_mut().clear();
+        loop {
+            let mut len = [0u8; 4];
+            match reader.read_exact(&mut len) {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(()),
+                Err(e) => return Err(e),
+            }
+            let len = u32::from_le_bytes(len) as usize;
+            if len > MAX_FRAME {
+                let error = RpcError::new(
+                    INVALID_REQUEST,
+                    format!("frame of {len} bytes is too large"),
+                );
+                write_frame(&mut writer, &reply_error(Value::Null, error))?;
+                return Ok(());
+            }
+            let mut frame = vec![0u8; len];
+            reader.read_exact(&mut frame)?;
+            let reply = match String::from_utf8(frame) {
+                Ok(text) => self.frame(&text),
+                Err(e) => Some(reply_error(
+                    Value::Null,
+                    RpcError::new(PARSE_ERROR, format!("frames are UTF-8 JSON: {e}")),
+                )),
+            };
+            for event in self.drain_events() {
+                write_frame(&mut writer, &event)?;
+            }
+            if let Some(reply) = reply {
+                write_frame(&mut writer, &reply)?;
+            }
+        }
+    }
+
     /// Handles one frame (a request, a notification or a batch); `None` when
     /// nothing is to be answered.
     fn frame(&mut self, text: &str) -> Option<Value> {
@@ -264,6 +392,15 @@ impl Server {
     }
 
     fn call(&mut self, method: &str, p: &Map<String, Value>) -> Result<Value, RpcError> {
+        if method == "server.auth" {
+            return self.auth(p);
+        }
+        if !self.authenticated {
+            return Err(RpcError::new(
+                UNAUTHORIZED,
+                "authenticate first: server.auth {token}",
+            ));
+        }
         match method {
             "server.capabilities" => Ok(self.capabilities()),
             "session.new" => self.session_new(p),
@@ -288,16 +425,96 @@ impl Server {
             }
             "context.set" => self.context_set(p),
             "events.subscribe" => self.subscribe(p),
-            "command.preview" | "document.render_mesh" => {
-                Err(RpcError::from_command(CommandError::NotApplicable(
-                    format!("`{method}` needs the renderer, which arrives in 0.2"),
-                )))
-            }
+            "command.preview" => self.command_preview(p),
+            "document.render_mesh" => self.document_render_mesh(p),
             other => Err(RpcError::new(
                 METHOD_NOT_FOUND,
                 format!("unknown method `{other}`"),
             )),
         }
+    }
+
+    /// `server.auth {token}`: compares in constant time.
+    fn auth(&mut self, p: &Map<String, Value>) -> Result<Value, RpcError> {
+        let given = required_str(p, "token")?.as_bytes();
+        let ok = self.token.as_ref().is_none_or(|t| {
+            let t = t.as_bytes();
+            t.len() == given.len()
+                && t.iter().zip(given).fold(0u8, |acc, (a, b)| acc | (a ^ b)) == 0
+        });
+        if !ok {
+            self.authenticated = false;
+            return Err(RpcError::new(UNAUTHORIZED, "wrong token"));
+        }
+        self.authenticated = true;
+        Ok(json!({ "authenticated": true }))
+    }
+
+    /// `document.render_mesh {doc_id, path?}`: the render buffers of the
+    /// model, or of the definition a group or instance path opens.
+    fn document_render_mesh(&mut self, p: &Map<String, Value>) -> Result<Value, RpcError> {
+        let path = optional_str(p, "path")?.map(str::to_string);
+        let doc = self.doc(p)?;
+        let document = doc.session.engine.document();
+        let container = match path {
+            None => ContainerRef::Model,
+            Some(text) => {
+                let path = EntityPath::parse(&text, document)
+                    .map_err(|e| RpcError::params(format!("path: {e}")))?;
+                let resolved = document
+                    .resolve(&path)
+                    .map_err(|e| RpcError::params(format!("path: {e}")))?;
+                let def = document
+                    .container(resolved.container)
+                    .and_then(|e| e.definition_of(resolved.entity))
+                    .ok_or_else(|| RpcError::params("path must name a group or component"))?;
+                ContainerRef::Definition(def)
+            }
+        };
+        let mesh = extract(document, container, ExtractOptions::default())
+            .map_err(|e| RpcError::from_command(CommandError::Geometry(e)))?;
+        Ok(mesh_json(document, container, &mesh))
+    }
+
+    /// `command.preview {doc_id, name, params}`: runs the command on a copy
+    /// of the document and returns its output and the render buffers of the
+    /// containers it changed (the document itself is untouched).
+    fn command_preview(&mut self, p: &Map<String, Value>) -> Result<Value, RpcError> {
+        let name = required_str(p, "name")?.to_string();
+        let params = match p.get("params") {
+            None | Some(Value::Null) => json!({}),
+            Some(v @ Value::Object(_)) => v.clone(),
+            Some(_) => return Err(RpcError::params("`params` must be an object")),
+        };
+        let registry = Arc::clone(&self.registry);
+        let doc = self.doc(p)?;
+        let source = &doc.session.engine;
+        let mut fork = Engine::new(source.document().fork_for_preview(), registry);
+        fork.set_selection(source.selection().clone());
+        fork.set_last_created(source.last_created().to_vec());
+        fork.set_context(source.context().clone())
+            .map_err(RpcError::from_command)?;
+        let touched: Rc<RefCell<BTreeSet<ContainerRef>>> = Rc::default();
+        let sink = Rc::clone(&touched);
+        fork.events_mut().subscribe(Box::new(move |event| {
+            if let Event::DocumentChanged { deltas, .. } = event {
+                sink.borrow_mut()
+                    .extend(deltas.iter().filter_map(|d| d.container()));
+            }
+        }));
+        let output = fork
+            .execute_erased(&name, params)
+            .map_err(RpcError::from_command)?;
+        let document = fork.document();
+        let containers: Vec<Value> = touched
+            .borrow()
+            .iter()
+            .filter_map(|&c| {
+                let mesh = extract(document, c, ExtractOptions::default()).ok()?;
+                Some(mesh_json(document, c, &mesh))
+            })
+            .collect();
+        Ok(json!({ "output": output, "containers": containers }))
     }
 
     fn capabilities(&self) -> Value {
@@ -312,7 +529,11 @@ impl Server {
             "schema_version": schema_version,
             "formats": { "open": ["plyr"], "save": ["plyr"], "export": ["json"] },
             "features": {
-                "transports": ["stdio"],
+                "transports": if cfg!(unix) {
+                    json!(["stdio", "tcp", "unix"])
+                } else {
+                    json!(["stdio", "tcp"])
+                },
                 "readonly": self.readonly,
                 "events": EVENT_KINDS,
                 "methods": [
@@ -320,7 +541,8 @@ impl Server {
                     "session.close", "command.list", "command.schema", "command.execute",
                     "history.undo", "history.redo", "history.list", "document.query",
                     "document.get", "selection.get", "selection.set", "context.get",
-                    "context.set", "events.subscribe",
+                    "context.set", "events.subscribe", "command.preview",
+                    "document.render_mesh", "server.auth",
                 ],
             },
         })
@@ -726,5 +948,94 @@ fn event_json(event: &Event) -> Option<(&'static str, Value)> {
             "history_changed",
             json!({ "can_undo": can_undo, "can_redo": can_redo }),
         ),
+    })
+}
+
+/// Standard base64 with padding (the binary attachments of docs/08 §3).
+fn base64(bytes: &[u8]) -> String {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let b = [
+            chunk[0],
+            chunk.get(1).copied().unwrap_or(0),
+            chunk.get(2).copied().unwrap_or(0),
+        ];
+        let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
+        for i in 0..4 {
+            if i <= chunk.len() {
+                out.push(TABLE[((n >> (18 - 6 * i)) & 63) as usize] as char);
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
+}
+
+fn f32_bytes<const N: usize>(values: &[[f32; N]]) -> String {
+    let mut bytes = Vec::with_capacity(values.len() * N * 4);
+    for v in values {
+        for x in v {
+            bytes.extend_from_slice(&x.to_le_bytes());
+        }
+    }
+    base64(&bytes)
+}
+
+fn u32_bytes(values: impl IntoIterator<Item = u32>) -> String {
+    let bytes: Vec<u8> = values.into_iter().flat_map(u32::to_le_bytes).collect();
+    base64(&bytes)
+}
+
+/// A render mesh as JSON: buffers as base64 little-endian arrays (`f32`
+/// positions, normals and UVs; `u32` face ids, indices and edge faces; `u8`
+/// edge flags) plus material ranges, bounds and the pids of the faces and
+/// edges by local index (docs/06 §2, docs/08 §3).
+fn mesh_json(doc: &Document, container: ContainerRef, mesh: &RenderMesh) -> Value {
+    let entities = doc.container(container);
+    let pid = |id: EntityId| entities.and_then(|e| e.pid_of(id)).map(|p| p.0);
+    let container = match container {
+        ContainerRef::Model => json!("model"),
+        ContainerRef::Definition(d) => doc.definition(d).map_or(
+            Value::Null,
+            |def| json!({ "definition": def.uuid.to_string(), "name": def.name }),
+        ),
+    };
+    let ranges: Vec<Value> = mesh
+        .indices_by_material
+        .iter()
+        .map(|(key, range)| {
+            json!({
+                "material": key.material.and_then(|m| doc.materials.get(m)).map(|m| m.name.clone()),
+                "side": if key.side == FrontOrBack::Front { "front" } else { "back" },
+                "start": range.start,
+                "end": range.end,
+            })
+        })
+        .collect();
+    let bounds = if mesh.bounds.is_empty() {
+        Value::Null
+    } else {
+        json!({ "min": mesh.bounds.min.to_array(), "max": mesh.bounds.max.to_array() })
+    };
+    json!({
+        "container": container,
+        "vertex_count": mesh.positions.len(),
+        "positions": f32_bytes(&mesh.positions),
+        "normals": f32_bytes(&mesh.normals),
+        "uvs": f32_bytes(&mesh.uvs),
+        "face_ids": u32_bytes(mesh.face_ids.iter().copied()),
+        "indices": u32_bytes(mesh.indices.iter().copied()),
+        "ranges": ranges,
+        "edges": {
+            "count": mesh.edge_lookup.len(),
+            "positions": f32_bytes(&mesh.edges.positions),
+            "flags": base64(&mesh.edges.flags),
+            "faces": u32_bytes(mesh.edges.faces.iter().flat_map(|f| *f)),
+        },
+        "bounds": bounds,
+        "face_pids": mesh.face_lookup.iter().map(|f| pid(EntityId::Face(*f))).collect::<Vec<_>>(),
+        "edge_pids": mesh.edge_lookup.iter().map(|e| pid(EntityId::Edge(*e))).collect::<Vec<_>>(),
     })
 }

@@ -5,8 +5,8 @@
 //! `Params` JSON schema at run time ([`args`]). The verbs are `new`, `info`,
 //! `query`, `tool`, `export` (JSON), `validate`, `repair`, `batch`, `render`
 //! (headless images, feature `render`, on by default) and `serve` (JSON-RPC
-//! over stdio); `import`, `script`, `repl` and the socket transport follow
-//! their milestones (docs/13).
+//! over stdio or a socket) and `repl`; `import` and `script` follow their milestones
+//! (docs/13).
 
 #![forbid(unsafe_code)]
 // Tests may unwrap (AGENTS.md §3); the binary does not.
@@ -16,6 +16,7 @@ mod args;
 mod out;
 #[cfg(feature = "render")]
 mod render;
+mod repl;
 mod serve;
 mod session;
 mod shell;
@@ -170,18 +171,21 @@ enum Verb {
     /// Render images of the document without a window (docs/06 §11).
     #[cfg(feature = "render")]
     Render(render::RenderArgs),
+    /// Interactive shell: each line is a batch line, run at once (`:help`).
+    Repl,
     /// JSON-RPC 2.0 server, one JSON frame per line on standard input/output.
     Serve {
-        /// Serve standard input and output (the default; the only transport in 0.1).
+        /// Serve standard input and output, one JSON frame per line (the default).
         #[arg(long)]
         stdio: bool,
-        /// Unix socket path or localhost port (arrives with the GUI attach mode, 0.2).
+        /// Listen on a Unix socket path or a localhost TCP port (0 picks one);
+        /// frames are prefixed by their length (u32, little-endian).
         #[arg(long, value_name = "PATH|PORT", conflicts_with = "stdio")]
         socket: Option<String>,
         /// Refuse commands that change documents, undo/redo and saving.
         #[arg(long)]
         readonly: bool,
-        /// Shared secret a socket client must present (socket transport only).
+        /// Shared secret socket clients present with `server.auth` (required for TCP).
         #[arg(long, value_name = "SECRET")]
         token: Option<String>,
     },

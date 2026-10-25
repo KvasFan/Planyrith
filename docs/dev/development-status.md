@@ -63,9 +63,9 @@ Frontends:
 
 ## 3. What next
 
-1. **Finish milestone 0.2** (docs/13): the `serve` socket transport with `--token`,
-   `command.preview`/`document.render_mesh`, and `repl`; then manual QA of the acceptance (open
-   the 0.1 room, navigate, select and delete, save) and the 0.2.0 release.
+1. **Release 0.2.0** (docs/13) after manual QA of the acceptance: open the 0.1 room in
+   `planyrith-gui`, navigate, select and delete entities, save. Everything else of 0.2 is in
+   place (renderer, `render`, GUI shell, `serve` sockets, `render_mesh`/`preview`, `repl`).
 2. **Keep the fuzzers running** after kernel changes (both commands above). Work order in the
    kernel must stay geometric (docs/03 Decisions, slot order): the engine fuzz's save/reopen
    check catches any new dependence on slot layout.

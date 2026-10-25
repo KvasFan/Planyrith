@@ -16,6 +16,9 @@ All notable changes to Planyrith are recorded here. Versions follow
 - **GUI** (`planyrith-gui`): docked shell with the 3D viewport, orbit/pan/zoom, click and
   double-click selection, Entity Info, Tags, Scenes and Outliner panels, undo/redo, open/save
   with an unsaved-changes guard.
+- **Server and shell**: `serve` over a Unix socket or a localhost TCP port (with `--token` and
+  `server.auth`), `document.render_mesh` and `command.preview` for remote viewers; `planyrith
+  repl` runs batch lines interactively.
 - **Commands**: `camera-set`, `camera-standard`, `position-camera`, `orbit`, `pan`, `zoom`,
   `zoom-extents`, `style-set`, `scene-add`, `scene-update`, `scene-delete`, `scene-rename`,
   `scene-reorder`, `scene-activate`.
