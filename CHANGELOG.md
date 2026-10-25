@@ -4,6 +4,24 @@ All notable changes to Planyrith are recorded here. Versions follow
 [Semantic Versioning](https://semver.org/); before 1.0, minor versions are milestones of
 [`docs/13-roadmap.md`](docs/13-roadmap.md).
 
+## Unreleased — 0.2 Viewport
+
+- **Renderer** (`planyrith-render`): offscreen wgpu rendering of the draw list with 4× MSAA and
+  reversed-Z depth; face styles (shaded, textured, monochrome, hidden-line, X-ray, wireframe);
+  edges with GPU-computed profiles and dashed back edges; transparency; selection overlay and
+  edit-context fading; an id buffer for hover picking. Golden-image snapshot tests run on Linux
+  (lavapipe), Windows (WARP) and macOS (Metal).
+- **`planyrith render`**: headless PNG/JPEG/WebP of the document camera, a scene, a `--camera`
+  description or every scene.
+- **GUI** (`planyrith-gui`): docked shell with the 3D viewport, orbit/pan/zoom, click and
+  double-click selection, Entity Info, Tags, Scenes and Outliner panels, undo/redo, open/save
+  with an unsaved-changes guard.
+- **Commands**: `camera-set`, `camera-standard`, `position-camera`, `orbit`, `pan`, `zoom`,
+  `zoom-extents`, `style-set`, `scene-add`, `scene-update`, `scene-delete`, `scene-rename`,
+  `scene-reorder`, `scene-activate`.
+- **Core**: camera-relative reversed-Z projections and navigation math, render-mesh extraction
+  with smooth normals, the draw list, and the click-selection rule.
+
 ## 0.1.0 — Core kernel and CLI foundation (2026-10-25)
 
 The first code release: a headless modeler driven entirely from the command line. There is no

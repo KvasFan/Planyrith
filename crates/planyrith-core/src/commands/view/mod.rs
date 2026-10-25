@@ -1,6 +1,7 @@
 //! Implements docs/05-modeling-tools.md §9. View commands (category `view`,
 //! not undoable, do not dirty the document): camera projection and standard
-//! views, orbit, pan, zoom and zoom extents (`scene-activate` lives with the
+//! views, orbit, pan, zoom, zoom extents and the active style's display
+//! settings (`scene-activate` lives with the
 //! scene commands in `organize`).
 //!
 //! Each tool is one `Command` implementation with a serde `Params` struct
@@ -9,12 +10,14 @@
 //! (AGENTS.md §4).
 
 mod camera;
+mod style;
 
 pub use camera::{
     CameraOutput, CameraSet, CameraSetParams, CameraStandard, CameraStandardParams, Orbit,
     OrbitParams, Pan, PanParams, PositionCamera, PositionCameraParams, ProjectionKind, Zoom,
     ZoomExtents, ZoomExtentsParams, ZoomParams,
 };
+pub use style::{StyleSet, StyleSetOutput, StyleSetParams};
 
 use crate::commands::CommandRegistry;
 
@@ -28,4 +31,5 @@ pub fn register(registry: &mut CommandRegistry) {
     registry.register(Pan);
     registry.register(Zoom);
     registry.register(ZoomExtents);
+    registry.register(StyleSet);
 }

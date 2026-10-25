@@ -7,7 +7,7 @@ use crate::document::materials::{ImageRef, Rgba8};
 use crate::ids::StyleId;
 
 /// How edge colors are chosen (docs/04 §7 `EdgeColorMode`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "kebab-case")]
 pub enum EdgeColorMode {
     /// One color for all edges.
@@ -41,7 +41,7 @@ pub struct EdgeStyle {
 }
 
 /// Face rendering mode (docs/04 §7 `FaceStyle::mode`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "kebab-case")]
 pub enum FaceMode {
     /// Edges only.

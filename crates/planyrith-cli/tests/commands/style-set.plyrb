@@ -1,0 +1,4 @@
+# Switch the active style to hidden-line with dashed back edges, then wireframe colored by axis.
+rectangle --corner-a 0,0,0 --corner-b 1000,600,0
+style-set --faces hidden-line --back-edges
+style-set --faces wireframe --edge-color by-axis --profiles 0

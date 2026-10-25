@@ -215,3 +215,28 @@ collected by clicks: e.g. segments for Circle, array count, copy toggle).
 - 2026-10-25 — A bare signed or decimal number in the value field (`-45`, `22.5`) is a length in
   the document unit where the step wants a length and an angle in degrees where it wants an
   angle; bare unsigned integers stay counts where a count is expected.
+- 2026-10-25 — **The 0.2 shell.** Docks: Tool Options on the left, the viewport in the middle,
+  Entity Info and Tags, Outliner and Scenes on the right (tabs); the layout and the recent files
+  are saved per user by the windowing framework's storage, never in documents. Keys: Ctrl+N/O/S,
+  Ctrl+Shift+S (save as), Ctrl+Z, Ctrl+Shift+Z or Ctrl+Y, Ctrl+A (select all), Shift+Z (zoom
+  extents), Delete (delete the selection), Esc (clear the selection, else leave the open group);
+  they do not fire while a text field has focus. Backspace is left to the tools (§2).
+- 2026-10-25 — **Viewport input (0.2).** Middle-drag orbits about the point under the cursor at
+  the start of the drag (the CPU ray cast), else the model's center; Shift+middle-drag pans so
+  that point follows the cursor; the wheel zooms toward the point under the cursor (factor
+  e^(0.0025 · points)). During a drag the viewport sets the camera through the engine's view
+  state each frame, as the `orbit`/`pan`/`zoom` commands do, instead of dispatching a command per
+  mouse event. A click selects what `EntityPath::selectable_in` names (docs/06 Decisions): plain
+  click replaces (a miss clears), Ctrl adds, Shift toggles, Ctrl+Shift removes; a double-click on
+  a group or component opens it. While the pointer rests, the id buffer names the element under
+  it in the status bar; clicks always use the CPU ray cast.
+- 2026-10-25 — **Panels (0.2).** Entity Info shows the selection's kinds, measurements, face
+  materials, and a tag combo and hidden/locked toggles that dispatch `tag-assign`, `hide`/`unhide`,
+  `lock`/`unlock`. Tags: visibility, color, add, rename (double-click), delete, assign the
+  selection. Scenes: click activates, add/update/rename (double-click)/reorder/delete. Outliner:
+  groups and components as a tree; click selects, double-click opens, eye and lock toggles. View ›
+  Face Style, Edges, Back Edges and Profiles dispatch `style-set`; View › Hidden Geometry is a
+  viewport display option, not document state. New, Open and Quit ask to save unsaved changes.
+- 2026-10-25 — The GUI journals the commands it runs like the CLI (with timestamps) and writes
+  `planyrith-gui <version>` as the generator. The viewport shows the renderer's color texture
+  through an `Rgba8Unorm` view, because egui composites in gamma space.

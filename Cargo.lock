@@ -3003,6 +3003,8 @@ dependencies = [
  "planyrith-core",
  "planyrith-render",
  "pollster",
+ "serde",
+ "serde_json",
  "wgpu",
 ]
 

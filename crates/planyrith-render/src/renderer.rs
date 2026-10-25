@@ -175,6 +175,9 @@ struct Targets {
     color_msaa: Option<wgpu::TextureView>,
     color: wgpu::Texture,
     color_view: wgpu::TextureView,
+    /// The same texture viewed as `Rgba8Unorm` (gamma-encoded values for
+    /// UIs that composite in gamma space, such as egui).
+    display_view: wgpu::TextureView,
     depth: wgpu::TextureView,
     ids: wgpu::Texture,
     ids_view: wgpu::TextureView,
@@ -409,9 +412,16 @@ impl Renderer {
         self.ids_valid = false;
     }
 
-    /// The resolved color of the last frame (sRGB, for display).
+    /// The resolved color of the last frame (an `Rgba8UnormSrgb` view:
+    /// sampling it gives linear values).
     pub fn color_view(&self) -> Option<&wgpu::TextureView> {
         self.targets.as_ref().map(|t| &t.color_view)
+    }
+
+    /// The same pixels viewed as `Rgba8Unorm`: sampling gives the
+    /// gamma-encoded values, which is what egui expects of a texture.
+    pub fn display_view(&self) -> Option<&wgpu::TextureView> {
+        self.targets.as_ref().map(|t| &t.display_view)
     }
 
     /// The device.
@@ -433,6 +443,7 @@ impl Renderer {
             depth_or_array_layers: 1,
         };
         let texture = |label: &str, format, samples, usage| {
+            let unorm = [wgpu::TextureFormat::Rgba8Unorm];
             self.device.create_texture(&wgpu::TextureDescriptor {
                 label: Some(label),
                 size,
@@ -441,7 +452,11 @@ impl Renderer {
                 dimension: wgpu::TextureDimension::D2,
                 format,
                 usage,
-                view_formats: &[],
+                view_formats: if format == COLOR_FORMAT && samples == 1 {
+                    &unorm
+                } else {
+                    &[]
+                },
             })
         };
         let msaa = self.options.msaa;
@@ -487,6 +502,11 @@ impl Renderer {
             height,
             color_msaa,
             color_view: color.create_view(&wgpu::TextureViewDescriptor::default()),
+            display_view: color.create_view(&wgpu::TextureViewDescriptor {
+                label: Some("color (gamma)"),
+                format: Some(wgpu::TextureFormat::Rgba8Unorm),
+                ..Default::default()
+            }),
             color,
             depth,
             ids_view: ids.create_view(&wgpu::TextureViewDescriptor::default()),
