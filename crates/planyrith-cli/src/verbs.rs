@@ -43,6 +43,12 @@ pub fn dispatch(global: Global, verb: Verb) -> Result<(), CliError> {
         Verb::Validate => validate_verb(&global),
         Verb::Repair { fix } => repair_verb(&global, &fix),
         Verb::Batch { script } => batch(&global, script.as_deref()),
+        Verb::Serve {
+            stdio: _,
+            socket,
+            readonly,
+            token,
+        } => crate::serve::serve(&global, socket.as_deref(), token.as_deref(), readonly),
     }
 }
 
@@ -191,11 +197,18 @@ fn new(global: &Global, template: &str, title: Option<String>) -> Result<(), Cli
 fn info(global: &Global) -> Result<(), CliError> {
     let started = Instant::now();
     let session = Session::open(global, false)?;
+    let output = document_info(&session);
+    emit(global, "info", output, Some(&session), None, started, None)
+}
+
+/// Title, units, counts, bounds and the number of validation problems (the
+/// `info` output, also `session.open`'s `info` in `serve`).
+pub(crate) fn document_info(session: &Session) -> Value {
     let doc = session.engine.document();
     let stats = statistics(doc);
     let report = validate(doc);
     let bounds = doc.aabb();
-    let output = json!({
+    json!({
         "title": doc.info.title,
         "units": doc.info.display_units,
         "format_version": doc.info.format_version,
@@ -205,8 +218,7 @@ fn info(global: &Global) -> Result<(), CliError> {
             json!({ "min": [bounds.min.x, bounds.min.y, bounds.min.z], "max": [bounds.max.x, bounds.max.y, bounds.max.z] })
         },
         "problems": report.problems.len(),
-    });
-    emit(global, "info", output, Some(&session), None, started, None)
+    })
 }
 
 // ----- tool -----------------------------------------------------------------------------
@@ -507,7 +519,7 @@ fn query_verb(
 /// The requested fields of one entity occurrence. Lengths, areas, volumes
 /// and bounding boxes are measured in the edit context's frame, exactly as
 /// the query predicates measure them (docs/08 Decisions).
-fn entity_row(
+pub(crate) fn entity_row(
     doc: &Document,
     env: &QueryEnv<'_>,
     path: &EntityPath,

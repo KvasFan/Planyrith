@@ -358,3 +358,17 @@ On failure: `{"ok": false, "error": {"code": "E1002", "message": "...", "param":
 - 2026-10-25 — **Separate invocations equal one batch** in geometry, orientation and pids
   (docs/03 Decisions, slot order); §10's byte identity is promised for the same batch only,
   because group, instance and definition keys reserved for undo inside a session are not saved.
+- 2026-10-25 — **`serve` in 0.1** (§3). Milestone 0.1 ships `serve` over standard input/output
+  (`--stdio`, the default): every command is reachable through `command.execute`, as AGENTS.md
+  requires. The socket transport with `--token`, `command.preview` and `document.render_mesh`
+  arrive with the GUI attach mode in 0.2; until then the first two are a usage error and the
+  methods answer `E1201`. Details: `doc_id`s are opaque strings (`d1`, `d2`, … in opening order;
+  `-f` opens `d1` at start); §9 errors use the number of their code as the JSON-RPC `code`
+  (`E1101` → 1101) with `data: {code, param, details}`, and protocol errors the reserved
+  JSON-RPC codes; consecutive `command.execute` calls with the same `group` form one undo step
+  (closed by a call without it or with another group, by undo/redo, saving or a context change),
+  and `group` is recorded in the journal; `deltas_summary` is `{changed, generation, created}`;
+  `document.get` returns every `query --fields` field; event notifications
+  (`{doc_id, kind, data}`) are written before the reply of the request that caused them;
+  `--readonly` refuses commands that change the document, undo/redo and saving (`E1501`).
+  `repl` follows with the interactive tools.

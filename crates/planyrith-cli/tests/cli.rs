@@ -426,3 +426,177 @@ fn every_command_matches_its_golden_file() {
          (set PLANYRITH_UPDATE_GOLDEN=1 to accept)"
     );
 }
+
+/// Runs `planyrith serve` with `frames` on standard input; returns the
+/// replies by id and the event notifications, in order.
+fn serve(args: &[&str], frames: &[Value]) -> (std::collections::BTreeMap<i64, Value>, Vec<Value>) {
+    let input: String = frames.iter().map(|f| format!("{f}\n")).collect();
+    let output = planyrith()
+        .arg("serve")
+        .args(args)
+        .write_stdin(input)
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let mut replies = std::collections::BTreeMap::new();
+    let mut events = Vec::new();
+    for line in String::from_utf8(output).unwrap().lines() {
+        let frame: Value = serde_json::from_str(line).expect("one JSON frame per line");
+        assert_eq!(frame["jsonrpc"], "2.0");
+        if frame["method"] == "event" {
+            events.push(frame);
+        } else {
+            replies.insert(frame["id"].as_i64().unwrap_or(-1), frame);
+        }
+    }
+    (replies, events)
+}
+
+fn rpc(id: i64, method: &str, params: Value) -> Value {
+    serde_json::json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params })
+}
+
+/// docs/08 §3 and AGENTS.md §2 (every command reachable via JSON-RPC).
+#[test]
+fn serve_answers_json_rpc_over_stdio() {
+    use serde_json::json;
+    let dir = scratch("serve");
+    let file = dir.join("served.plyr");
+    let f = file.to_str().unwrap();
+
+    // Every registered command has a schema over JSON-RPC.
+    let (r, _) = serve(&[], &[rpc(1, "command.list", json!({}))]);
+    let names: Vec<String> = r[&1]["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["name"].as_str().unwrap().to_string())
+        .collect();
+    assert!(names.len() > 20 && names.contains(&"push-pull".to_string()));
+    let frames: Vec<Value> = names
+        .iter()
+        .enumerate()
+        .map(|(i, n)| rpc(i as i64, "command.schema", json!({ "name": n })))
+        .collect();
+    let (r, _) = serve(&[], &frames);
+    for (i, name) in names.iter().enumerate() {
+        let schema = &r[&(i as i64)]["result"];
+        assert!(schema["params"].is_object(), "{name}: {schema}");
+        assert_eq!(schema["meta"]["name"], name.as_str());
+    }
+
+    // A session: draw and pull as one undo step, undo, redo, query, save.
+    let frames = [
+        rpc(1, "server.capabilities", json!({})),
+        rpc(2, "session.new", json!({ "path": f })),
+        rpc(
+            3,
+            "events.subscribe",
+            json!({ "kinds": ["history_changed"] }),
+        ),
+        rpc(
+            4,
+            "command.execute",
+            json!({ "doc_id": "d1", "name": "rectangle", "group": "box",
+            "params": { "corner_a": [0, 0, 0], "corner_b": [1000, 500, 0] } }),
+        ),
+        rpc(
+            5,
+            "command.execute",
+            json!({ "doc_id": "d1", "name": "push-pull", "group": "box",
+            "params": { "face": { "Query": "face & last" }, "distance": 300 } }),
+        ),
+        rpc(6, "history.undo", json!({ "doc_id": "d1" })),
+        rpc(
+            7,
+            "document.query",
+            json!({ "doc_id": "d1", "query": "face" }),
+        ),
+        rpc(8, "history.redo", json!({ "doc_id": "d1" })),
+        rpc(
+            9,
+            "document.query",
+            json!({ "doc_id": "d1", "query": "face & normal:z", "fields": ["pid", "area"] }),
+        ),
+        rpc(
+            10,
+            "selection.set",
+            json!({ "doc_id": "d1", "query": "edge & last" }),
+        ),
+        rpc(11, "context.get", json!({ "doc_id": "d1" })),
+        rpc(12, "document.get", json!({ "doc_id": "d1", "pid": 5 })),
+        rpc(13, "session.save", json!({ "doc_id": "d1" })),
+        rpc(14, "no.such.method", json!({})),
+        rpc(15, "document.query", json!({ "query": "face" })),
+        rpc(
+            16,
+            "command.execute",
+            json!({ "doc_id": "d1", "name": "push-pull",
+            "params": { "face": { "Pid": 999 }, "distance": 1 } }),
+        ),
+        json!({ "jsonrpc": "2.0", "method": "history.undo", "params": { "doc_id": "d1" } }),
+    ];
+    let (r, events) = serve(&["--deterministic"], &frames);
+    assert_eq!(r[&1]["result"]["features"]["transports"], json!(["stdio"]));
+    assert_eq!(r[&2]["result"]["doc_id"], "d1");
+    assert_eq!(r[&4]["result"]["output"]["face"], 5);
+    assert_eq!(r[&5]["result"]["output"]["solid_after"], true);
+    // One undo step removes both commands of the group.
+    assert_eq!(r[&6]["result"]["applied"], 0);
+    assert_eq!(r[&7]["result"], json!([]));
+    assert_eq!(r[&8]["result"]["entries"], json!(["box"]));
+    assert_eq!(r[&9]["result"].as_array().unwrap().len(), 1);
+    assert_eq!(r[&9]["result"][0]["area"], 500_000.0);
+    // After redoing the group, `last` is everything the group created.
+    assert_eq!(r[&10]["result"]["selection"].as_array().unwrap().len(), 12);
+    assert_eq!(r[&11]["result"]["context"], "#Model");
+    assert_eq!(r[&12]["result"]["kind"], "face");
+    assert_eq!(r[&13]["result"]["path"], f);
+    assert_eq!(r[&14]["error"]["code"], -32601);
+    assert_eq!(r[&15]["error"]["code"], -32602);
+    assert_eq!(r[&16]["error"]["code"], 1101);
+    assert_eq!(r[&16]["error"]["data"]["code"], "E1101");
+    // The trailing notification got no reply, but its event was sent.
+    assert!(!r.contains_key(&-1));
+    assert!(
+        events
+            .iter()
+            .all(|e| e["params"]["kind"] == "history_changed")
+    );
+    assert_eq!(events.last().unwrap()["params"]["data"]["can_redo"], true);
+    planyrith().args(["validate", "-f", f]).assert().success();
+
+    // Parse errors and read-only servers.
+    let (r, _) = serve(
+        &["--readonly", "-f", f],
+        &[
+            rpc(
+                1,
+                "command.execute",
+                json!({ "doc_id": "d1", "name": "erase",
+                "params": { "targets": "edge" } }),
+            ),
+            rpc(
+                2,
+                "document.query",
+                json!({ "doc_id": "d1", "query": "face", "fields": ["pid"] }),
+            ),
+            rpc(3, "session.save", json!({ "doc_id": "d1" })),
+        ],
+    );
+    assert_eq!(r[&1]["error"]["data"]["code"], "E1501");
+    assert_eq!(r[&2]["result"].as_array().unwrap().len(), 6);
+    assert_eq!(r[&3]["error"]["data"]["code"], "E1501");
+    let out = planyrith()
+        .arg("serve")
+        .write_stdin("not json\n")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let frame: Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(frame["error"]["code"], -32700);
+}

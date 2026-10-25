@@ -3,9 +3,9 @@
 //! Session verbs open (or create) a `.plyr` document, run commands through the
 //! core `Engine` and save. `tool` options are generated from each command's
 //! `Params` JSON schema at run time ([`args`]). Milestone 0.1 provides `new`,
-//! `info`, `query`, `tool`, `export` (JSON), `validate`, `repair` and `batch`;
-//! `import`, `render`, `script`, `serve` and `repl` follow their milestones
-//! (docs/13).
+//! `info`, `query`, `tool`, `export` (JSON), `validate`, `repair`, `batch` and
+//! `serve` (JSON-RPC over stdio); `import`, `render`, `script`, `repl` and the
+//! socket transport follow their milestones (docs/13).
 
 #![forbid(unsafe_code)]
 // Tests may unwrap (AGENTS.md §3); the binary does not.
@@ -13,6 +13,7 @@
 
 mod args;
 mod out;
+mod serve;
 mod session;
 mod shell;
 mod verbs;
@@ -162,6 +163,21 @@ enum Verb {
     Batch {
         /// Batch file (`-` or absent = standard input).
         script: Option<PathBuf>,
+    },
+    /// JSON-RPC 2.0 server, one JSON frame per line on standard input/output.
+    Serve {
+        /// Serve standard input and output (the default; the only transport in 0.1).
+        #[arg(long)]
+        stdio: bool,
+        /// Unix socket path or localhost port (arrives with the GUI attach mode, 0.2).
+        #[arg(long, value_name = "PATH|PORT", conflicts_with = "stdio")]
+        socket: Option<String>,
+        /// Refuse commands that change documents, undo/redo and saving.
+        #[arg(long)]
+        readonly: bool,
+        /// Shared secret a socket client must present (socket transport only).
+        #[arg(long, value_name = "SECRET")]
+        token: Option<String>,
     },
 }
 

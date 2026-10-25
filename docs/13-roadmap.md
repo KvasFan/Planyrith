@@ -3,7 +3,7 @@
 **Audience:** implementing agents and maintainers. Each milestone lists deliverables and
 acceptance criteria. Milestones are sequential; within one, items are independent unless noted.
 
-## 0.0.0 — Specification (this tag)
+## 0.0.0 — Specification
 - Complete `docs/`, empty workspace scaffold, licensing policy, CI skeleton definition.
 - **Accept:** `cargo check` passes; docs reviewed; repository public.
 
@@ -93,3 +93,8 @@ parametric/dynamic components, GPU path-traced preview, mobile UI.
   real picking.
 - 2026-10-20 — Web build is a milestone (0.7), not a continuous constraint before it; but all
   crates must keep compiling for wasm from 0.1 (CI job).
+- 2026-10-25 — **0.1 CLI scope.** "All session verbs except `render`" means the verbs whose back
+  ends exist in 0.1: `new`, `info`, `query`, `tool`, `export` (JSON), `validate`, `repair`,
+  `batch`. `import` arrives with the first importers (0.5) and `script` with scripting (0.6).
+  `serve` over standard input/output ships in 0.1 so every command is reachable through JSON-RPC
+  (AGENTS.md §2); its socket transport and `repl` follow in 0.2.
