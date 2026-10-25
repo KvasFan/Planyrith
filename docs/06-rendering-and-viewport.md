@@ -260,3 +260,11 @@ exposes a frame-time overlay (`F11` panel).
 - 2026-10-25 — **Textures** (§2, §13): decoded to RGBA8 sRGB, downscaled to the device limit,
   no mipmaps yet; sampled with repeat. Not rendered yet in 0.2: shadows, section caps, fog, sky
   and ground, watermarks, depth cue, jitter, extensions and endpoints (later milestones).
+- 2026-10-25 — **Sky and axes.** The style's sky color is drawn behind everything as a
+  full-screen pass: above the horizon the background color turns into the sky color with the
+  ray's height (fully sky about 27° up), below it the ground color covers the background with
+  its opacity (none by default). Parallel views spread the gradient as a 35° perspective would.
+  The drawing axes (View › Axes, on by default in the GUI, off headless) are edges from the
+  origin colored by axis, solid on the positive side and dashed on the negative side, depth
+  tested against faces like model edges; they reach four times past the eye and the model, and
+  that extent is included when fitting the depth range.

@@ -75,6 +75,8 @@ pub struct FrameRequest<'a> {
     pub ids: bool,
     /// Clear to a transparent background (headless `--transparent`).
     pub transparent_background: bool,
+    /// Draw the drawing axes (View › Axes, docs/06 §3.1 step 7).
+    pub axes: bool,
 }
 
 /// What lies under a pixel of the id buffer (docs/06 §8 hover picking).
@@ -194,6 +196,7 @@ struct Pipelines {
     edge_back: wgpu::RenderPipeline,
     face_id: wgpu::RenderPipeline,
     edge_id: wgpu::RenderPipeline,
+    sky: wgpu::RenderPipeline,
 }
 
 /// One recorded draw.
@@ -217,12 +220,14 @@ enum Draw {
         uniform: u32,
         container: ContainerRef,
     },
-    /// Edges drawn from a transient instance buffer (selected edges).
+    /// Edges drawn from a transient instance buffer (selected edges, axes).
     EdgeList {
         uniform: u32,
         buffer: wgpu::Buffer,
         count: u32,
     },
+    /// The sky gradient behind everything.
+    Sky { uniform: u32 },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -635,6 +640,19 @@ impl Renderer {
                 bounds = bounds.union(&mesh.bounds.transformed(&item.world));
             }
         }
+        // The axes reach a few times past the model and the eye.
+        let axis_length = 4.0
+            * (camera.eye.length()
+                + if bounds.is_empty() {
+                    0.0
+                } else {
+                    bounds.max.distance(bounds.min) + bounds.center().length()
+                }
+                + 1000.0);
+        if req.axes {
+            let reach = DVec3::splat(axis_length);
+            bounds = bounds.union(&Aabb::new(-reach, reach));
+        }
         let depth = camera.fit_depth(&bounds);
 
         let mode = style.faces.mode;
@@ -849,6 +867,89 @@ impl Renderer {
                 });
             }
         }
+        // The drawing axes: solid on the positive side, dashed on the
+        // negative side, colored by axis, hidden behind faces.
+        if req.axes {
+            let clip = camera.clip_from_local(&DAffine3::IDENTITY, depth);
+            let base = make_uniform(
+                &clip.as_mat4().to_cols_array_2d(),
+                &DAffine3::IDENTITY,
+                &camera,
+            );
+            let segments = |sign: f32| -> Vec<EdgeInstance> {
+                [[1.0f32, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+                    .iter()
+                    .map(|d| EdgeInstance {
+                        a: [0.0; 3],
+                        b: [
+                            d[0] * sign * axis_length as f32,
+                            d[1] * sign * axis_length as f32,
+                            d[2] * sign * axis_length as f32,
+                        ],
+                        n0: [0.0; 3],
+                        n1: [0.0; 3],
+                        flags: 0,
+                        index: 0,
+                        material_color: [0.0; 4],
+                    })
+                    .collect()
+            };
+            for (sign, flags) in [(1.0, BY_AXIS), (-1.0, BY_AXIS | DASHED)] {
+                let u = DrawUniform {
+                    color: [0.0, 0.0, 0.0, 1.0],
+                    viewport: [req.width as f32, req.height as f32, 1.5 * ppp, 0.0],
+                    ids: [0, flags, 0, 0],
+                    ..base
+                };
+                let slot = push(&mut uniforms, u);
+                let instances = segments(sign);
+                let buffer = self
+                    .device
+                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("axes"),
+                        contents: bytemuck::cast_slice(&instances),
+                        usage: wgpu::BufferUsages::VERTEX,
+                    });
+                edges.push(Draw::EdgeList {
+                    uniform: slot,
+                    buffer,
+                    count: instances.len() as u32,
+                });
+            }
+        }
+        // The sky (style background) behind everything.
+        let mut sky = None;
+        if let Some(sky_color) = style.background.sky
+            && !req.transparent_background
+        {
+            let tan_half = match camera.projection {
+                Projection::Perspective { fov_y_deg } | Projection::TwoPoint { fov_y_deg } => {
+                    (fov_y_deg.to_radians() * 0.5).tan()
+                }
+                // Parallel views have one ray direction; the gradient spreads
+                // as in a 35° perspective.
+                Projection::Parallel { .. } => (35.0f64.to_radians() * 0.5).tan(),
+            };
+            let forward = camera.forward();
+            let right = camera.right() * tan_half * camera.aspect;
+            let up = camera.screen_up() * tan_half;
+            let ground = style.background.ground.map_or([0.0; 4], |(c, opacity)| {
+                let c = linear(c);
+                [c[0], c[1], c[2], opacity.clamp(0.0, 1.0)]
+            });
+            let u = DrawUniform {
+                color: linear(sky_color),
+                fade: background,
+                tint: ground,
+                light: [forward.x as f32, forward.y as f32, forward.z as f32, 0.0],
+                normal_x: [right.x as f32, right.y as f32, right.z as f32, 0.0],
+                normal_y: [up.x as f32, up.y as f32, up.z as f32, 0.0],
+                ..DrawUniform::zeroed()
+            };
+            sky = Some(Draw::Sky {
+                uniform: push(&mut uniforms, u),
+            });
+        }
         // Back to front (docs/06 §3.1 step 6: per draw item).
         transparent.sort_by(|a, b| b.0.total_cmp(&a.0));
 
@@ -894,8 +995,9 @@ impl Renderer {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
-            for draw in opaque
+            for draw in sky
                 .iter()
+                .chain(opaque.iter())
                 .chain(edges.iter())
                 .chain(transparent.iter().map(|(_, d)| d))
                 .chain(overlay.iter())
@@ -1029,6 +1131,11 @@ impl Renderer {
                 pass.set_bind_group(0, &self.uniform_group, &[uniform * UNIFORM_STRIDE as u32]);
                 pass.set_vertex_buffer(0, buffer.slice(..));
                 pass.draw(0..6, 0..*count);
+            }
+            Draw::Sky { uniform } => {
+                pass.set_pipeline(&self.pipelines.sky);
+                pass.set_bind_group(0, &self.uniform_group, &[uniform * UNIFORM_STRIDE as u32]);
+                pass.draw(0..3, 0..1);
             }
         }
     }
@@ -1618,6 +1725,17 @@ fn build_pipelines(
             id_target,
             depth(false, GreaterEqual),
             1,
+        ),
+        sky: pipeline(
+            "sky",
+            edge_layout,
+            "vs_sky",
+            "fs_sky",
+            &[],
+            None,
+            color(None, all),
+            depth(false, wgpu::CompareFunction::Always),
+            msaa,
         ),
     }
 }

@@ -84,6 +84,7 @@ pub fn render_image(
         show_hidden: options.show_hidden,
         ids: false,
         transparent_background: options.transparent_background,
+        axes: false,
     })?;
     renderer.read_color()
 }

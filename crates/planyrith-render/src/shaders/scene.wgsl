@@ -241,3 +241,36 @@ fn fs_edge(input: EdgeOut) -> @location(0) vec4<f32> {
 fn fs_edge_id(input: EdgeOut) -> @location(0) vec2<u32> {
     return vec2<u32>(draw.ids.x, 0x80000000u | (input.index + 1u));
 }
+
+// ----- sky (docs/06 §3.1, style background) ----------------------------------------------
+
+struct SkyOut {
+    @builtin(position) clip: vec4<f32>,
+    @location(0) ndc: vec2<f32>,
+};
+
+// One triangle covering the viewport.
+@vertex
+fn vs_sky(@builtin(vertex_index) i: u32) -> SkyOut {
+    let x = f32((i << 1u) & 2u) * 2.0 - 1.0;
+    let y = f32(i & 2u) * 2.0 - 1.0;
+    var out: SkyOut;
+    out.clip = vec4<f32>(x, y, 0.0, 1.0);
+    out.ndc = vec2<f32>(x, y);
+    return out;
+}
+
+// The view ray through the pixel is light.xyz (forward) + ndc.x · normal_x
+// (right · tan(fov/2) · aspect) + ndc.y · normal_y (up · tan(fov/2)). Above
+// the horizon the background color (fade) turns into the sky color (color)
+// with height; below it the ground color (tint, a = opacity) covers it.
+@fragment
+fn fs_sky(input: SkyOut) -> @location(0) vec4<f32> {
+    let dir = normalize(draw.light.xyz + input.ndc.x * draw.normal_x.xyz + input.ndc.y * draw.normal_y.xyz);
+    let horizon = draw.fade.rgb;
+    if (dir.z >= 0.0) {
+        let h = 1.0 - clamp(dir.z / 0.45, 0.0, 1.0);
+        return vec4<f32>(mix(horizon, draw.color.rgb, 1.0 - h * h), 1.0);
+    }
+    return vec4<f32>(mix(horizon, draw.tint.rgb, draw.tint.a), 1.0);
+}

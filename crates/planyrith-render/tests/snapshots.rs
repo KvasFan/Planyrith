@@ -178,6 +178,20 @@ fn frame(
     style: &Style,
     ids: bool,
 ) -> image::RgbaImage {
+    frame_with_axes(renderer, doc, selection, context, camera, style, ids, false)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn frame_with_axes(
+    renderer: &mut Renderer,
+    doc: &Document,
+    selection: &Selection,
+    context: &EditContext,
+    camera: &Camera,
+    style: &Style,
+    ids: bool,
+    axes: bool,
+) -> image::RgbaImage {
     let items = draw_list(doc, selection, context, false);
     renderer
         .render(&FrameRequest {
@@ -190,6 +204,7 @@ fn frame(
             show_hidden: false,
             ids,
             transparent_background: false,
+            axes,
         })
         .unwrap();
     renderer.read_color().unwrap()
@@ -264,6 +279,19 @@ fn projections_selection_and_picking() {
         );
         check(name, &image);
     }
+    // The drawing axes: depth-tested, dashed on the negative side; the sky
+    // shows above the horizon in perspective (docs/06 §3.1).
+    let image = frame_with_axes(
+        &mut renderer,
+        doc,
+        &Selection::new(),
+        &EditContext::model(),
+        &two_point,
+        &style,
+        false,
+        true,
+    );
+    check("room-axes", &image);
 
     // Select the table and the floor; open the first chair for editing.
     run(
