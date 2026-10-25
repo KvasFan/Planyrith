@@ -10,10 +10,15 @@
 #![forbid(unsafe_code)]
 
 mod app;
+mod icons;
 mod panels;
 mod session;
+mod theme;
 mod tools;
 mod viewport;
+
+#[cfg(test)]
+mod screens;
 
 use std::path::PathBuf;
 

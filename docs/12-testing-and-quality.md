@@ -97,3 +97,7 @@ humans or GUI automation before releases, with expected screenshots.
 - 2026-10-25 — Each QA script in `docs/qa/` has an automated twin that drives the GUI shell with
   synthetic input in `cargo test` (headless, no GPU); the expected screenshot is rendered
   headless from the document the twin builds. The first is `model-a-room.md` (0.3).
+- 2026-10-25 — `PLANYRITH_SCREENSHOTS=<dir> cargo test -p planyrith-gui screenshots` writes
+  whole-window PNGs of the GUI (both themes, a tool hovering the model, the context menu)
+  through `egui_kittest`'s wgpu renderer, optionally with `PLANYRITH_SCREENSHOT_DOC=<file>`
+  loaded. It is a review aid, not a golden test: without the variable it does nothing.

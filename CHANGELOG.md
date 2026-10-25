@@ -4,6 +4,16 @@ All notable changes to Planyrith are recorded here. Versions follow
 [Semantic Versioning](https://semver.org/); before 1.0, minor versions are milestones of
 [`docs/13-roadmap.md`](docs/13-roadmap.md).
 
+## Unreleased
+
+- **Look of the GUI**: light and dark themes (View › Theme), an icon toolbar (file, undo/redo,
+  tools, standard views, face styles), tool cursors, a right-click context menu, scene tabs
+  over the viewport, a clearer status bar with the value field always visible, and richer Tool
+  Options (Copy for Move/Rotate, Keep the start face for Push/Pull).
+- **Renderer**: the style's sky gradient (and ground color) behind the model; drawing axes
+  (View › Axes), depth-tested and dashed on the negative side.
+- **Tests**: whole-window GUI screenshots through wgpu (`PLANYRITH_SCREENSHOTS`).
+
 ## 0.3.0 — Interactive modeling with inference (2026-10-25)
 
 - **Inference engine** (`planyrith_core::inference`, docs/03 §7): endpoint, midpoint,

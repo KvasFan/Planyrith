@@ -48,6 +48,7 @@ high-frequency interaction**.
 | Ids | own newtypes over a slot map (`slotmap` crate acceptable) | MIT/Apache-2.0 | uuid | Dense, cache-friendly, stable within a document; UUIDs only for component definitions shared across files (`uuid` crate). |
 | Property testing | **proptest** | MIT/Apache-2.0 | quickcheck | Richer strategies. |
 | CLI tests | **assert_cmd**, **predicates** | MIT/Apache-2.0 | — | Standard. |
+| GUI screenshots | **egui_kittest** (dev-dependency, `wgpu` + `snapshot` + `eframe`) | MIT/Apache-2.0 | own wgpu readback | Renders the whole eframe app headless through wgpu, the 3D viewport included. |
 | Benchmarks | **criterion** | MIT/Apache-2.0 | divan | Standard. |
 | Fuzzing | **cargo-fuzz** / **arbitrary** | MIT/Apache-2.0 | — | Importers and the mesh kernel. |
 | License enforcement | **cargo-deny** (`deny.toml`) | — | cargo-about | Fails CI on disallowed licenses or C `-sys` crates. |
@@ -201,3 +202,6 @@ powerful but add ~10 MB and do not run inside the web build; they are a post-1.0
   the GUI placeholder pulls in through eframe 0.36 (window decorations and Linux accessibility).
   Accepted for 0.1, where the GUI is not implemented; to be reviewed with the 0.2 GUI work
   (replace or keep, with a new dated entry).
+- 2026-10-25 — `egui_kittest` 0.36 is a dev-dependency of `planyrith-gui` for whole-window
+  screenshots (docs/12 Decisions); it hands the app a real `egui_wgpu::RenderState`, so the
+  viewport renders as in the application. `cargo deny check` passes with it.

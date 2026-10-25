@@ -10,6 +10,7 @@ use planyrith_core::document::{
 use planyrith_core::ids::EntityId;
 use serde_json::{Value, json};
 
+use crate::icons::{self, Icon};
 use crate::session::Session;
 use crate::tools::{Cx, Tool};
 
@@ -616,8 +617,18 @@ fn outline_level(
 
 /// Tool Options (docs/07 §6, left dock): the active tool's parameters that
 /// clicks do not collect.
-pub fn tool_options(ui: &mut egui::Ui, tool: &mut dyn Tool, cx: &Cx<'_>) {
-    ui.heading(tool.label());
+pub fn tool_options(ui: &mut egui::Ui, tool: &mut dyn Tool, cx: &Cx<'_>, prompt: &str) {
+    ui.horizontal(|ui| {
+        if let Some(icon) = Icon::for_command(tool.command()) {
+            let (rect, _) = ui.allocate_exact_size(egui::vec2(22.0, 22.0), egui::Sense::hover());
+            icons::paint(ui.painter(), rect, icon, ui.visuals().strong_text_color());
+        }
+        ui.heading(tool.label());
+    });
+    if !prompt.is_empty() {
+        ui.label(RichText::new(prompt).weak());
+    }
+    ui.separator();
     tool.options(ui, cx);
 }
 

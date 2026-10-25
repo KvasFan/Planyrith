@@ -29,5 +29,9 @@ pollster = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 
+[dev-dependencies]
+# Whole-window screenshots of the GUI, headless (docs/12 §7).
+egui_kittest = { workspace = true, features = ["wgpu", "snapshot", "eframe"] }
+
 [lints]
 workspace = true

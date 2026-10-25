@@ -82,6 +82,8 @@ pub struct PushPullTool {
     face: Option<(PickedFace, DVec3, bool)>,
     cursor: Option<DVec3>,
     last: Option<f64>,
+    /// Tool Options: keep the start face (as Ctrl does).
+    keep: bool,
 }
 
 impl PushPullTool {
@@ -128,7 +130,7 @@ impl Tool for PushPullTool {
     fn click(&mut self, p: &Pointer, cx: &Cx<'_>) -> Flow {
         if self.face.is_none() {
             if let Some(face) = picked_face(p, cx) {
-                self.face = Some((face, p.inference.point, p.modifiers.command));
+                self.face = Some((face, p.inference.point, p.modifiers.command || self.keep));
             }
             return Flow::Continue;
         }
@@ -169,6 +171,10 @@ impl Tool for PushPullTool {
         let mut params = last.1.clone();
         params["distance"] = json!(signed(length(text, cx).ok()?, last.1["distance"].as_f64()));
         Some(params)
+    }
+
+    fn options(&mut self, ui: &mut egui::Ui, _cx: &Cx<'_>) {
+        ui.checkbox(&mut self.keep, "Keep the start face (also Ctrl)");
     }
 
     fn escape(&mut self) -> bool {
@@ -334,6 +340,8 @@ fn array_params(last: &Value, input: &ValueFieldInput) -> Option<Value> {
 pub struct MoveTool {
     grab: Option<(DVec3, String)>,
     cursor: Option<DVec3>,
+    /// Tool Options: copy (as Ctrl does).
+    copy: bool,
 }
 
 impl MoveTool {
@@ -375,7 +383,7 @@ impl Tool for MoveTool {
             }
             return Flow::Continue;
         }
-        match self.params(p.inference.point, p.modifiers.command) {
+        match self.params(p.inference.point, p.modifiers.command || self.copy) {
             Some(params) => {
                 self.grab = None;
                 Flow::run("move", params)
@@ -422,6 +430,10 @@ impl Tool for MoveTool {
         Some(params)
     }
 
+    fn options(&mut self, ui: &mut egui::Ui, _cx: &Cx<'_>) {
+        ui.checkbox(&mut self.copy, "Copy (also Ctrl while clicking)");
+    }
+
     fn escape(&mut self) -> bool {
         self.grab.take().is_some()
     }
@@ -454,6 +466,8 @@ pub struct RotateTool {
     from: Option<DVec3>,
     cursor: Option<DVec3>,
     forced: Option<Axis>,
+    /// Tool Options: copy (as Ctrl does).
+    copy: bool,
 }
 
 impl RotateTool {
@@ -515,7 +529,7 @@ impl Tool for RotateTool {
                 self.from = Some(point);
                 Flow::Continue
             }
-            (Some(_), Some(_)) => match self.params(point, p.modifiers.command) {
+            (Some(_), Some(_)) => match self.params(point, p.modifiers.command || self.copy) {
                 Some(params) => {
                     self.center = None;
                     self.from = None;
@@ -576,6 +590,10 @@ impl Tool for RotateTool {
             Some(axis)
         };
         true
+    }
+
+    fn options(&mut self, ui: &mut egui::Ui, _cx: &Cx<'_>) {
+        ui.checkbox(&mut self.copy, "Copy (also Ctrl while clicking)");
     }
 
     fn escape(&mut self) -> bool {

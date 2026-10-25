@@ -67,10 +67,11 @@ Frontends:
    per 0.1 command with previews, modifiers and shortcuts, Tool Help, `Tab` cycling, and the
    "model a room in 10 steps" QA script (`docs/qa/model-a-room.md`) with its automated twin
    (`app::tests::qa_model_a_room_in_ten_steps`); released as 0.3.0. User feedback on
-   2026-10-25: the engine works very well, the GUI looks basic. Next: a GUI polish pass on what
-   docs/07 already specifies (icon toolbars, viewport axes and background, cursor feedback,
-   semi-transparent previews, context menu, theme), then milestone 0.4 (organization and
-   materials).
+   2026-10-25: the engine works very well, the GUI looks basic. A first polish pass followed
+   (themes, icon toolbar, axes and sky, cursors, context menu, scene tabs, status bar; docs/07
+   Decisions "Look (after 0.3)"); review it with `PLANYRITH_SCREENSHOTS` (docs/12 Decisions).
+   Still open from docs/07: semi-transparent previews, Preferences, layout presets, panels for
+   materials/components/styles (0.4). Next: milestone 0.4 (organization and materials).
 2. **Journal and undo.** The journal (`history.msgpack`, docs/09 §3) is append-only and every
    frontend journals executed commands but not undo/redo, so after an undo it lists a command
    that is no longer in the document. Decide whether undo/redo are journaled (entries) or the

@@ -14,8 +14,10 @@ use planyrith_core::math::Axis;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+use crate::icons::{self, Icon};
 use crate::panels::{self, PanelState};
 use crate::session::Session;
+use crate::theme::{self, ThemeChoice};
 use crate::tools::{self, Flow, Tool};
 use crate::viewport::{self, Preview, Viewport};
 
@@ -97,9 +99,24 @@ enum DialogPurpose {
 }
 
 /// Persisted per user (docs/07 §1: layouts are not stored in documents).
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
+#[serde(default)]
 struct Settings {
     recent: Vec<PathBuf>,
+    /// View › Axes.
+    show_axes: bool,
+    /// View › Theme.
+    theme: ThemeChoice,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Settings {
+            recent: Vec::new(),
+            show_axes: true,
+            theme: ThemeChoice::System,
+        }
+    }
 }
 
 const LAYOUT_KEY: &str = "planyrith.layout.v2";
@@ -160,6 +177,7 @@ impl App {
             .and_then(|s| eframe::get_value(s, SETTINGS_KEY))
             .unwrap_or_default();
         let mut app = App::blank(tree, settings);
+        theme::apply(&cc.egui_ctx, app.settings.theme);
         if let Some(path) = file {
             app.open(&path);
         }
@@ -214,7 +232,7 @@ impl App {
                 self.viewport = Viewport::default();
                 self.activate(0);
                 self.remember(path.to_path_buf());
-                self.info(format!("Opened {}", path.display()));
+                self.info(format!("Opened {}", file_name(path)));
             }
             Err(e) => self.error(format!("Could not open {}: {e}", path.display())),
         }
@@ -235,7 +253,7 @@ impl App {
         match self.session.save(path.as_deref()) {
             Ok(path) => {
                 self.remember(path.clone());
-                self.info(format!("Saved {}", path.display()));
+                self.info(format!("Saved {}", file_name(&path)));
             }
             Err(e) => self.error(format!("Could not save: {e}")),
         }
@@ -748,6 +766,20 @@ impl App {
                     );
                 }
                 ui.checkbox(&mut self.viewport.show_hidden, "Hidden Geometry");
+                ui.checkbox(&mut self.settings.show_axes, "Axes");
+                ui.separator();
+                ui.menu_button("Theme", |ui| {
+                    for choice in [ThemeChoice::System, ThemeChoice::Light, ThemeChoice::Dark] {
+                        if ui
+                            .radio(self.settings.theme == choice, choice.label())
+                            .clicked()
+                        {
+                            self.settings.theme = choice;
+                            theme::apply(ui.ctx(), choice);
+                            ui.close();
+                        }
+                    }
+                });
             });
             ui.menu_button("Camera", |ui| {
                 ui.menu_button("Standard Views", |ui| {
@@ -846,22 +878,129 @@ impl App {
         }
     }
 
-    /// The tool row (docs/07 §1 toolbars).
+    /// The toolbar (docs/07 §1): file, history, tools, views and face
+    /// styles as icon buttons with tooltips.
     fn toolbar(&mut self, ui: &mut egui::Ui) {
         ui.horizontal_wrapped(|ui| {
-            let mut chosen = None;
-            for (i, (tool, key)) in self.tools.iter().enumerate() {
-                let response = ui.selectable_label(i == self.active, tool.label());
-                let response = match key {
-                    Some(k) => response.on_hover_text(format!("{} ({})", tool.label(), k.name())),
-                    None => response.on_hover_text(tool.label()),
-                };
-                if response.clicked() {
-                    chosen = Some(i);
+            ui.spacing_mut().item_spacing.x = 2.0;
+            let group_gap = |ui: &mut egui::Ui| {
+                ui.add_space(4.0);
+                ui.separator();
+                ui.add_space(4.0);
+            };
+            if icons::button(ui, Icon::New, false, "New (Ctrl+N)").clicked() {
+                self.guarded(Pending::New);
+            }
+            if icons::button(ui, Icon::Open, false, "Open… (Ctrl+O)").clicked() {
+                self.guarded(Pending::Open(None));
+            }
+            if icons::button(ui, Icon::Save, false, "Save (Ctrl+S)").clicked() {
+                self.save(None);
+            }
+            group_gap(ui);
+            let history = self.session.engine.history();
+            let undo = history.undo_label().map_or_else(
+                || "Undo (Ctrl+Z)".to_string(),
+                |l| format!("Undo {l} (Ctrl+Z)"),
+            );
+            let redo = history.redo_label().map_or_else(
+                || "Redo (Ctrl+Y)".to_string(),
+                |l| format!("Redo {l} (Ctrl+Y)"),
+            );
+            let (can_undo, can_redo) = (history.can_undo(), history.can_redo());
+            if ui
+                .add_enabled_ui(can_undo, |ui| icons::button(ui, Icon::Undo, false, &undo))
+                .inner
+                .clicked()
+            {
+                self.undo();
+            }
+            if ui
+                .add_enabled_ui(can_redo, |ui| icons::button(ui, Icon::Redo, false, &redo))
+                .inner
+                .clicked()
+            {
+                self.redo();
+            }
+            for group in [
+                &["select", "erase", "material-apply"][..],
+                &[
+                    "line",
+                    "arc-bulge",
+                    "arc-2point",
+                    "arc-3point",
+                    "pie",
+                    "rectangle",
+                    "circle",
+                    "polygon",
+                ],
+                &["push-pull", "offset", "move", "rotate", "scale"],
+            ] {
+                group_gap(ui);
+                for command in group {
+                    let Some(i) = self.tools.iter().position(|(t, _)| t.command() == *command)
+                    else {
+                        continue;
+                    };
+                    let (tool, key) = &self.tools[i];
+                    let Some(icon) = Icon::for_command(command) else {
+                        continue;
+                    };
+                    let tip = match key {
+                        Some(k) => format!("{} ({})", tool.label(), k.name()),
+                        None => tool.label().to_string(),
+                    };
+                    if icons::button(ui, icon, i == self.active, &tip).clicked() {
+                        self.activate(i);
+                    }
                 }
             }
-            if let Some(i) = chosen {
-                self.activate(i);
+            group_gap(ui);
+            for (icon, view, tip) in [
+                (Icon::ViewIso, "iso", "Iso view"),
+                (Icon::ViewTop, "top", "Top view"),
+                (Icon::ViewFront, "front", "Front view"),
+                (Icon::ViewRight, "right", "Right view"),
+            ] {
+                if icons::button(ui, icon, false, tip).clicked() {
+                    self.run("camera-standard", json!({ "view": view }));
+                }
+            }
+            if icons::button(ui, Icon::ZoomExtents, false, "Zoom Extents (Shift+Z)").clicked() {
+                self.run("zoom-extents", json!({}));
+            }
+            group_gap(ui);
+            let mode = self
+                .session
+                .doc()
+                .styles
+                .active_style()
+                .map(|s| s.faces.mode);
+            for (icon, m, key, tip) in [
+                (
+                    Icon::Wireframe,
+                    FaceMode::Wireframe,
+                    "wireframe",
+                    "Wireframe",
+                ),
+                (
+                    Icon::HiddenLine,
+                    FaceMode::HiddenLine,
+                    "hidden-line",
+                    "Hidden line",
+                ),
+                (Icon::Shaded, FaceMode::Shaded, "shaded", "Shaded"),
+                (
+                    Icon::Textured,
+                    FaceMode::ShadedTextured,
+                    "shaded-textured",
+                    "Shaded with textures",
+                ),
+                (Icon::XRay, FaceMode::XRay, "x-ray", "X-ray"),
+            ] {
+                if icons::button(ui, icon, mode == Some(m), tip).clicked() {
+                    self.run("style-set", json!({ "faces": key }));
+                }
             }
         });
     }
@@ -886,77 +1025,104 @@ impl App {
     }
 
     fn status_bar(&mut self, ui: &mut egui::Ui) {
+        let (prompt, value_label) = self.step_info();
         ui.horizontal(|ui| {
-            // Breadcrumb (docs/07 §4): click to leave levels.
-            let doc = self.session.doc();
-            let context = self.session.engine.context().path.canonical(doc);
-            let mut target: Option<InstancePath> = None;
-            if ui.link("Model").clicked() {
-                target = Some(InstancePath::root());
-            }
-            let mut prefix = InstancePath::root();
-            for step in &context.steps {
-                prefix = prefix.child(*step);
-                ui.label("›");
-                let name = planyrith_core::document::EntityPath::new(
-                    prefix.parent().unwrap_or_else(InstancePath::root),
-                    *step,
-                )
-                .display_with(doc);
-                let name = name.rsplit('/').next().unwrap_or(&name).to_string();
-                if ui.link(name).clicked() {
-                    target = Some(prefix.clone());
-                }
-            }
-            if let Some(path) = target
-                && let Err(e) = self.session.engine.set_context(EditContext { path })
-            {
-                self.error(e.to_string());
-            }
-            ui.separator();
-            let (prompt, value_label) = self.step_info();
-            ui.label(prompt);
-            let selected = self.session.engine.selection().len();
-            if selected > 0 {
-                ui.separator();
-                ui.label(format!("{selected} selected"));
-            }
-            if let Some(inference) = self.viewport.current_inference()
-                && !inference.label.is_empty()
-                && self.tool().command() != "select"
-            {
-                ui.separator();
-                ui.weak(&inference.label);
-            } else if let Some(hover) = &self.viewport.hover {
-                ui.separator();
-                ui.weak(hover);
-            }
-            if let Some(e) = &self.preview.error {
-                ui.separator();
-                ui.weak(e);
-            }
-            if let Some((text, is_error)) = &self.message {
-                ui.separator();
-                if *is_error {
-                    ui.colored_label(ui.visuals().error_fg_color, text);
-                } else {
-                    ui.label(text);
-                }
-            }
-            // The value field (docs/07 §2): typed into without focus.
+            // The value field (docs/07 §2), always at the right: typed into
+            // without focus.
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let visuals = ui.visuals().clone();
+                let focused = !self.value.is_empty();
                 egui::Frame::new()
-                    .stroke(ui.visuals().widgets.inactive.bg_stroke)
-                    .inner_margin(egui::Margin::symmetric(4, 1))
+                    .fill(visuals.extreme_bg_color)
+                    .stroke(if focused {
+                        visuals.selection.stroke
+                    } else {
+                        visuals.widgets.noninteractive.bg_stroke
+                    })
+                    .corner_radius(3)
+                    .inner_margin(egui::Margin::symmetric(6, 2))
                     .show(ui, |ui| {
-                        ui.set_min_width(120.0);
+                        ui.set_min_width(150.0);
                         ui.monospace(&self.value);
                     });
-                if !value_label.is_empty() {
-                    ui.label(value_label);
-                }
+                ui.label(if value_label.is_empty() {
+                    egui::RichText::new("Value").weak()
+                } else {
+                    egui::RichText::new(&value_label)
+                });
+                ui.separator();
+                // Everything else from the left.
+                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                    self.status_left(ui, &prompt);
+                });
             });
         });
+    }
+
+    /// Breadcrumb, the step's prompt, the selection, what is under the
+    /// cursor and the last message (docs/07 §4).
+    fn status_left(&mut self, ui: &mut egui::Ui, prompt: &str) {
+        // Breadcrumb (docs/07 §4): click to leave levels.
+        let doc = self.session.doc();
+        let context = self.session.engine.context().path.canonical(doc);
+        let mut target: Option<InstancePath> = None;
+        if ui.link("Model").clicked() {
+            target = Some(InstancePath::root());
+        }
+        let mut prefix = InstancePath::root();
+        for step in &context.steps {
+            prefix = prefix.child(*step);
+            ui.label("›");
+            let name = planyrith_core::document::EntityPath::new(
+                prefix.parent().unwrap_or_else(InstancePath::root),
+                *step,
+            )
+            .display_with(doc);
+            let name = name.rsplit('/').next().unwrap_or(&name).to_string();
+            if ui.link(name).clicked() {
+                target = Some(prefix.clone());
+            }
+        }
+        if let Some(path) = target
+            && let Err(e) = self.session.engine.set_context(EditContext { path })
+        {
+            self.error(e.to_string());
+        }
+        ui.separator();
+        if let Some(icon) = Icon::for_command(self.tool().command()) {
+            let (rect, _) = ui.allocate_exact_size(egui::vec2(16.0, 16.0), egui::Sense::hover());
+            icons::paint(ui.painter(), rect, icon, ui.visuals().strong_text_color());
+        }
+        ui.strong(prompt);
+        let selected = self.session.engine.selection().len();
+        if selected > 0 {
+            ui.separator();
+            ui.label(format!("{selected} selected"));
+        }
+        if let Some(inference) = self.viewport.current_inference()
+            && !inference.label.is_empty()
+            && self.tool().command() != "select"
+        {
+            ui.separator();
+            ui.weak(&inference.label);
+        } else if let Some(hover) = &self.viewport.hover {
+            ui.separator();
+            ui.weak(hover);
+        }
+        if let Some(e) = &self.preview.error {
+            ui.separator();
+            ui.weak(e);
+        }
+        if let Some((text, is_error)) = &self.message {
+            ui.separator();
+            let text = egui::RichText::new(text);
+            let text = if *is_error {
+                text.color(ui.visuals().error_fg_color)
+            } else {
+                text.weak()
+            };
+            ui.add(egui::Label::new(text).truncate());
+        }
     }
 
     fn file_dialog(&mut self, ctx: &egui::Context) {
@@ -1015,6 +1181,14 @@ impl App {
     }
 }
 
+/// A path's file name for messages.
+fn file_name(path: &std::path::Path) -> String {
+    path.file_name().map_or_else(
+        || path.display().to_string(),
+        |n| n.to_string_lossy().into_owned(),
+    )
+}
+
 /// Dock behavior: draws each pane with access to the app state.
 struct Docks<'a> {
     session: &'a mut Session,
@@ -1037,8 +1211,10 @@ impl egui_tiles::Behavior<Pane> for Docks<'_> {
                 self.flows.extend(flows);
             }
             other => {
+                ui.painter()
+                    .rect_filled(ui.max_rect(), 0.0, ui.visuals().panel_fill);
                 egui::Frame::new()
-                    .inner_margin(6.0)
+                    .inner_margin(8.0)
                     .show(ui, |ui| match other {
                         Pane::EntityInfo => panels::entity_info(ui, self.session, &mut self.error),
                         Pane::Tags => panels::tags(ui, self.session, self.panels, &mut self.error),
@@ -1047,8 +1223,16 @@ impl egui_tiles::Behavior<Pane> for Docks<'_> {
                         }
                         Pane::Outliner => panels::outliner(ui, self.session, &mut self.error),
                         Pane::ToolOptions => {
+                            let prompt = self
+                                .session
+                                .engine
+                                .registry()
+                                .get(self.tool.command())
+                                .and_then(|c| c.meta().steps.get(self.tool.step()).cloned())
+                                .map(|s| s.prompt)
+                                .unwrap_or_default();
                             let cx = self.viewport.cx(self.session);
-                            panels::tool_options(ui, self.tool, &cx);
+                            panels::tool_options(ui, self.tool, &cx, &prompt);
                         }
                         Pane::ToolHelp => panels::tool_help(ui, self.session, self.tool),
                         Pane::Viewport => {}
@@ -1060,6 +1244,18 @@ impl egui_tiles::Behavior<Pane> for Docks<'_> {
 
     fn tab_title_for_pane(&mut self, pane: &Pane) -> egui::WidgetText {
         pane.title().into()
+    }
+
+    fn tab_bar_color(&self, visuals: &egui::Visuals) -> egui::Color32 {
+        visuals.faint_bg_color
+    }
+
+    fn tab_bar_height(&self, _style: &egui::Style) -> f32 {
+        26.0
+    }
+
+    fn gap_width(&self, _style: &egui::Style) -> f32 {
+        2.0
     }
 
     fn simplification_options(&self) -> egui_tiles::SimplificationOptions {
@@ -1087,11 +1283,22 @@ impl App {
             self.info(warning);
         }
         self.update_preview(&ctx);
-        egui::Panel::top("menu").show(ui, |ui| {
-            self.menu_bar(ui);
-            self.toolbar(ui);
-        });
-        egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
+        self.viewport.show_axes = self.settings.show_axes;
+        egui::Panel::top("menu").show(ui, |ui| self.menu_bar(ui));
+        egui::Panel::top("toolbar")
+            .frame(
+                egui::Frame::new()
+                    .fill(ui.visuals().panel_fill)
+                    .inner_margin(egui::Margin::symmetric(6, 3)),
+            )
+            .show(ui, |ui| self.toolbar(ui));
+        egui::Panel::bottom("status")
+            .frame(
+                egui::Frame::new()
+                    .fill(ui.visuals().panel_fill)
+                    .inner_margin(egui::Margin::symmetric(8, 4)),
+            )
+            .show(ui, |ui| self.status_bar(ui));
         egui::CentralPanel::default()
             .frame(egui::Frame::new())
             .show(ui, |ui| {
@@ -1338,6 +1545,37 @@ mod tests {
             near_corner + egui::vec2(1.5, 0.0),
         )]);
         assert_eq!(kind(&shell), Some(InferenceKind::Endpoint));
+    }
+
+    #[test]
+    fn right_click_selects_what_is_under_the_cursor() {
+        let mut shell = Shell::new();
+        shell
+            .app
+            .session
+            .execute(
+                "rectangle",
+                json!({ "corner_a": [0, 0, 0], "corner_b": [2000, 1500, 0] }),
+            )
+            .unwrap();
+        shell
+            .app
+            .session
+            .execute("camera-standard", json!({ "view": "top", "extents": true }))
+            .unwrap();
+        shell.frame(Vec::new());
+        let at = shell.screen(DVec3::new(1000.0, 700.0, 0.0));
+        shell.frame(vec![egui::Event::PointerMoved(at)]);
+        for pressed in [true, false] {
+            shell.frame(vec![egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Secondary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            }]);
+        }
+        shell.frame(Vec::new());
+        assert_eq!(shell.app.session.engine.selection().len(), 1);
     }
 
     /// docs/qa/model-a-room.md, automated: the same ten steps with synthetic

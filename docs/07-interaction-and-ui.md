@@ -282,3 +282,15 @@ collected by clicks: e.g. segments for Circle, array count, copy toggle).
   (Rectangle, Circle, Polygon, the arcs and Rotate use them to force their plane before the
   first click) and otherwise lock an axis. A single row of tool buttons sits under the menu bar
   until icons exist; Draw and Tools menus list the same tools.
+- 2026-10-25 — **Look (after 0.3).** A light and a dark theme with one accent color (View ›
+  Theme: System, Light, Dark; per-user setting). An icon toolbar under the menu bar: file,
+  undo/redo, Select/Eraser/Paint, the drawing tools, the editing tools, standard views and zoom
+  extents, face styles; icons are drawn as vector strokes in Planyrith's own style, with
+  tooltips naming the shortcut. Over the viewport a drawing tool shows a crosshair cursor with
+  its icon beside it; navigation shows a grab cursor. Right-click selects the entity under the
+  cursor unless it is already selected and opens a context menu of commands on the selection
+  and the view. Scene tabs sit above the viewport once the model has scenes (`+` adds one from
+  the current view). The status bar shows the active tool's icon and prompt, and the value
+  field at its right edge with its label; messages name files without their folders. Tool
+  Options show the tool, its prompt and its settings (segments and sides, Copy for Move and
+  Rotate, Keep the start face for Push/Pull).

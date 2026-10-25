@@ -13,7 +13,7 @@ use std::collections::BTreeSet;
 use egui::{Color32, PointerButton, Sense, Stroke, Vec2};
 use glam::{DVec2, DVec3};
 use planyrith_core::document::{
-    Camera, ContainerRef, Document, EditContext, EntityKey, EntityPath, InstancePath,
+    Camera, ContainerRef, Document, EditContext, EntityKey, EntityPath, InstancePath, Selection,
 };
 use planyrith_core::ids::EntityId;
 use planyrith_core::inference::{
@@ -24,6 +24,7 @@ use planyrith_core::math::{Aabb, Axis, Ray};
 use planyrith_core::spatial::HitFilter;
 use planyrith_render::{FrameRequest, PickKind, Renderer, RendererOptions};
 
+use crate::icons::{self, Icon};
 use crate::session::Session;
 use crate::tools::{self, Cx, Flow, Pointer, Shape, Tool};
 
@@ -63,6 +64,8 @@ pub struct Viewport {
     texture_size: (u32, u32),
     /// Draw hidden geometry (View › Hidden Geometry).
     pub show_hidden: bool,
+    /// Draw the drawing axes (View › Axes).
+    pub show_axes: bool,
     nav: Option<NavDrag>,
     last_hover: Option<egui::Pos2>,
     /// What the pointer is over, for the status bar.
@@ -81,6 +84,8 @@ pub struct Viewport {
     preview_touched: BTreeSet<ContainerRef>,
     /// The viewport rectangle of the last frame, in points.
     rect: Option<egui::Rect>,
+    /// The scene whose tab was clicked last.
+    active_scene: Option<String>,
     /// The pointer of the last frame it was over the viewport.
     pointer: Option<Pointer>,
     /// `Tab` presses since the pointer last moved, and where it was.
@@ -116,6 +121,48 @@ impl Viewport {
     /// pixel tolerance, until the pointer moves.
     pub fn cycle(&mut self) {
         self.cycle = (self.cycle.0 + 1, self.pointer.as_ref().map(|p| p.screen));
+    }
+
+    /// Scene tabs over the viewport (docs/07 §1); a click activates the
+    /// scene, `+` adds one from the current view.
+    fn scene_tabs(&mut self, ui: &mut egui::Ui, session: &Session, flows: &mut Vec<Flow>) {
+        let names: Vec<String> = session
+            .doc()
+            .scenes
+            .iter()
+            .map(|(_, s)| s.name.clone())
+            .collect();
+        if names.is_empty() {
+            return;
+        }
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 2.0;
+            for name in &names {
+                let active = self.active_scene.as_deref() == Some(name.as_str());
+                if ui.selectable_label(active, name).clicked() {
+                    self.active_scene = Some(name.clone());
+                    flows.push(Flow::Run(vec![(
+                        "scene-activate".into(),
+                        serde_json::json!({ "scene": name }),
+                    )]));
+                }
+            }
+            if ui
+                .small_button("+")
+                .on_hover_text("Add a scene from this view")
+                .clicked()
+            {
+                let n = (names.len() + 1..)
+                    .map(|i| format!("Scene {i}"))
+                    .find(|n| !names.contains(n))
+                    .unwrap_or_default();
+                self.active_scene = Some(n.clone());
+                flows.push(Flow::Run(vec![(
+                    "scene-add".into(),
+                    serde_json::json!({ "name": n }),
+                )]));
+            }
+        });
     }
 
     /// The pointer as of the last frame it was over the viewport (`Enter`
@@ -155,6 +202,7 @@ impl Viewport {
         preview: Option<&Preview>,
     ) -> Vec<Flow> {
         let mut flows = Vec::new();
+        self.scene_tabs(ui, session, &mut flows);
         let (rect, response) = ui.allocate_exact_size(ui.available_size(), Sense::click_and_drag());
         self.rect = Some(rect);
         let ppp = ui.ctx().pixels_per_point();
@@ -341,7 +389,35 @@ impl Viewport {
                 flows.push(tool.triple_click(p, &cx));
             }
         }
+        // Right-click (docs/07 §2): the entity under the cursor joins
+        // nothing, it becomes the selection unless already selected; then
+        // the context menu.
+        if response.secondary_clicked()
+            && let Some(target) = pointer.as_ref().and_then(|p| p.target.clone())
+        {
+            let doc = session.doc();
+            let canonical = target.canonical(doc);
+            if !session
+                .engine
+                .selection()
+                .iter()
+                .any(|p| p.canonical(doc) == canonical)
+            {
+                let mut selection = Selection::new();
+                selection.insert(canonical);
+                flows.push(Flow::Select(selection));
+            }
+        }
+        response.context_menu(|ui| context_menu(ui, session, &mut flows));
         flows.retain(|f| *f != Flow::Continue);
+
+        // The cursor: an arrow for Select, a crosshair with the tool's icon
+        // for the others, a grab hand while navigating.
+        if self.nav.is_some() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+        } else if response.hovered() && tool.command() != "select" {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+        }
         if pointer.is_some() {
             self.pointer = pointer.clone();
         }
@@ -397,6 +473,7 @@ impl Viewport {
             show_hidden: self.show_hidden,
             ids: want_ids,
             transparent_background: false,
+            axes: self.show_axes,
         }) {
             self.error = Some(e.to_string());
             return flows;
@@ -481,6 +558,16 @@ impl Viewport {
                     .request_repaint_after(std::time::Duration::from_secs_f64(LABEL_AFTER_S));
             }
             paint_inference(&painter, &cx, &p.inference, p.screen, show_label);
+        }
+        if let Some(p) = &pointer
+            && self.nav.is_none()
+            && let Some(icon) =
+                Icon::for_command(tool.command()).filter(|_| tool.command() != "select")
+        {
+            let at =
+                egui::Rect::from_min_size(p.screen + Vec2::new(10.0, -26.0), Vec2::splat(16.0));
+            painter.rect_filled(at.expand(2.0), 3.0, Color32::from_white_alpha(200));
+            icons::paint(&painter, at, icon, Color32::from_gray(30));
         }
         flows
     }
@@ -698,6 +785,80 @@ fn paint_inference(
         painter.rect_filled(bg, 3.0, Color32::from_rgba_unmultiplied(255, 255, 220, 230));
         painter.galley(pos, galley, Color32::BLACK);
     }
+}
+
+/// The viewport's context menu (docs/07 §2): commands on the selection and
+/// the view.
+fn context_menu(ui: &mut egui::Ui, session: &Session, flows: &mut Vec<Flow>) {
+    let run = |name: &str, params: serde_json::Value| Flow::Run(vec![(name.to_string(), params)]);
+    let selection = serde_json::json!({ "targets": "selection" });
+    let has_selection = !session.engine.selection().is_empty();
+    let mut item = |ui: &mut egui::Ui, enabled: bool, label: &str, flow: Flow| {
+        if ui.add_enabled(enabled, egui::Button::new(label)).clicked() {
+            flows.push(flow);
+            ui.close();
+        }
+    };
+    let n = session.doc().definitions.len() + 1;
+    item(
+        ui,
+        has_selection,
+        "Delete",
+        run("delete", selection.clone()),
+    );
+    item(ui, has_selection, "Hide", run("hide", selection.clone()));
+    item(
+        ui,
+        has_selection,
+        "Make Group",
+        run("make-group", selection.clone()),
+    );
+    item(
+        ui,
+        has_selection,
+        "Make Component",
+        run(
+            "make-component",
+            serde_json::json!({ "targets": "selection", "name": format!("Component {n}") }),
+        ),
+    );
+    item(
+        ui,
+        has_selection,
+        "Explode",
+        run("explode", selection.clone()),
+    );
+    item(
+        ui,
+        has_selection,
+        "Zoom Selection",
+        run("zoom-extents", selection),
+    );
+    ui.separator();
+    item(
+        ui,
+        true,
+        "Select All",
+        run("select", serde_json::json!({ "query": "all" })),
+    );
+    item(
+        ui,
+        has_selection,
+        "Select None",
+        Flow::Select(Selection::new()),
+    );
+    item(
+        ui,
+        true,
+        "Unhide All",
+        run("unhide", serde_json::json!({ "targets": "all" })),
+    );
+    item(
+        ui,
+        true,
+        "Zoom Extents",
+        run("zoom-extents", serde_json::json!({})),
+    );
 }
 
 /// Leaves the innermost open group or component (docs/07 §10 `Esc`).
