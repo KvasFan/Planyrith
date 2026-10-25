@@ -23,7 +23,7 @@ struct PickedFace {
 }
 
 fn picked_face(p: &Pointer, cx: &Cx<'_>) -> Option<PickedFace> {
-    let element = p.element.as_ref()?.canonical(cx.doc);
+    let element = p.face.as_ref()?.canonical(cx.doc);
     if element.instances != cx.context.path.canonical(cx.doc) {
         return None;
     }
@@ -49,6 +49,27 @@ fn picked_face(p: &Pointer, cx: &Cx<'_>) -> Option<PickedFace> {
 
 fn tol() -> planyrith_core::Tolerances {
     planyrith_core::Tolerances::default()
+}
+
+/// A typed value takes the direction the pointer gave, or the last
+/// command's; a typed negative value reverses it (docs/05 §1).
+fn signed(typed: f64, direction: Option<f64>) -> f64 {
+    match direction {
+        Some(d) if d < 0.0 => -typed,
+        _ => typed,
+    }
+}
+
+/// The signed angle from `from` to `to` about `axis` through `center`.
+fn signed_angle(center: DVec3, axis: DVec3, from: DVec3, to: DVec3) -> f64 {
+    let (a, b) = (from - center, to - center);
+    a.cross(b).dot(axis).atan2(a.dot(b))
+}
+
+fn point(v: &Value) -> Option<DVec3> {
+    serde_json::from_value::<[f64; 3]>(v.clone())
+        .ok()
+        .map(DVec3::from)
 }
 
 // ----- Push/Pull ----------------------------------------------------------------------------
@@ -136,7 +157,7 @@ impl Tool for PushPullTool {
     }
 
     fn value(&mut self, text: &str, cx: &Cx<'_>) -> Result<Flow, String> {
-        let d = length(text, cx)?;
+        let d = signed(length(text, cx)?, self.distance());
         let params = self.params(d).ok_or("pick a face first")?;
         self.last = Some(d);
         self.face = None;
@@ -146,7 +167,7 @@ impl Tool for PushPullTool {
     fn revalue(&self, last: &(String, Value), text: &str, cx: &Cx<'_>) -> Option<Value> {
         (last.0 == "push-pull").then_some(())?;
         let mut params = last.1.clone();
-        params["distance"] = json!(length(text, cx).ok()?);
+        params["distance"] = json!(signed(length(text, cx).ok()?, last.1["distance"].as_f64()));
         Some(params)
     }
 
@@ -266,7 +287,7 @@ impl Tool for OffsetTool {
     }
 
     fn value(&mut self, text: &str, cx: &Cx<'_>) -> Result<Flow, String> {
-        let d = length(text, cx)?;
+        let d = signed(length(text, cx)?, self.distance());
         let params = self.params(d).ok_or("pick a face first")?;
         self.last = Some(d);
         self.face = None;
@@ -276,7 +297,7 @@ impl Tool for OffsetTool {
     fn revalue(&self, last: &(String, Value), text: &str, cx: &Cx<'_>) -> Option<Value> {
         (last.0 == "offset").then_some(())?;
         let mut params = last.1.clone();
-        params["distance"] = json!(length(text, cx).ok()?);
+        params["distance"] = json!(signed(length(text, cx).ok()?, last.1["distance"].as_f64()));
         Some(params)
     }
 
@@ -508,7 +529,10 @@ impl Tool for RotateTool {
 
     fn value(&mut self, text: &str, cx: &Cx<'_>) -> Result<Flow, String> {
         let (center, plane, targets) = self.center.clone().ok_or("pick the center first")?;
-        let radians = angle(text, cx)?;
+        let current = self.from.zip(self.cursor).map(|(from, to)| {
+            signed_angle(center, plane.normal, plane.project(from), plane.project(to))
+        });
+        let radians = signed(angle(text, cx)?, current);
         let params = json!({
             "targets": targets, "center": pt(center), "axis": pt(plane.normal), "angle": radians,
         });
@@ -523,12 +547,22 @@ impl Tool for RotateTool {
         if let Some(params) = array_params(&last.1, &input) {
             return Some(params);
         }
+        let previous = match last.1["angle"].as_f64() {
+            Some(a) => Some(a),
+            None => {
+                let center = point(&last.1["center"])?;
+                let axis = point(&last.1["axis"])?;
+                let from = point(&last.1["from_point"])?;
+                let to = point(&last.1["to_point"])?;
+                Some(signed_angle(center, axis, from, to))
+            }
+        };
         let mut params = last.1.clone();
         if let Some(map) = params.as_object_mut() {
             map.remove("from_point");
             map.remove("to_point");
         }
-        params["angle"] = json!(input.as_angle()?.as_radians());
+        params["angle"] = json!(signed(input.as_angle()?.as_radians(), previous));
         Some(params)
     }
 
@@ -880,12 +914,17 @@ impl Tool for PaintTool {
     }
 
     fn click(&mut self, p: &Pointer, cx: &Cx<'_>) -> Flow {
-        let Some(target) = &p.target else {
+        // The face (or the group or component holding it), not a nearby edge.
+        let Some(target) = p
+            .face
+            .as_ref()
+            .and_then(|f| f.selectable_in(cx.doc, &cx.context.path))
+        else {
             return Flow::Continue;
         };
         if p.modifiers.alt {
             // Sample the material of the face under the cursor.
-            if let Some(element) = &p.element
+            if let Some(element) = &p.face
                 && let Ok(r) = cx.doc.resolve(element)
                 && let EntityId::Face(f) = r.entity
                 && let Some(face) = cx.doc.container(r.container).and_then(|c| c.mesh().face(f))

@@ -254,8 +254,11 @@ collected by clicks: e.g. segments for Circle, array count, copy toggle).
   `- + . , [ < ' " * / ( ~` starts a value; once the value field is non-empty every typed
   character goes to it (units, `s` segments, `r` radius, `x` copies), so single-letter tool
   shortcuts act only while it is empty. `Backspace` edits it, `Enter` applies it, `Esc` clears it
-  first, then cancels the tool's step, then clears the selection, then leaves the open group. The
-  Select tool takes no value. A value replaces the last command (undo, then the same command with
+  first, then cancels the tool's step, then clears the selection, then leaves the open group.
+  `Backspace` with an empty value field removes the last point of a line chain and undoes its
+  segment. `Enter` with an empty value field confirms the point under the cursor (docs/05 §1).
+  A typed distance or angle takes the direction of the pointer's motion (or of the command it
+  replaces); a negative value reverses it. The Select tool takes no value. A value replaces the last command (undo, then the same command with
   the new value, still one undo step) only when the tool is back at its first step and no
   pointer button was pressed since; in the middle of a line chain a typed length extends the
   chain instead.
@@ -269,9 +272,12 @@ collected by clicks: e.g. segments for Circle, array count, copy toggle).
   semi-transparent preview style.
 - 2026-10-25 — **Inference display (0.3).** Marks, directional guide lines (dashed, colored by
   axis, bold when locked) and the label are painted over the viewport image with the UI
-  painter, not by the GPU renderer; the label shows immediately next to the cursor (the 300 ms
-  delay and fading, and `Tab` cycling of candidates, come later). They are not shown for Select
-  and Eraser. `Shift` locks the current inference only once the tool is past its first step,
+  painter, not by the GPU renderer; the label shows next to the cursor once the same inference
+  has held for 300 ms and disappears when it changes. `Tab` steps through the candidates within
+  tolerance (one per distinct point, best first) until the pointer moves; it is taken from the
+  input before the UI's focus traversal sees it, unless a text field has focus. Push/Pull,
+  Offset and Paint act on the face under the cursor even when an edge is within the pick
+  tolerance. They are not shown for Select and Eraser. `Shift` locks the current inference only once the tool is past its first step,
   so `Shift` stays a selection or fill modifier on first clicks; arrow keys go to the tool first
   (Rectangle, Circle, Polygon, the arcs and Rotate use them to force their plane before the
   first click) and otherwise lock an axis. A single row of tool buttons sits under the menu bar

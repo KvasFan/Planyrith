@@ -242,6 +242,27 @@ impl Session {
         }
     }
 
+    /// Every inference within tolerance, best first, one per point (`Tab`
+    /// cycles through them, docs/07 §5).
+    pub fn candidates(
+        &mut self,
+        engine: &InferenceEngine,
+        req: &InferenceRequest,
+    ) -> Vec<Inference> {
+        self.ensure_index();
+        let Some((_, index)) = &self.index else {
+            return Vec::new();
+        };
+        let tol = self.engine.document().tolerances();
+        let mut out: Vec<Inference> = Vec::new();
+        for c in engine.candidates(self.engine.document(), index, req) {
+            if out.iter().all(|o| o.point.distance(c.point) > tol.length) {
+                out.push(c);
+            }
+        }
+        out
+    }
+
     /// The inference for a request (docs/03 §7).
     pub fn infer(&mut self, engine: &InferenceEngine, req: &InferenceRequest) -> Inference {
         self.ensure_index();

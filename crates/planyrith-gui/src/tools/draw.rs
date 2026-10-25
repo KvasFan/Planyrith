@@ -130,6 +130,20 @@ impl Tool for LineTool {
         busy
     }
 
+    fn back(&mut self) -> bool {
+        match self.chain.len() {
+            0 => false,
+            1 => {
+                self.chain.clear();
+                false
+            }
+            _ => {
+                self.chain.pop();
+                true
+            }
+        }
+    }
+
     fn shapes(&self, out: &mut Vec<Shape>) {
         if let (Some(&a), Some(b)) = (self.chain.last(), self.cursor) {
             out.push(Shape::Line {

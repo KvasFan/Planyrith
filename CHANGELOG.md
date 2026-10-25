@@ -17,6 +17,11 @@ All notable changes to Planyrith are recorded here. Versions follow
   counts, `500r` radii, `*N`/`/N` arrays; a value typed right after a tool completes replaces the
   last command.
 - **Previews**: tools show the result on a copy of the document while the pointer moves.
+- **Keys**: `Tab` cycles inference candidates, `Backspace` removes the last point of a line
+  chain, `Enter` alone confirms the point under the cursor; typed distances follow the
+  direction of the pointer's motion.
+- **QA**: `docs/qa/model-a-room.md` ("model a room in 10 steps") with an automated twin that
+  drives the whole window in `cargo test`.
 - **Panels**: Tool Help shows the active tool's steps; Tool Options shows its settings (segments,
   sides, paint material).
 

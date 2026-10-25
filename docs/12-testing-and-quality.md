@@ -94,3 +94,6 @@ humans or GUI automation before releases, with expected screenshots.
   (`PLANYRITH_UPDATE_GOLDEN=1` rewrites them), plus id-buffer picking. The tests skip without a
   graphics adapter unless `PLANYRITH_REQUIRE_GPU=1`, which CI sets on all three OSes (lavapipe
   is installed on Linux; Windows uses WARP, macOS Metal); failing runs upload the actual images.
+- 2026-10-25 — Each QA script in `docs/qa/` has an automated twin that drives the GUI shell with
+  synthetic input in `cargo test` (headless, no GPU); the expected screenshot is rendered
+  headless from the document the twin builds. The first is `model-a-room.md` (0.3).

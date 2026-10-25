@@ -64,11 +64,11 @@ Frontends:
 ## 3. What next
 
 1. **Milestone 0.3** (docs/13): done — the inference engine and `infer`, the value field, a tool
-   per 0.1 command with previews, modifiers and shortcuts, Tool Help. Left for the 0.3
-   acceptance: write and run the "model a room in 10 steps" QA script with mouse and keyboard
-   (docs/12), fix what it finds, then release 0.3.0. Known gaps (docs/07 Decisions): previews
-   use the active style, inference labels have no delay/fade, no `Tab` candidate cycling, no
-   Backspace-removes-last-point in line chains.
+   per 0.1 command with previews, modifiers and shortcuts, Tool Help, `Tab` cycling, and the
+   "model a room in 10 steps" QA script (`docs/qa/model-a-room.md`) with its automated twin
+   (`app::tests::qa_model_a_room_in_ten_steps`). Known gap (docs/07 Decisions): previews use
+   the active style, not a semi-transparent one. Next: milestone 0.4 (organization and
+   materials).
 2. **Journal and undo.** The journal (`history.msgpack`, docs/09 §3) is append-only and every
    frontend journals executed commands but not undo/redo, so after an undo it lists a command
    that is no longer in the document. Decide whether undo/redo are journaled (entries) or the

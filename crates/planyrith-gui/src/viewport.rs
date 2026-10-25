@@ -33,6 +33,8 @@ const PICK_PX: f64 = 8.0;
 const ORBIT_SPEED: f64 = 0.008;
 /// Hover time that makes an entity a reference (docs/03 §7).
 const REMEMBER_AFTER_S: f64 = 0.4;
+/// Hover time before an inference label shows (docs/07 §5).
+const LABEL_AFTER_S: f64 = 0.3;
 
 /// What a navigation drag started on.
 #[derive(Debug, Clone, Copy)]
@@ -81,6 +83,10 @@ pub struct Viewport {
     rect: Option<egui::Rect>,
     /// The pointer of the last frame it was over the viewport.
     pointer: Option<Pointer>,
+    /// `Tab` presses since the pointer last moved, and where it was.
+    cycle: (usize, Option<egui::Pos2>),
+    /// The inference whose label is pending, and since when it is shown.
+    label: Option<(InferenceKind, Option<EntityPath>, f64)>,
 }
 
 impl Viewport {
@@ -104,6 +110,12 @@ impl Viewport {
     /// The last inference, for the status bar.
     pub fn current_inference(&self) -> Option<&Inference> {
         self.last.as_ref().map(|(_, i)| i)
+    }
+
+    /// `Tab` (docs/07 §5): the next candidate when several lie within the
+    /// pixel tolerance, until the pointer moves.
+    pub fn cycle(&mut self) {
+        self.cycle = (self.cycle.0 + 1, self.pointer.as_ref().map(|p| p.screen));
     }
 
     /// The pointer as of the last frame it was over the viewport (`Enter`
@@ -240,21 +252,39 @@ impl Viewport {
                 reference_point: setup.reference,
                 last_point: setup.reference,
             };
-            let inference = session.infer(&self.inference, &req);
-            let (element, target) = match cast(session, &camera, &ray, f64::from(height)) {
-                Some((path, _)) => {
-                    let context = session.engine.context().path.clone();
-                    let target = path.selectable_in(session.doc(), &context);
-                    (Some(path), target)
+            if self.cycle.1.is_some_and(|at| at.distance(pos) > 1.0) {
+                self.cycle = (0, None);
+            }
+            let inference = match self.cycle.0 {
+                0 => session.infer(&self.inference, &req),
+                n => {
+                    let list = session.candidates(&self.inference, &req);
+                    match list.len() {
+                        0 => session.infer(&self.inference, &req),
+                        len => list[n % len].clone(),
+                    }
                 }
-                None => (None, None),
             };
+            let target = cast(session, &camera, &ray, f64::from(height)).and_then(|(path, _)| {
+                let context = session.engine.context().path.clone();
+                path.selectable_in(session.doc(), &context)
+            });
+            let faces_only = HitFilter {
+                vertices: false,
+                edges: false,
+                ..HitFilter::default()
+            };
+            let face = session
+                .ray_cast(&ray, &faces_only)
+                .into_iter()
+                .next()
+                .map(|h| h.path);
             self.last = Some((req, inference.clone()));
             Pointer {
                 inference,
                 modifiers: ui.input(|i| i.modifiers),
+                face,
                 target,
-                element,
                 screen: pos,
             }
         });
@@ -436,7 +466,21 @@ impl Viewport {
             && tool.command() != "select"
             && tool.command() != "erase"
         {
-            paint_inference(&painter, &cx, &p.inference, p.screen);
+            // Labels show after the inference has held for 300 ms (docs/07 §5).
+            let key = (p.inference.kind, p.inference.on.clone());
+            let since = match &self.label {
+                Some((kind, on, since)) if (*kind, on.clone()) == key => *since,
+                _ => {
+                    self.label = Some((key.0, key.1, now));
+                    now
+                }
+            };
+            let show_label = now - since >= LABEL_AFTER_S;
+            if !show_label {
+                ui.ctx()
+                    .request_repaint_after(std::time::Duration::from_secs_f64(LABEL_AFTER_S));
+            }
+            paint_inference(&painter, &cx, &p.inference, p.screen, show_label);
         }
         flows
     }
@@ -559,7 +603,13 @@ fn paint_shape(painter: &egui::Painter, cx: &Cx<'_>, shape: &Shape) {
 }
 
 /// Inference marks and labels (docs/06 §10, docs/07 §5).
-fn paint_inference(painter: &egui::Painter, cx: &Cx<'_>, inf: &Inference, cursor: egui::Pos2) {
+fn paint_inference(
+    painter: &egui::Painter,
+    cx: &Cx<'_>,
+    inf: &Inference,
+    cursor: egui::Pos2,
+    show_label: bool,
+) {
     let Some(s) = cx.to_screen(inf.point) else {
         return;
     };
@@ -640,7 +690,7 @@ fn paint_inference(painter: &egui::Painter, cx: &Cx<'_>, inf: &Inference, cursor
             format!("{label} (locked)")
         };
     }
-    if !label.is_empty() {
+    if show_label && !label.is_empty() {
         let pos = cursor + Vec2::new(14.0, 14.0);
         let galley =
             painter.layout_no_wrap(label, egui::FontId::proportional(12.0), Color32::BLACK);

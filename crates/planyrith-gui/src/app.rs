@@ -144,6 +144,8 @@ pub struct App {
     last_run: Option<(String, Value)>,
     revalue_open: bool,
     preview: PreviewState,
+    /// `Tab` presses taken from egui's focus traversal this frame.
+    tabs: usize,
 }
 
 impl App {
@@ -186,6 +188,7 @@ impl App {
             last_run: None,
             revalue_open: false,
             preview: PreviewState::default(),
+            tabs: 0,
         }
     }
 
@@ -437,8 +440,18 @@ impl App {
     fn key(&mut self, key: Key) {
         match key {
             Key::Enter => self.apply_value(),
-            Key::Backspace => {
+            Key::Backspace if !self.value.is_empty() => {
                 self.value.pop();
+            }
+            Key::Backspace => {
+                // Removes the last point of a chain and its segment.
+                if self.tools[self.active].0.back()
+                    && let Err(e) = self.session.undo()
+                {
+                    self.error(e);
+                }
+                self.last_run = None;
+                self.clear_preview();
             }
             Key::Escape => self.escape(),
             Key::ArrowRight => self.arrow(Some(Axis::X)),
@@ -1067,6 +1080,9 @@ impl App {
         }
         self.shortcuts(&ctx);
         self.tool_keys(&ctx);
+        for _ in 0..std::mem::take(&mut self.tabs) {
+            self.viewport.cycle();
+        }
         for warning in self.session.take_warnings() {
             self.info(warning);
         }
@@ -1127,6 +1143,28 @@ impl eframe::App for App {
         self.shell(ui, frame.wgpu_render_state());
     }
 
+    /// `Tab` cycles inference candidates while no text field has focus
+    /// (docs/07 §5), so it is taken before egui's focus traversal sees it.
+    fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        if ctx.memory(|m| m.focused().is_some()) {
+            return;
+        }
+        raw_input.events.retain(|e| match e {
+            egui::Event::Key {
+                key: Key::Tab,
+                pressed,
+                modifiers,
+                ..
+            } if modifiers.is_none() => {
+                if *pressed {
+                    self.tabs += 1;
+                }
+                false
+            }
+            _ => true,
+        });
+    }
+
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         eframe::set_value(storage, LAYOUT_KEY, &self.tree);
         eframe::set_value(storage, SETTINGS_KEY, &self.settings);
@@ -1139,6 +1177,7 @@ mod tests {
 
     use glam::DVec3;
     use planyrith_core::ids::EntityId;
+    use planyrith_core::inference::InferenceKind;
 
     use super::*;
 
@@ -1171,6 +1210,8 @@ mod tests {
                 events,
                 ..Default::default()
             };
+            let mut input = input;
+            eframe::App::raw_input_hook(&mut self.app, &self.ctx, &mut input);
             let app = &mut self.app;
             let mut output = self.ctx.run_ui(input, |ui| app.shell(ui, None));
             output.textures_delta.clear();
@@ -1223,6 +1264,236 @@ mod tests {
         fn model_bounds(&self) -> planyrith_core::math::Aabb {
             self.app.session.doc().aabb()
         }
+
+        fn faces(&self) -> usize {
+            self.app.session.doc().model.counts().faces
+        }
+
+        fn triple_click(&mut self, p: DVec3) {
+            let pos = self.screen(p);
+            self.frame(vec![egui::Event::PointerMoved(pos)]);
+            for _ in 0..3 {
+                for pressed in [true, false] {
+                    self.frame(vec![egui::Event::PointerButton {
+                        pos,
+                        button: egui::PointerButton::Primary,
+                        pressed,
+                        modifiers: egui::Modifiers::NONE,
+                    }]);
+                }
+            }
+            self.time += 1.0;
+        }
+
+        /// No error in the status bar.
+        fn ok(&self, step: &str) {
+            assert!(
+                self.app.message.as_ref().is_none_or(|(_, e)| !e),
+                "{step}: {:?}",
+                self.app.message
+            );
+        }
+    }
+
+    #[test]
+    fn tab_cycles_the_inference_candidates_until_the_pointer_moves() {
+        let mut shell = Shell::new();
+        shell
+            .app
+            .session
+            .execute(
+                "rectangle",
+                json!({ "corner_a": [0, 0, 0], "corner_b": [2000, 1500, 0] }),
+            )
+            .unwrap();
+        shell
+            .app
+            .session
+            .execute("camera-standard", json!({ "view": "top", "extents": true }))
+            .unwrap();
+        shell.type_text("l", false);
+        let near_corner = shell.screen(DVec3::new(2000.0, 1500.0, 0.0)) + egui::vec2(-3.0, 2.0);
+        shell.frame(vec![egui::Event::PointerMoved(near_corner)]);
+        let kind = |shell: &Shell| shell.app.viewport.current_inference().map(|i| i.kind);
+        assert_eq!(kind(&shell), Some(InferenceKind::Endpoint));
+        let tab = |pressed| egui::Event::Key {
+            key: Key::Tab,
+            physical_key: None,
+            pressed,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        };
+        shell.frame(vec![tab(true), tab(false)]);
+        shell.frame(Vec::new());
+        let second = kind(&shell);
+        assert!(
+            second.is_some() && second != Some(InferenceKind::Endpoint),
+            "{second:?}"
+        );
+        assert!(
+            shell.ctx.memory(|m| m.focused().is_none()),
+            "Tab did not move the keyboard focus"
+        );
+        shell.frame(vec![egui::Event::PointerMoved(
+            near_corner + egui::vec2(1.5, 0.0),
+        )]);
+        assert_eq!(kind(&shell), Some(InferenceKind::Endpoint));
+    }
+
+    /// docs/qa/model-a-room.md, automated: the same ten steps with synthetic
+    /// mouse and keyboard input (docs/13 0.3 acceptance).
+    #[test]
+    fn qa_model_a_room_in_ten_steps() {
+        let mut shell = Shell::new();
+        shell
+            .app
+            .session
+            .execute(
+                "position-camera",
+                json!({ "eye": [-7000, -9000, 8000], "target": [3500, 2500, 800] }),
+            )
+            .unwrap();
+        shell.frame(Vec::new());
+
+        // 1. Rectangle: the outer outline of the walls, 6400 × 4400.
+        shell.type_text("r", false);
+        shell.click(DVec3::ZERO);
+        shell.hover(DVec3::new(5000.0, 3000.0, 0.0));
+        shell.type_text("6400,4400", true);
+        shell.ok("1");
+        let o = shell.model_bounds().min;
+        let at = |x: f64, y: f64, z: f64| o + DVec3::new(x, y, z);
+        assert_eq!(shell.faces(), 1);
+
+        // 2. Offset the floor 200 inward.
+        shell.type_text("f", false);
+        shell.click(at(3200.0, 2200.0, 0.0));
+        shell.hover(at(3200.0, 1000.0, 0.0));
+        shell.type_text("200", true);
+        shell.ok("2");
+        assert_eq!(shell.faces(), 2, "the ring and the inner floor");
+
+        // 3. Push/Pull the ring up 2700: the walls.
+        shell.type_text("p", false);
+        shell.click(at(3200.0, 100.0, 0.0));
+        shell.hover(at(3200.0, 100.0, 1500.0));
+        shell.type_text("2700", true);
+        shell.ok("3");
+        let b = shell.model_bounds();
+        assert!((b.max.z - o.z - 2700.0).abs() < 1e-6, "{b:?}");
+
+        // 4. Rectangle on the front wall's outer face: the door, 900 × 2100.
+        shell.type_text("r", false);
+        shell.click(at(1200.0, 0.0, 10.0));
+        shell.hover(at(1800.0, 0.0, 1500.0));
+        shell.type_text("900,2100", true);
+        shell.ok("4");
+
+        // 5. Push/Pull the door 200 into the wall: an opening.
+        let faces = shell.faces();
+        shell.type_text("p", false);
+        shell.click(at(1650.0, 0.0, 1000.0));
+        shell.hover(at(1650.0, 150.0, 1000.0));
+        shell.type_text("200", true);
+        shell.ok("5");
+        assert!(shell.faces() > faces, "the opening's jambs");
+
+        // 6.–7. A window on the left wall, 1200 × 1000 at 900, pushed through.
+        shell.type_text("r", false);
+        shell.click(at(0.0, 1600.0, 900.0));
+        shell.hover(at(0.0, 2500.0, 1600.0));
+        shell.type_text("1200,1000", true);
+        shell.ok("6");
+        shell.type_text("p", false);
+        shell.click(at(0.0, 2200.0, 1400.0));
+        shell.hover(at(150.0, 2200.0, 1400.0));
+        shell.type_text("200", true);
+        shell.ok("7");
+
+        // 8.–9. A table block outside the room: 2200 × 800, 720 high.
+        shell.type_text("r", false);
+        shell.click(at(1000.0, -3000.0, 0.0));
+        shell.hover(at(3000.0, -2000.0, 0.0));
+        shell.type_text("2200,800", true);
+        shell.ok("8");
+        let table = shell.model_bounds();
+        shell.type_text("p", false);
+        shell.click(at(2100.0, -2600.0, 0.0));
+        shell.hover(at(2100.0, -2600.0, 400.0));
+        shell.type_text("720", true);
+        shell.ok("9");
+
+        // 10. Select the table (triple-click: connected geometry), Edit ›
+        // Make Group, and Move it into the room by a typed offset.
+        shell.type_text(" ", false);
+        shell.triple_click(at(2100.0, -2600.0, 720.0));
+        shell
+            .app
+            .run("make-group", json!({ "targets": "selection" }));
+        shell.ok("10 group");
+        shell.type_text("m", false);
+        shell.click(at(1000.0, -3000.0, 720.0));
+        shell.hover(at(1500.0, -2000.0, 720.0));
+        shell.type_text("<0,4500,0>", true);
+        shell.ok("10 move");
+
+        // The door and the window are openings: rays through them reach the
+        // inner faces of the opposite walls.
+        let mut through = |from: DVec3, dir: DVec3| {
+            let ray = planyrith_core::math::Ray::new(from, dir);
+            let filter = planyrith_core::spatial::HitFilter {
+                vertices: false,
+                edges: false,
+                ..Default::default()
+            };
+            shell.app.session.ray_cast(&ray, &filter)[0].point
+        };
+        let door = through(at(1650.0, -1000.0, 1000.0), DVec3::Y);
+        assert!(
+            (door.y - o.y - 4200.0).abs() < 1e-6,
+            "through the door: {door}"
+        );
+        // The first corner snapped to the wall's bottom edge: no sill.
+        let sill = through(at(1650.0, -1000.0, 5.0), DVec3::Y);
+        assert!(sill.y > o.y + 1.0, "the door reaches the ground: {sill}");
+        let window = through(at(-1000.0, 2200.0, 1400.0), DVec3::X);
+        assert!(
+            (window.x - o.x - 6200.0).abs() < 1e-6,
+            "through the window: {window}"
+        );
+
+        let doc = shell.app.session.doc();
+        assert_eq!(doc.model.counts().groups, 1);
+        let group = doc
+            .model
+            .iter()
+            .find(|id| matches!(id, EntityId::Group(_)))
+            .unwrap();
+        let path = planyrith_core::document::EntityPath::new(
+            InstancePath::root(),
+            planyrith_core::document::EntityKey::Id(group),
+        );
+        let bounds = doc.occurrence_aabb(&path).unwrap();
+        assert!(
+            bounds.min.y > o.y + 200.0 && bounds.max.y < o.y + 4200.0,
+            "the table stands inside the room: {bounds:?} (outline from {o})"
+        );
+        assert!((bounds.max.z - o.z - 720.0).abs() < 1e-6);
+        assert!(table.min.y < o.y, "it was drawn outside");
+        assert!(
+            planyrith_core::diagnostics::validate(doc).is_clean(),
+            "{:?}",
+            planyrith_core::diagnostics::validate(doc).problems
+        );
+        // `PLANYRITH_QA_OUT=room.plyr` keeps the result (for the expected
+        // screenshot of docs/qa/model-a-room.md).
+        if let Some(path) = std::env::var_os("PLANYRITH_QA_OUT") {
+            shell
+                .app
+                .session
+                .save(Some(std::path::Path::new(&path)))
+                .unwrap();
+        }
     }
 
     #[test]
@@ -1274,13 +1545,18 @@ mod tests {
         assert_eq!(shell.app.session.doc().model.counts().faces, 6);
         let height = shell.model_bounds().max.z;
         assert!(height > 100.0 && (height - 2500.0).abs() > 1.0, "{height}");
-        // ...and a typed value replaces it.
+        // ...and a typed value replaces it, in the same direction (up,
+        // although the ground face's normal points down).
         shell.type_text("2500", true);
         assert_eq!(shell.app.session.doc().model.counts().faces, 6);
-        assert!((shell.model_bounds().max.z.abs() - 2500.0).abs() < 1e-6);
-        // A new value right after replaces the distance (one undo step).
+        let b = shell.model_bounds();
+        assert!(
+            b.min.z.abs() < 1e-6 && (b.max.z - 2500.0).abs() < 1e-6,
+            "{b:?}"
+        );
+        // Again (still one undo step).
         shell.type_text("3000", true);
-        assert!((shell.model_bounds().max.z.abs() - 3000.0).abs() < 1e-6);
+        assert!((shell.model_bounds().max.z - 3000.0).abs() < 1e-6);
         assert_eq!(shell.app.session.doc().model.counts().faces, 6);
         assert_eq!(
             shell.app.session.engine.history().undo_label(),
@@ -1357,6 +1633,21 @@ mod tests {
             Some("Line"),
             "one undo step"
         );
+
+        // Backspace removes the last point of a chain with its segment.
+        type_text(&mut app, "[0,0,0]");
+        type_text(&mut app, "[0,1000,0]");
+        type_text(&mut app, "[0,1000,500]");
+        assert_eq!(segment_lengths(&app), vec![500.0, 1000.0, 2500.0]);
+        app.key(Key::Backspace);
+        assert_eq!(segment_lengths(&app), vec![1000.0, 2500.0]);
+        type_text(&mut app, "[500,1000,0]");
+        assert_eq!(
+            segment_lengths(&app),
+            vec![500.0, 1000.0, 2500.0],
+            "the chain goes on from the point before"
+        );
+        app.key(Key::Escape);
 
         // Letters typed after a number are part of the value (units).
         app.typed("3");

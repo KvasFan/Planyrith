@@ -28,8 +28,9 @@ pub struct Pointer {
     pub modifiers: egui::Modifiers,
     /// The entity a click would select in the edit context (CPU ray cast).
     pub target: Option<EntityPath>,
-    /// The element under the cursor (the full path to it).
-    pub element: Option<EntityPath>,
+    /// The face under the cursor, ignoring nearby edges and vertices (the
+    /// full path to it): what Push/Pull, Offset and Paint act on.
+    pub face: Option<EntityPath>,
     /// The pointer in viewport points.
     pub screen: egui::Pos2,
 }
@@ -198,6 +199,11 @@ pub trait Tool {
     }
     /// Esc: cancel the current step; `false` when nothing was in progress.
     fn escape(&mut self) -> bool;
+    /// Backspace with an empty value field (docs/07 §2): drop the last
+    /// point of a chain; `true` when that point's command should be undone.
+    fn back(&mut self) -> bool {
+        false
+    }
     /// Rubber bands and other hints.
     fn shapes(&self, _out: &mut Vec<Shape>) {}
     /// The command to preview on a copy of the document (docs/07 §3).
