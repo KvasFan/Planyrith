@@ -876,16 +876,31 @@ impl Renderer {
                 &DAffine3::IDENTITY,
                 &camera,
             );
-            let segments = |sign: f32| -> Vec<EdgeInstance> {
-                [[1.0f32, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+            // Segments are cut at the near plane here, in f64: clipping a
+            // segment kilometres long behind the eye in the vertex shader is
+            // not exact enough on every device.
+            let forward = camera.forward();
+            let near = depth.near.max(camera.distance() * 0.01).max(1.0);
+            let perspective = !matches!(camera.projection, Projection::Parallel { .. });
+            let clip_to_view = |a: DVec3, b: DVec3| -> Option<(DVec3, DVec3)> {
+                if !perspective {
+                    return Some((a, b));
+                }
+                let (da, db) = ((a - camera.eye).dot(forward), (b - camera.eye).dot(forward));
+                match (da >= near, db >= near) {
+                    (true, true) => Some((a, b)),
+                    (false, false) => None,
+                    (true, false) => Some((a, a + (b - a) * ((near - da) / (db - da)))),
+                    (false, true) => Some((a + (b - a) * ((near - da) / (db - da)), b)),
+                }
+            };
+            let segments = |sign: f64| -> Vec<EdgeInstance> {
+                [DVec3::X, DVec3::Y, DVec3::Z]
                     .iter()
-                    .map(|d| EdgeInstance {
-                        a: [0.0; 3],
-                        b: [
-                            d[0] * sign * axis_length as f32,
-                            d[1] * sign * axis_length as f32,
-                            d[2] * sign * axis_length as f32,
-                        ],
+                    .filter_map(|d| clip_to_view(DVec3::ZERO, *d * sign * axis_length))
+                    .map(|(a, b)| EdgeInstance {
+                        a: a.as_vec3().to_array(),
+                        b: b.as_vec3().to_array(),
                         n0: [0.0; 3],
                         n1: [0.0; 3],
                         flags: 0,
@@ -903,6 +918,9 @@ impl Renderer {
                 };
                 let slot = push(&mut uniforms, u);
                 let instances = segments(sign);
+                if instances.is_empty() {
+                    continue;
+                }
                 let buffer = self
                     .device
                     .create_buffer_init(&wgpu::util::BufferInitDescriptor {
