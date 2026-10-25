@@ -4,7 +4,7 @@ All notable changes to Planyrith are recorded here. Versions follow
 [Semantic Versioning](https://semver.org/); before 1.0, minor versions are milestones of
 [`docs/13-roadmap.md`](docs/13-roadmap.md).
 
-## Unreleased — 0.3 Interactive modeling with inference
+## 0.3.0 — Interactive modeling with inference (2026-10-25)
 
 - **Inference engine** (`planyrith_core::inference`, docs/03 §7): endpoint, midpoint,
   intersection, center, on-edge, on-face, tangent, perpendicular, parallel, from-point, on-axis

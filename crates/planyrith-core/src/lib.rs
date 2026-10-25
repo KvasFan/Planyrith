@@ -11,10 +11,11 @@
 //!
 //! The module tree follows `docs/01-architecture.md` §2 exactly; every module
 //! starts with a `//!` comment naming the specification section it implements.
-//! The crate implements milestones 0.1 and 0.2 of `docs/13-roadmap.md`: the
+//! The crate implements milestones 0.1–0.3 of `docs/13-roadmap.md`: the
 //! kernel, the document model, the commands with undo/redo, native `.plyr`
-//! read/write, the JSON export, validation/repair, the camera math and the
-//! GPU-agnostic render extraction (`io::render_mesh`). Modules of later
+//! read/write, the JSON export, validation/repair, the camera math, the
+//! GPU-agnostic render extraction (`io::render_mesh`) and the inference
+//! engine (`inference`). Modules of later
 //! milestones keep the signatures of the skeleton contract
 //! (`docs/dev/skeleton-contract.md`) with `todo!("docs/0X §Y")` bodies. The
 //! complete design lives in the repository's `docs/` directory, starting with

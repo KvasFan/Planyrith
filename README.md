@@ -5,11 +5,11 @@ architecture, interiors, landscape, woodworking and product mock-ups. It is writ
 entirely in Rust, runs on Linux, macOS, Windows and in the browser (WebAssembly), and is
 built *CLI-first*: every modeling tool exists as a command before it gets a button.
 
-> **Status: version 0.2.0 — viewport.**
+> **Status: version 0.3.0 — interactive modeling with inference.**
 > The geometry kernel, the document model, the modeling commands, the native file format, the
-> `planyrith` command line (headless rendering, a JSON-RPC server, a shell) and a first GUI
-> (3D viewport, navigation, selection, panels, open/save) work; interactive drawing tools arrive
-> with 0.3. See [`CHANGELOG.md`](CHANGELOG.md) and the milestones in
+> `planyrith` command line (headless rendering, a JSON-RPC server, a shell) and the GUI work:
+> a 3D viewport with drawing and editing tools that snap through the inference engine, a value
+> field for exact input, previews, panels and open/save. The GUI's look is still basic. See [`CHANGELOG.md`](CHANGELOG.md) and the milestones in
 > [`docs/13-roadmap.md`](docs/13-roadmap.md).
 
 ## What Planyrith will be
@@ -58,7 +58,7 @@ built *CLI-first*: every modeling tool exists as a command before it gets a butt
 ```sh
 cargo build --release -p planyrith-cli -p planyrith-gui
 
-planyrith-gui box.plyr                        # the GUI: middle-drag orbits, click selects
+planyrith-gui box.plyr                        # the GUI: L line, R rectangle, P push/pull, type values
 
 planyrith new -f box.plyr
 planyrith -f box.plyr tool rectangle --corner-a 0,0,0 --corner-b 1m,600mm,0
