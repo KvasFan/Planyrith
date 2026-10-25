@@ -496,3 +496,26 @@ within `tolerances.length`.
   their normals weighted by their corner angles at the vertex (`atan2`, deterministic),
   normalized. Faces sharing an edge always agree on orientation (invariant 2), so normals never
   cancel.
+- 2026-10-25 — **Inference engine** (§7, milestone 0.3). Candidates come from one ray cast with the
+  tolerance at the model's far side, each then checked at its own depth: vertices (Endpoint),
+  edges (OnEdge, their Midpoint, the Center of their curve), and the first face hit (OnFace).
+  Vertices and edges behind that face are hidden and give nothing. Edge × edge Intersections are
+  pairs of hit edges that meet in 3D within `length`; within one container edges are already
+  split at crossings (invariant 4), so in practice they come from different containers. With a
+  reference point the engine adds directional lines through it — the three axes, parallel and
+  (horizontally) perpendicular to remembered edges, Tangent continuing a curve edge that ends at
+  the reference — and lines along the axes through remembered points (FromPoint); a line
+  counts when the ray passes within tolerance of it. **Order**: point snaps (Endpoint, Midpoint,
+  Intersection, Center, OnEdge), then directional inferences (Tangent, Perpendicular, Parallel,
+  FromPoint, OnAxis), then OnFace, OnPlane and Free; ties by depth along the ray, then by the
+  order the hits came in. Directional inferences rank above OnFace (refining the §7 list): the
+  cursor is within pixel tolerance of the line, and drawing along an axis over a face must snap
+  to the axis. Remembered references keep their point and, for edges, their world direction (at
+  most three). A **constraint or lock** projects every candidate: onto a plane along its normal,
+  onto a line to its nearest point ("to this point"); surfaces and the free point take the
+  line's point nearest the ray. Locks: an arrow key locks the axis through the reference point;
+  Shift locks the line of a directional or edge inference, the plane of a face, or the
+  direction from the reference to the point; `↓` locks the last remembered edge's direction or
+  its horizontal perpendicular, whichever the current direction is closer to. Free points: the
+  constraint plane, else the ground, else a vertical plane through the last point facing the
+  camera.

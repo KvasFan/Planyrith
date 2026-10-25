@@ -13,6 +13,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
 mod args;
+mod infer;
 mod out;
 #[cfg(feature = "render")]
 mod render;
@@ -171,6 +172,8 @@ enum Verb {
     /// Render images of the document without a window (docs/06 §11).
     #[cfg(feature = "render")]
     Render(render::RenderArgs),
+    /// The inference engine for one ray (docs/03 §7): what a click would snap to.
+    Infer(infer::InferArgs),
     /// Interactive shell: each line is a batch line, run at once (`:help`).
     Repl,
     /// JSON-RPC 2.0 server, one JSON frame per line on standard input/output.

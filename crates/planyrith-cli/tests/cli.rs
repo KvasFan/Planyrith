@@ -951,3 +951,77 @@ select --query face
     );
     assert_eq!(info["output"]["counts"]["model"]["faces"], 1);
 }
+
+/// docs/13 0.3 "inference golden tests": what rays at known places snap to
+/// on the test table, in the order of docs/03 §7.
+#[test]
+fn inference_matches_the_golden_file() {
+    let dir = scratch("infer");
+    let file = build_table(&dir, "table.plyr");
+    let f = file.to_str().unwrap();
+    let queries: [&[&str]; 9] = [
+        // Corner of the top, midpoint of a top edge, on an edge, on the top.
+        &["--from", "1205,805,5000", "--dir", "0,0,-1"],
+        &["--from", "603,4,5000", "--dir", "0,0,-1"],
+        &["--from", "300,5,5000", "--dir", "0,0,-1"],
+        &["--from", "400,400,5000", "--dir", "0,0,-1"],
+        // Free on the ground, and the red axis from a reference point.
+        &["--from", "3000,3000,5000", "--dir", "0,0,-1"],
+        &[
+            "--from",
+            "3000,6,5000",
+            "--dir",
+            "0,0,-1",
+            "--reference",
+            "2000,0,0",
+        ],
+        // A leg's foot seen from the side, behind nothing.
+        &["--from", "45,-5000,2", "--dir", "0,1,0"],
+        // Locked to the blue axis at the reference: the top's height.
+        &[
+            "--from",
+            "1205,805,5000",
+            "--dir",
+            "0,0,-1",
+            "--reference",
+            "2000,0,0",
+            "--lock",
+            "z",
+        ],
+        // Constrained to the plane z = 300 through the reference.
+        &[
+            "--from",
+            "1205,805,5000",
+            "--dir",
+            "0,0,-1",
+            "--reference",
+            "0,0,300",
+            "--plane",
+            "0,0,1",
+        ],
+    ];
+    let mut results = Vec::new();
+    for q in queries {
+        let out = json_of(
+            &planyrith()
+                .args(["infer", "-f", f, "--json"])
+                .args(q)
+                .assert()
+                .success()
+                .get_output()
+                .stdout,
+        );
+        results.push(serde_json::json!({ "query": q.join(" "), "inference": out["output"] }));
+    }
+    let got = serde_json::to_string_pretty(&results).unwrap() + "\n";
+    let golden = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/golden/infer.json");
+    if std::env::var_os("PLANYRITH_UPDATE_GOLDEN").is_some() || !golden.exists() {
+        std::fs::write(&golden, &got).unwrap();
+    }
+    assert_eq!(
+        std::fs::read_to_string(&golden).unwrap(),
+        got,
+        "inference differs from {} (set PLANYRITH_UPDATE_GOLDEN=1 to accept)",
+        golden.display()
+    );
+}

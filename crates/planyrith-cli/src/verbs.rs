@@ -46,6 +46,7 @@ pub fn dispatch(global: Global, verb: Verb) -> Result<(), CliError> {
         #[cfg(feature = "render")]
         Verb::Render(args) => crate::render::render(&global, &args),
         Verb::Repl => crate::repl::repl(&global),
+        Verb::Infer(args) => crate::infer::infer(&global, &args),
         Verb::Serve {
             stdio: _,
             socket,

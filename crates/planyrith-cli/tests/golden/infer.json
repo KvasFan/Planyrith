@@ -1,0 +1,154 @@
+[
+  {
+    "inference": {
+      "axis": null,
+      "from": null,
+      "kind": "endpoint",
+      "label": "Endpoint",
+      "locked": false,
+      "on": "#Model/@8",
+      "point": [
+        1200.0,
+        800.0,
+        720.0
+      ]
+    },
+    "query": "--from 1205,805,5000 --dir 0,0,-1"
+  },
+  {
+    "inference": {
+      "axis": null,
+      "from": null,
+      "kind": "midpoint",
+      "label": "Midpoint",
+      "locked": false,
+      "on": "#Model/@10",
+      "point": [
+        600.0,
+        0.0,
+        720.0
+      ]
+    },
+    "query": "--from 603,4,5000 --dir 0,0,-1"
+  },
+  {
+    "inference": {
+      "axis": null,
+      "from": null,
+      "kind": "on-edge",
+      "label": "On Edge",
+      "locked": false,
+      "on": "#Model/@10",
+      "point": [
+        300.0,
+        0.0,
+        720.0
+      ]
+    },
+    "query": "--from 300,5,5000 --dir 0,0,-1"
+  },
+  {
+    "inference": {
+      "axis": null,
+      "from": null,
+      "kind": "on-face",
+      "label": "On Face",
+      "locked": false,
+      "on": "#Model/@18",
+      "point": [
+        400.0,
+        400.0,
+        720.0
+      ]
+    },
+    "query": "--from 400,400,5000 --dir 0,0,-1"
+  },
+  {
+    "inference": {
+      "axis": null,
+      "from": null,
+      "kind": "free",
+      "label": "",
+      "locked": false,
+      "on": null,
+      "point": [
+        3000.0,
+        3000.0,
+        0.0
+      ]
+    },
+    "query": "--from 3000,3000,5000 --dir 0,0,-1"
+  },
+  {
+    "inference": {
+      "axis": "x",
+      "from": [
+        2000.0,
+        0.0,
+        0.0
+      ],
+      "kind": "on-axis",
+      "label": "On Red Axis",
+      "locked": false,
+      "on": null,
+      "point": [
+        3000.0,
+        0.0,
+        0.0
+      ]
+    },
+    "query": "--from 3000,6,5000 --dir 0,0,-1 --reference 2000,0,0"
+  },
+  {
+    "inference": {
+      "axis": null,
+      "from": null,
+      "kind": "midpoint",
+      "label": "Midpoint",
+      "locked": false,
+      "on": "#Model/@31",
+      "point": [
+        45.0,
+        20.0,
+        0.0
+      ]
+    },
+    "query": "--from 45,-5000,2 --dir 0,1,0"
+  },
+  {
+    "inference": {
+      "axis": null,
+      "from": [
+        2000.0,
+        0.0,
+        0.0
+      ],
+      "kind": "endpoint",
+      "label": "Endpoint",
+      "locked": true,
+      "on": "#Model/@8",
+      "point": [
+        2000.0,
+        0.0,
+        720.0
+      ]
+    },
+    "query": "--from 1205,805,5000 --dir 0,0,-1 --reference 2000,0,0 --lock z"
+  },
+  {
+    "inference": {
+      "axis": null,
+      "from": null,
+      "kind": "endpoint",
+      "label": "Endpoint",
+      "locked": false,
+      "on": "#Model/@8",
+      "point": [
+        1200.0,
+        800.0,
+        300.0
+      ]
+    },
+    "query": "--from 1205,805,5000 --dir 0,0,-1 --reference 0,0,300 --plane 0,0,1"
+  }
+]

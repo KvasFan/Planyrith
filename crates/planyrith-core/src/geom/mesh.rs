@@ -222,6 +222,16 @@ pub enum CurveDescriptor {
 }
 
 impl CurveDescriptor {
+    /// The center of a circle, arc or polygon.
+    pub fn center(&self) -> Option<DVec3> {
+        match self {
+            CurveDescriptor::Arc { center, .. }
+            | CurveDescriptor::Circle { center, .. }
+            | CurveDescriptor::Polygon { center, .. } => Some(*center),
+            CurveDescriptor::Freehand { .. } => None,
+        }
+    }
+
     /// This curve after `t`, or `None` when `t` does not keep it circular
     /// (non-uniform scaling or shear; docs/03 §3.3: the edges become plain).
     /// Under a mirroring transform an arc's normal is flipped so that its

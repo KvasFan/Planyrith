@@ -404,3 +404,10 @@ On failure: `{"ok": false, "error": {"code": "E1002", "message": "...", "param":
   `:json on|off`, `:help`, `:q` (save and quit) and `:q!` (quit without saving); the end of input
   saves like `:q`, unless `--no-save`. A prompt is shown only on a terminal. Completion and line
   editing need a line-editor dependency and are deferred (docs/02 policy).
+- 2026-10-25 — **`infer`** (§12): `--from` and `--dir` give the ray; `--ref <path>` (repeatable)
+  remembers an entity (an edge with its direction and midpoint, a face with its center);
+  `--reference` sets the reference point, `--last` the last placed point, `--plane <normal>` a
+  constraint plane through the reference point (or the origin), `--lock x|y|z` an axis lock
+  through the reference point; `--tolerance` is the snapping distance at the cursor (10 mm by
+  default, standing for the 8-pixel tolerance of the GUI); `--all` lists every candidate, best
+  first. JSON output: `{kind, label, point, on, axis, from, locked}`.
