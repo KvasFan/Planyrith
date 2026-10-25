@@ -600,3 +600,99 @@ fn serve_answers_json_rpc_over_stdio() {
     let frame: Value = serde_json::from_slice(&out).unwrap();
     assert_eq!(frame["error"]["code"], -32700);
 }
+
+/// docs/06 §11: `render` writes images of one view or of every scene.
+#[cfg(feature = "render")]
+#[test]
+fn render_writes_images() {
+    let dir = scratch("render");
+    let file = build_table(&dir, "table.plyr");
+    let f = file.to_str().unwrap();
+    planyrith()
+        .args([
+            "tool",
+            "camera-standard",
+            "-f",
+            f,
+            "--view",
+            "iso",
+            "--extents",
+        ])
+        .assert()
+        .success();
+    planyrith()
+        .args(["tool", "scene-add", "-f", f, "--name", "Iso"])
+        .assert()
+        .success();
+    planyrith()
+        .args([
+            "tool",
+            "camera-standard",
+            "-f",
+            f,
+            "--view",
+            "top",
+            "--extents",
+        ])
+        .assert()
+        .success();
+    planyrith()
+        .args(["tool", "scene-add", "-f", f, "--name", "Plan/Top"])
+        .assert()
+        .success();
+    let png = dir.join("view.png");
+    let result = planyrith()
+        .args([
+            "render",
+            "-f",
+            f,
+            png.to_str().unwrap(),
+            "--width",
+            "160",
+            "--height",
+            "100",
+        ])
+        .args([
+            "--camera",
+            "eye=3m,-2m,2m;target=600,400,400;fov=40",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    if !result.status.success() && std::env::var_os("PLANYRITH_REQUIRE_GPU").is_none() {
+        eprintln!(
+            "skipping: no graphics adapter ({})",
+            String::from_utf8_lossy(&result.stdout)
+        );
+        return;
+    }
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let report = json_of(&result.stdout);
+    assert_eq!(report["output"]["width"], 160);
+    let image = image::open(&png).unwrap();
+    assert_eq!((image.width(), image.height()), (160, 100));
+
+    let scenes = dir.join("scenes");
+    planyrith()
+        .args(["render", "-f", f, "--all-scenes", scenes.to_str().unwrap()])
+        .args(["--width", "80", "--height", "60", "--msaa", "1"])
+        .assert()
+        .success();
+    assert!(scenes.join("Iso.png").exists());
+    assert!(scenes.join("Plan_Top.png").exists());
+    planyrith()
+        .args([
+            "render",
+            "-f",
+            f,
+            png.to_str().unwrap(),
+            "--camera",
+            "eye=1,1,1;target=1,1,1",
+        ])
+        .assert()
+        .code(2);
+}

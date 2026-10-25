@@ -43,6 +43,8 @@ pub fn dispatch(global: Global, verb: Verb) -> Result<(), CliError> {
         Verb::Validate => validate_verb(&global),
         Verb::Repair { fix } => repair_verb(&global, &fix),
         Verb::Batch { script } => batch(&global, script.as_deref()),
+        #[cfg(feature = "render")]
+        Verb::Render(args) => crate::render::render(&global, &args),
         Verb::Serve {
             stdio: _,
             socket,

@@ -2,10 +2,11 @@
 //!
 //! Session verbs open (or create) a `.plyr` document, run commands through the
 //! core `Engine` and save. `tool` options are generated from each command's
-//! `Params` JSON schema at run time ([`args`]). Milestone 0.1 provides `new`,
-//! `info`, `query`, `tool`, `export` (JSON), `validate`, `repair`, `batch` and
-//! `serve` (JSON-RPC over stdio); `import`, `render`, `script`, `repl` and the
-//! socket transport follow their milestones (docs/13).
+//! `Params` JSON schema at run time ([`args`]). The verbs are `new`, `info`,
+//! `query`, `tool`, `export` (JSON), `validate`, `repair`, `batch`, `render`
+//! (headless images, feature `render`, on by default) and `serve` (JSON-RPC
+//! over stdio); `import`, `script`, `repl` and the socket transport follow
+//! their milestones (docs/13).
 
 #![forbid(unsafe_code)]
 // Tests may unwrap (AGENTS.md §3); the binary does not.
@@ -13,6 +14,8 @@
 
 mod args;
 mod out;
+#[cfg(feature = "render")]
+mod render;
 mod serve;
 mod session;
 mod shell;
@@ -164,6 +167,9 @@ enum Verb {
         /// Batch file (`-` or absent = standard input).
         script: Option<PathBuf>,
     },
+    /// Render images of the document without a window (docs/06 §11).
+    #[cfg(feature = "render")]
+    Render(render::RenderArgs),
     /// JSON-RPC 2.0 server, one JSON frame per line on standard input/output.
     Serve {
         /// Serve standard input and output (the default; the only transport in 0.1).

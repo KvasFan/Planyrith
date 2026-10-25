@@ -88,3 +88,9 @@ humans or GUI automation before releases, with expected screenshots.
   gives the same bytes; saving and reopening after every command gives the same document up to
   reserved keys; undoing everything gives the empty document and redoing everything the final
   one. `PLANYRITH_FUZZ_CASES` sets the number of sequences (24 by default).
+- 2026-10-25 — **Render snapshots** (`planyrith-render/tests/snapshots.rs`): a small furnished room
+  in every face style, two projections and a selection with an edit context, 320×200 with 4×
+  MSAA, compared with golden PNGs at 2/255 per channel and ≤ 0.1 % differing pixels
+  (`PLANYRITH_UPDATE_GOLDEN=1` rewrites them), plus id-buffer picking. The tests skip without a
+  graphics adapter unless `PLANYRITH_REQUIRE_GPU=1`, which CI sets on all three OSes (lavapipe
+  is installed on Linux; Windows uses WARP, macOS Metal); failing runs upload the actual images.

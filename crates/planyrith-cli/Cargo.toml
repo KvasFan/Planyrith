@@ -17,10 +17,12 @@ path = "src/main.rs"
 # planyrith-render).
 [dependencies]
 planyrith-core = { workspace = true }
-# The headless `render` verb arrives with milestone 0.2 (docs/13); until then
-# the renderer (and its GPU stack) is optional so CLI builds stay light.
+# The headless `render` verb (docs/06 §11). Default since 0.2; build with
+# `--no-default-features` for a CLI without the GPU stack.
 planyrith-render = { workspace = true, optional = true }
+image = { workspace = true, optional = true }
 clap = { workspace = true }
+glam = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
@@ -28,11 +30,12 @@ tracing-subscriber = { workspace = true }
 anyhow = { workspace = true }
 
 [features]
-default = []
-render = ["dep:planyrith-render"]
+default = ["render"]
+render = ["dep:planyrith-render", "dep:image"]
 
 [dev-dependencies]
 assert_cmd = { workspace = true }
+image = { workspace = true }
 predicates = { workspace = true }
 
 [lints]

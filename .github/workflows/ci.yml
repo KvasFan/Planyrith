@@ -67,8 +67,22 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      # Headless rendering needs an adapter (docs/06 §11): lavapipe on Linux;
+      # Windows has WARP and macOS Metal.
+      - name: software Vulkan (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers
       - name: cargo test
         run: cargo test --workspace
+        env:
+          PLANYRITH_REQUIRE_GPU: "1"
+      - name: snapshot images on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: snapshots-${{ matrix.os }}
+          path: target/tmp/*.actual.png
+          if-no-files-found: ignore
 
   wasm:
     name: wasm (planyrith-core)

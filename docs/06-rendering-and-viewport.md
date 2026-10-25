@@ -230,3 +230,33 @@ exposes a frame-time overlay (`F11` panel).
 - 2026-10-25 — **What a click selects** (§8, docs/07 §10): `EntityPath::selectable_in(doc,
   context)` — the element itself when it lies in the context's container, else the outermost
   group or instance below the context that holds it; nothing outside the context.
+- 2026-10-25 — **One render path** (0.2). The renderer always draws into its own offscreen targets
+  (4× MSAA color resolved to `Rgba8UnormSrgb`, `Depth32Float` reversed Z); headless rendering
+  reads the resolved color back, the GUI shows it as a texture in the viewport, so both draw the
+  same pixels. Pass order: opaque faces (depth only in Wireframe), visible edges, dashed back
+  edges (style `back_edges`, Wireframe, X-ray; depth test inverted), transparent faces (per draw
+  item, back to front by the distance of its bounds' center), then the selection overlay.
+- 2026-10-25 — **Lighting** (§4): Lambert from a headlight offset above and to the left of the eye
+  (`−0.8·forward + 0.45·up − 0.4·right`, normalized) plus 35 % ambient, so the faces of a box
+  seen corner-on still differ; no specular. HiddenLine draws faces unlit in the background color.
+- 2026-10-25 — **Edges** (§5). Instanced screen-space quads, 1 px (× pixels per point) and the
+  style's profile width; each end extends half a pixel so joints close; edges are pulled toward
+  the eye by scaling clip z by 1.0004 instead of offsetting the faces. **Profiles are computed on
+  the GPU** in the edge vertex shader from the two face normals and the eye in local coordinates
+  (the sign of n·v is the same in local and world space for any affine transform), not on the
+  CPU per item: no per-frame CPU work. Soft and smooth edges are drawn only as profiles unless
+  hidden geometry is shown. Color modes: All = black; ByMaterial = the front material of the
+  first adjacent face (instance overrides are not considered); ByAxis = red/green/blue for edges
+  parallel to X/Y/Z, computed in the shader.
+- 2026-10-25 — **Selection rendering** (§9): selected faces are drawn again from a per-frame index
+  buffer with the selection color at 35 % (depth test ≥, no depth write) and their boundary edges
+  3 px; selected edges 3 px; whole selected occurrences (and everything inside them) draw their
+  edges in the selection color at 2 px. Occurrences outside the edit context are mixed toward the
+  background by `inactive_fade`.
+- 2026-10-25 — **Id buffer** (§8): a separate single-sample `Rg32Uint` pass writes (draw item + 1,
+  face + 1) or (draw item + 1, edge + 1 with the top bit set) when a frame asks for ids; `pick(x, y,
+  radius)` reads a window back synchronously and prefers edges, then the nearest pixel. The GUI
+  confirms with the CPU ray cast for clicks (§8 "authoritative").
+- 2026-10-25 — **Textures** (§2, §13): decoded to RGBA8 sRGB, downscaled to the device limit,
+  no mipmaps yet; sampled with repeat. Not rendered yet in 0.2: shadows, section caps, fog, sky
+  and ground, watermarks, depth cue, jitter, extensions and endpoints (later milestones).

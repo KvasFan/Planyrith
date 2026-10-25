@@ -95,7 +95,7 @@ Exports 3D formats (`obj`, `stl`, `gltf`, `glb`, `dxf`, `step`, `plyr`, `json`),
 (`svg`, `pdf`, `dxf` with `--2d --scene <name> --scale 1:50`) and data (`csv` component counts,
 `json` document dump). `--format json --pretty` is the debugging dump.
 
-### `planyrith render -f model.plyr <out.png> [--width 1920 --height 1080] [--scene <name> | --camera 'eye=…;target=…;fov=35'] [--style <name>] [--shadows] [--transparent] [--msaa 4] [--deterministic]`
+### `planyrith render -f model.plyr <out.png> [--width 1920 --height 1080] [--scene <name> | --camera 'eye=…;target=…;fov=35'] [--style <name>] [--shadows] [--transparent] [--msaa 4] [--show-hidden] [--deterministic]`
 Headless rendering (`docs/06 §11`). `--format png|jpg|webp` from extension. `--all-scenes
 <dir>` renders every scene; `--animation <dir> --fps 30` renders scene transitions as frames.
 
@@ -372,3 +372,12 @@ On failure: `{"ok": false, "error": {"code": "E1002", "message": "...", "param":
   (`{doc_id, kind, data}`) are written before the reply of the request that caused them;
   `--readonly` refuses commands that change the document, undo/redo and saving (`E1501`).
   `repl` follows with the interactive tools.
+- 2026-10-25 — **`render` (0.2).** The `render` feature is on by default (`--no-default-features`
+  builds a CLI without the GPU stack). `--camera` takes `;`-separated `key=value` pairs: `eye`,
+  `target`, `up` (points with units), `fov` (angle), `height` (length, parallel views) and
+  `projection` (`perspective`, `parallel`, `two-point`); unspecified keys keep the document
+  camera's values. `--all-scenes <dir>` writes `<scene name>.png` per scene (path separators and
+  reserved characters become `_`), from the scene's camera or the document's. `--shadows` is
+  accepted and prints a warning until shadows are rendered. A machine without any graphics
+  adapter, hardware or software, fails with an I/O-class error (`E1403`, exit 4). JSON output:
+  `{images, width, height, adapter}`. `--animation` follows with scene transitions.
