@@ -4,7 +4,7 @@ All notable changes to Planyrith are recorded here. Versions follow
 [Semantic Versioning](https://semver.org/); before 1.0, minor versions are milestones of
 [`docs/13-roadmap.md`](docs/13-roadmap.md).
 
-## Unreleased — 0.2 Viewport
+## 0.2.0 — Viewport (2026-10-25)
 
 - **Renderer** (`planyrith-render`): offscreen wgpu rendering of the draw list with 4× MSAA and
   reversed-Z depth; face styles (shaded, textured, monochrome, hidden-line, X-ray, wireframe);

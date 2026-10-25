@@ -5,7 +5,7 @@ implementation stands, what is done, what remains, and how to resume. Update it 
 every working session. Ground truth for *what to build* stays in `docs/00`–`docs/15`; this file
 is only *progress state*.
 
-_Last updated: 2026-10-25 (0.2 in progress: renderer, `render`, GUI shell)._
+_Last updated: 2026-10-25 (release 0.2.0: renderer, `render`, GUI shell, server sockets)._
 
 ## 1. Where we are
 
@@ -58,14 +58,14 @@ Frontends:
 | Crate | Status |
 |---|---|
 | `planyrith-cli` | **0.1.0** — `new`, `info`, `query`, `tool`, `export` (json), `validate`, `repair`, `batch`, `serve` (stdio); schema-driven tool options; JSON envelopes; exit codes. Later: `render` and the socket transport/`repl` (0.2), `import` (0.5), `script` (0.6). |
-| `planyrith-render` | **0.2 draft** — offscreen renderer (styles, edges with GPU profiles, transparency, selection, id buffer), headless `render_image`; snapshot tests on three OSes. Not yet: shadows, section caps, fog, sky, watermarks. |
-| `planyrith-gui` | **0.2 draft** — eframe shell, `egui_tiles` docks, viewport (navigation, selection, double-click to open), Entity Info, Tags, Scenes, Outliner, undo/redo, open/save; tested with synthetic egui input. Interactive modeling tools are 0.3. |
+| `planyrith-render` | **0.2.0** — offscreen renderer (styles, edges with GPU profiles, transparency, selection, id buffer), headless `render_image`; snapshot tests on three OSes. Not yet: shadows, section caps, fog, sky, watermarks. |
+| `planyrith-gui` | **0.2.0** — eframe shell, `egui_tiles` docks, viewport (navigation, selection, double-click to open), Entity Info, Tags, Scenes, Outliner, undo/redo, open/save; tested with synthetic egui input. Interactive modeling tools are 0.3. |
 
 ## 3. What next
 
-1. **Release 0.2.0** (docs/13) after manual QA of the acceptance: open the 0.1 room in
-   `planyrith-gui`, navigate, select and delete entities, save. Everything else of 0.2 is in
-   place (renderer, `render`, GUI shell, `serve` sockets, `render_mesh`/`preview`, `repl`).
+1. **Milestone 0.3** (docs/13): the inference engine (`inference/mod.rs`), the value field, an
+   interactive tool for every 0.1 command with previews, modifiers and shortcuts, the Tool Help
+   panel. 0.2.0 is released (tag `v0.2.0`).
 2. **Keep the fuzzers running** after kernel changes (both commands above). Work order in the
    kernel must stay geometric (docs/03 Decisions, slot order): the engine fuzz's save/reopen
    check catches any new dependence on slot layout.
@@ -105,7 +105,7 @@ Frontends:
 
 ## 4. Repository state
 
-- Branch `main`, release `v0.1.0` tagged and pushed (2026-10-25). The user wants finished work
+- Branch `main`; releases `v0.1.0` and `v0.2.0` tagged and pushed (2026-10-25). The user wants finished work
   pushed, in batches: run the full local check once per batch, then push once (each push to
   `main` runs the CI matrix; tags do not).
 - The 0.1 review fixes were made on a temporary branch and worktree, fast-forwarded into `main`

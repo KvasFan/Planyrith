@@ -5,10 +5,11 @@ architecture, interiors, landscape, woodworking and product mock-ups. It is writ
 entirely in Rust, runs on Linux, macOS, Windows and in the browser (WebAssembly), and is
 built *CLI-first*: every modeling tool exists as a command before it gets a button.
 
-> **Status: version 0.1.0 — headless core and command line.**
-> The geometry kernel, the document model, the 0.1 modeling commands, the native file format
-> and the `planyrith` command line (with a JSON-RPC server) work; there is no viewport or GUI
-> yet. See [`CHANGELOG.md`](CHANGELOG.md) and the milestones in
+> **Status: version 0.2.0 — viewport.**
+> The geometry kernel, the document model, the modeling commands, the native file format, the
+> `planyrith` command line (headless rendering, a JSON-RPC server, a shell) and a first GUI
+> (3D viewport, navigation, selection, panels, open/save) work; interactive drawing tools arrive
+> with 0.3. See [`CHANGELOG.md`](CHANGELOG.md) and the milestones in
 > [`docs/13-roadmap.md`](docs/13-roadmap.md).
 
 ## What Planyrith will be
@@ -55,13 +56,16 @@ built *CLI-first*: every modeling tool exists as a command before it gets a butt
 ## Building and trying it
 
 ```sh
-cargo build --release -p planyrith-cli        # the `planyrith` binary
+cargo build --release -p planyrith-cli -p planyrith-gui
+
+planyrith-gui box.plyr                        # the GUI: middle-drag orbits, click selects
 
 planyrith new -f box.plyr
 planyrith -f box.plyr tool rectangle --corner-a 0,0,0 --corner-b 1m,600mm,0
 planyrith -f box.plyr tool push-pull --face '{face & last}' --distance 450mm
 planyrith -f box.plyr query 'face' --fields pid,area
 planyrith -f box.plyr validate
+planyrith -f box.plyr render box.png           # a headless image
 planyrith tool                                # every command; `planyrith tool <name> --help`
 ```
 
