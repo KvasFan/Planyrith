@@ -122,20 +122,6 @@ impl Command for ImageInsert {
     ) -> Result<ImageInsertOutput, CommandError> {
         let target = target_container(tx, &p.common)?;
         let bytes = storage(tx, &p.path)?.read(&StorageKey::new(&p.path))?;
-        let image = tx.insert_image(bytes)?;
-        let (px_w, px_h) = tx
-            .document()
-            .images
-            .get(image)
-            .map(|d| (f64::from(d.width), f64::from(d.height)))
-            .ok_or_else(|| CommandError::Internal("lost image".into()))?;
-        let aspect = px_h / px_w.max(1.0);
-        let (w, h) = match (p.width, p.height) {
-            (Some(w), Some(h)) => (w.as_mm(), h.as_mm()),
-            (Some(w), None) => (w.as_mm(), w.as_mm() * aspect),
-            (None, Some(h)) => (h.as_mm() / aspect, h.as_mm()),
-            (None, None) => (1000.0, 1000.0 * aspect),
-        };
         let stem = p
             .path
             .rsplit(['/', '\\'])
@@ -143,32 +129,16 @@ impl Command for ImageInsert {
             .and_then(|f| f.split('.').next())
             .filter(|s| !s.is_empty())
             .unwrap_or("Image");
-        let name = unique_material_name(tx.document(), stem);
-        let material = tx.insert_material(Material {
-            texture: Some(Texture {
-                image,
-                size_mm: DVec2::new(w, h),
-                colorize: None,
-            }),
-            ..Material::solid(name.clone(), Rgba8::WHITE)
-        })?;
-        let world = DAffine3::from_mat3_translation(
-            image_frame(p.normal),
+        let (image, material) = place_image(
+            tx,
+            &target,
+            bytes,
+            stem,
             p.position.unwrap_or(DVec3::ZERO),
-        );
-        let (_, pid) = tx.insert_entity(
-            target.container,
-            EntityRecord::Image(ImageEntity {
-                width: Length::mm(w),
-                height: Length::mm(h),
-                transform: target.local * world,
-                material,
-            }),
+            (p.width.map(Length::as_mm), p.height.map(Length::as_mm)),
+            p.normal,
         )?;
-        Ok(ImageInsertOutput {
-            image: pid,
-            material: name,
-        })
+        Ok(ImageInsertOutput { image, material })
     }
 
     fn meta(&self) -> CommandMeta {
@@ -180,6 +150,66 @@ impl Command for ImageInsert {
             steps: Vec::new(),
         }
     }
+}
+
+/// A material named after `stem` carrying `bytes` as its texture at
+/// `width`×`height` mm (from the image's proportions when one is missing;
+/// 1 m wide when both are).
+pub(crate) fn texture_material(
+    tx: &mut Transaction<'_>,
+    bytes: Vec<u8>,
+    stem: &str,
+    (width, height): (Option<f64>, Option<f64>),
+) -> Result<(crate::ids::MaterialId, String, f64, f64), CommandError> {
+    let image = tx.insert_image(bytes)?;
+    let (px_w, px_h) = tx
+        .document()
+        .images
+        .get(image)
+        .map(|d| (f64::from(d.width), f64::from(d.height)))
+        .ok_or_else(|| CommandError::Internal("lost image".into()))?;
+    let aspect = px_h / px_w.max(1.0);
+    let (w, h) = match (width, height) {
+        (Some(w), Some(h)) => (w, h),
+        (Some(w), None) => (w, w * aspect),
+        (None, Some(h)) => (h / aspect, h),
+        (None, None) => (1000.0, 1000.0 * aspect),
+    };
+    let name = unique_material_name(tx.document(), stem);
+    let material = tx.insert_material(Material {
+        texture: Some(Texture {
+            image,
+            size_mm: DVec2::new(w, h),
+            colorize: None,
+        }),
+        ..Material::solid(name.clone(), Rgba8::WHITE)
+    })?;
+    Ok((material, name, w, h))
+}
+
+/// Places `bytes` as an image entity (docs/04 §3.7) with its lower left
+/// corner at `position` (world) in the plane of `normal`.
+pub(crate) fn place_image(
+    tx: &mut Transaction<'_>,
+    target: &Target,
+    bytes: Vec<u8>,
+    stem: &str,
+    position: DVec3,
+    size: (Option<f64>, Option<f64>),
+    normal: DVec3,
+) -> Result<(Pid, String), CommandError> {
+    let (material, name, w, h) = texture_material(tx, bytes, stem, size)?;
+    let world = DAffine3::from_mat3_translation(image_frame(normal), position);
+    let (_, pid) = tx.insert_entity(
+        target.container,
+        EntityRecord::Image(ImageEntity {
+            width: Length::mm(w),
+            height: Length::mm(h),
+            transform: target.local * world,
+            material,
+        }),
+    )?;
+    Ok((pid, name))
 }
 
 /// Explodes an image entity into a face painted with its material, the

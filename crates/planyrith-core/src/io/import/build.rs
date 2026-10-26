@@ -86,7 +86,7 @@ pub struct ImportedScene {
 /// coordinates tile every meter.
 const IMPORT_TILE_MM: f64 = 1000.0;
 
-fn io(e: CommandError) -> IoError {
+pub(crate) fn io(e: CommandError) -> IoError {
     match e {
         CommandError::Io(io) => io,
         other => IoError::Corrupt {
@@ -343,13 +343,7 @@ pub fn build_scene(
     }
     // The top-level group or component; one mesh placed as is becomes it.
     let as_component = matches!(opts.import_as, ImportAs::Component(_));
-    let top_name = match &opts.import_as {
-        ImportAs::Component(name) => unique_component_name(tx.document(), name),
-        _ => format!(
-            "Group {}",
-            crate::commands::common::group_number(tx.document())
-        ),
-    };
+    let top_name = top_name(tx.document(), opts);
     let single = nodes.len() == 1
         && nodes[0].transform == DAffine3::IDENTITY
         && uses.get(&nodes[0].mesh) == Some(&1);
@@ -553,8 +547,31 @@ pub fn build_scene(
         }
         top
     };
+    let pid = place(tx, target, top, opts, &scene.name)?;
+    report.created.push(pid);
+    Ok(report)
+}
+
+/// The name of a new top-level definition: the component's (unique) name,
+/// or `Group N`.
+pub(crate) fn top_name(doc: &Document, opts: &ImportOptions) -> String {
+    match &opts.import_as {
+        ImportAs::Component(name) => unique_component_name(doc, name),
+        _ => format!("Group {}", crate::commands::common::group_number(doc)),
+    }
+}
+
+/// Places definition `top` in the target at `opts.at`: an instance when
+/// importing as a component, else a group named `name`.
+pub(crate) fn place(
+    tx: &mut Transaction<'_>,
+    target: &Target,
+    top: DefinitionId,
+    opts: &ImportOptions,
+    name: &str,
+) -> Result<Pid, IoError> {
     let placement = target.local * DAffine3::from_translation(opts.at);
-    let record = if as_component {
+    let record = if matches!(opts.import_as, ImportAs::Component(_)) {
         EntityRecord::Instance(ComponentInstance {
             definition: top,
             transform: placement,
@@ -567,10 +584,9 @@ pub fn build_scene(
         EntityRecord::Group(Group {
             definition: top,
             transform: placement,
-            name: scene.name.clone(),
+            name: name.to_string(),
         })
     };
     let (_, pid): (_, Pid) = tx.insert_entity(target.container, record).map_err(io)?;
-    report.created.push(pid);
-    Ok(report)
+    Ok(pid)
 }

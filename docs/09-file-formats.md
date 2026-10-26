@@ -241,3 +241,15 @@ save unless `--no-thumbnail`. `manifest.json` carries `title`, `author`, `descri
   (ignored by default): about 11 s in a release build on the development machine while it was
   under heavy unrelated load, under the 20 s target. Saving such a document afterwards is not
   part of the measurement.
+- 2026-10-26 — **Images, CSV, native merge.** An image imports as an image entity lying on the
+  ground at `at`, 1 m wide times `scale` (as `image-insert`), or with `as: texture` as a material
+  named after the file with the image as its texture; it cannot import as a component. CSV rows
+  `x,y,z[,name]` (`,`, `;` or tab; `z` optional; names ignored) become guide points in a new group
+  or component; rows that do not start with numbers are skipped and counted. A `.plyr` or
+  `.plyrc` merges as a group (or component) holding the other document's model, with the
+  definitions, materials, images and tags it uses copied as `component-insert` copies them
+  (definitions with a known UUID reused, materials and tags matched by name); its scenes, styles
+  and camera are not merged. Export: `.plyr` writes a copy of the whole document without journal
+  and with fixed timestamps; `.csv` writes the component report — one row per component shown,
+  in definition order: name, occurrences, width/depth/height of its bounding box in its own axes
+  and its volume when solid (in `file_units`), description.

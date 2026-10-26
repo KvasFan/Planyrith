@@ -9,9 +9,9 @@
 
 #![warn(unused_variables, dead_code)]
 
-mod components;
+pub(crate) mod components;
 mod groups;
-mod images;
+pub(crate) mod images;
 pub(crate) mod libraries;
 mod materials;
 mod scenes;

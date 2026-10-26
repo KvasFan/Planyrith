@@ -13,7 +13,10 @@ All notable changes to Planyrith are recorded here. Versions follow
   it). glTF/GLB import (scenes, shared meshes as components, materials, textures, texture
   transforms) and export (shared meshes, embedded textures). Overlapping parts of one mesh import
   as separate groups; equal materials are reused. A 100 MB glTF imports in about 11 s.
-  `validate` is much faster on large meshes. The server's capabilities list
+  `validate` is much faster on large meshes. Images import as image entities or textures, CSV
+  points as guide points, `.plyr`/`.plyrc` documents merge as groups or components; `.plyr`
+  copies and a CSV component report export. File › Import… and File › Export ► in the GUI.
+  The server's capabilities list
   the formats this build reads and writes.
 
 ## 0.4.0 — Organization and materials (2026-10-26)

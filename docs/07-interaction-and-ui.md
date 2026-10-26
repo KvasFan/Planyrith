@@ -324,3 +324,8 @@ collected by clicks: e.g. segments for Circle, array count, copy toggle).
   `material-create` like any file; clicking one creates it if needed and paints with it.
   Textured materials show their texture as the swatch. Paint paints (and Alt samples) the side
   of the face that faces the eye, not always the front.
+- 2026-10-26 — File › Import… opens every importable file (glTF/GLB, OBJ, STL, `.plyr`/`.plyrc`,
+  images, CSV) and runs `import` in the active context; File › Export ► 3D Model… runs `export`
+  with the format from the chosen extension (GLB when none), and Export ► Component Report…
+  writes the CSV report (not in the §7 list, which predates the report: it belongs with the other
+  exports). Further Export entries arrive with their exporters.

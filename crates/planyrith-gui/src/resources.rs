@@ -32,6 +32,12 @@ pub enum FileRequest {
     StyleLibrarySave,
     /// An image to insert as an image entity.
     Image,
+    /// A file to import (docs/09 §5).
+    Import,
+    /// A 3D model file to export the model to.
+    Export,
+    /// A CSV file for the component report.
+    Report,
 }
 
 impl FileRequest {
@@ -55,6 +61,22 @@ impl FileRequest {
             FileRequest::StyleLibraryLoad => ("Load styles", "Style libraries", &["plyrs"], false),
             FileRequest::StyleLibrarySave => ("Save styles", "Style libraries", &["plyrs"], true),
             FileRequest::Image => ("Insert image", "Images", IMAGES, false),
+            FileRequest::Import => (
+                "Import",
+                "Importable files",
+                &[
+                    "glb", "gltf", "obj", "stl", "plyr", "plyrc", "png", "jpg", "jpeg", "webp",
+                    "csv",
+                ],
+                false,
+            ),
+            FileRequest::Export => (
+                "Export 3D model",
+                "3D models",
+                &["glb", "gltf", "obj", "stl", "plyr"],
+                true,
+            ),
+            FileRequest::Report => ("Export component report", "CSV files", &["csv"], true),
         }
     }
 
@@ -79,6 +101,8 @@ impl FileRequest {
             FileRequest::StyleLibraryLoad => ("style-library-load", json!({ "path": path })),
             FileRequest::StyleLibrarySave => ("style-library-save", json!({ "path": path })),
             FileRequest::Image => ("image-insert", json!({ "path": path })),
+            FileRequest::Import => ("import", json!({ "path": path })),
+            FileRequest::Export | FileRequest::Report => ("export", json!({ "path": path })),
         }
     }
 }

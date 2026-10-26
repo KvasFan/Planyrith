@@ -76,6 +76,13 @@ pub(crate) struct Imports {
     tags: BTreeMap<TagId, TagId>,
 }
 
+impl Imports {
+    /// The definitions copied (or reused) so far, by target id.
+    pub(crate) fn copied(&self) -> impl Iterator<Item = DefinitionId> + '_ {
+        self.definitions.values().copied()
+    }
+}
+
 /// Copies definition `d` of `source`, with the definitions it nests and the
 /// materials, images and tags its contents use, into the transaction's
 /// document. A definition whose UUID the document already has is reused

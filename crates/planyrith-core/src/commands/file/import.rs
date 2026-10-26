@@ -40,7 +40,8 @@ pub struct ImportParams {
     /// Format (from the extension, else from the contents).
     #[serde(default)]
     pub format: Option<ImportFormat>,
-    /// `group` (default), `component:<name>` or `image`.
+    /// `group` (default; an image file: `image`), `component:<name>`,
+    /// `image` or `texture` (images: a material).
     #[serde(default, rename = "as")]
     pub import_as: Option<String>,
     /// Unit of the file (`mm`, `cm`, `m`, `in`, `ft`; the file's own, else
@@ -84,11 +85,12 @@ fn import_as(p: &ImportParams) -> Result<ImportAs, CommandError> {
     match p.import_as.as_deref().map(str::trim) {
         None | Some("group") => Ok(ImportAs::Group),
         Some("image") => Ok(ImportAs::Image),
+        Some("texture") => Ok(ImportAs::Texture),
         Some(other) => match other.strip_prefix("component:").map(str::trim) {
             Some(name) if !name.is_empty() => Ok(ImportAs::Component(name.to_string())),
             _ => Err(CommandError::invalid_param(
                 "as",
-                format!("`{other}`: expected group, component:<name> or image"),
+                format!("`{other}`: expected group, component:<name>, image or texture"),
             )),
         },
     }

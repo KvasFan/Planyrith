@@ -393,7 +393,7 @@ perpendicular to hovered edge); `Esc` = cancel current step (second `Esc` = canc
 { path, format, options }`, `render { path, width, height, scene?, camera?, style?, transparent_bg }`,
 `component-import-as-file`, `revert`, `purge-unused`.
 
-- `import { path, format?, as?: group|component:<name>|image, file_units?, scale (1), swap_yz?,
+- `import { path, format?, as?: group|component:<name>|image|texture, file_units?, scale (1), swap_yz?,
   merge_coplanar (true), soften (20°), at? }` reads `path` through the engine's storage into the
   edit context (docs/09 §5–§6, Decisions). Output: `{ format, created, faces, edges, skipped,
   warnings }`. Undo removes everything the import made (definitions, materials, images).

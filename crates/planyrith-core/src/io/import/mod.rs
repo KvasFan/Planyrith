@@ -10,8 +10,11 @@
 //! Owner key: `later`.
 
 pub mod build;
+pub mod csv;
 pub mod gltf;
+pub mod image;
 pub mod obj;
+pub mod plyr;
 pub mod stl;
 
 use std::io::Read;
@@ -108,6 +111,8 @@ pub enum ImportAs {
     Component(String),
     /// An image entity (image formats only).
     Image,
+    /// A material with the image as its texture (image formats only).
+    Texture,
 }
 
 /// Common import options (docs/09 §6, docs/08 §2).
@@ -210,7 +215,10 @@ pub fn sibling(source: &str, name: &str) -> String {
 /// The importer of `format`, when this build has one.
 pub fn importer(format: ImportFormat) -> Option<Box<dyn Importer>> {
     match format {
+        ImportFormat::Csv => Some(Box::new(csv::CsvImporter)),
         ImportFormat::Gltf => Some(Box::new(gltf::GltfImporter)),
+        ImportFormat::Image => Some(Box::new(image::ImageImporter)),
+        ImportFormat::Plyr => Some(Box::new(plyr::PlyrImporter)),
         ImportFormat::Obj => Some(Box::new(obj::ObjImporter)),
         ImportFormat::Stl => Some(Box::new(stl::StlImporter)),
         _ => None,

@@ -532,6 +532,13 @@ fn every_command_matches_its_golden_file() {
             .save(dir.join("textures").join(file))
             .unwrap();
     }
+    // …and these survey points.
+    std::fs::create_dir_all(dir.join("points")).unwrap();
+    std::fs::write(
+        dir.join("points/survey.csv"),
+        "x,y,z\n0,0,0\n1000,0,250\n1000,1000,500\n",
+    )
+    .unwrap();
     let mut mismatches = Vec::new();
     for name in &names {
         let batch = root.join("commands").join(format!("{name}.plyrb"));

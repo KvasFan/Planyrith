@@ -878,3 +878,147 @@ fn import_benchmark() {
     }
     eprintln!("best: {best:.2} s");
 }
+
+#[test]
+fn images_import_as_entities_or_textures() {
+    let (mut e, storage) = engine();
+    storage
+        .write(
+            &StorageKey::new("pics/plan.png"),
+            &png(40, 20, [10, 200, 30]),
+        )
+        .unwrap();
+    let out = run(
+        &mut e,
+        "import",
+        json!({ "path": "pics/plan.png", "at": [100, 200, 0], "scale": 2.0 }),
+    );
+    assert_eq!(out["format"], "image");
+    assert_eq!(out["created"].as_array().map(Vec::len), Some(1));
+    let (lo, hi) = bounds_of_model(&e);
+    assert!(close(lo, DVec3::new(100.0, 200.0, 0.0)), "{lo}");
+    assert!(close(hi, DVec3::new(2100.0, 1200.0, 0.0)), "{hi}");
+    let out = run(
+        &mut e,
+        "import",
+        json!({ "path": "pics/plan.png", "as": "texture" }),
+    );
+    assert_eq!(out["created"], json!([]));
+    let doc = e.document();
+    let tex = doc
+        .materials
+        .by_name("plan #2")
+        .and_then(|m| doc.materials.get(m))
+        .and_then(|m| m.texture.clone())
+        .expect("a textured material");
+    assert!(close(
+        tex.size_mm.extend(0.0),
+        DVec3::new(1000.0, 500.0, 0.0)
+    ));
+    assert!(
+        e.execute_erased(
+            "import",
+            json!({ "path": "pics/plan.png", "as": "component:X" })
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn csv_points_import_as_guide_points() {
+    let (mut e, storage) = engine();
+    storage
+        .write(
+            &StorageKey::new("survey.csv"),
+            b"x,y,z,name\n0,0,0,A\n1.5;2;0.25;B\n3\t4\n\nbad,row\n# note\n",
+        )
+        .unwrap();
+    let out = run(
+        &mut e,
+        "import",
+        json!({ "path": "survey.csv", "file_units": "m" }),
+    );
+    assert_eq!(out["format"], "csv");
+    assert_eq!(out["skipped"], 2, "{out}");
+    let doc = e.document();
+    let points: Vec<DVec3> = doc
+        .definitions
+        .iter()
+        .flat_map(|(id, _)| {
+            let c = doc.container(ContainerRef::Definition(id)).unwrap();
+            c.order()
+                .iter()
+                .filter_map(|&g| match c.view(g) {
+                    Some(EntityView::Guide(crate::document::Guide::Point { pos })) => Some(*pos),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    assert_eq!(points.len(), 3);
+    assert!(close(points[1], DVec3::new(1500.0, 2000.0, 250.0)));
+    assert!(close(points[2], DVec3::new(3000.0, 4000.0, 0.0)));
+}
+
+#[test]
+fn plyr_documents_merge_with_components_and_materials() {
+    let (mut other, storage) = engine();
+    chairs_and_box(&mut other, &storage);
+    run(&mut other, "export", json!({ "path": "room.plyr" }));
+    let (lo, hi) = bounds_of_model(&other);
+
+    let (mut e, _) = engine();
+    e.set_storage(storage.clone());
+    let out = run(
+        &mut e,
+        "import",
+        json!({ "path": "room.plyr", "at": [0, 5000, 0] }),
+    );
+    assert_eq!(out["format"], "plyr");
+    assert_eq!(out["faces"], 12, "{out}");
+    let (mlo, mhi) = bounds_of_model(&e);
+    let shift = DVec3::new(0.0, 5000.0, 0.0);
+    assert!(
+        close(mlo, lo + shift) && close(mhi, hi + shift),
+        "{mlo} {mhi}"
+    );
+    let doc = e.document();
+    assert!(doc.definition_by_name("Seat").is_some());
+    let oak = doc
+        .materials
+        .by_name("Oak")
+        .and_then(|m| doc.materials.get(m))
+        .unwrap();
+    assert!(oak.texture.is_some());
+    // Merged twice: the component and the box's group definition (same
+    // UUIDs) are reused, only the new top-level component is added.
+    let before = doc.definitions.iter().count();
+    run(
+        &mut e,
+        "import",
+        json!({ "path": "room.plyr", "as": "component:Room" }),
+    );
+    assert_eq!(e.document().definitions.iter().count(), before + 1);
+    let report = crate::diagnostics::validate(e.document());
+    assert!(report.is_clean(), "{report:#?}");
+    e.undo().unwrap();
+    e.undo().unwrap();
+    assert!(e.document().definition_by_name("Seat").is_none());
+}
+
+#[test]
+fn csv_component_report_counts_and_measures() {
+    let (mut e, storage) = engine();
+    chairs_and_box(&mut e, &storage);
+    run(
+        &mut e,
+        "export",
+        json!({ "path": "report.csv", "file_units": "cm" }),
+    );
+    let text = String::from_utf8(storage.read(&StorageKey::new("report.csv")).unwrap()).unwrap();
+    assert_eq!(
+        text,
+        "name,count,width_cm,depth_cm,height_cm,volume_cm3,description\n\
+         Seat,2,40,40,45,72000,\n"
+    );
+}

@@ -778,6 +778,20 @@ impl App {
                     ui.close();
                 }
                 ui.separator();
+                if ui.button("Import…").clicked() {
+                    self.resources.file = Some(FileRequest::Import);
+                    ui.close();
+                }
+                ui.menu_button("Export", |ui| {
+                    if ui.button("3D Model…").clicked() {
+                        self.resources.file = Some(FileRequest::Export);
+                        ui.close();
+                    }
+                    if ui.button("Component Report…").clicked() {
+                        self.resources.file = Some(FileRequest::Report);
+                        ui.close();
+                    }
+                });
                 if ui.button("Insert Image…").clicked() {
                     self.resources.file = Some(FileRequest::Image);
                     ui.close();
@@ -2118,6 +2132,41 @@ mod tests {
             face.sides.material_back
         };
         assert_eq!(painted, Some(brick), "{:?}", shell.app.message);
+    }
+
+    #[test]
+    fn file_import_and_export_run_the_commands() {
+        let mut shell = Shell::new();
+        let dir = std::env::temp_dir().join(format!("planyrith-gui-io-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let glb = dir.join("box.glb");
+        let session = &mut shell.app.session;
+        session
+            .execute(
+                "rectangle",
+                json!({ "corner_a": [0, 0, 0], "corner_b": [1000, 600, 0] }),
+            )
+            .unwrap();
+        session
+            .execute(
+                "push-pull",
+                json!({ "face": { "Query": "face" }, "distance": 400.0 }),
+            )
+            .unwrap();
+        let dirty = session.engine.generation();
+        let (name, params) = FileRequest::Export.command(&glb.to_string_lossy());
+        session.execute(name, params).unwrap();
+        assert!(glb.exists());
+        assert_eq!(
+            session.engine.generation(),
+            dirty,
+            "exporting changes nothing"
+        );
+        let (name, params) = FileRequest::Import.command(&glb.to_string_lossy());
+        let out = session.execute(name, params).unwrap();
+        assert_eq!(out["faces"], 6, "{out}");
+        shell.frame(Vec::new());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// docs/qa/model-a-room.md, automated: the same ten steps with synthetic
