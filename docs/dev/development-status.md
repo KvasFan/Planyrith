@@ -5,7 +5,7 @@ implementation stands, what is done, what remains, and how to resume. Update it 
 every working session. Ground truth for *what to build* stays in `docs/00`–`docs/15`; this file
 is only *progress state*.
 
-_Last updated: 2026-10-26 (0.4 implemented: textures, libraries, components, scenes, styles, panels)._
+_Last updated: 2026-10-26 (0.5 implemented: import/export of STL, OBJ, glTF/GLB, DXF, images, CSV, `.plyr`; 2D view export; awaiting user trial)._
 
 ## 1. Where we are
 
@@ -51,13 +51,14 @@ PLANYRITH_FUZZ_CASES=10000 cargo test -p planyrith-core --release random_command
 | document | `document/*` | **DONE** | `StableMap` stable ids; query language (docs/08 §5). |
 | commands | `commands/*` | **DONE for 0.1** | Engine, transactions, CLI parameter types; `line`, `rectangle`, `circle`, `polygon`, `arc-2point`, `arc-3point`, `arc-bulge`, `pie`, `push-pull`, `offset`, `select`, `erase`, `delete`, `hide`, `unhide`, `lock`, `unlock`, `move`, `rotate`, `scale`, `make-group`, `make-component`, `explode`, `tag-*`, `material-*`. |
 | diagnostics | `diagnostics.rs` | **DONE** | validate / repair / statistics. |
-| later | `geom/{intersect,boolean,sweep,brep}.rs`, `inference/*`, `io/render_mesh.rs`, `io/import/*`, `io/export/*` (non-json), `scripting/*`, `commands/{annotate,view,file}` | **NOT STARTED** | Milestones 0.2+. |
+| interchange | `io/import/*`, `io/export/*`, `commands/file/*`, `fastmap.rs` | **DONE for 0.5** | `import`/`export` commands; one builder (`import/build.rs`) for mesh formats (keyed triangle merge, shells split when parts overlap); own DXF reader/writer; 2D view export with software hidden-line removal (`export/view2d.rs`); round-trip, robustness and undo tests in `commands/file/tests.rs`; `import_benchmark` (ignored) for the 100 MB glTF target; `tools/validate-exports.sh` runs external validators. |
+| later | `geom/{boolean,sweep,brep}.rs`, `scripting/*`, `commands/annotate` | **NOT STARTED** | Milestones 0.6+. |
 
 Frontends:
 
 | Crate | Status |
 |---|---|
-| `planyrith-cli` | **0.1.0** — `new`, `info`, `query`, `tool`, `export` (json), `validate`, `repair`, `batch`, `serve` (stdio); schema-driven tool options; JSON envelopes; exit codes. Later: `render` and the socket transport/`repl` (0.2), `import` (0.5), `script` (0.6). |
+| `planyrith-cli` | `new`, `info`, `query`, `tool`, `import` and `export` (every format, `--2d`, `--units` as the file's unit), `validate`, `repair`, `batch`, `serve` (stdio and sockets), `repl`, `render`, `infer`; schema-driven tool options; JSON envelopes; exit codes. Later: `script` (0.6). |
 | `planyrith-render` | **0.2.0** — offscreen renderer (styles, edges with GPU profiles, transparency, selection, id buffer), headless `render_image`; snapshot tests on three OSes. Not yet: shadows, section caps, fog, sky, watermarks. |
 | `planyrith-gui` | **0.3.0** — eframe shell, `egui_tiles` docks, viewport (navigation, selection, double-click to open), Entity Info, Tags, Scenes, Outliner, Tool Options, Tool Help, undo/redo, open/save. 0.3: `tools/` (one state machine per 0.1 command: Select, Line, Rectangle, Circle, Polygon, the four arcs, Push/Pull, Offset, Move, Rotate, Scale, Eraser, Paint), inference overlay, value field with replace-after-completion, previews on a forked engine (`Session::preview`). Tested with synthetic egui input, including a whole-window test (`app::tests`) that draws, pushes, corrects and moves a box. |
 
@@ -74,7 +75,13 @@ Frontends:
    **Milestone 0.4** (organization and materials) is implemented on `main` (docs/13 Decisions
    "0.4 scope"; acceptance `textured_cabinet_acceptance`); released as 0.4.0 after the user
    confirmed textures apply (bundled materials, visible-side painting).
-   Next: milestone 0.5 (interchange).
+   **Milestone 0.5** (interchange) is implemented on `main`: STL, OBJ (+MTL), glTF/GLB, DXF,
+   images, CSV and `.plyr` import; STL, OBJ, glTF/GLB, DXF (3D and 2D), `.plyr`, CSV report,
+   SVG and PDF export; File › Import… / Export ► in the GUI. External validators pass
+   (docs/12 Decisions); a 100 MB glTF imports in about 11 s. Release 0.5.0 after the user
+   tries it. Known limits (docs/09 Decisions): glTF cameras are skipped; DXF text and
+   dimensions are skipped; the 2D export does not split edges where they pierce faces.
+   Next: milestone 0.6 (sections, annotations, shadows).
 2. **Journal and undo.** The journal (`history.msgpack`, docs/09 §3) is append-only and every
    frontend journals executed commands but not undo/redo, so after an undo it lists a command
    that is no longer in the document. Decide whether undo/redo are journaled (entries) or the
