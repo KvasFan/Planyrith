@@ -699,6 +699,10 @@ impl ScaleGrip {
 }
 
 impl Tool for ScaleTool {
+    fn takes_points(&self) -> bool {
+        false
+    }
+
     fn command(&self) -> &'static str {
         "scale"
     }
@@ -776,7 +780,16 @@ impl Tool for ScaleTool {
         let factors = match parse(text, cx)? {
             ValueFieldInput::Count(n) => DVec3::splat(f64::from(n)),
             ValueFieldInput::Number(x) => DVec3::splat(x),
-            ValueFieldInput::Pair(a, b) => DVec3::new(a.as_mm(), b.as_mm(), 1.0),
+            // Factors are plain numbers: undo the bare-number unit.
+            ValueFieldInput::Pair(a, b) => {
+                let unit = cx.unit.millimeters();
+                DVec3::new(a.as_mm() / unit, b.as_mm() / unit, 1.0)
+            }
+            ValueFieldInput::Coordinate { xyz, .. } => {
+                let unit = cx.unit.millimeters();
+                let f = |i: usize| xyz[i].map_or(1.0, |l| l.as_mm() / unit);
+                DVec3::new(f(0), f(1), f(2))
+            }
             ValueFieldInput::Length(l) => {
                 // An absolute size for the grip's dimension.
                 let span = (grip.grip - grip.pivot).length();
@@ -867,6 +880,10 @@ impl EraserTool {
 }
 
 impl Tool for EraserTool {
+    fn takes_points(&self) -> bool {
+        false
+    }
+
     fn command(&self) -> &'static str {
         "erase"
     }
@@ -919,6 +936,10 @@ pub struct PaintTool {
 }
 
 impl Tool for PaintTool {
+    fn takes_points(&self) -> bool {
+        false
+    }
+
     fn command(&self) -> &'static str {
         "material-apply"
     }

@@ -26,7 +26,8 @@ default = current), `dry_run: bool` (validate + report only).
 Common value field grammar (`units.rs`): `1200` (document units), `1.2m`, `47in`, `3' 6"`, `3'6`,
 `120cm`, lengths with `,` as pair separator for 2D (`800,600`), `/` for divisions (`/5`),
 `*` or `x` for multiples (`*3`, `3x`), angles `45` or `45deg` or `0.785rad`, slopes `1:12`,
-counts `3`, segment or side counts `48s`, radii `500r` or `1.2m r`. Negative values reverse direction. Pressing Enter without a value confirms the
+counts `3`, segment or side counts `48s`, radii `500r` or `1.2m r`, and points: `x,y,z` or
+`[x,y,z]` absolute, `<dx,dy,dz>` relative to the step's reference point (the last point). Negative values reverse direction. Pressing Enter without a value confirms the
 current inferred value.
 
 ## 2. Inference and constraints (shared by all drawing/editing tools)
@@ -523,3 +524,9 @@ UI hints are generated from one source.
   `scene-activate` restores the camera, the visibility of every tag and the active style; hidden
   entities, section planes, shadows and axes arrive with those features. Activation is a view
   command, so restoring tag visibility is not an undo step either.
+- 2026-10-26 — **Typed points.** Three comma-separated values in the value field are an absolute
+  point, like `[x,y,z]`. In the GUI a typed point (absolute or relative) acts as a click at that
+  point for every tool step that picks a point — the first corner of a rectangle, a circle's
+  center, a line's next point, Move's grab point and destination, Rotate's center and reference
+  points — so a drawing can start at exact coordinates. Select, Scale, Eraser and Paint do not
+  pick points; Scale reads two or three values as factors (`2,1.5` or `2,1.5,1`).

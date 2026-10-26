@@ -528,3 +528,14 @@ within `tolerances.length`.
 - 2026-10-26 — **The origin snaps.** The origin of the drawing axes (0, 0, 0) is an
   `Endpoint`-level inference labelled "Origin", offered within the pixel tolerance unless a face
   in front of it hides it. Users start drawings there and expect it to snap.
+- 2026-10-26 — **Drawing axes and perpendicular projections.** The drawing axes (lines through
+  the origin along X, Y, Z) are inference geometry: a point on an axis near the cursor is
+  `OnAxis` ("On Red Axis"), offered when nothing hides it and, under a plane constraint, when it
+  lies in the plane; where a nearby model edge, a directional line from the reference point, or a
+  constraint line crosses an axis is an `Intersection` ("Intersection with Red Axis"). For every
+  directional line from the reference point (axes, parallel, perpendicular, tangent) and for a
+  constraint line, the foot of the perpendicular from each remembered point is a `FromPoint`
+  inference ("Perpendicular from Point") whose new `via` field names that point; frontends draw
+  a dotted guide from it. Hover memory keeps only inferences on the entity itself (endpoints,
+  midpoints, intersections, centers, points on edges and faces), so an alignment never moves a
+  remembered point.

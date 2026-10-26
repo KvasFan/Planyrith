@@ -199,6 +199,11 @@ pub trait Tool {
     }
     /// Esc: cancel the current step; `false` when nothing was in progress.
     fn escape(&mut self) -> bool;
+    /// `true` when the tool picks points, so a point typed into the value
+    /// field acts as a click there (docs/05 §1).
+    fn takes_points(&self) -> bool {
+        true
+    }
     /// Backspace with an empty value field (docs/07 §2): drop the last
     /// point of a chain; `true` when that point's command should be undone.
     fn back(&mut self) -> bool {

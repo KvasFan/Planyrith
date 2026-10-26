@@ -14,7 +14,11 @@ All notable changes to Planyrith are recorded here. Versions follow
   (View › Axes), depth-tested and dashed on the negative side.
 - **Tests**: whole-window GUI screenshots through wgpu (`PLANYRITH_SCREENSHOTS`).
 - **Inference**: the center of a circle, arc or polygon snaps when the cursor is over its face,
-  without hovering the curve first; the axes' origin snaps like an endpoint ("Origin").
+  without hovering the curve first; the axes' origin snaps like an endpoint ("Origin"); points
+  on the drawing axes and their crossings with edges and drawing directions snap; passing over a
+  point offers its perpendicular projection onto the current direction (dotted guide).
+- **Typed points**: `x,y,z`, `[x,y,z]` or `<dx,dy,dz>` in the value field place any point a tool
+  asks for (first corner, center, next point, grab point...).
 
 ## 0.3.0 — Interactive modeling with inference (2026-10-25)
 

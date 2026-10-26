@@ -232,6 +232,11 @@ pub struct Inference {
     pub direction: Option<DVec3>,
     /// The face or constraint plane the point lies on (locks, tools).
     pub plane: Option<Plane>,
+    /// The remembered point a perpendicular projection comes from: the
+    /// segment from it to `point` is perpendicular to `direction`.
+    #[serde(default)]
+    #[schemars(with = "Option<[f64; 3]>")]
+    pub via: Option<DVec3>,
 }
 
 impl Inference {
@@ -246,6 +251,7 @@ impl Inference {
             from: None,
             direction: None,
             plane: None,
+            via: None,
         }
     }
 
@@ -324,6 +330,29 @@ fn line_near_ray(o: DVec3, d: DVec3, ray: &Ray) -> Option<(DVec3, f64)> {
     Some((p, ray.distance_to_point(p)))
 }
 
+/// Closest points of two infinite lines; `None` when they are parallel.
+fn lines_closest(o1: DVec3, d1: DVec3, o2: DVec3, d2: DVec3) -> Option<(DVec3, DVec3)> {
+    let r = o1 - o2;
+    let (a, e, b) = (d1.dot(d1), d2.dot(d2), d1.dot(d2));
+    let (c, f) = (d1.dot(r), d2.dot(r));
+    let denom = a * e - b * b;
+    if denom <= 1e-12 * a * e {
+        return None;
+    }
+    let s = (b * f - c * e) / denom;
+    let t = (a * f - b * c) / denom;
+    Some((o1 + d1 * s, o2 + d2 * t))
+}
+
+/// The label of a drawing axis line.
+fn axis_label(axis: Axis) -> &'static str {
+    match axis {
+        Axis::X => "Red Axis",
+        Axis::Y => "Green Axis",
+        Axis::Z => "Blue Axis",
+    }
+}
+
 /// Closest points of two segments (for edge × edge intersections).
 fn segments_closest(a: &Segment, b: &Segment) -> (DVec3, DVec3) {
     let d1 = a.b - a.a;
@@ -389,8 +418,19 @@ impl InferenceEngine {
     }
 
     /// Adds the inference's entity as a reference (the GUI's hover memory).
+    /// Only inferences on the entity itself count: an alignment with a
+    /// remembered point names that point's entity but lies elsewhere.
     pub fn remember(&mut self, inference: &Inference) {
-        if let Some(path) = &inference.on {
+        let on_entity = matches!(
+            inference.kind,
+            InferenceKind::Endpoint
+                | InferenceKind::Midpoint
+                | InferenceKind::Intersection
+                | InferenceKind::Center
+                | InferenceKind::OnEdge
+                | InferenceKind::OnFace
+        );
+        if let Some(path) = inference.on.as_ref().filter(|_| on_entity) {
             let direction = match inference.kind {
                 InferenceKind::OnEdge | InferenceKind::Midpoint => inference.direction,
                 _ => None,
@@ -637,7 +677,8 @@ impl InferenceEngine {
             for axis in Axis::ALL {
                 lines.push((InferenceKind::OnAxis, axis.direction(), Some(axis), None));
             }
-            for (kind, dir, axis, path) in lines {
+            for (kind, dir, axis, path) in &lines {
+                let (kind, dir, axis) = (*kind, *dir, *axis);
                 if let Some((p, _)) = line_near_ray(origin, dir, ray)
                     && within(p)
                     && p.distance(origin) > tol.length
@@ -646,7 +687,7 @@ impl InferenceEngine {
                     i.from = Some(origin);
                     i.direction = Some(dir);
                     i.axis = axis;
-                    i.on = path;
+                    i.on = path.clone();
                     i.label = match (kind, axis) {
                         (InferenceKind::OnAxis, Some(Axis::X)) => "On Red Axis".into(),
                         (InferenceKind::OnAxis, Some(Axis::Y)) => "On Green Axis".into(),
@@ -657,6 +698,43 @@ impl InferenceEngine {
                         _ => kind.label().into(),
                     };
                     out.push(i);
+                }
+            }
+            for (_, dir, axis, path) in &lines {
+                // Where the line crosses the drawing axes.
+                for drawing_axis in Axis::ALL {
+                    if let Some((p, q)) =
+                        lines_closest(origin, *dir, DVec3::ZERO, drawing_axis.direction())
+                        && p.distance(q) <= tol.length
+                        && p.distance(origin) > tol.length
+                        && within(p)
+                    {
+                        let mut i = Inference::new(p, InferenceKind::Intersection);
+                        i.from = Some(origin);
+                        i.direction = Some(*dir);
+                        i.axis = *axis;
+                        i.on = path.clone();
+                        i.label = format!("Intersection with {}", axis_label(drawing_axis));
+                        out.push(i);
+                    }
+                }
+                // The perpendicular projection of each remembered point onto
+                // the line.
+                for r in &self.references {
+                    let foot = origin + *dir * (r.point - origin).dot(*dir);
+                    if foot.distance(origin) > tol.length
+                        && foot.distance(r.point) > tol.length
+                        && within(foot)
+                    {
+                        let mut i = Inference::new(foot, InferenceKind::FromPoint);
+                        i.from = Some(origin);
+                        i.direction = Some(*dir);
+                        i.axis = *axis;
+                        i.via = Some(r.point);
+                        i.on = Some(r.path.clone());
+                        i.label = "Perpendicular from Point".into();
+                        out.push(i);
+                    }
                 }
             }
             // Alignment with remembered points along the axes.
@@ -673,6 +751,75 @@ impl InferenceEngine {
                         i.on = Some(r.path.clone());
                         out.push(i);
                     }
+                }
+            }
+        }
+
+        // The drawing axes (docs/03 Decisions): points on them near the
+        // cursor (not through faces, and on the constraint plane if any),
+        // and where nearby model edges cross them.
+        let on_constraint = |p: DVec3| match constraint {
+            Constraint::Free => true,
+            Constraint::Plane(plane) => plane.contains(p, tol),
+            _ => false,
+        };
+        for axis in Axis::ALL {
+            let d = axis.direction();
+            if let Some((p, _)) = line_near_ray(DVec3::ZERO, d, ray)
+                && within(p)
+                && visible(ray.closest_param(p))
+                && on_constraint(p)
+                && p.length() > tol.length
+            {
+                let mut i = Inference::new(p, InferenceKind::OnAxis);
+                i.axis = Some(axis);
+                i.from = Some(DVec3::ZERO);
+                i.direction = Some(d);
+                i.label = format!("On {}", axis_label(axis));
+                out.push(i);
+            }
+            for (seg, path) in &edges {
+                let along = seg.b - seg.a;
+                if let Some((p, q)) = lines_closest(seg.a, along, DVec3::ZERO, d)
+                    && p.distance(q) <= tol.length
+                    && (p - seg.a).dot(along) >= -tol.length * along.length()
+                    && (p - seg.b).dot(along) <= tol.length * along.length()
+                    && within(p)
+                    && on_constraint(p)
+                {
+                    let mut i = Inference::new(p, InferenceKind::Intersection);
+                    i.on = Some(path.clone());
+                    i.axis = Some(axis);
+                    i.label = format!("Intersection with {}", axis_label(axis));
+                    out.push(i);
+                }
+            }
+        }
+
+        // On a constraint line (a lock, Push/Pull's normal): the
+        // perpendicular projections of remembered points and where the line
+        // crosses the drawing axes.
+        if let Some((o, d)) = constraint.line() {
+            for r in &self.references {
+                let foot = o + d * (r.point - o).dot(d);
+                if foot.distance(r.point) > tol.length && within(foot) {
+                    let mut i = Inference::new(foot, InferenceKind::FromPoint);
+                    i.from = Some(o);
+                    i.direction = Some(d);
+                    i.via = Some(r.point);
+                    i.on = Some(r.path.clone());
+                    i.label = "Perpendicular from Point".into();
+                    out.push(i);
+                }
+            }
+            for axis in Axis::ALL {
+                if let Some((p, q)) = lines_closest(o, d, DVec3::ZERO, axis.direction())
+                    && p.distance(q) <= tol.length
+                    && within(p)
+                {
+                    let mut i = Inference::new(p, InferenceKind::Intersection);
+                    i.label = format!("Intersection with {}", axis_label(axis));
+                    out.push(i);
                 }
             }
         }
@@ -1096,6 +1243,64 @@ mod tests {
         let i = infer(&e, &engine, &req);
         assert_eq!(i.kind, InferenceKind::OnAxis, "{i:?}");
         assert!(close(i.point, DVec3::new(700.0, 500.0, 1000.0)));
+    }
+
+    #[test]
+    fn the_drawing_axes_snap_and_cross() {
+        let mut e = Engine::new(Document::new(), Arc::new(CommandRegistry::with_builtins()));
+        e.execute_erased(
+            "line",
+            json!({ "points": [[3000, -500, 0], [3000, 1500, 0]] }),
+        )
+        .unwrap();
+        let mut engine = InferenceEngine::new();
+
+        // On an axis away from any geometry.
+        let i = infer(&e, &engine, &request(down(-2000.0, 6.0)));
+        assert_eq!(i.kind, InferenceKind::OnAxis, "{i:?}");
+        assert_eq!(i.label, "On Red Axis");
+        assert!(close(i.point, DVec3::new(-2000.0, 0.0, 0.0)));
+
+        // Where an edge crosses an axis.
+        let i = infer(&e, &engine, &request(down(3004.0, 5.0)));
+        assert_eq!(i.kind, InferenceKind::Intersection, "{i:?}");
+        assert_eq!(i.label, "Intersection with Red Axis");
+        assert!(close(i.point, DVec3::new(3000.0, 0.0, 0.0)));
+
+        // Drawing along green from (1000, 2000, 0), the line crosses the red
+        // axis.
+        let mut req = request(down(1004.0, 3.0));
+        req.reference_point = Some(DVec3::new(1000.0, 2000.0, 0.0));
+        let i = infer(&e, &engine, &req);
+        assert_eq!(i.kind, InferenceKind::Intersection, "{i:?}");
+        assert!(close(i.point, DVec3::new(1000.0, 0.0, 0.0)));
+
+        // Perpendicular projection of a point passed over: drawing along
+        // red from (-1000, 2500, 0), level with the line's end (3000, 1500).
+        let end = infer(&e, &engine, &request(down(3002.0, 1498.0)));
+        assert_eq!(end.kind, InferenceKind::Endpoint);
+        engine.remember(&end);
+        let mut req = request(down(3005.0, 2504.0));
+        req.reference_point = Some(DVec3::new(-1000.0, 2500.0, 0.0));
+        let i = infer(&e, &engine, &req);
+        assert_eq!(i.kind, InferenceKind::FromPoint, "{i:?}");
+        assert!(
+            close(i.point, DVec3::new(3000.0, 2500.0, 0.0)),
+            "{}",
+            i.point
+        );
+        assert_eq!(i.via, Some(DVec3::new(3000.0, 1500.0, 0.0)));
+
+        // The same on a locked line.
+        let mut req = request(down(3005.0, 2504.0));
+        req.reference_point = Some(DVec3::new(-1000.0, 2500.0, 0.0));
+        req.constraint = Constraint::Axis {
+            origin: DVec3::new(-1000.0, 2500.0, 0.0),
+            axis: Axis::X,
+        };
+        let i = infer(&e, &engine, &req);
+        assert_eq!(i.kind, InferenceKind::FromPoint, "{i:?}");
+        assert!(close(i.point, DVec3::new(3000.0, 2500.0, 0.0)));
     }
 
     #[test]

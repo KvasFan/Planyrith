@@ -294,3 +294,7 @@ collected by clicks: e.g. segments for Circle, array count, copy toggle).
   field at its right edge with its label; messages name files without their folders. Tool
   Options show the tool, its prompt and its settings (segments and sides, Copy for Move and
   Rotate, Keep the start face for Push/Pull).
+- 2026-10-26 — Hover memory remembers a point (endpoint, midpoint, center, intersection) after
+  150 ms, so passing over it is enough for its alignments and perpendicular projections; edges
+  and faces still need 400 ms. A perpendicular projection is drawn as a dotted magenta line from
+  the remembered point (marked with a ring) to the snapped point.

@@ -106,6 +106,10 @@ impl SelectTool {
 }
 
 impl Tool for SelectTool {
+    fn takes_points(&self) -> bool {
+        false
+    }
+
     fn command(&self) -> &'static str {
         "select"
     }

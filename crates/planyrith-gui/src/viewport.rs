@@ -32,8 +32,11 @@ use crate::tools::{self, Cx, Flow, Pointer, Shape, Tool};
 const PICK_PX: f64 = 8.0;
 /// Radians per pixel of orbit drag.
 const ORBIT_SPEED: f64 = 0.008;
-/// Hover time that makes an entity a reference (docs/03 §7).
+/// Hover time that makes an edge or face a reference (docs/03 §7).
 const REMEMBER_AFTER_S: f64 = 0.4;
+/// Points are remembered as soon as the pointer passes over them (docs/07
+/// Decisions).
+const REMEMBER_POINT_AFTER_S: f64 = 0.15;
 /// Hover time before an inference label shows (docs/07 §5).
 const LABEL_AFTER_S: f64 = 0.3;
 
@@ -351,7 +354,18 @@ impl Viewport {
         if let Some(p) = &pointer {
             match (&p.inference.on, &mut self.hovered_since) {
                 (Some(on), Some((path, since, remembered))) if on == path => {
-                    if !*remembered && now - *since > REMEMBER_AFTER_S {
+                    let after = if matches!(
+                        p.inference.kind,
+                        InferenceKind::Endpoint
+                            | InferenceKind::Midpoint
+                            | InferenceKind::Center
+                            | InferenceKind::Intersection
+                    ) {
+                        REMEMBER_POINT_AFTER_S
+                    } else {
+                        REMEMBER_AFTER_S
+                    };
+                    if !*remembered && now - *since > after {
                         self.inference.remember(&p.inference);
                         *remembered = true;
                     }
@@ -361,7 +375,7 @@ impl Viewport {
             }
             if p.inference.on.is_some() {
                 ui.ctx()
-                    .request_repaint_after(std::time::Duration::from_millis(450));
+                    .request_repaint_after(std::time::Duration::from_millis(160));
             }
         }
 
@@ -716,6 +730,16 @@ fn paint_inference(
         && let (Some(a), Some(b)) = (cx.to_screen(from), cx.to_screen(from + dir * 1.0e5))
     {
         painter.line_segment([a, b], Stroke::new(3.0, Color32::from_rgb(120, 120, 120)));
+    }
+    // A perpendicular projection: dotted from the remembered point.
+    if let Some(via) = inf.via.and_then(|v| cx.to_screen(v)) {
+        painter.extend(egui::Shape::dotted_line(
+            &[via, s],
+            Color32::from_rgb(200, 0, 200),
+            5.0,
+            1.5,
+        ));
+        painter.circle_stroke(via, 4.0, Stroke::new(1.5, Color32::from_rgb(200, 0, 200)));
     }
     let green = Color32::from_rgb(0, 170, 0);
     let red = Color32::from_rgb(220, 30, 30);

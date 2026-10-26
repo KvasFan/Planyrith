@@ -8,9 +8,11 @@ use std::time::{Duration, Instant};
 use egui::Key;
 use egui_file_dialog::FileDialog;
 use egui_tiles::{Container, Tile, TileId, Tiles, Tree, UiResponse};
+use glam::DVec3;
 use planyrith_core::document::{EditContext, FaceMode, InstancePath};
-use planyrith_core::inference::Lock;
+use planyrith_core::inference::{Inference, InferenceKind, Lock};
 use planyrith_core::math::Axis;
+use planyrith_core::units::{ValueFieldInput, parse_value_field};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -379,6 +381,31 @@ impl App {
             return;
         }
         let tool = self.tools[self.active].0.as_mut();
+        // A typed point (`x,y,z`, `[x,y,z]`, or `<dx,dy,dz>` from the step's
+        // reference point) is a click there for every tool that picks points.
+        if tool.takes_points()
+            && let Ok(ValueFieldInput::Coordinate { absolute, xyz }) =
+                parse_value_field(text, cx.unit)
+        {
+            let current = self.viewport.pointer();
+            let (base, keep) = if absolute {
+                (
+                    DVec3::ZERO,
+                    current.map_or(DVec3::ZERO, |p| p.inference.point),
+                )
+            } else {
+                (
+                    tool.setup(&cx).reference.unwrap_or(DVec3::ZERO),
+                    DVec3::ZERO,
+                )
+            };
+            let c = |i: usize| xyz[i].map_or(keep[i], |l| l.as_mm());
+            let point = base + DVec3::new(c(0), c(1), c(2));
+            let pointer = typed_pointer(point, current, cx.rect.center());
+            let flow = tool.click(&pointer, &cx);
+            self.apply_flows(vec![flow]);
+            return;
+        }
         let replaced = match (&self.last_run, self.revalue_open && tool.step() == 0) {
             (Some(last), true) => tool
                 .revalue(last, text, &cx)
@@ -1181,6 +1208,37 @@ impl App {
     }
 }
 
+/// The pointer for a point typed into the value field: no entity under it,
+/// on the plane the real pointer is on when that plane holds the point.
+fn typed_pointer(
+    point: DVec3,
+    current: Option<&tools::Pointer>,
+    screen: egui::Pos2,
+) -> tools::Pointer {
+    let tol = planyrith_core::Tolerances::default();
+    let plane = current
+        .and_then(|p| p.inference.plane)
+        .filter(|plane| plane.contains(point, &tol));
+    tools::Pointer {
+        inference: Inference {
+            point,
+            kind: InferenceKind::Free,
+            on: None,
+            locked: false,
+            label: "Typed".into(),
+            axis: None,
+            from: None,
+            direction: None,
+            plane,
+            via: None,
+        },
+        modifiers: egui::Modifiers::NONE,
+        target: None,
+        face: None,
+        screen: current.map_or(screen, |p| p.screen),
+    }
+}
+
 /// A path's file name for messages.
 fn file_name(path: &std::path::Path) -> String {
     path.file_name().map_or_else(
@@ -1500,6 +1558,38 @@ mod tests {
                 self.app.message
             );
         }
+    }
+
+    #[test]
+    fn typed_points_place_every_tool_step() {
+        let mut app = App::blank(default_layout(), Settings::default());
+
+        // Rectangle: the first corner typed as `x,y,z`, then the size.
+        app.typed("r");
+        type_text(&mut app, "1000,2000,0");
+        assert_eq!(app.tool().step(), 1, "the corner is placed");
+        type_text(&mut app, "500,300");
+        let b = app.session.doc().aabb();
+        assert!(b.min.distance(DVec3::new(1000.0, 2000.0, 0.0)) < 1e-9, "{b:?}");
+        assert!(b.max.distance(DVec3::new(1500.0, 2300.0, 0.0)) < 1e-9, "{b:?}");
+
+        // Circle: the center in brackets, then the radius.
+        app.typed(" ");
+        app.typed("c");
+        type_text(&mut app, "[5000,0,0]");
+        type_text(&mut app, "750");
+        let b = app.session.doc().aabb();
+        assert!((b.max.x - 5750.0).abs() < 1e-6, "{b:?}");
+
+        // Line: an absolute start, then a point relative to it.
+        app.typed(" ");
+        app.typed("l");
+        type_text(&mut app, "-1000,0,0");
+        type_text(&mut app, "<0,0,2500>");
+        let b = app.session.doc().aabb();
+        assert!((b.max.z - 2500.0).abs() < 1e-9, "{b:?}");
+        assert!((b.min.x + 1000.0).abs() < 1e-9, "{b:?}");
+        assert!(app.message.as_ref().is_none_or(|(_, e)| !e), "{:?}", app.message);
     }
 
     #[test]

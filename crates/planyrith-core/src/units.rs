@@ -1008,7 +1008,8 @@ pub fn format_angle(value: Angle, precision: u8) -> String {
 /// Parses one value-field entry per the shared grammar of docs/05 §1.
 ///
 /// Dispatch, in order: `[x,y,z]` / `<x,y,z>` coordinates (empty components keep
-/// the current value), `/n` divisions, `*n` and `nx` multiples, `a,b` pairs,
+/// the current value), `/n` divisions, `*n` and `nx` multiples, `x,y,z`
+/// absolute points, `a,b` pairs,
 /// angles (anything containing `:` or ending in `%`, `deg`, `rad` or `°`), a
 /// bare unsigned integer as a `Count`, `Ns` segment counts, `Rr` radii, and
 /// finally a length. Tools expecting a
@@ -1049,9 +1050,15 @@ pub fn parse_value_field(
         }
     }
     if text.contains(',') {
+        // Three values are an absolute point (`x,y,z`, as `[x,y,z]`).
+        if text.split(',').count() == 3 {
+            return parse_coordinate(text, true, default_unit, text);
+        }
         let mut parts = text.split(',');
         let (Some(a), Some(b), None) = (parts.next(), parts.next(), parts.next()) else {
-            return Err(malformed("a pair has exactly two values `w,h`"));
+            return Err(malformed(
+                "a pair has two values `w,h`, a point three `x,y,z`",
+            ));
         };
         return Ok(ValueFieldInput::Pair(
             parse_length(a, default_unit)?,
@@ -1476,6 +1483,17 @@ mod tests {
 
         // Errors.
         assert_eq!(
+            parse_value_field("1000, 2m,0", mm),
+            Ok(ValueFieldInput::Coordinate {
+                absolute: true,
+                xyz: [
+                    Some(Length::mm(1000.0)),
+                    Some(Length::mm(2000.0)),
+                    Some(Length::mm(0.0))
+                ]
+            })
+        );
+        assert_eq!(
             parse_value_field("48s", mm),
             Ok(ValueFieldInput::Segments(48))
         );
@@ -1498,7 +1516,7 @@ mod tests {
             Err(UnitsError::Malformed(_, _))
         ));
         assert!(matches!(
-            parse_value_field("1,2,3", mm),
+            parse_value_field("1,2,3,4", mm),
             Err(UnitsError::Malformed(_, _))
         ));
         assert!(matches!(
