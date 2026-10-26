@@ -1570,8 +1570,14 @@ mod tests {
         assert_eq!(app.tool().step(), 1, "the corner is placed");
         type_text(&mut app, "500,300");
         let b = app.session.doc().aabb();
-        assert!(b.min.distance(DVec3::new(1000.0, 2000.0, 0.0)) < 1e-9, "{b:?}");
-        assert!(b.max.distance(DVec3::new(1500.0, 2300.0, 0.0)) < 1e-9, "{b:?}");
+        assert!(
+            b.min.distance(DVec3::new(1000.0, 2000.0, 0.0)) < 1e-9,
+            "{b:?}"
+        );
+        assert!(
+            b.max.distance(DVec3::new(1500.0, 2300.0, 0.0)) < 1e-9,
+            "{b:?}"
+        );
 
         // Circle: the center in brackets, then the radius.
         app.typed(" ");
@@ -1589,7 +1595,11 @@ mod tests {
         let b = app.session.doc().aabb();
         assert!((b.max.z - 2500.0).abs() < 1e-9, "{b:?}");
         assert!((b.min.x + 1000.0).abs() < 1e-9, "{b:?}");
-        assert!(app.message.as_ref().is_none_or(|(_, e)| !e), "{:?}", app.message);
+        assert!(
+            app.message.as_ref().is_none_or(|(_, e)| !e),
+            "{:?}",
+            app.message
+        );
     }
 
     #[test]
