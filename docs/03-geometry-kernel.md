@@ -519,3 +519,9 @@ within `tolerances.length`.
   its horizontal perpendicular, whichever the current direction is closer to. Free points: the
   constraint plane, else the ground, else a vertical plane through the last point facing the
   camera.
+- 2026-10-26 — **Centers without hovering.** Besides the centers of remembered curves (hover
+  memory) and of curves hit near the cursor, the inference engine offers the center of every
+  curve (circle, arc, polygon) on the boundary of the face under the cursor, when the center
+  lies in that face's plane. Testers expected a circle's center to snap when the cursor is over
+  it; the plane condition keeps a cylinder's side facets from offering the cap's center through
+  themselves.

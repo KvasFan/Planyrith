@@ -569,6 +569,16 @@ impl InferenceEngine {
                     i.on = Some(hit.path.clone());
                     i.plane = face_world_plane(doc, &hit.path, f);
                     out.push(i);
+                    // The centers of the curves bounding the face under the
+                    // cursor (a circle, a polygon, an arc's pie), without
+                    // hovering the curve first.
+                    for (c, edge) in face_curve_centers(doc, &hit.path, f) {
+                        if within(c) {
+                            let mut i = Inference::new(c, InferenceKind::Center);
+                            i.on = Some(edge);
+                            out.push(i);
+                        }
+                    }
                 }
                 _ => {}
             }
@@ -781,6 +791,51 @@ fn edge_world(
     Some((seg, center))
 }
 
+/// The centers of the curves (circles, arcs, polygons) on a face
+/// occurrence's boundary that lie in its plane, one per curve, with an
+/// edge of each.
+fn face_curve_centers(
+    doc: &Document,
+    path: &EntityPath,
+    f: crate::ids::FaceId,
+) -> Vec<(DVec3, EntityPath)> {
+    let Ok(resolved) = doc.resolve(path) else {
+        return Vec::new();
+    };
+    let Some(mesh) = doc.container(resolved.container).map(|c| c.mesh()) else {
+        return Vec::new();
+    };
+    let Some(plane) = mesh.face(f).map(|face| face.plane) else {
+        return Vec::new();
+    };
+    let tol = doc.tolerances();
+    let mut seen = Vec::new();
+    let mut out = Vec::new();
+    for e in mesh.face_edges(f).unwrap_or_default() {
+        let Some(curve) = mesh.edge(e).and_then(|edge| edge.curve) else {
+            continue;
+        };
+        if seen.contains(&curve) {
+            continue;
+        }
+        seen.push(curve);
+        // Only centers in the face's plane: a cylinder's side facets do not
+        // offer the center of its cap through themselves.
+        if let Some(c) = mesh
+            .curve(curve)
+            .and_then(CurveDescriptor::center)
+            .filter(|c| plane.contains(*c, tol))
+        {
+            let edge = EntityPath::new(
+                path.instances.clone(),
+                crate::document::EntityKey::Id(crate::ids::EntityId::Edge(e)),
+            );
+            out.push((resolved.world.transform_point3(c), edge));
+        }
+    }
+    out
+}
+
 /// The world plane of a face occurrence.
 fn face_world_plane(doc: &Document, path: &EntityPath, f: crate::ids::FaceId) -> Option<Plane> {
     let resolved = doc.resolve(path).ok()?;
@@ -973,6 +1028,11 @@ mod tests {
             "{}",
             i.point
         );
+        // Over the circle's face its center snaps without hovering the
+        // circle first.
+        let i = infer(&e, &engine, &request(down(5006.0, 4.0)));
+        assert_eq!(i.kind, InferenceKind::Center, "{i:?}");
+        assert!(close(i.point, DVec3::new(5000.0, 0.0, 0.0)));
         let mut hovered = InferenceEngine::new();
         let on_circle = infer(&e, &hovered, &request(down(5498.8, 34.9)));
         assert_eq!(on_circle.kind, InferenceKind::OnEdge, "{on_circle:?}");

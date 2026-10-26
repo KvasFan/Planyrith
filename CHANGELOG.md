@@ -13,6 +13,8 @@ All notable changes to Planyrith are recorded here. Versions follow
 - **Renderer**: the style's sky gradient (and ground color) behind the model; drawing axes
   (View › Axes), depth-tested and dashed on the negative side.
 - **Tests**: whole-window GUI screenshots through wgpu (`PLANYRITH_SCREENSHOTS`).
+- **Inference**: the center of a circle, arc or polygon snaps when the cursor is over its face,
+  without hovering the curve first.
 
 ## 0.3.0 — Interactive modeling with inference (2026-10-25)
 
