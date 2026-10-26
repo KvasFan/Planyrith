@@ -1014,6 +1014,13 @@ proptest! {
             c.is_proper_crossing(&Segment::new(points[a], points[b]), &s, &tol())
         });
         prop_assume!(!crosses);
+        // A chord grazing another vertex (within 0.01 mm) would cut off a
+        // sliver below the area tolerance: degenerate input, not a split.
+        let chord = Segment::new(points[a], points[b]);
+        let grazes = (0..n)
+            .filter(|&k| k != a && k != b)
+            .any(|k| chord.distance_to_point(points[k]) < 0.01);
+        prop_assume!(!grazes);
         let r = mesh.add_edge(points[a], points[b], &tol(), &mut NoDeltas).unwrap();
         prop_assert_eq!(mesh.face_count(), 2);
         prop_assert_eq!(r.split_faces.len(), 1);
