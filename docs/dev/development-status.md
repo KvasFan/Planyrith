@@ -5,7 +5,7 @@ implementation stands, what is done, what remains, and how to resume. Update it 
 every working session. Ground truth for *what to build* stays in `docs/00`–`docs/15`; this file
 is only *progress state*.
 
-_Last updated: 2026-10-26 (0.5 implemented: import/export of STL, OBJ, glTF/GLB, DXF, images, CSV, `.plyr`; 2D view export; awaiting user trial)._
+_Last updated: 2026-10-26 (0.5 implemented: import/export of STL, OBJ, glTF/GLB, DXF, images, CSV, `.plyr`; 2D view export; released as 0.5.0)._
 
 ## 1. Where we are
 
@@ -78,8 +78,8 @@ Frontends:
    **Milestone 0.5** (interchange) is implemented on `main`: STL, OBJ (+MTL), glTF/GLB, DXF,
    images, CSV and `.plyr` import; STL, OBJ, glTF/GLB, DXF (3D and 2D), `.plyr`, CSV report,
    SVG and PDF export; File › Import… / Export ► in the GUI. External validators pass
-   (docs/12 Decisions); a 100 MB glTF imports in about 11 s. Release 0.5.0 after the user
-   tries it. Known limits (docs/09 Decisions): glTF cameras are skipped; DXF text and
+   (docs/12 Decisions); a 100 MB glTF imports in about 11 s. Released as 0.5.0 after the user
+   tried it. Known limits (docs/09 Decisions): glTF cameras are skipped; DXF text and
    dimensions are skipped; the 2D export does not split edges where they pierce faces.
    Next: milestone 0.6 (sections, annotations, shadows).
 2. **Journal and undo.** The journal (`history.msgpack`, docs/09 §3) is append-only and every
@@ -125,7 +125,7 @@ Frontends:
 
 ## 4. Repository state
 
-- Branch `main`; releases `v0.1.0`, `v0.2.0`, `v0.3.0` (2026-10-25) and `v0.4.0` (2026-10-26) tagged and pushed. The user wants finished work
+- Branch `main`; releases `v0.1.0`, `v0.2.0`, `v0.3.0` (2026-10-25) `v0.4.0` and `v0.5.0` (2026-10-26) tagged and pushed. The user wants finished work
   pushed, in batches: run the full local check once per batch, then push once (each push to
   `main` runs the CI matrix; tags do not).
 - The 0.1 review fixes were made on a temporary branch and worktree, fast-forwarded into `main`
