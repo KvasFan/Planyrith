@@ -20,7 +20,7 @@ use crate::document::{
     ContainerRef, Document, EditContext, Entities, EntityKey, EntityView, FrontOrBack,
     InstancePath, Selection, UvMap,
 };
-use crate::geom::tessellate::{tessellate_face, vertex_normals};
+use crate::geom::tessellate::{tessellate_face, tessellate_face_with_openings, vertex_normals};
 use crate::geom::{EdgeFlags, GeometryError};
 use crate::ids::{EdgeId, EntityId, FaceId, MaterialId};
 use crate::math::Aabb;
@@ -184,6 +184,78 @@ fn f32x3(v: DVec3) -> [f32; 3] {
     [v.x as f32, v.y as f32, v.z as f32]
 }
 
+/// The openings glued components that cut openings make in this
+/// container's faces (docs/04 §3.3, docs/06 Decisions), by face, in
+/// container coordinates.
+fn openings(
+    doc: &Document,
+    entities: &crate::document::Entities,
+) -> BTreeMap<FaceId, Vec<Vec<DVec3>>> {
+    let mut out: BTreeMap<FaceId, Vec<Vec<DVec3>>> = BTreeMap::new();
+    for (_, instance) in entities.instances() {
+        let Some(path) = &instance.glued_to else {
+            continue;
+        };
+        let Some(def) = doc.definition(instance.definition) else {
+            continue;
+        };
+        if !def.behavior.cuts_opening {
+            continue;
+        }
+        let Some(EntityId::Face(f)) = entities.key_to_id(path.target) else {
+            continue;
+        };
+        let Some(ring) = cut_outline(def, doc.tolerances()) else {
+            continue;
+        };
+        out.entry(f).or_default().push(
+            ring.into_iter()
+                .map(|p| instance.transform.transform_point3(p))
+                .collect(),
+        );
+    }
+    out
+}
+
+/// A component's opening outline (docs/06 Decisions): the outer loop of its
+/// largest face lying on its red-green plane, else the rectangle of its
+/// footprint on that plane.
+pub fn cut_outline(
+    def: &crate::document::ComponentDefinition,
+    tol: &crate::tolerance::Tolerances,
+) -> Option<Vec<DVec3>> {
+    let mesh = def.entities.mesh();
+    let mut best: Option<(f64, Vec<DVec3>)> = None;
+    for (f, face) in mesh.faces() {
+        let Ok(vertices) = mesh.loop_vertices(face.outer) else {
+            continue;
+        };
+        let points: Vec<DVec3> = vertices
+            .iter()
+            .filter_map(|v| mesh.position(*v).ok())
+            .collect();
+        if points.len() < 3 || points.iter().any(|p| p.z.abs() > tol.length) {
+            continue;
+        }
+        let area = mesh.face_area(f).unwrap_or(0.0);
+        if best.as_ref().is_none_or(|(a, _)| area > *a) {
+            best = Some((area, points));
+        }
+    }
+    if let Some((_, points)) = best {
+        return Some(points);
+    }
+    let b = mesh.aabb();
+    (!b.is_empty() && b.max.x - b.min.x > tol.length && b.max.y - b.min.y > tol.length).then(|| {
+        vec![
+            DVec3::new(b.min.x, b.min.y, 0.0),
+            DVec3::new(b.max.x, b.min.y, 0.0),
+            DVec3::new(b.max.x, b.max.y, 0.0),
+            DVec3::new(b.min.x, b.max.y, 0.0),
+        ]
+    })
+}
+
 /// Extracts the buffers of one container (docs/06 §2). Deterministic: faces
 /// and edges in container (pid) order, material ranges sorted by key.
 pub fn extract(
@@ -200,6 +272,7 @@ pub fn extract(
     let mut buckets: BTreeMap<MaterialKey, Vec<u32>> = BTreeMap::new();
     let mut bounds = Aabb::EMPTY;
 
+    let openings = openings(doc, entities);
     let mut face_index: BTreeMap<FaceId, u32> = BTreeMap::new();
     for &id in entities.order() {
         let EntityId::Face(f) = id else { continue };
@@ -210,11 +283,16 @@ pub fn extract(
         }
         // A face that cannot be triangulated is skipped, not fatal: the
         // rest of the model still renders (validate reports the defect).
-        let Ok(tess) = tessellate_face(mesh, f, tol) else {
+        let cut = openings.get(&f);
+        let tessellated = match cut {
+            Some(rings) => tessellate_face_with_openings(mesh, f, tol, rings),
+            None => tessellate_face(mesh, f, tol),
+        };
+        let Ok(tess) = tessellated else {
             continue;
         };
         let normal = mesh.face_normal(f)?;
-        let normals = if opts.smooth_normals {
+        let normals = if opts.smooth_normals && cut.is_none() {
             vertex_normals(mesh, f, &tess)?
         } else {
             vec![normal; tess.vertices.len()]
@@ -515,6 +593,74 @@ mod tests {
 
     fn engine() -> Engine {
         Engine::new(Document::new(), Arc::new(CommandRegistry::with_builtins()))
+    }
+
+    /// Area of the triangles of one face (front side) in a render mesh.
+    fn face_triangle_area(mesh: &RenderMesh, local: u32) -> f64 {
+        let (key, range) = &mesh.indices_by_material[0];
+        assert_eq!(key.side, FrontOrBack::Front);
+        mesh.indices[range.start as usize..range.end as usize]
+            .chunks(3)
+            .filter(|t| mesh.face_ids[t[0] as usize] == local)
+            .map(|t| {
+                let p = |i: u32| {
+                    let v = mesh.positions[i as usize];
+                    glam::DVec3::new(f64::from(v[0]), f64::from(v[1]), f64::from(v[2]))
+                };
+                (p(t[1]) - p(t[0])).cross(p(t[2]) - p(t[0])).length() * 0.5
+            })
+            .sum()
+    }
+
+    #[test]
+    fn glued_components_cut_openings_in_their_face() {
+        let mut e = engine();
+        // A 3 m × 2.5 m wall and a 900 × 1200 window component lying on
+        // its own red-green plane, cutting an opening.
+        let wall = run(
+            &mut e,
+            "rectangle",
+            json!({ "corner_a": [0, 0, 0], "corner_b": [3000, 0, 2500], "plane": { "normal": [0, -1, 0], "d": 0 } }),
+        );
+        run(
+            &mut e,
+            "rectangle",
+            json!({ "corner_a": [0, 5000, 0], "corner_b": [900, 6200, 0] }),
+        );
+        run(
+            &mut e,
+            "make-component",
+            json!({ "targets": "last", "name": "Window", "replace_selection": false,
+                    "behavior": { "glue_to": "vertical", "cuts_opening": true } }),
+        );
+        let face = wall["face"].as_u64().unwrap();
+        let mesh = |e: &Engine| {
+            extract(e.document(), ContainerRef::Model, ExtractOptions::default()).unwrap()
+        };
+        let before = mesh(&e);
+        let (_, id) = e.document().locate_pid(crate::ids::Pid(face)).unwrap();
+        let EntityId::Face(f) = id else { panic!() };
+        let local = before.face_index(f).unwrap();
+        assert!((face_triangle_area(&before, local) - 7.5e6).abs() < 1.0);
+
+        run(
+            &mut e,
+            "component-insert",
+            json!({ "definition": "Window", "position": [1000, 0, 800], "on_face": { "Pid": face } }),
+        );
+        let after = mesh(&e);
+        let local = after.face_index(f).unwrap();
+        let area = face_triangle_area(&after, local);
+        assert!((area - (7.5e6 - 900.0 * 1200.0)).abs() < 1.0, "{area}");
+        // The opening's outline is the component's largest flat face.
+        let def = e
+            .document()
+            .definition(e.document().definition_by_name("Window").unwrap())
+            .unwrap();
+        assert_eq!(
+            cut_outline(def, e.document().tolerances()).unwrap().len(),
+            4
+        );
     }
 
     fn run(e: &mut Engine, name: &str, params: serde_json::Value) -> serde_json::Value {

@@ -93,6 +93,27 @@ fn transform_entities(
             _ => {}
         }
     }
+    // Components glued to faces that move entirely go along (docs/04 §3.3).
+    let glued: Vec<EntityId> = entities
+        .instances()
+        .filter_map(|(i, x)| {
+            let id = EntityId::Instance(i);
+            if ids.contains(&id) {
+                return None;
+            }
+            let face = match entities.key_to_id(x.glued_to.as_ref()?.target)? {
+                EntityId::Face(f) => f,
+                _ => return None,
+            };
+            let all_move = mesh
+                .face_cycles(face)
+                .ok()?
+                .iter()
+                .flatten()
+                .all(|h| mesh.he(*h).is_ok_and(|he| vertices.contains(&he.origin)));
+            all_move.then_some(id)
+        })
+        .collect();
     let mut out = TransformOutput {
         moved: ids.len(),
         copies: Vec::new(),
@@ -113,7 +134,7 @@ fn transform_entities(
             ));
         }
     }
-    for &id in ids {
+    for &id in ids.iter().chain(glued.iter()) {
         if let Some(record) = placed_record(tx.document(), container, id, &local) {
             match record {
                 Placed::Transform(t) => tx.set_transform(container, id, t)?,

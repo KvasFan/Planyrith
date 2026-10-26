@@ -944,3 +944,83 @@ fn styles_create_edit_watermark_fog_activate_and_libraries() {
     assert_eq!(e.document().styles.len(), 1);
     assert_valid(&e);
 }
+
+#[test]
+fn glued_components_follow_their_face() {
+    let mut e = engine();
+    let wall = run(
+        &mut e,
+        "rectangle",
+        json!({ "corner_a": [0, 0, 0], "corner_b": [3000, 0, 2500], "plane": { "normal": [0, -1, 0], "d": 0 } }),
+    );
+    run(
+        &mut e,
+        "rectangle",
+        json!({ "corner_a": [0, 5000, 0], "corner_b": [900, 6200, 0] }),
+    );
+    run(
+        &mut e,
+        "make-component",
+        json!({ "targets": "last", "name": "Window", "replace_selection": false,
+                "behavior": { "glue_to": "vertical" } }),
+    );
+    let face = wall["face"].as_u64().unwrap();
+    let window = run(
+        &mut e,
+        "component-insert",
+        json!({ "definition": "Window", "position": [1000, 0, 800], "on_face": { "Pid": face } }),
+    )["instance"]
+        .as_u64()
+        .unwrap();
+    let position = |e: &Engine| {
+        let doc = e.document();
+        let (c, id) = doc.locate_pid(crate::ids::Pid(window)).unwrap();
+        doc.container(c)
+            .unwrap()
+            .transform_of(id)
+            .unwrap()
+            .translation
+    };
+    let normal = {
+        let doc = e.document();
+        let (c, id) = doc.locate_pid(crate::ids::Pid(face)).unwrap();
+        let crate::ids::EntityId::Face(f) = id else {
+            panic!()
+        };
+        doc.container(c)
+            .unwrap()
+            .mesh()
+            .face(f)
+            .unwrap()
+            .plane
+            .normal
+    };
+
+    // Pulling the wall face carries the window along its normal.
+    run(
+        &mut e,
+        "push-pull",
+        json!({ "face": { "Pid": face }, "distance": 200.0 }),
+    );
+    let pulled = position(&e);
+    assert!(
+        pulled.distance(glam::DVec3::new(1000.0, 0.0, 800.0) + normal * 200.0) < 1e-9,
+        "{pulled}"
+    );
+
+    // Moving the whole wall moves the window too.
+    run(
+        &mut e,
+        "move",
+        json!({ "targets": "face | edge", "delta": [0, 0, 1000] }),
+    );
+    assert!((position(&e).z - (pulled.z + 1000.0)).abs() < 1e-9);
+    // Moving the window alone does not move the wall.
+    run(
+        &mut e,
+        "move",
+        json!({ "targets": format!("@{window}"), "delta": [100, 0, 0] }),
+    );
+    assert!((position(&e).x - (pulled.x + 100.0)).abs() < 1e-9);
+    assert_valid(&e);
+}

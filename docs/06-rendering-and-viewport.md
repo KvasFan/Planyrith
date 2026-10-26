@@ -277,3 +277,10 @@ exposes a frame-time overlay (`F11` panel).
   target, tiled repeats tiles of that size from the top left, centered sits in the middle,
   anchored places it at `(anchor_x, anchor_y)` of the free space with a margin of 2 % of the
   height. Transparent-background renders draw neither.
+- 2026-10-26 — **Openings and billboards.** A face that a glued, opening-cutting instance of the
+  same container sits on is triangulated with that instance's opening as an extra hole: the
+  outer loop of the component's largest face lying on its red-green plane (else its footprint
+  rectangle there), placed by the instance's transform; an outline that is not entirely inside
+  the face (and outside its holes) is ignored. Instances of components that always face the
+  camera turn about their blue axis, through their origin, so that their front (the definition's
+  −green direction) faces the eye; picking still uses the stored placement.

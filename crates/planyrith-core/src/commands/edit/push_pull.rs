@@ -125,6 +125,17 @@ impl Command for PushPull {
             .faces()
             .filter_map(|(f, _)| entities.pid_of(EntityId::Face(f)).map(|pid| (f, pid)))
             .collect();
+        // Components glued to the face ride along with the cap (docs/04
+        // §3.3) unless the start face stays.
+        let glued: Vec<(EntityId, crate::document::ComponentInstance)> = entities
+            .instances()
+            .filter(|(_, x)| {
+                x.glued_to
+                    .as_ref()
+                    .is_some_and(|g| entities.key_to_id(g.target) == Some(EntityId::Face(face)))
+            })
+            .map(|(i, x)| (EntityId::Instance(i), x.clone()))
+            .collect();
         let opts = ExtrudeOptions {
             create_new_start_face: p.keep_start_face,
             ..ExtrudeOptions::default()
@@ -141,6 +152,22 @@ impl Command for PushPull {
             .iter()
             .filter_map(|f| before.get(f).copied())
             .collect();
+        if let (false, Some(cap)) = (p.keep_start_face, result.cap) {
+            let cap_pid = pid_of(tx, target.container, EntityId::Face(cap))?;
+            let shift = glam::DAffine3::from_translation(plane.normal * distance);
+            for (id, mut instance) in glued {
+                instance.transform = shift * instance.transform;
+                instance.glued_to = Some(crate::document::EntityPath::new(
+                    target.context.path.clone(),
+                    crate::document::EntityKey::Pid(cap_pid),
+                ));
+                tx.replace_entity(
+                    target.container,
+                    id,
+                    crate::document::EntityRecord::Instance(instance),
+                )?;
+            }
+        }
         let solid_after = tx
             .document()
             .container(target.container)

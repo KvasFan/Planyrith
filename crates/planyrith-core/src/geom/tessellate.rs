@@ -49,6 +49,19 @@ pub fn tessellate_face(
     f: FaceId,
     tol: &Tolerances,
 ) -> Result<FaceTessellation, GeometryError> {
+    tessellate_face_with_openings(mesh, f, tol, &[])
+}
+
+/// [`tessellate_face`] with extra holes that are not part of the mesh (the
+/// openings glued components cut, docs/06 Decisions): rings of points in the
+/// face's plane, each entirely inside the face and outside its holes; a ring
+/// that is not is ignored. Their points carry the null vertex id.
+pub fn tessellate_face_with_openings(
+    mesh: &HalfEdgeMesh,
+    f: FaceId,
+    tol: &Tolerances,
+    openings: &[Vec<DVec3>],
+) -> Result<FaceTessellation, GeometryError> {
     let face = mesh
         .face(f)
         .ok_or_else(|| GeometryError::NotFound(f.to_string()))?;
@@ -76,6 +89,23 @@ pub fn tessellate_face(
             ring.push(frame.to_2d(p));
         }
         holes2d.push(ring);
+    }
+    let mesh_holes = holes2d.len();
+    for opening in openings {
+        let ring: Vec<DVec2> = opening.iter().map(|p| frame.to_2d(*p)).collect();
+        let holes: Vec<&[DVec2]> = holes2d[..mesh_holes].iter().map(Vec::as_slice).collect();
+        let inside = ring.len() >= 3
+            && ring.iter().all(|q| {
+                crate::math::polygon::point_in_polygon(*q, &outer2d, &holes, tol)
+                    == crate::math::polygon::PointInPolygon::Inside
+            });
+        if inside {
+            for p in opening {
+                vertices.push(VertexId::default());
+                positions.push(face.plane.project(*p));
+            }
+            holes2d.push(ring);
+        }
     }
 
     // Front-facing counter-clockwise in the plane frame (whose normal is the

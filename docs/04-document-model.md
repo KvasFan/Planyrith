@@ -310,3 +310,10 @@ tags, non-invertible transforms, `next_pid` monotonicity. `repair` fixes what it
   dropping the texture.
 - 2026-10-25 — `next_pid` is capped at 2⁶² (a file storing more is refused when read), so
   allocation can never wrap; a stored 0 reads as 1.
+- 2026-10-26 — **Gluing (0.4).** A glued instance (`glued_to` set by `component-insert` with
+  `on_face`) follows its face: when Move, Rotate or Scale moves every vertex of the face, the
+  instance gets the same transform; when Push/Pull moves the face (without keeping the start
+  face), the instance moves with the cap by the distance along the normal and is glued to the
+  cap. Moving the instance alone does not move the face. `cuts_opening` is a display effect: the
+  face shows a hole shaped like the component's opening outline (docs/06 Decisions); the face
+  geometry is unchanged, so picking and exports still see the whole face.

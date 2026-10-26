@@ -687,8 +687,20 @@ impl Renderer {
             let Some(mesh) = self.meshes.get(&item.container) else {
                 continue;
             };
-            let clip = camera.clip_from_local(&item.world, depth);
-            let base = make_uniform(&clip.as_mat4().to_cols_array_2d(), &item.world, &camera);
+            // Components that always face the camera turn about their blue
+            // axis (docs/04 §3.3).
+            let world = match item.container {
+                ContainerRef::Definition(d)
+                    if doc
+                        .definition(d)
+                        .is_some_and(|def| def.behavior.always_face_camera) =>
+                {
+                    face_camera(&item.world, &camera)
+                }
+                _ => item.world,
+            };
+            let clip = camera.clip_from_local(&world, depth);
+            let base = make_uniform(&clip.as_mat4().to_cols_array_2d(), &world, &camera);
             let fade = if item.faded {
                 [background[0], background[1], background[2], fade_amount]
             } else {
@@ -1451,6 +1463,28 @@ fn make_uniform(clip: &[[f32; 4]; 4], world: &DAffine3, camera: &Camera) -> Draw
     }
 }
 
+/// `world` turned about its blue axis (through its origin) so that its
+/// front — the definition's −green direction — faces the eye.
+fn face_camera(world: &DAffine3, camera: &Camera) -> DAffine3 {
+    let Some(axis) = world.matrix3.z_axis.try_normalize() else {
+        return *world;
+    };
+    let flat = |v: DVec3| (v - axis * v.dot(axis)).try_normalize();
+    let front = flat(-world.matrix3.y_axis);
+    let toward = flat(camera.eye - world.translation);
+    match (front, toward) {
+        (Some(f), Some(t)) => {
+            let angle = f.cross(t).dot(axis).atan2(f.dot(t));
+            let turn = DMat3::from_axis_angle(axis, angle);
+            DAffine3 {
+                matrix3: turn * world.matrix3,
+                translation: world.translation,
+            }
+        }
+        _ => *world,
+    }
+}
+
 /// A watermark's screen rectangle (NDC x0, y0, x1, y1) and texture
 /// coordinates (u0, v0, u1, v1, v0 at the top) for an image of `aspect`
 /// (width / height) in a `width` × `height` pixel target. Sizes are the
@@ -1893,5 +1927,43 @@ fn build_pipelines(
             depth(false, wgpu::CompareFunction::Always),
             msaa,
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn billboards_turn_their_front_to_the_eye() {
+        let camera = Camera {
+            eye: DVec3::new(5000.0, 0.0, 1700.0),
+            target: DVec3::ZERO,
+            ..Camera::default()
+        };
+        let world = DAffine3::from_translation(DVec3::new(100.0, 0.0, 0.0));
+        let turned = face_camera(&world, &camera);
+        // The front (−green) now points at the eye, level.
+        let front = -turned.matrix3.y_axis;
+        assert!(front.distance(DVec3::X) < 1e-9, "{front}");
+        assert!(turned.matrix3.z_axis.distance(DVec3::Z) < 1e-9);
+        assert_eq!(turned.translation, world.translation);
+    }
+
+    #[test]
+    fn watermarks_anchor_inside_a_margin() {
+        let w = Watermark {
+            image: ImageRef::from_bytes(b"x"),
+            placement: WatermarkPlacement::Anchored(1.0, 1.0),
+            opacity: 1.0,
+            scale: 0.1,
+            behind_model: false,
+        };
+        // A 2:1 image, 10 % of a 1000 px high target: 200 × 100 px.
+        let (ndc, uv) = watermark_rect(&w, 2.0, 2000.0, 1000.0);
+        let px = |x: f32| (f64::from(x) + 1.0) * 0.5 * 2000.0;
+        assert!((px(ndc[2]) - (2000.0 - 20.0)).abs() < 1e-3, "{ndc:?}");
+        assert!((px(ndc[2]) - px(ndc[0]) - 200.0).abs() < 1e-3);
+        assert_eq!(uv, [0.0, 0.0, 1.0, 1.0]);
     }
 }
