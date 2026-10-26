@@ -96,6 +96,8 @@ pub enum Flow {
     Select(Selection),
     /// Open this group or component for editing.
     Enter(EntityPath),
+    /// Open the texture placement window for this face.
+    Texture(EntityPath),
 }
 
 impl Flow {

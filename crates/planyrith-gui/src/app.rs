@@ -188,6 +188,32 @@ pub struct App {
     animation: Option<(Vec<String>, usize, f64)>,
     /// Materials, Components and Styles panels.
     resources: ResourceState,
+    /// The texture placement window: the face and the fields.
+    texture: Option<(planyrith_core::document::EntityPath, TextureFields)>,
+}
+
+/// The fields of the texture placement window (docs/05 §5.9).
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct TextureFields {
+    offset_u: f64,
+    offset_v: f64,
+    rotation: f64,
+    scale_u: f64,
+    scale_v: f64,
+    both_sides: bool,
+}
+
+impl Default for TextureFields {
+    fn default() -> Self {
+        TextureFields {
+            offset_u: 0.0,
+            offset_v: 0.0,
+            rotation: 0.0,
+            scale_u: 1.0,
+            scale_v: 1.0,
+            both_sides: false,
+        }
+    }
 }
 
 impl App {
@@ -234,6 +260,7 @@ impl App {
             tabs: 0,
             animation: None,
             resources: ResourceState::default(),
+            texture: None,
         }
     }
 
@@ -366,6 +393,7 @@ impl App {
         for flow in flows {
             match flow {
                 Flow::Continue => {}
+                Flow::Texture(face) => self.texture = Some((face, TextureFields::default())),
                 Flow::Run(commands) => {
                     for (name, params) in commands {
                         match self.session.execute(&name, params.clone()) {
@@ -737,6 +765,11 @@ impl App {
                     self.dialog = Self::document_dialog();
                     self.dialog_purpose = Some(DialogPurpose::SaveAs);
                     self.dialog.save_file();
+                    ui.close();
+                }
+                ui.separator();
+                if ui.button("Insert Image…").clicked() {
+                    self.resources.file = Some(FileRequest::Image);
                     ui.close();
                 }
                 ui.separator();
@@ -1231,6 +1264,90 @@ impl App {
         }
     }
 
+    /// The texture placement window (docs/05 §5.9): offset, rotation and
+    /// scale of the selected face's texture, applied as one command.
+    fn texture_window(&mut self, ctx: &egui::Context) {
+        let Some((face, fields)) = &mut self.texture else {
+            return;
+        };
+        let mut open = true;
+        let mut apply = None;
+        egui::Window::new("Position Texture")
+            .open(&mut open)
+            .resizable(false)
+            .collapsible(false)
+            .show(ctx, |ui| {
+                egui::Grid::new("texture fields")
+                    .num_columns(2)
+                    .show(ui, |ui| {
+                        ui.label("Offset");
+                        ui.horizontal(|ui| {
+                            ui.add(
+                                egui::DragValue::new(&mut fields.offset_u)
+                                    .speed(5.0)
+                                    .suffix(" mm"),
+                            );
+                            ui.add(
+                                egui::DragValue::new(&mut fields.offset_v)
+                                    .speed(5.0)
+                                    .suffix(" mm"),
+                            );
+                        });
+                        ui.end_row();
+                        ui.label("Rotation");
+                        ui.add(
+                            egui::DragValue::new(&mut fields.rotation)
+                                .speed(1.0)
+                                .range(-360.0..=360.0)
+                                .suffix("°"),
+                        );
+                        ui.end_row();
+                        ui.label("Scale");
+                        ui.horizontal(|ui| {
+                            ui.add(
+                                egui::DragValue::new(&mut fields.scale_u)
+                                    .speed(0.01)
+                                    .range(0.01..=100.0),
+                            );
+                            ui.add(
+                                egui::DragValue::new(&mut fields.scale_v)
+                                    .speed(0.01)
+                                    .range(0.01..=100.0),
+                            );
+                        });
+                        ui.end_row();
+                        ui.label("");
+                        ui.checkbox(&mut fields.both_sides, "Both sides");
+                        ui.end_row();
+                    });
+                ui.horizontal(|ui| {
+                    let side = if fields.both_sides { "both" } else { "front" };
+                    if ui.button("Apply").clicked() {
+                        apply = Some(json!({
+                            "face": { "Path": face },
+                            "side": side,
+                            "offset_u": fields.offset_u,
+                            "offset_v": fields.offset_v,
+                            "rotation": fields.rotation,
+                            "scale_u": fields.scale_u,
+                            "scale_v": fields.scale_v,
+                        }));
+                    }
+                    if ui.button("Reset").clicked() {
+                        apply =
+                            Some(json!({ "face": { "Path": face }, "side": side, "reset": true }));
+                        *fields = TextureFields::default();
+                    }
+                });
+            });
+        if let Some(params) = apply {
+            self.run("texture-position", params);
+        }
+        if !open {
+            self.texture = None;
+        }
+    }
+
     /// Opens the file dialog for a panel's request.
     fn open_resource_dialog(&mut self, request: FileRequest) {
         let (title, kind, extensions, saves) = request.dialog();
@@ -1527,6 +1644,7 @@ impl App {
         if let Some(e) = self.viewport.error.take() {
             self.error(e);
         }
+        self.texture_window(&ctx);
         self.file_dialog(&ctx);
         self.discard_prompt(&ctx);
 

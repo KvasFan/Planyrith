@@ -336,6 +336,15 @@ fn styles_and_watermarks() {
             ),
             ("material-delete", json!({ "material": "Oak" })),
             (
+                "image-insert",
+                json!({ "path": "wood.png", "width": 800.0 }),
+            ),
+            ("explode", json!({ "targets": "image" })),
+            (
+                "texture-position",
+                json!({ "face": { "Query": "face" }, "side": "both", "rotation": 45.0 }),
+            ),
+            (
                 "style-create",
                 json!({ "name": "Other", "activate": false }),
             ),

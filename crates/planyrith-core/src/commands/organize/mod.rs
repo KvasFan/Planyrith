@@ -11,6 +11,7 @@
 
 mod components;
 mod groups;
+mod images;
 mod libraries;
 mod materials;
 mod scenes;
@@ -27,6 +28,7 @@ pub use groups::{
     Explode, ExplodeOutput, ExplodeParams, MakeComponent, MakeComponentOutput, MakeComponentParams,
     MakeGroup, MakeGroupOutput, MakeGroupParams,
 };
+pub use images::{ImageInsert, ImageInsertOutput, ImageInsertParams};
 pub use libraries::{
     MaterialLibraryLoad, MaterialLibraryLoadParams, MaterialLibraryOutput, MaterialLibrarySave,
     MaterialLibrarySaveParams,
@@ -35,7 +37,7 @@ pub use materials::{
     Fill, MaterialApply, MaterialApplyOutput, MaterialApplyParams, MaterialCreate,
     MaterialCreateParams, MaterialDelete, MaterialDeleteParams, MaterialEdit, MaterialEditParams,
     MaterialOutput, MaterialPurge, MaterialPurgeOutput, MaterialPurgeParams, MaterialSample,
-    MaterialSampleParams, Side,
+    MaterialSampleParams, Side, TexturePosition, TexturePositionParams,
 };
 pub use scenes::{
     SceneActivate, SceneActivateParams, SceneAdd, SceneAddParams, SceneCapture, SceneDelete,
@@ -66,6 +68,7 @@ pub fn register(registry: &mut CommandRegistry) {
     registry.register(MakeComponent);
     registry.register(Explode);
     registry.register(MakeUnique);
+    registry.register(ImageInsert);
     registry.register(ComponentInsert);
     registry.register(ComponentSaveAs);
     registry.register(ComponentReload);
@@ -85,6 +88,7 @@ pub fn register(registry: &mut CommandRegistry) {
     registry.register(MaterialApply);
     registry.register(MaterialPurge);
     registry.register(MaterialSample);
+    registry.register(TexturePosition);
     registry.register(MaterialLibrarySave);
     registry.register(MaterialLibraryLoad);
     registry.register(SceneAdd);

@@ -1,0 +1,5 @@
+# A textured face with its texture shifted, turned and doubled.
+material-create --name Oak --color '#A0522D' --texture textures/oak.png --texture-width 500mm
+rectangle --corner-a 0,0,0 --corner-b 2000,1000,0
+material-apply --targets face --material Oak --side both
+texture-position --face '{face}' --side both --offset-u 250mm --rotation 30 --scale-u 2 --scale-v 2

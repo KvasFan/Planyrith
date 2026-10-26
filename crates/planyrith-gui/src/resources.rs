@@ -30,6 +30,8 @@ pub enum FileRequest {
     StyleLibraryLoad,
     /// A `.plyrs` to write.
     StyleLibrarySave,
+    /// An image to insert as an image entity.
+    Image,
 }
 
 impl FileRequest {
@@ -52,6 +54,7 @@ impl FileRequest {
             }
             FileRequest::StyleLibraryLoad => ("Load styles", "Style libraries", &["plyrs"], false),
             FileRequest::StyleLibrarySave => ("Save styles", "Style libraries", &["plyrs"], true),
+            FileRequest::Image => ("Insert image", "Images", IMAGES, false),
         }
     }
 
@@ -75,6 +78,7 @@ impl FileRequest {
             }
             FileRequest::StyleLibraryLoad => ("style-library-load", json!({ "path": path })),
             FileRequest::StyleLibrarySave => ("style-library-save", json!({ "path": path })),
+            FileRequest::Image => ("image-insert", json!({ "path": path })),
         }
     }
 }

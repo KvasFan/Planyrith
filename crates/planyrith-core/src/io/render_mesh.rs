@@ -337,6 +337,57 @@ pub fn extract(
             }
         }
     }
+    // Image entities: textured rectangles, the image filling them, seen
+    // from both sides (docs/04 §3.7). They are not pickable by face.
+    for &id in entities.order() {
+        let EntityId::Image(i) = id else { continue };
+        let Some(image) = entities.image(i) else {
+            continue;
+        };
+        if entity_hidden(doc, entities, id) && !opts.include_hidden {
+            continue;
+        }
+        let (w, h) = (image.width.as_mm(), image.height.as_mm());
+        let corners = [
+            (DVec3::ZERO, [0.0f32, 0.0]),
+            (DVec3::new(w, 0.0, 0.0), [1.0, 0.0]),
+            (DVec3::new(w, h, 0.0), [1.0, 1.0]),
+            (DVec3::new(0.0, h, 0.0), [0.0, 1.0]),
+        ];
+        let normal = image
+            .transform
+            .matrix3
+            .z_axis
+            .try_normalize()
+            .unwrap_or(DVec3::Z);
+        for side in [FrontOrBack::Front, FrontOrBack::Back] {
+            let base = out.positions.len() as u32;
+            let flip = if side == FrontOrBack::Front {
+                1.0
+            } else {
+                -1.0
+            };
+            for (c, uv) in corners {
+                let p = image.transform.transform_point3(c);
+                bounds = bounds.including(p);
+                out.positions.push(f32x3(p));
+                out.normals.push(f32x3(normal * flip));
+                out.uvs.push(uv);
+                out.face_ids.push(u32::MAX);
+            }
+            let bucket = buckets
+                .entry(MaterialKey {
+                    material: Some(image.material),
+                    side,
+                })
+                .or_default();
+            if side == FrontOrBack::Front {
+                bucket.extend([base, base + 1, base + 2, base, base + 2, base + 3]);
+            } else {
+                bucket.extend([base, base + 2, base + 1, base, base + 3, base + 2]);
+            }
+        }
+    }
     for (key, list) in buckets {
         let start = out.indices.len() as u32;
         out.indices.extend(list);

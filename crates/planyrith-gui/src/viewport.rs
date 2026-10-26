@@ -910,6 +910,24 @@ fn context_menu(ui: &mut egui::Ui, session: &Session, flows: &mut Vec<Flow>) {
         "Explode",
         run("explode", selection.clone()),
     );
+    // One face selected: its texture's placement.
+    let single_face = {
+        let doc = session.doc();
+        let mut items = session.engine.selection().iter();
+        match (items.next(), items.next()) {
+            (Some(path), None)
+                if doc
+                    .resolve(path)
+                    .is_ok_and(|r| matches!(r.entity, EntityId::Face(_))) =>
+            {
+                Some(path.clone())
+            }
+            _ => None,
+        }
+    };
+    if let Some(face) = single_face {
+        item(ui, true, "Position Texture…", Flow::Texture(face));
+    }
     item(
         ui,
         has_selection,

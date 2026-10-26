@@ -582,3 +582,15 @@ UI hints are generated from one source.
   folder, which hides the entities of every tag inside it and its sub-folders. The Tags panel
   shows the folders as collapsible groups with their visibility, a folder menu on each tag and
   "Add folder"; an empty folder can be deleted.
+- 2026-10-26 — **Images and texture positioning (0.4).** `image-insert { path, position?,
+  width?, height?, normal (+Z) }` adds an image entity: a material named after the file (made
+  unique) carries the image at the rectangle's size, red axis horizontal (world red on the
+  ground), lower left corner at `position`; one side given keeps the image's proportions, none
+  makes it 1 m wide. `explode` on an image entity draws its rectangle as a face painted with
+  that material, mapped so the image fills it exactly. `texture-position { face, side (front,
+  back, both), offset_u, offset_v, rotation (degrees), scale_u, scale_v, reset }` places a
+  texture with an offset in the face frame, a rotation and a stretch (an affine map); the pin
+  modes, `project_from` and `copy_to` of §5.9 come later. The GUI offers "Position Texture…" in
+  the context menu of one selected face (a window applying the command) and File › Insert
+  Image…. Image entities are drawn two-sided; they are not picked by clicking yet (select them
+  with the `image` query).

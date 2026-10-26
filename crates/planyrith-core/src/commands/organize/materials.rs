@@ -798,3 +798,127 @@ impl Command for MaterialSample {
         }
     }
 }
+
+// ----- texture-position ---------------------------------------------------------------------
+
+/// `texture-position` parameters (docs/05 §5.9, offset/rotation/scale form).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct TexturePositionParams {
+    /// Common fields.
+    #[serde(flatten)]
+    pub common: CommonParams,
+    /// The face.
+    pub face: crate::commands::EntityRef,
+    /// Side (front; `both` positions both).
+    #[serde(default)]
+    pub side: Side,
+    /// Where the texture's origin goes along the face's first axis.
+    #[serde(default)]
+    pub offset_u: Length,
+    /// Where the texture's origin goes along the face's second axis.
+    #[serde(default)]
+    pub offset_v: Length,
+    /// Rotation of the texture, degrees counter-clockwise (0).
+    #[serde(default)]
+    pub rotation: f64,
+    /// Stretch along the texture's width (1).
+    #[serde(default = "unit_scale")]
+    pub scale_u: f64,
+    /// Stretch along the texture's height (1).
+    #[serde(default = "unit_scale")]
+    pub scale_v: f64,
+    /// Back to the default placement (the others are ignored).
+    #[serde(default)]
+    pub reset: bool,
+}
+
+fn unit_scale() -> f64 {
+    1.0
+}
+
+/// The `texture-position` command.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct TexturePosition;
+
+impl Command for TexturePosition {
+    type Params = TexturePositionParams;
+    type Output = MaterialApplyOutput;
+
+    fn name(&self) -> &'static str {
+        "texture-position"
+    }
+
+    fn validate(&self, _doc: &Document, p: &TexturePositionParams) -> Result<(), CommandError> {
+        for (name, v) in [("scale_u", p.scale_u), ("scale_v", p.scale_v)] {
+            if !(v.is_finite() && v.abs() > 1e-9) {
+                return Err(CommandError::OutOfRange {
+                    name: name.into(),
+                    reason: "must be a finite, non-zero factor".into(),
+                });
+            }
+        }
+        if !p.rotation.is_finite()
+            || !p.offset_u.as_mm().is_finite()
+            || !p.offset_v.as_mm().is_finite()
+        {
+            return Err(CommandError::invalid_param("rotation", "must be finite"));
+        }
+        Ok(())
+    }
+
+    fn apply(
+        &self,
+        tx: &mut Transaction<'_>,
+        p: TexturePositionParams,
+    ) -> Result<MaterialApplyOutput, CommandError> {
+        let target = target_container(tx, &p.common)?;
+        let resolved = crate::commands::params::resolve_ref(tx, &target.context, "face", &p.face)?;
+        let EntityId::Face(face) = resolved.id else {
+            return Err(CommandError::NotApplicable(format!(
+                "{} is not a face",
+                p.face
+            )));
+        };
+        if resolved.container != target.container {
+            return Err(CommandError::NotApplicable(
+                "the face is not in the edit context; open its group first".into(),
+            ));
+        }
+        let mut sides = tx
+            .document()
+            .container(target.container)
+            .and_then(|c| c.mesh().face(face))
+            .map(|f| f.sides.clone())
+            .ok_or_else(|| CommandError::Internal("face vanished".into()))?;
+        // Face-frame millimeters → texture millimeters: the texture origin
+        // at the offset, turned and stretched.
+        let map = (!p.reset).then(|| {
+            let (sin, cos) = (
+                libm::sin(p.rotation.to_radians()),
+                libm::cos(p.rotation.to_radians()),
+            );
+            let unturn =
+                glam::DMat2::from_cols(glam::DVec2::new(cos, -sin), glam::DVec2::new(sin, cos));
+            let unstretch =
+                glam::DMat2::from_diagonal(glam::DVec2::new(1.0 / p.scale_u, 1.0 / p.scale_v));
+            let m = unstretch * unturn;
+            let offset = glam::DVec2::new(p.offset_u.as_mm(), p.offset_v.as_mm());
+            crate::document::UvMap::Affine(glam::DAffine2::from_mat2_translation(m, -(m * offset)))
+        });
+        if matches!(p.side, Side::Front | Side::Both) {
+            sides.uv_front = map.clone();
+        }
+        if matches!(p.side, Side::Back | Side::Both) {
+            sides.uv_back = map;
+        }
+        tx.with_mesh(target.container, |m, _, d| m.set_face_sides(face, sides, d))?;
+        Ok(MaterialApplyOutput {
+            faces: 1,
+            occurrences: 0,
+        })
+    }
+
+    fn meta(&self) -> CommandMeta {
+        meta("texture-position", "Position Texture")
+    }
+}

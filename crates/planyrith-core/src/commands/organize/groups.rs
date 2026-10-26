@@ -606,12 +606,21 @@ impl Command for Explode {
         let target = target_container(tx, &p.common)?;
         let ids: Vec<EntityId> = targets_in(tx, &target, &p.targets)?
             .into_iter()
-            .filter(|id| matches!(id, EntityId::Group(_) | EntityId::Instance(_)))
+            .filter(|id| {
+                matches!(
+                    id,
+                    EntityId::Group(_) | EntityId::Instance(_) | EntityId::Image(_)
+                )
+            })
             .collect();
         refuse_locked(tx, target.container, &ids)?;
         let before = tx.created().len();
         for &id in &ids {
-            explode_one(tx, target.container, id)?;
+            if matches!(id, EntityId::Image(_)) {
+                crate::commands::organize::images::explode_image(tx, &target, id)?;
+            } else {
+                explode_one(tx, target.container, id)?;
+            }
         }
         Ok(ExplodeOutput {
             exploded: ids.len(),

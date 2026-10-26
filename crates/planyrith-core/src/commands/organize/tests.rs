@@ -1024,3 +1024,94 @@ fn glued_components_follow_their_face() {
     assert!((position(&e).x - (pulled.x + 100.0)).abs() < 1e-9);
     assert_valid(&e);
 }
+
+#[test]
+fn images_insert_explode_and_textures_position() {
+    let (mut e, _storage) = engine_with_storage();
+    // oak.png is 64 × 32: a 2 m wide image is 1 m high.
+    let out = run(
+        &mut e,
+        "image-insert",
+        json!({ "path": "textures/oak.png", "position": [100, 200, 0], "width": 2000.0 }),
+    );
+    assert_eq!(out["material"], "oak");
+    let doc = e.document();
+    assert_eq!(doc.model.counts().images, 1);
+    let m = doc
+        .materials
+        .get(doc.materials.by_name("oak").unwrap())
+        .unwrap();
+    assert_eq!(
+        m.texture.as_ref().unwrap().size_mm,
+        glam::DVec2::new(2000.0, 1000.0)
+    );
+    let mesh = crate::io::render_mesh::extract(
+        doc,
+        crate::document::ContainerRef::Model,
+        Default::default(),
+    )
+    .unwrap();
+    assert_eq!(mesh.positions.len(), 8, "a two-sided quad");
+
+    // Exploded, it is a face whose texture fills it exactly.
+    run(&mut e, "explode", json!({ "targets": "image" }));
+    let doc = e.document();
+    assert_eq!(doc.model.counts().images, 0);
+    let (_, face) = doc.model.mesh().faces().next().unwrap();
+    let oak = doc.materials.by_name("oak").unwrap();
+    let (material, map) = if face.sides.material_front == Some(oak) {
+        (face.sides.material_front, face.sides.uv_front.clone())
+    } else {
+        (face.sides.material_back, face.sides.uv_back.clone())
+    };
+    assert_eq!(material, Some(oak));
+    let Some(crate::document::UvMap::Affine(a)) = map else {
+        panic!("{map:?}")
+    };
+    let frame = face.plane.frame();
+    let mm = |p: glam::DVec3| a.transform_point2(frame.to_2d(p));
+    assert!(mm(glam::DVec3::new(100.0, 200.0, 0.0)).length() < 1e-9);
+    assert!(
+        mm(glam::DVec3::new(2100.0, 200.0, 0.0)).distance(glam::DVec2::new(2000.0, 0.0)) < 1e-9
+    );
+    assert!(
+        mm(glam::DVec3::new(100.0, 1200.0, 0.0)).distance(glam::DVec2::new(0.0, 1000.0)) < 1e-9
+    );
+
+    // Texture position: shifted, turned a quarter, doubled; then reset.
+    let pid = doc
+        .model
+        .pid_of(
+            doc.model
+                .order()
+                .iter()
+                .copied()
+                .find(|id| matches!(id, crate::ids::EntityId::Face(_)))
+                .unwrap(),
+        )
+        .unwrap();
+    run(
+        &mut e,
+        "texture-position",
+        json!({ "face": { "Pid": pid.0 }, "side": "both", "offset_u": 100.0, "rotation": 90.0, "scale_u": 2.0, "scale_v": 2.0 }),
+    );
+    let doc = e.document();
+    let (_, face) = doc.model.mesh().faces().next().unwrap();
+    let Some(crate::document::UvMap::Affine(a)) = face.sides.uv_front.clone() else {
+        panic!()
+    };
+    // The offset point is the texture origin; one face unit along +v maps
+    // to half a unit along −u of the texture (turned, stretched twice).
+    assert!(a.transform_point2(glam::DVec2::new(100.0, 0.0)).length() < 1e-9);
+    let step = a.transform_point2(glam::DVec2::new(100.0, 2.0));
+    assert!(step.distance(glam::DVec2::new(1.0, 0.0)) < 1e-9, "{step}");
+    run(
+        &mut e,
+        "texture-position",
+        json!({ "face": { "Pid": pid.0 }, "side": "both", "reset": true }),
+    );
+    let doc = e.document();
+    let (_, face) = doc.model.mesh().faces().next().unwrap();
+    assert!(face.sides.uv_front.is_none() && face.sides.uv_back.is_none());
+    assert_valid(&e);
+}
