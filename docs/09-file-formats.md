@@ -253,3 +253,18 @@ save unless `--no-thumbnail`. `manifest.json` carries `title`, `author`, `descri
   and with fixed timestamps; `.csv` writes the component report — one row per component shown,
   in definition order: name, occurrences, width/depth/height of its bounding box in its own axes
   and its volume when solid (in `file_units`), description.
+- 2026-10-26 — **DXF.** Import (ASCII; binary refused): LINE, LWPOLYLINE (bulges as arcs),
+  POLYLINE (2D, 3D, polyface and polygon meshes), ARC, CIRCLE, ELLIPSE and SPLINE (NURBS evaluated;
+  fit points when there are no control points) become edges, segmented at 24 per full turn, in
+  their object coordinate system; 3DFACE and mesh faces become faces. Edges go through the
+  kernel's `add_edge` (as when drawn), so closed planar outlines become faces. A BLOCK becomes a
+  component (built on first INSERT, base point at its origin) and INSERT an instance, rows and
+  columns included; nesting deeper than 32 or recursive blocks are skipped. Model space content
+  goes into one group per layer, tagged with a tag of the layer's name (made if missing, colored
+  from the layer's first seven color indices); layer `0` is untagged, and a drawing with only
+  layer `0` needs no layer groups. Entities inside blocks keep no layers. Text, dimensions,
+  hatches and other entities are skipped and counted by type (`W2004`). Units from `$INSUNITS`
+  (in, ft, mm, cm, m) unless `file_units`, else millimeters. Export (3D): R12 ASCII with each face
+  as `3DFACE` triangles and each hard edge as a `LINE` in world coordinates and `file_units`
+  (`$INSUNITS`), on the layer named after the occurrence's innermost tag (characters DXF forbids
+  become `_`; untagged: `0`). 2D DXF of a view comes with the 2D exports.

@@ -111,7 +111,7 @@ fn unique_material_name(doc: &Document, name: &str) -> String {
         .unwrap_or_else(|| base.to_string())
 }
 
-fn unique_component_name(doc: &Document, name: &str) -> String {
+pub(crate) fn unique_component_name(doc: &Document, name: &str) -> String {
     let base = if name.trim().is_empty() {
         "Component"
     } else {
@@ -383,52 +383,16 @@ pub fn build_scene(
             let next = key_ids.len() as u32;
             keys.push(*key_ids.entry((material, quantized)).or_insert(next));
         }
-        let ids: Vec<Option<MaterialId>> = materials.clone();
-        let part =
-            |subset: &[usize]| build_part(&positions, mesh, subset, &keys, &maps, &ids, opts, &tol);
-        let all: Vec<usize> = (0..mesh.triangles.len()).collect();
-        let (whole, mut skipped) = part(&all)?;
-        // Overlapping shells in one mesh cross each other: then each
-        // connected shell becomes a group, and a shell that crosses itself
-        // is left out.
-        let pieces: Vec<HalfEdgeMesh> = if whole.edge_crossings(&tol).is_empty() {
-            vec![whole]
-        } else {
-            skipped = 0;
-            let mut pieces = Vec::new();
-            let mut crossing = 0usize;
-            for shell in shells(&positions, &mesh.triangles, &tol) {
-                let (piece, bad) = part(&shell)?;
-                if piece.edge_crossings(&tol).is_empty() {
-                    skipped += bad;
-                    if piece.face_count() > 0 {
-                        pieces.push(piece);
-                    }
-                } else {
-                    crossing += shell.len();
-                }
-            }
-            if crossing > 0 {
-                report.warnings.push(Warning::new(
-                    WarningCode::W2004,
-                    format!(
-                        "`{}`: {crossing} self-intersecting triangles skipped",
-                        mesh.name
-                    ),
-                ));
-                report.skipped += crossing;
-            }
-            pieces
-        };
-        if skipped > 0 {
-            report.warnings.push(Warning::new(
-                WarningCode::W2004,
-                format!(
-                    "`{}`: {skipped} degenerate or non-manifold triangles skipped",
-                    mesh.name
-                ),
-            ));
-        }
+        let pieces = triangle_pieces(
+            &positions,
+            mesh,
+            &keys,
+            &maps,
+            &materials,
+            opts,
+            &tol,
+            &mut report,
+        )?;
         for piece in &pieces {
             report.faces += piece.face_count();
             report.edges += piece.edge_count();
@@ -447,52 +411,11 @@ pub fn build_scene(
                 true,
             )
         };
-        let mut pieces = pieces.into_iter();
-        let entities = match (pieces.len(), pieces.next()) {
-            (1, Some(only)) => Entities::from_mesh(only, || tx.allocate_pid()),
-            (_, first) => {
-                // One group per shell.
-                let mut groups = Vec::new();
-                for piece in first.into_iter().chain(pieces) {
-                    let group_name = format!(
-                        "Group {}",
-                        crate::commands::common::group_number(tx.document())
-                    );
-                    let entities = Entities::from_mesh(piece, || tx.allocate_pid());
-                    let uuid = crate::commands::common::definition_uuid_of(
-                        tx.document(),
-                        &group_name,
-                        &[
-                            bytemuck::cast_slice(&positions),
-                            bytemuck::cast_slice(&mesh.triangles),
-                            &entities.order().len().to_le_bytes(),
-                        ],
-                    );
-                    let mut def = ComponentDefinition::new(uuid, group_name.clone());
-                    def.is_internal_group = true;
-                    def.entities = entities;
-                    groups.push((tx.insert_definition(def).map_err(io)?, group_name));
-                }
-                let mut entities = Entities::new();
-                for (definition, name) in groups {
-                    let pid = tx.allocate_pid();
-                    entities
-                        .insert(
-                            EntityRecord::Group(Group {
-                                definition,
-                                transform: DAffine3::IDENTITY,
-                                name,
-                            }),
-                            pid,
-                        )
-                        .map_err(|e| IoError::Corrupt {
-                            part: mesh.name.clone(),
-                            reason: e.to_string(),
-                        })?;
-                }
-                entities
-            }
-        };
+        let source: [&[u8]; 2] = [
+            bytemuck::cast_slice(&positions),
+            bytemuck::cast_slice(&mesh.triangles),
+        ];
+        let entities = entities_of_pieces(tx, pieces, &source, &mesh.name)?;
         // The source data names the contents (cheaper than encoding them).
         let uuid = crate::commands::common::definition_uuid_of(
             tx.document(),
@@ -589,4 +512,119 @@ pub(crate) fn place(
     };
     let (_, pid): (_, Pid) = tx.insert_entity(target.container, record).map_err(io)?;
     Ok(pid)
+}
+
+/// The faces of `mesh`'s triangles (`positions` in document units) as one
+/// mesh, or — when that one has edges crossing (overlapping parts) — one
+/// mesh per connected shell, leaving out shells that cross themselves.
+/// Skipped triangles are reported as warnings.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn triangle_pieces(
+    positions: &[DVec3],
+    mesh: &ImportedMesh,
+    keys: &[u32],
+    maps: &[Option<DAffine2>],
+    materials: &[Option<MaterialId>],
+    opts: &ImportOptions,
+    tol: &Tolerances,
+    report: &mut ImportReport,
+) -> Result<Vec<HalfEdgeMesh>, IoError> {
+    if mesh.triangles.is_empty() {
+        return Ok(Vec::new());
+    }
+    let part =
+        |subset: &[usize]| build_part(positions, mesh, subset, keys, maps, materials, opts, tol);
+    let all: Vec<usize> = (0..mesh.triangles.len()).collect();
+    let (whole, mut skipped) = part(&all)?;
+    let pieces: Vec<HalfEdgeMesh> = if whole.edge_crossings(tol).is_empty() {
+        vec![whole]
+    } else {
+        skipped = 0;
+        let mut pieces = Vec::new();
+        let mut crossing = 0usize;
+        for shell in shells(positions, &mesh.triangles, tol) {
+            let (piece, bad) = part(&shell)?;
+            if piece.edge_crossings(tol).is_empty() {
+                skipped += bad;
+                if piece.face_count() > 0 {
+                    pieces.push(piece);
+                }
+            } else {
+                crossing += shell.len();
+            }
+        }
+        if crossing > 0 {
+            report.warnings.push(Warning::new(
+                WarningCode::W2004,
+                format!(
+                    "`{}`: {crossing} self-intersecting triangles skipped",
+                    mesh.name
+                ),
+            ));
+            report.skipped += crossing;
+        }
+        pieces
+    };
+    if skipped > 0 {
+        report.warnings.push(Warning::new(
+            WarningCode::W2004,
+            format!(
+                "`{}`: {skipped} degenerate or non-manifold triangles skipped",
+                mesh.name
+            ),
+        ));
+    }
+    Ok(pieces)
+}
+
+/// The entities of a definition holding `pieces`: the one mesh itself, or
+/// one group per piece. `source` (the raw data read) names the groups'
+/// definitions.
+pub(crate) fn entities_of_pieces(
+    tx: &mut Transaction<'_>,
+    pieces: Vec<HalfEdgeMesh>,
+    source: &[&[u8]],
+    name: &str,
+) -> Result<Entities, IoError> {
+    let mut pieces = pieces.into_iter();
+    match (pieces.len(), pieces.next()) {
+        (1, Some(only)) => Ok(Entities::from_mesh(only, || tx.allocate_pid())),
+        (_, first) => {
+            let mut groups = Vec::new();
+            for piece in first.into_iter().chain(pieces) {
+                let group_name = format!(
+                    "Group {}",
+                    crate::commands::common::group_number(tx.document())
+                );
+                let entities = Entities::from_mesh(piece, || tx.allocate_pid());
+                let count = entities.order().len().to_le_bytes();
+                let mut parts = source.to_vec();
+                parts.push(&count);
+                let uuid =
+                    crate::commands::common::definition_uuid_of(tx.document(), &group_name, &parts);
+                let mut def = ComponentDefinition::new(uuid, group_name.clone());
+                def.is_internal_group = true;
+                def.entities = entities;
+                groups.push((tx.insert_definition(def).map_err(io)?, group_name));
+            }
+            let mut entities = Entities::new();
+            for (definition, group_name) in groups {
+                let pid = tx.allocate_pid();
+                entities
+                    .insert(
+                        EntityRecord::Group(Group {
+                            definition,
+                            transform: DAffine3::IDENTITY,
+                            name: group_name,
+                        }),
+                        pid,
+                    )
+                    .map_err(|e| IoError::Corrupt {
+                        part: name.to_string(),
+                        reason: e.to_string(),
+                    })?;
+            }
+            Ok(entities)
+        }
+    }
 }

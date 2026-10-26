@@ -35,7 +35,7 @@ high-frequency interaction**.
 | glTF | **gltf** | MIT/Apache-2.0 | own | Complete, maintained. |
 | OBJ | **tobj** (import); own writer | MIT | obj-rs | Simple and robust. |
 | STL | own (format is trivial) | — | stl_io | Avoid a dependency for 30 lines. |
-| DXF | **dxf** crate | MIT | own | Covers entities we need (LINE, LWPOLYLINE, ARC, CIRCLE, 3DFACE, INSERT, TEXT, DIMENSION). |
+| DXF | own reader/writer | — | dxf crate (rejected, see Decisions) | ASCII group codes; covers the entities of docs/09 §5. |
 | STEP | **truck-stepio** (feature `brep`) | Apache-2.0 | — | Only pure-Rust option. |
 | PDF export (sheets) | **printpdf** or **pdf-writer** | MIT/Apache-2.0 | — | Pure Rust; `pdf-writer` is lower level but lean; choose at milestone 0.9. |
 | SVG export | own writer (simple) | — | svg crate | Trivial. |
@@ -211,3 +211,9 @@ powerful but add ~10 MB and do not run inside the web build; they are a post-1.0
   `KHR_texture_transform`: without `import` it never touches the file system, and buffers and
   images are resolved through the storage (data URIs decoded by the core). glTF is written by the
   core with `serde_json`; OBJ, MTL and STL writers are the core's own. `cargo deny check` passes.
+- 2026-10-26 — **DXF: the core's own reader and writer, not the `dxf` crate.** The crate's
+  drawing defaults read the local clock and time zone and make random UUIDs (header creation
+  dates and GUIDs) every time a drawing is created or read, which the core forbids (no clock,
+  locale or randomness; it would also differ between runs). ASCII DXF is a simple group-code
+  format: the core reads the entities docs/09 §5 lists (R12–2018 ASCII; binary DXF is refused
+  with `E1401`) and writes R12 ASCII, the most widely read version.

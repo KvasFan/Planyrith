@@ -1,5 +1,5 @@
-# Export a textured box as STL (binary and ASCII), OBJ, glTF/GLB, a native
-# copy and a component report (the document is unchanged).
+# Export a textured box as STL (binary and ASCII), OBJ, glTF/GLB, DXF, a
+# native copy and a component report (the document is unchanged).
 material-create --name Oak --color '#A0522D' --texture textures/oak.png
 rectangle --corner-a 0,0,0 --corner-b 600,400,0
 push-pull --face '{face & last}' --distance 300
@@ -11,4 +11,5 @@ export --path exports/box.obj
 export --path exports/box.gltf
 export --path exports/box.glb
 export --path exports/box.plyr
+export --path exports/box.dxf --file-units m
 export --path exports/report.csv --file-units cm

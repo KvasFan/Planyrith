@@ -7,6 +7,7 @@
 //! stream their output.
 
 pub mod csv;
+pub mod dxf;
 pub mod gltf;
 pub mod json;
 pub mod obj;
@@ -182,6 +183,7 @@ pub trait Exporter: Send + Sync {
 pub fn exporter(format: ExportFormat) -> Option<Box<dyn Exporter>> {
     match format {
         ExportFormat::Csv => Some(Box::new(csv::CsvExporter)),
+        ExportFormat::Dxf => Some(Box::new(dxf::DxfExporter)),
         ExportFormat::Gltf => Some(Box::new(gltf::GltfExporter { binary: false })),
         ExportFormat::Glb => Some(Box::new(gltf::GltfExporter { binary: true })),
         ExportFormat::Json => Some(Box::new(json::JsonExporter)),

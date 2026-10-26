@@ -11,6 +11,7 @@
 
 pub mod build;
 pub mod csv;
+pub mod dxf;
 pub mod gltf;
 pub mod image;
 pub mod obj;
@@ -216,6 +217,7 @@ pub fn sibling(source: &str, name: &str) -> String {
 pub fn importer(format: ImportFormat) -> Option<Box<dyn Importer>> {
     match format {
         ImportFormat::Csv => Some(Box::new(csv::CsvImporter)),
+        ImportFormat::Dxf => Some(Box::new(dxf::DxfImporter)),
         ImportFormat::Gltf => Some(Box::new(gltf::GltfImporter)),
         ImportFormat::Image => Some(Box::new(image::ImageImporter)),
         ImportFormat::Plyr => Some(Box::new(plyr::PlyrImporter)),

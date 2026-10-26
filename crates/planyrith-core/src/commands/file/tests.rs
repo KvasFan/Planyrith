@@ -1022,3 +1022,260 @@ fn csv_component_report_counts_and_measures() {
          Seat,2,40,40,45,72000,\n"
     );
 }
+
+/// Group code / value lines of a DXF from `(code, value)` pairs.
+fn dxf_text(pairs: &[(i32, &str)]) -> String {
+    pairs.iter().map(|(c, v)| format!("{c}\n{v}\n")).collect()
+}
+
+pub(crate) fn sample_dxf() -> String {
+    let mut p: Vec<(i32, &str)> = vec![
+        (0, "SECTION"),
+        (2, "HEADER"),
+        (9, "$INSUNITS"),
+        (70, "6"),
+        (0, "ENDSEC"),
+        (0, "SECTION"),
+        (2, "TABLES"),
+        (0, "TABLE"),
+        (2, "LAYER"),
+        (0, "LAYER"),
+        (2, "Walls"),
+        (62, "1"),
+        (0, "LAYER"),
+        (2, "Furniture"),
+        (62, "3"),
+        (0, "ENDTAB"),
+        (0, "ENDSEC"),
+        (0, "SECTION"),
+        (2, "BLOCKS"),
+        (0, "BLOCK"),
+        (2, "Stool"),
+        (10, "1"),
+        (20, "1"),
+        (30, "0"),
+        // A 0.4 m square seat (closed LWPOLYLINE) around the base point.
+        (0, "LWPOLYLINE"),
+        (8, "0"),
+        (90, "4"),
+        (70, "1"),
+        (10, "0.8"),
+        (20, "0.8"),
+        (10, "1.2"),
+        (20, "0.8"),
+        (10, "1.2"),
+        (20, "1.2"),
+        (10, "0.8"),
+        (20, "1.2"),
+        (0, "ENDBLK"),
+        (0, "ENDSEC"),
+        (0, "SECTION"),
+        (2, "ENTITIES"),
+    ];
+    // Walls: a closed rectangle of lines (a face) and a rounded slot.
+    for (a, b) in [
+        ((0, 0), (4, 0)),
+        ((4, 0), (4, 3)),
+        ((4, 3), (0, 3)),
+        ((0, 3), (0, 0)),
+    ] {
+        let coords = [a.0, a.1, b.0, b.1].map(|v: i32| v.to_string());
+        let leaked: Vec<&'static str> = coords
+            .iter()
+            .map(|s| &*Box::leak(s.clone().into_boxed_str()))
+            .collect();
+        p.extend([
+            (0, "LINE"),
+            (8, "Walls"),
+            (10, leaked[0]),
+            (20, leaked[1]),
+            (30, "0"),
+            (11, leaked[2]),
+            (21, leaked[3]),
+            (31, "0"),
+        ]);
+    }
+    p.extend([
+        (0, "LWPOLYLINE"),
+        (8, "Walls"),
+        (90, "4"),
+        (70, "1"),
+        (38, "1"),
+        (10, "5"),
+        (20, "0"),
+        (42, "0"),
+        (10, "6"),
+        (20, "0"),
+        (42, "1"),
+        (10, "6"),
+        (20, "1"),
+        (42, "0"),
+        (10, "5"),
+        (20, "1"),
+        (42, "1"),
+        (0, "CIRCLE"),
+        (8, "Furniture"),
+        (10, "2"),
+        (20, "1.5"),
+        (30, "0"),
+        (40, "0.5"),
+        (0, "3DFACE"),
+        (8, "Furniture"),
+        (10, "0"),
+        (20, "0"),
+        (30, "2"),
+        (11, "1"),
+        (21, "0"),
+        (31, "2"),
+        (12, "1"),
+        (22, "1"),
+        (32, "2"),
+        (13, "0"),
+        (23, "1"),
+        (33, "2"),
+        (0, "INSERT"),
+        (8, "Furniture"),
+        (2, "Stool"),
+        (10, "10"),
+        (20, "0"),
+        (30, "0"),
+        (0, "INSERT"),
+        (8, "Furniture"),
+        (2, "Stool"),
+        (10, "10"),
+        (20, "5"),
+        (30, "0"),
+        (50, "90"),
+        (0, "TEXT"),
+        (8, "Walls"),
+        (10, "0"),
+        (20, "0"),
+        (40, "0.2"),
+        (1, "Kitchen"),
+        (0, "ENDSEC"),
+        (0, "EOF"),
+    ]);
+    dxf_text(&p)
+}
+
+#[test]
+fn dxf_imports_layers_blocks_arcs_and_faces() {
+    let (mut e, storage) = engine();
+    storage
+        .write(&StorageKey::new("plan.dxf"), sample_dxf().as_bytes())
+        .unwrap();
+    let out = run(&mut e, "import", json!({ "path": "plan.dxf" }));
+    assert_eq!(out["format"], "dxf");
+    assert_eq!(out["skipped"], 1, "{out}");
+    assert!(out["warnings"].to_string().contains("TEXT"), "{out}");
+    let doc = e.document();
+    let report = crate::diagnostics::validate(doc);
+    assert!(report.is_clean(), "{report:#?}");
+    // Layers became tags; meters from $INSUNITS.
+    assert!(doc.tags.by_name("Walls").is_some());
+    assert!(doc.tags.by_name("Furniture").is_some());
+    let (lo, hi) = bounds_of_model(&e);
+    // The stool at (10, 0) reaches 0.2 m below the walls.
+    assert!(close(lo, DVec3::new(0.0, -200.0, 0.0)), "{lo}");
+    assert!(close(hi, DVec3::new(10200.0, 5200.0, 2000.0)), "{hi}");
+    // The block is a component used twice, its seat a face.
+    let stool = doc.definition_by_name("Stool").expect("the block");
+    let seat = doc.container(ContainerRef::Definition(stool)).unwrap();
+    assert_eq!(seat.mesh().faces().count(), 1);
+    // Faces: the walls rectangle, the slot (two arcs), the circle, the
+    // 3DFACE quad and the two stool seats (one definition).
+    let faces: usize = doc
+        .definitions
+        .iter()
+        .map(|(id, _)| {
+            doc.container(ContainerRef::Definition(id))
+                .unwrap()
+                .mesh()
+                .faces()
+                .count()
+        })
+        .sum();
+    assert_eq!(faces, 5, "{out}");
+}
+
+#[test]
+fn dxf_export_round_trips_faces_edges_and_layers() {
+    let (mut e, storage) = engine();
+    chairs_and_box(&mut e, &storage);
+    run(&mut e, "tag-create", json!({ "name": "Seats/Main" }));
+    run(
+        &mut e,
+        "tag-assign",
+        json!({ "targets": "instance", "tag": "Seats/Main" }),
+    );
+    let (lo, hi) = bounds_of_model(&e);
+    let out = run(
+        &mut e,
+        "export",
+        json!({ "path": "out/room.dxf", "file_units": "cm" }),
+    );
+    assert_eq!(out["format"], "dxf");
+    let text = String::from_utf8(storage.read(&StorageKey::new("out/room.dxf")).unwrap()).unwrap();
+    assert!(text.contains("$INSUNITS\n70\n5\n"));
+    assert!(
+        text.contains("LAYER\n2\nSeats_Main\n"),
+        "layer names are sanitized"
+    );
+    run(
+        &mut e,
+        "export",
+        json!({ "path": "out/again.dxf", "file_units": "cm" }),
+    );
+    assert_eq!(
+        storage.read(&StorageKey::new("out/again.dxf")).unwrap(),
+        text.as_bytes(),
+        "deterministic"
+    );
+    let (mut back, back_storage) = engine();
+    back_storage
+        .write(&StorageKey::new("room.dxf"), text.as_bytes())
+        .unwrap();
+    let out = run(&mut back, "import", json!({ "path": "room.dxf" }));
+    assert_eq!(out["faces"], 18, "{out}");
+    let (blo, bhi) = bounds_of_model(&back);
+    assert!(close(blo, lo) && close(bhi, hi), "{blo} {bhi}");
+    assert!(back.document().tags.by_name("Seats_Main").is_some());
+    let report = crate::diagnostics::validate(back.document());
+    assert!(report.is_clean(), "{report:#?}");
+}
+
+#[test]
+fn random_dxf_files_never_panic_the_importer() {
+    let base = sample_dxf();
+    let lines: Vec<&str> = base.lines().collect();
+    let mut state = 0x0bad_5eed_u32;
+    let mut next = move || {
+        state ^= state << 13;
+        state ^= state >> 17;
+        state ^= state << 5;
+        state
+    };
+    let values = [
+        "0", "-1", "1e300", "nan", "x", "LINE", "SEQEND", "VERTEX", "999", "",
+    ];
+    for round in 0..300 {
+        let mut damaged: Vec<String> = lines.iter().map(|l| l.to_string()).collect();
+        for _ in 0..(1 + round % 6) {
+            let at = next() as usize % damaged.len();
+            damaged[at] = values[next() as usize % values.len()].to_string();
+        }
+        if round % 7 == 0 {
+            damaged.truncate(next() as usize % damaged.len());
+        }
+        let (mut e, storage) = engine();
+        storage
+            .write(&StorageKey::new("d.dxf"), damaged.join("\n").as_bytes())
+            .unwrap();
+        if e.execute_erased("import", json!({ "path": "d.dxf" }))
+            .is_ok()
+        {
+            let report = crate::diagnostics::validate(e.document());
+            assert!(!report.has_errors(), "round {round}: {report:#?}");
+        }
+    }
+}

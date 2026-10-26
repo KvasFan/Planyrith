@@ -15,7 +15,8 @@ All notable changes to Planyrith are recorded here. Versions follow
   as separate groups; equal materials are reused. A 100 MB glTF imports in about 11 s.
   `validate` is much faster on large meshes. Images import as image entities or textures, CSV
   points as guide points, `.plyr`/`.plyrc` documents merge as groups or components; `.plyr`
-  copies and a CSV component report export. File › Import… and File › Export ► in the GUI.
+  copies and a CSV component report export. DXF import (layers as tags, blocks as components,
+  arcs, splines, 3D faces) and 3D export. File › Import… and File › Export ► in the GUI.
   The server's capabilities list
   the formats this build reads and writes.
 
