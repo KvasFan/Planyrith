@@ -1,0 +1,6 @@
+# Hiding a folder hides its tags' entities.
+tag-folder-create --name Furniture
+tag-create --name Chairs --folder Furniture
+rectangle --corner-a 0,0,0 --corner-b 500,500,0
+tag-assign --targets face --tag Chairs
+tag-folder-set-visible --name Furniture --no-visible

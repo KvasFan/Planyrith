@@ -296,6 +296,22 @@ impl Tags {
         self.folder_order.iter().position(|x| *x == id)
     }
 
+    /// Replaces a folder's data; its parent may not change (no cycles).
+    pub(crate) fn replace_folder(
+        &mut self,
+        id: TagFolderId,
+        folder: TagFolder,
+    ) -> Result<TagFolder, TagError> {
+        let slot = self
+            .folders
+            .get_mut(id)
+            .ok_or(TagError::FolderNotFound(id))?;
+        if slot.parent != folder.parent {
+            return Err(TagError::FolderNotFound(id));
+        }
+        Ok(std::mem::replace(slot, folder))
+    }
+
     /// Removes an empty folder.
     pub(crate) fn remove_folder(&mut self, id: TagFolderId) -> Result<TagFolder, TagError> {
         if !self.folders.contains_key(id) {

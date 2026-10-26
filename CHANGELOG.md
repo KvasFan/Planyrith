@@ -13,6 +13,7 @@ All notable changes to Planyrith are recorded here. Versions follow
 - **Components**: `make-unique`, `component-insert` (from the model or a `.plyrc` file, glued to
   a face), `component-save-as`, `component-reload`, `component-replace`. Definition UUIDs are
   now content hashes, so components from different documents no longer collide.
+- **Tags**: `tag-move` and `tag-folder-set-visible`; the Tags panel shows folders.
 - **Gluing**: glued components follow their face (move, rotate, scale, push/pull); components
   that cut openings show a hole in their face; billboard components face the camera.
 - **GUI panels**: Materials, Components (with a placement tool) and Styles (with watermarks and

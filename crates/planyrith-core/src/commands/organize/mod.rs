@@ -53,8 +53,8 @@ pub(crate) use tags::parse_color as parse_color_param;
 pub use tags::{
     TagAssign, TagAssignOutput, TagAssignParams, TagCreate, TagCreateParams, TagDelete,
     TagDeleteOutput, TagDeleteParams, TagFolderCreate, TagFolderCreateParams, TagFolderDelete,
-    TagFolderDeleteParams, TagOutput, TagRename, TagRenameParams, TagSetVisible,
-    TagSetVisibleParams,
+    TagFolderDeleteParams, TagFolderSetVisible, TagFolderSetVisibleParams, TagMove, TagMoveParams,
+    TagOutput, TagRename, TagRenameParams, TagSetVisible, TagSetVisibleParams,
 };
 
 use crate::commands::CommandRegistry;
@@ -77,6 +77,8 @@ pub fn register(registry: &mut CommandRegistry) {
     registry.register(TagAssign);
     registry.register(TagFolderCreate);
     registry.register(TagFolderDelete);
+    registry.register(TagMove);
+    registry.register(TagFolderSetVisible);
     registry.register(MaterialCreate);
     registry.register(MaterialEdit);
     registry.register(MaterialDelete);

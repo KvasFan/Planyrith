@@ -265,76 +265,187 @@ pub fn tags(
 ) {
     let doc = session.doc();
     let untagged = doc.tags.untagged();
-    let rows: Vec<(String, Rgba8, bool, bool)> = doc
+    let rows: Vec<TagRow> = doc
         .tags
         .iter()
-        .map(|(id, t)| (t.name.clone(), t.color, t.visible, id == untagged))
+        .map(|(id, t)| TagRow {
+            name: t.name.clone(),
+            color: t.color,
+            visible: t.visible,
+            untagged: id == untagged,
+            folder: t.folder,
+        })
         .collect();
+    let folders: Vec<(
+        planyrith_core::ids::TagFolderId,
+        String,
+        bool,
+        Option<planyrith_core::ids::TagFolderId>,
+    )> = doc
+        .tags
+        .folders()
+        .map(|(id, f)| (id, f.name.clone(), f.visible, f.parent))
+        .collect();
+    let folder_names: Vec<String> = folders.iter().map(|(_, n, ..)| n.clone()).collect();
     let mut actions: Vec<(&'static str, Value)> = Vec::new();
     egui::ScrollArea::vertical()
-        .max_height(ui.available_height() - 60.0)
+        .max_height(ui.available_height() - 90.0)
         .show(ui, |ui| {
-            for (name, color, visible, is_untagged) in &rows {
-                ui.horizontal(|ui| {
-                    let mut v = *visible;
-                    if ui.checkbox(&mut v, "").on_hover_text("Visible").changed() {
-                        actions.push(("tag-set-visible", json!({ "tag": name, "visible": v })));
-                    }
-                    swatch(ui, *color);
-                    match &mut state.renaming_tag {
-                        Some((old, new)) if old == name => {
-                            let edit = ui.text_edit_singleline(new);
-                            if edit.lost_focus() {
-                                if ui.input(|i| i.key_pressed(egui::Key::Enter)) && new != old {
-                                    actions.push((
-                                        "tag-rename",
-                                        json!({ "tag": old, "new_name": new }),
-                                    ));
-                                }
-                                state.renaming_tag = None;
-                            } else {
-                                edit.request_focus();
-                            }
-                        }
-                        _ => {
-                            let label = ui.label(name);
-                            if !is_untagged && label.double_clicked() {
-                                state.renaming_tag = Some((name.clone(), name.clone()));
-                            }
-                        }
-                    }
-                    if !is_untagged {
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.small_button("🗑").on_hover_text("Delete tag").clicked() {
-                                actions.push(("tag-delete", json!({ "tag": name })));
-                            }
-                            if ui
-                                .small_button("⮕")
-                                .on_hover_text("Assign the selection to this tag")
-                                .clicked()
-                            {
-                                actions.push((
-                                    "tag-assign",
-                                    json!({ "targets": "selection", "tag": name }),
-                                ));
-                            }
-                        });
-                    }
-                });
+            for row in rows.iter().filter(|r| r.folder.is_none()) {
+                tag_row(ui, row, &folder_names, state, &mut actions);
+            }
+            for (id, _, _, parent) in &folders {
+                if parent.is_none() {
+                    folder_tree(ui, *id, &folders, &rows, &folder_names, state, &mut actions);
+                }
             }
         });
     ui.separator();
     ui.horizontal(|ui| {
-        let edit = ui.add(egui::TextEdit::singleline(&mut state.new_tag).hint_text("New tag"));
+        let edit = ui.add(
+            egui::TextEdit::singleline(&mut state.new_tag)
+                .hint_text("New tag or folder")
+                .desired_width(130.0),
+        );
         let enter = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-        if (ui.button("Add").clicked() || enter) && !state.new_tag.trim().is_empty() {
-            actions.push(("tag-create", json!({ "name": state.new_tag.trim() })));
+        let name = state.new_tag.trim().to_string();
+        if (ui.button("Add tag").clicked() || enter) && !name.is_empty() {
+            actions.push(("tag-create", json!({ "name": name })));
+            state.new_tag.clear();
+        } else if ui.button("Add folder").clicked() && !name.is_empty() {
+            actions.push(("tag-folder-create", json!({ "name": name })));
             state.new_tag.clear();
         }
     });
     for (name, params) in actions {
         run(session, error, name, params);
     }
+}
+
+/// One tag of the Tags panel.
+struct TagRow {
+    name: String,
+    color: Rgba8,
+    visible: bool,
+    untagged: bool,
+    folder: Option<planyrith_core::ids::TagFolderId>,
+}
+
+/// A folder of the Tags panel with its visibility, its tags and its
+/// sub-folders.
+#[allow(clippy::type_complexity)]
+fn folder_tree(
+    ui: &mut egui::Ui,
+    id: planyrith_core::ids::TagFolderId,
+    folders: &[(
+        planyrith_core::ids::TagFolderId,
+        String,
+        bool,
+        Option<planyrith_core::ids::TagFolderId>,
+    )],
+    rows: &[TagRow],
+    folder_names: &[String],
+    state: &mut PanelState,
+    actions: &mut Vec<(&'static str, Value)>,
+) {
+    let Some((_, name, visible, _)) = folders.iter().find(|(f, ..)| *f == id) else {
+        return;
+    };
+    ui.horizontal(|ui| {
+        let mut v = *visible;
+        if ui
+            .checkbox(&mut v, "")
+            .on_hover_text("Folder visible")
+            .changed()
+        {
+            actions.push((
+                "tag-folder-set-visible",
+                json!({ "name": name, "visible": v }),
+            ));
+        }
+        let empty = !rows.iter().any(|r| r.folder == Some(id))
+            && !folders.iter().any(|(_, _, _, p)| *p == Some(id));
+        egui::CollapsingHeader::new(format!("📁 {name}"))
+            .id_salt(("tag folder", name))
+            .default_open(true)
+            .show(ui, |ui| {
+                for row in rows.iter().filter(|r| r.folder == Some(id)) {
+                    tag_row(ui, row, folder_names, state, actions);
+                }
+                for (child, ..) in folders.iter().filter(|(_, _, _, p)| *p == Some(id)) {
+                    folder_tree(ui, *child, folders, rows, folder_names, state, actions);
+                }
+                if empty && ui.small_button("Delete folder").clicked() {
+                    actions.push(("tag-folder-delete", json!({ "name": name })));
+                }
+            });
+    });
+}
+
+fn tag_row(
+    ui: &mut egui::Ui,
+    row: &TagRow,
+    folder_names: &[String],
+    state: &mut PanelState,
+    actions: &mut Vec<(&'static str, Value)>,
+) {
+    let name = &row.name;
+    ui.horizontal(|ui| {
+        let mut v = row.visible;
+        if ui.checkbox(&mut v, "").on_hover_text("Visible").changed() {
+            actions.push(("tag-set-visible", json!({ "tag": name, "visible": v })));
+        }
+        swatch(ui, row.color);
+        match &mut state.renaming_tag {
+            Some((old, new)) if old == name => {
+                let edit = ui.text_edit_singleline(new);
+                if edit.lost_focus() {
+                    if ui.input(|i| i.key_pressed(egui::Key::Enter)) && new != old {
+                        actions.push(("tag-rename", json!({ "tag": old, "new_name": new })));
+                    }
+                    state.renaming_tag = None;
+                } else {
+                    edit.request_focus();
+                }
+            }
+            _ => {
+                let label = ui.label(name);
+                if !row.untagged && label.double_clicked() {
+                    state.renaming_tag = Some((name.clone(), name.clone()));
+                }
+            }
+        }
+        if !row.untagged {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.small_button("🗑").on_hover_text("Delete tag").clicked() {
+                    actions.push(("tag-delete", json!({ "tag": name })));
+                }
+                if ui
+                    .small_button("⮕")
+                    .on_hover_text("Assign the selection to this tag")
+                    .clicked()
+                {
+                    actions.push(("tag-assign", json!({ "targets": "selection", "tag": name })));
+                }
+                if !folder_names.is_empty() {
+                    ui.menu_button("📁", |ui| {
+                        if ui.button("Top level").clicked() {
+                            actions.push(("tag-move", json!({ "tag": name })));
+                            ui.close();
+                        }
+                        for f in folder_names {
+                            if ui.button(f).clicked() {
+                                actions.push(("tag-move", json!({ "tag": name, "folder": f })));
+                                ui.close();
+                            }
+                        }
+                    })
+                    .response
+                    .on_hover_text("Move to a folder");
+                }
+            });
+        }
+    });
 }
 
 // ----- Scenes -------------------------------------------------------------------------------

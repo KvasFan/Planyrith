@@ -1,0 +1,7 @@
+# Two tags into a folder, one back out.
+tag-folder-create --name Furniture
+tag-create --name Chairs
+tag-create --name Tables
+tag-move --tag Chairs --folder Furniture
+tag-move --tag Tables --folder Furniture
+tag-move --tag Tables

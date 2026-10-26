@@ -303,6 +303,15 @@ pub enum Delta {
         /// Data.
         folder: TagFolder,
     },
+    /// Tag folder changed (name, visibility).
+    TagFolderChanged {
+        /// Id.
+        id: TagFolderId,
+        /// Before.
+        from: TagFolder,
+        /// After.
+        to: TagFolder,
+    },
     /// Scene added at an index.
     SceneInserted {
         /// Id.
@@ -602,6 +611,11 @@ impl Delta {
                 id,
                 order_index,
                 folder,
+            },
+            Delta::TagFolderChanged { id, from, to } => Delta::TagFolderChanged {
+                id,
+                from: to,
+                to: from,
             },
             Delta::SceneInserted {
                 id,
@@ -942,6 +956,9 @@ pub(crate) fn apply_delta(
             .map_err(internal)?,
         Delta::TagFolderRemoved { id, .. } => {
             doc.tags.remove_folder(*id).map_err(internal)?;
+        }
+        Delta::TagFolderChanged { id, to, .. } => {
+            doc.tags.replace_folder(*id, to.clone()).map_err(internal)?;
         }
         Delta::SceneInserted {
             id,
@@ -2087,6 +2104,27 @@ impl<'a> Transaction<'a> {
             tag,
         });
         Ok(id)
+    }
+
+    /// Replaces a tag folder's data (name, visibility; not its parent).
+    pub fn replace_tag_folder(
+        &mut self,
+        id: TagFolderId,
+        folder: TagFolder,
+    ) -> Result<(), CommandError> {
+        let from = self
+            .doc
+            .tags
+            .replace_folder(id, folder.clone())
+            .map_err(|e| CommandError::invalid_param("folder", e.to_string()))?;
+        if from != folder {
+            self.deltas.push(Delta::TagFolderChanged {
+                id,
+                from,
+                to: folder,
+            });
+        }
+        Ok(())
     }
 
     /// Replaces a tag.

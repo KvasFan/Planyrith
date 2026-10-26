@@ -577,3 +577,8 @@ UI hints are generated from one source.
   to the active style, fog on/off to the document's rendering options. An image that nothing
   uses any more after a texture, watermark, material or style is removed or replaced leaves the
   document in the same undo step.
+- 2026-10-26 — **Tag folders (0.4).** `tag-move { tag, folder? }` puts a tag into a folder or
+  back at the top level (not `Untagged`); `tag-folder-set-visible { name, visible }` hides a
+  folder, which hides the entities of every tag inside it and its sub-folders. The Tags panel
+  shows the folders as collapsible groups with their visibility, a folder menu on each tag and
+  "Add folder"; an empty folder can be deleted.

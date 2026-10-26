@@ -491,3 +491,115 @@ impl Command for TagFolderDelete {
         meta("tag-folder-delete", "Delete Tag Folder")
     }
 }
+
+/// `tag-move` parameters.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct TagMoveParams {
+    /// Common fields.
+    #[serde(flatten)]
+    pub common: CommonParams,
+    /// The tag.
+    pub tag: String,
+    /// Folder to put it in (none: the top level).
+    #[serde(default)]
+    pub folder: Option<String>,
+}
+
+/// The `tag-move` command: puts a tag into a folder or back at the top
+/// level.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct TagMove;
+
+impl Command for TagMove {
+    type Params = TagMoveParams;
+    type Output = TagOutput;
+
+    fn name(&self) -> &'static str {
+        "tag-move"
+    }
+
+    fn validate(&self, doc: &Document, p: &TagMoveParams) -> Result<(), CommandError> {
+        let id = tag_named(doc, &p.tag)?;
+        if id == doc.tags.untagged() {
+            return Err(CommandError::NotApplicable(
+                "the Untagged tag stays at the top level".into(),
+            ));
+        }
+        if let Some(f) = &p.folder {
+            folder_named(doc, f)?;
+        }
+        Ok(())
+    }
+
+    fn apply(&self, tx: &mut Transaction<'_>, p: TagMoveParams) -> Result<TagOutput, CommandError> {
+        let id = tag_named(tx.document(), &p.tag)?;
+        let folder = p
+            .folder
+            .as_deref()
+            .map(|f| folder_named(tx.document(), f))
+            .transpose()?;
+        let mut tag = tx
+            .document()
+            .tags
+            .get(id)
+            .cloned()
+            .ok_or_else(|| CommandError::Internal("tag vanished".into()))?;
+        tag.folder = folder;
+        tx.replace_tag(id, tag)?;
+        Ok(TagOutput { name: p.tag })
+    }
+
+    fn meta(&self) -> CommandMeta {
+        meta("tag-move", "Move Tag")
+    }
+}
+
+/// `tag-folder-set-visible` parameters.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct TagFolderSetVisibleParams {
+    /// Common fields.
+    #[serde(flatten)]
+    pub common: CommonParams,
+    /// Folder name.
+    pub name: String,
+    /// Visible (its tags show only when it and its parents are visible).
+    pub visible: bool,
+}
+
+/// The `tag-folder-set-visible` command.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct TagFolderSetVisible;
+
+impl Command for TagFolderSetVisible {
+    type Params = TagFolderSetVisibleParams;
+    type Output = TagOutput;
+
+    fn name(&self) -> &'static str {
+        "tag-folder-set-visible"
+    }
+
+    fn validate(&self, doc: &Document, p: &TagFolderSetVisibleParams) -> Result<(), CommandError> {
+        folder_named(doc, &p.name).map(|_| ())
+    }
+
+    fn apply(
+        &self,
+        tx: &mut Transaction<'_>,
+        p: TagFolderSetVisibleParams,
+    ) -> Result<TagOutput, CommandError> {
+        let id = folder_named(tx.document(), &p.name)?;
+        let mut folder = tx
+            .document()
+            .tags
+            .folder(id)
+            .cloned()
+            .ok_or_else(|| CommandError::Internal("folder vanished".into()))?;
+        folder.visible = p.visible;
+        tx.replace_tag_folder(id, folder)?;
+        Ok(TagOutput { name: p.name })
+    }
+
+    fn meta(&self) -> CommandMeta {
+        meta("tag-folder-set-visible", "Tag Folder Visibility")
+    }
+}

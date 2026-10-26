@@ -206,6 +206,13 @@ fn scenes() {
         ),
         ("scene-reorder", json!({ "scene": "Detail", "index": 0 })),
         ("scene-delete", json!({ "scene": "Overview" })),
+        ("tag-folder-create", json!({ "name": "Layers" })),
+        ("tag-move", json!({ "tag": "Hidden", "folder": "Layers" })),
+        (
+            "tag-folder-set-visible",
+            json!({ "name": "Layers", "visible": false }),
+        ),
+        ("tag-move", json!({ "tag": "Hidden" })),
     ]);
 }
 
