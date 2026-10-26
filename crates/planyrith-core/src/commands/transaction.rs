@@ -35,8 +35,9 @@ use crate::commands::CommandError;
 use crate::diagnostics::Warning;
 use crate::document::{
     AttributeDictionaries, Camera, ComponentDefinition, ContainerRef, Document, EditContext,
-    Entities, EntityKey, EntityPath, EntityRecord, EntityRef, HierarchyError, Material, ModelInfo,
-    QueryEnv, RenderingOptions, Scene, Selection, Style, Tag, TagFolder, Value,
+    Entities, EntityKey, EntityPath, EntityRecord, EntityRef, HierarchyError, ImageData, ImageRef,
+    Material, ModelInfo, QueryEnv, RenderingOptions, Scene, Selection, Style, Tag, TagFolder,
+    Value,
 };
 use crate::geom::{DeltaSink, FaceSides, GeometryError, HalfEdgeMesh, MeshDelta, ReplayIds};
 use crate::ids::{
@@ -242,6 +243,20 @@ pub enum Delta {
         from: Box<Material>,
         /// After.
         to: Box<Material>,
+    },
+    /// An image was added to the content-addressed store.
+    ImageInserted {
+        /// Hash.
+        id: ImageRef,
+        /// Bytes and metadata.
+        data: Box<ImageData>,
+    },
+    /// An image was removed from the store.
+    ImageRemoved {
+        /// Hash.
+        id: ImageRef,
+        /// Bytes and metadata.
+        data: Box<ImageData>,
     },
     /// Tag added.
     TagInserted {
@@ -545,6 +560,8 @@ impl Delta {
                 from: to,
                 to: from,
             },
+            Delta::ImageInserted { id, data } => Delta::ImageRemoved { id, data },
+            Delta::ImageRemoved { id, data } => Delta::ImageInserted { id, data },
             Delta::TagInserted {
                 id,
                 order_index,
@@ -894,6 +911,12 @@ pub(crate) fn apply_delta(
             doc.materials
                 .replace(*id, (**to).clone())
                 .map_err(internal)?;
+        }
+        Delta::ImageInserted { data, .. } => {
+            doc.images.insert((**data).clone());
+        }
+        Delta::ImageRemoved { id, .. } => {
+            doc.images.remove(*id);
         }
         Delta::TagInserted {
             id,
@@ -1911,6 +1934,24 @@ impl<'a> Transaction<'a> {
             to: Box::new(definition),
         });
         Ok(())
+    }
+
+    /// Adds encoded image bytes (PNG, JPEG, WebP) to the document's image
+    /// store; an image already stored is not added twice (docs/04 §4).
+    pub fn insert_image(&mut self, bytes: Vec<u8>) -> Result<ImageRef, CommandError> {
+        let mut probe = crate::document::ImageStore::new();
+        let id = probe
+            .insert_encoded(bytes)
+            .map_err(|e| CommandError::invalid_param("image", e.to_string()))?;
+        if !self.doc.images.contains(id) {
+            let data = probe.remove(id).ok_or_else(|| internal("lost image"))?;
+            self.doc.images.insert(data.clone());
+            self.deltas.push(Delta::ImageInserted {
+                id,
+                data: Box::new(data),
+            });
+        }
+        Ok(id)
     }
 
     /// Adds a material.

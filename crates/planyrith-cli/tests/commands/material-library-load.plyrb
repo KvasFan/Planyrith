@@ -1,0 +1,7 @@
+# Save a library, delete the materials, load them back with their textures.
+material-create --name Oak --color '#A0522D' --texture textures/oak.png --texture-width 600mm
+material-create --name Tile --color '#C8C8D2' --texture textures/tile.png --texture-height 300mm
+material-library-save --path libs/load.plyrm
+material-delete --material Oak
+material-delete --material Tile
+material-library-load --path libs/load.plyrm

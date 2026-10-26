@@ -25,7 +25,15 @@
   },
   "definition_order": [],
   "definitions": [],
-  "images": [],
+  "images": [
+    {
+      "bytes": 225,
+      "format": "png",
+      "hash": "5cf7d5d51d2e3adc7523de163787b1d9b08db7e6525c5e3a31266293dcf0dd71",
+      "height": 32,
+      "width": 64
+    }
+  ],
   "info": {
     "angle_precision": 1,
     "angle_snap": null,
@@ -111,7 +119,47 @@
           "is_default_for": null,
           "name": "Walnut",
           "opacity": 1.0,
-          "texture": null
+          "texture": {
+            "colorize": "tint",
+            "image": [
+              92,
+              247,
+              213,
+              213,
+              29,
+              46,
+              58,
+              220,
+              117,
+              35,
+              222,
+              22,
+              55,
+              135,
+              177,
+              217,
+              176,
+              141,
+              183,
+              230,
+              82,
+              92,
+              94,
+              58,
+              49,
+              38,
+              98,
+              147,
+              220,
+              240,
+              221,
+              113
+            ],
+            "size_mm": [
+              400.0,
+              200.0
+            ]
+          }
         }
       ]
     ],

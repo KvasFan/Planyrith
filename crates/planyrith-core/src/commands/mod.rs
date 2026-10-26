@@ -526,6 +526,8 @@ pub struct Engine {
     open_groups: Vec<GroupToken>,
     /// Edge/face id aliases kept for the whole session (undo/redo replay).
     aliases: MeshAliases,
+    /// Storage file commands read and write through (docs/01 §3.1 rule 2).
+    storage: Option<Arc<dyn crate::io::Storage + Send + Sync>>,
 }
 
 impl fmt::Debug for Engine {
@@ -554,7 +556,14 @@ impl Engine {
             next_group_token: 1,
             open_groups: Vec::new(),
             aliases: MeshAliases::new(),
+            storage: None,
         }
+    }
+
+    /// Gives file commands (textures, libraries, components) access to
+    /// storage; without it they fail with an I/O error.
+    pub fn set_storage(&mut self, storage: Arc<dyn crate::io::Storage + Send + Sync>) {
+        self.storage = Some(storage);
     }
 
     /// The document (read-only; mutate through commands).
@@ -693,6 +702,9 @@ impl Engine {
             self.last_created.clone(),
             self.context.clone(),
         );
+        if let Some(storage) = self.storage.as_deref() {
+            tx = tx.with_storage(storage);
+        }
         // docs/04 §13–§14: a command may not create a cycle or nest deeper
         // than the hard limit (checked when occurrences or definitions changed).
         let applied = apply(&mut tx).and_then(|output| {

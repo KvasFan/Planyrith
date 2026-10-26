@@ -174,3 +174,7 @@ save unless `--no-thumbnail`. `manifest.json` carries `title`, `author`, `descri
   Reading never fails because of an optional part: a journal that is too large or undecodable, a
   preserved part whose name could not be written back, and a part the manifest lists but the
   container lacks are dropped with a `W2006` warning; the document itself still loads.
+- 2026-10-26 — A `.plyrm` material library is the native container whose document holds the
+  library's materials and their images and nothing else (an empty model, the two default
+  materials ignored by readers). Library files are written with deterministic metadata (the core
+  has no clock) and without a journal, so saving the same materials gives the same bytes.

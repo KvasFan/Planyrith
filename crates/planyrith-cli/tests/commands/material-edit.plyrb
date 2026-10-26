@@ -1,3 +1,5 @@
-# Rename and recolor a material.
+# Rename and recolor a material, then texture it, resize the tile and tint it.
 material-create --name Oak --color '#A0522D'
 material-edit --material Oak --name Walnut --color '#5C4033'
+material-edit --material Walnut --texture textures/oak.png
+material-edit --material Walnut --texture-width 400mm --colorize tint

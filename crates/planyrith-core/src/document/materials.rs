@@ -376,7 +376,7 @@ impl ImageFormat {
 }
 
 /// Encoded image bytes plus decoded metadata.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ImageData {
     /// Encoded bytes (never re-encoded).
     pub bytes: Vec<u8>,

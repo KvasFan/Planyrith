@@ -70,6 +70,7 @@ impl Session {
             .unwrap_or_default();
         let registry = Arc::new(CommandRegistry::with_builtins());
         let mut engine = Engine::new(doc, Arc::clone(&registry));
+        engine.set_storage(Arc::new(NativeFs::new()));
         if let Some(last) = history.last() {
             engine.set_last_created(last.created.clone());
         }
@@ -185,6 +186,7 @@ impl Session {
         params: Value,
     ) -> Result<(Document, BTreeSet<ContainerRef>), String> {
         let mut fork = Engine::new(self.doc().clone(), Arc::clone(&self.registry));
+        fork.set_storage(Arc::new(NativeFs::new()));
         fork.set_last_created(self.engine.last_created().to_vec());
         fork.set_context(self.engine.context().clone())
             .map_err(|e| e.to_string())?;

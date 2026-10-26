@@ -291,6 +291,8 @@ perpendicular to hovered edge); `Esc` = cancel current step (second `Esc` = canc
   on connected object; `Alt` = sample material from face (`material-sample`). Applying to a
   group/instance sets `material_override` (affects default-material faces only).
 - `material-edit { material, color?, opacity?, texture?: path|ImageRef, texture_size?: (w,h), colorize?: mode }`.
+- `material-library-save { path, materials? }` writes a `.plyrm` library; `material-library-load
+  { path, replace? }` adds its materials (see Decisions).
 
 ### 5.9 `texture-position`
 - **Params:** `face: EntityRef`, `side`, `mapping: UvMap` or pins `{ fixed: [(uv, point);4] | free: [(uv, point);4] }`,
@@ -530,3 +532,14 @@ UI hints are generated from one source.
   center, a line's next point, Move's grab point and destination, Rotate's center and reference
   points — so a drawing can start at exact coordinates. Select, Scale, Eraser and Paint do not
   pick points; Scale reads two or three values as factors (`2,1.5` or `2,1.5,1`).
+- 2026-10-26 — **Textures and material libraries (0.4).** `material-create` and `material-edit`
+  take `texture` (an image file path read through the engine's storage; `none` removes it in
+  `material-edit`), `texture_width` and `texture_height` instead of the `texture_size` pair (one
+  side alone keeps the tile's proportions; a new texture without a size is 1 m wide, its height
+  following the image; a new image on a textured material keeps the tile width) and, in
+  `material-edit`, `colorize: none|shift|tint`. `material-sample { face, side }` names the
+  material on a face side (the default material when the side has none) and changes nothing.
+  `material-library-save { path, materials }` writes the named materials (all but the defaults
+  when empty) with their images; it is a view command (the document is unchanged).
+  `material-library-load { path, replace }` adds a library's materials, skipping names the
+  document already has unless `replace`; libraries never carry the two default materials.

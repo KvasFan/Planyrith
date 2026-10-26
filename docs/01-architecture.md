@@ -262,3 +262,10 @@ Frontends and the RPC server fan events out to subscribers. Event kinds:
   makes its mesh ids the current members of their alias classes. `DocumentChanged` events after
   undo/redo carry the deltas as applied, with the ids the elements have now, so incremental
   consumers (spatial index, render cache) can use them like the events of executed commands.
+- 2026-10-26 — **Storage for file commands.** `Engine::set_storage` gives the engine an
+  `Arc<dyn Storage>` that every transaction hands to commands (`Transaction::storage`); file
+  commands (textures, material, component and style libraries) read and write only through it.
+  The CLI, the server and the GUI install `NativeFs` (paths relative to the working directory);
+  an engine without storage fails such commands with an I/O error (`E1403`). Images added to the
+  document are recorded as `ImageInserted`/`ImageRemoved` deltas, so loading a texture is undone
+  like any other change.

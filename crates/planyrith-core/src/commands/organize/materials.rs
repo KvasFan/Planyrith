@@ -1,6 +1,8 @@
-//! Implements docs/05-modeling-tools.md §5.8 for milestone 0.1 (colors only):
-//! `material-create`, `material-edit`, `material-delete`, `material-apply`,
-//! `material-purge`. Textures arrive with milestone 0.4.
+//! Implements docs/05-modeling-tools.md §5.8: `material-create`,
+//! `material-edit` (color, opacity, texture with its real-world size,
+//! colorize), `material-delete`, `material-apply`, `material-sample` and
+//! `material-purge`. Texture files are read through the engine's storage
+//! (docs/01 §3.1 rule 2).
 
 use std::collections::{BTreeSet, VecDeque};
 
@@ -13,10 +15,14 @@ use crate::commands::params::target_container;
 use crate::commands::{
     Command, CommandCategory, CommandError, CommandMeta, CommonParams, ToolStep, Transaction,
 };
-use crate::document::{ContainerRef, Document, EntityRecord, EntityView, Material, Query};
+use crate::document::{
+    ColorizeMode, ContainerRef, Document, EntityRecord, EntityView, Material, Query, Texture,
+};
 use crate::geom::FaceSides;
 use crate::ids::{EntityId, FaceId, MaterialId};
 use crate::inference::InferenceKind;
+use crate::io::{IoError, StorageKey};
+use crate::units::Length;
 
 fn meta(name: &str, label: &str) -> CommandMeta {
     CommandMeta {
@@ -55,6 +61,73 @@ fn one() -> f32 {
     1.0
 }
 
+/// Default width of one texture tile when none is given (docs/05
+/// Decisions): one meter, the height following the image's proportions.
+const DEFAULT_TEXTURE_WIDTH_MM: f64 = 1000.0;
+
+/// The tile size from what was given: both sides, or one with the other
+/// following `aspect` (height / width).
+fn tile_size(
+    width: Option<Length>,
+    height: Option<Length>,
+    aspect: f64,
+    current: Option<glam::DVec2>,
+) -> glam::DVec2 {
+    match (width, height) {
+        (Some(w), Some(h)) => glam::DVec2::new(w.as_mm(), h.as_mm()),
+        (Some(w), None) => glam::DVec2::new(w.as_mm(), w.as_mm() * aspect),
+        (None, Some(h)) => glam::DVec2::new(h.as_mm() / aspect, h.as_mm()),
+        (None, None) => current.unwrap_or(glam::DVec2::new(
+            DEFAULT_TEXTURE_WIDTH_MM,
+            DEFAULT_TEXTURE_WIDTH_MM * aspect,
+        )),
+    }
+}
+
+fn check_tile(name: &str, l: Option<Length>) -> Result<(), CommandError> {
+    match l {
+        Some(l) if !(l.as_mm() > 0.0 && l.as_mm().is_finite()) => Err(CommandError::OutOfRange {
+            name: name.into(),
+            reason: "must be a positive length".into(),
+        }),
+        _ => Ok(()),
+    }
+}
+
+/// Reads an image file through the engine's storage into the document.
+fn load_texture_image(
+    tx: &mut Transaction<'_>,
+    path: &str,
+) -> Result<(crate::document::ImageRef, f64), CommandError> {
+    let storage = tx.storage().ok_or_else(|| {
+        CommandError::Io(IoError::Storage {
+            key: path.to_string(),
+            reason: "no storage is available to read the texture".into(),
+        })
+    })?;
+    let bytes = storage.read(&StorageKey::new(path))?;
+    let image = tx.insert_image(bytes)?;
+    let data = tx
+        .document()
+        .images
+        .get(image)
+        .ok_or_else(|| CommandError::Internal("lost image".into()))?;
+    let aspect = f64::from(data.height) / f64::from(data.width.max(1));
+    Ok((image, aspect))
+}
+
+/// `colorize` choices of `material-edit`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum ColorizeChoice {
+    /// The texture's own colors.
+    None,
+    /// Shift hue/saturation toward the material color.
+    Shift,
+    /// Multiply by the material color.
+    Tint,
+}
+
 /// Output naming a material.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct MaterialOutput {
@@ -77,6 +150,16 @@ pub struct MaterialCreateParams {
     /// Opacity 0–1 (1).
     #[serde(default = "one")]
     pub opacity: f32,
+    /// Texture image file (PNG, JPEG, WebP).
+    #[serde(default)]
+    pub texture: Option<String>,
+    /// Real-world width of one texture tile (1 m; the height follows the
+    /// image unless given).
+    #[serde(default)]
+    pub texture_width: Option<Length>,
+    /// Real-world height of one texture tile.
+    #[serde(default)]
+    pub texture_height: Option<Length>,
 }
 
 /// The `material-create` command.
@@ -99,6 +182,8 @@ impl Command for MaterialCreate {
             ));
         }
         parse_color("color", &p.color)?;
+        check_tile("texture_width", p.texture_width)?;
+        check_tile("texture_height", p.texture_height)?;
         check_opacity(p.opacity)
     }
 
@@ -108,10 +193,16 @@ impl Command for MaterialCreate {
         p: MaterialCreateParams,
     ) -> Result<MaterialOutput, CommandError> {
         let color = parse_color("color", &p.color)?;
-        tx.insert_material(with_opacity(
-            Material::solid(p.name.clone(), color),
-            p.opacity,
-        ))?;
+        let mut material = with_opacity(Material::solid(p.name.clone(), color), p.opacity);
+        if let Some(path) = &p.texture {
+            let (image, aspect) = load_texture_image(tx, path)?;
+            material.texture = Some(Texture {
+                image,
+                size_mm: tile_size(p.texture_width, p.texture_height, aspect, None),
+                colorize: None,
+            });
+        }
+        tx.insert_material(material)?;
         Ok(MaterialOutput { material: p.name })
     }
 
@@ -120,7 +211,7 @@ impl Command for MaterialCreate {
     }
 }
 
-/// `material-edit` parameters (0.1: name, color, opacity).
+/// `material-edit` parameters.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct MaterialEditParams {
     /// Common fields.
@@ -137,6 +228,19 @@ pub struct MaterialEditParams {
     /// New opacity 0–1.
     #[serde(default)]
     pub opacity: Option<f32>,
+    /// New texture image file; `none` removes the texture.
+    #[serde(default)]
+    pub texture: Option<String>,
+    /// Real-world tile width (the height keeps the tile's proportions unless
+    /// given).
+    #[serde(default)]
+    pub texture_width: Option<Length>,
+    /// Real-world tile height.
+    #[serde(default)]
+    pub texture_height: Option<Length>,
+    /// How the material color alters the texture.
+    #[serde(default)]
+    pub colorize: Option<ColorizeChoice>,
 }
 
 /// The `material-edit` command.
@@ -168,6 +272,19 @@ impl Command for MaterialEdit {
         if let Some(o) = p.opacity {
             check_opacity(o)?;
         }
+        check_tile("texture_width", p.texture_width)?;
+        check_tile("texture_height", p.texture_height)?;
+        let removes = p.texture.as_deref() == Some("none");
+        let has_texture = doc.materials.get(id).is_some_and(|m| m.texture.is_some());
+        if !has_texture
+            && (p.texture.is_none() || removes)
+            && (p.texture_width.is_some() || p.texture_height.is_some() || p.colorize.is_some())
+        {
+            return Err(CommandError::NotApplicable(format!(
+                "`{}` has no texture to size or colorize",
+                p.material
+            )));
+        }
         Ok(())
     }
 
@@ -193,6 +310,36 @@ impl Command for MaterialEdit {
         }
         if let Some(o) = p.opacity {
             m = with_opacity(m, o);
+        }
+        match p.texture.as_deref() {
+            Some("none") => m.texture = None,
+            Some(path) => {
+                let (image, aspect) = load_texture_image(tx, path)?;
+                // A new image keeps the tile width, its height following
+                // the new image's proportions.
+                let width = p
+                    .texture_width
+                    .or_else(|| m.texture.as_ref().map(|t| Length::mm(t.size_mm.x)));
+                m.texture = Some(Texture {
+                    image,
+                    size_mm: tile_size(width, p.texture_height, aspect, None),
+                    colorize: m.texture.as_ref().and_then(|t| t.colorize),
+                });
+            }
+            None => {
+                if let Some(t) = &mut m.texture {
+                    let aspect = t.size_mm.y / t.size_mm.x.max(f64::MIN_POSITIVE);
+                    t.size_mm =
+                        tile_size(p.texture_width, p.texture_height, aspect, Some(t.size_mm));
+                }
+            }
+        }
+        if let (Some(choice), Some(t)) = (p.colorize, &mut m.texture) {
+            t.colorize = match choice {
+                ColorizeChoice::None => None,
+                ColorizeChoice::Shift => Some(ColorizeMode::Shift),
+                ColorizeChoice::Tint => Some(ColorizeMode::Tint),
+            };
         }
         let name = m.name.clone();
         tx.replace_material(id, m)?;
@@ -558,5 +705,83 @@ impl Command for MaterialPurge {
 
     fn meta(&self) -> CommandMeta {
         meta("material-purge", "Purge Materials")
+    }
+}
+
+// ----- sample -------------------------------------------------------------------------------
+
+/// `material-sample` parameters (docs/05 §5.8: Paint with `Alt`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct MaterialSampleParams {
+    /// Common fields.
+    #[serde(flatten)]
+    pub common: CommonParams,
+    /// The face to read.
+    pub face: crate::commands::EntityRef,
+    /// Which side (front).
+    #[serde(default)]
+    pub side: Side,
+}
+
+/// The `material-sample` command: names the material on a face side
+/// (the default material when the side has none). Changes nothing.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct MaterialSample;
+
+impl Command for MaterialSample {
+    type Params = MaterialSampleParams;
+    type Output = MaterialOutput;
+
+    fn name(&self) -> &'static str {
+        "material-sample"
+    }
+
+    fn validate(&self, _doc: &Document, p: &MaterialSampleParams) -> Result<(), CommandError> {
+        if p.side == Side::Both {
+            return Err(CommandError::invalid_param(
+                "side",
+                "sample one side: front or back",
+            ));
+        }
+        Ok(())
+    }
+
+    fn apply(
+        &self,
+        tx: &mut Transaction<'_>,
+        p: MaterialSampleParams,
+    ) -> Result<MaterialOutput, CommandError> {
+        let context = crate::commands::params::command_context(tx, &p.common);
+        let resolved = crate::commands::params::resolve_ref(tx, &context, "face", &p.face)?;
+        let EntityId::Face(face) = resolved.id else {
+            return Err(CommandError::NotApplicable(format!(
+                "{} is not a face",
+                p.face
+            )));
+        };
+        let doc = tx.document();
+        let sides = doc
+            .container(resolved.container)
+            .and_then(|c| c.mesh().face(face))
+            .map(|f| f.sides.clone())
+            .ok_or_else(|| CommandError::Internal("face vanished".into()))?;
+        let (id, side) = match p.side {
+            Side::Back => (sides.material_back, crate::document::FrontOrBack::Back),
+            _ => (sides.material_front, crate::document::FrontOrBack::Front),
+        };
+        let id = doc.materials.resolve(id, side);
+        let name = doc
+            .materials
+            .get(id)
+            .map(|m| m.name.clone())
+            .ok_or_else(|| CommandError::Internal("material vanished".into()))?;
+        Ok(MaterialOutput { material: name })
+    }
+
+    fn meta(&self) -> CommandMeta {
+        CommandMeta {
+            view_only: true,
+            ..meta("material-sample", "Sample Material")
+        }
     }
 }

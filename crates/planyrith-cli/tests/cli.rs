@@ -388,6 +388,16 @@ fn every_command_matches_its_golden_file() {
 
     let update = std::env::var_os("PLANYRITH_UPDATE_GOLDEN").is_some();
     let dir = scratch("commands");
+    // Batches run in the scratch directory, where these textures are.
+    std::fs::create_dir_all(dir.join("textures")).unwrap();
+    for (file, w, h, rgb) in [
+        ("oak.png", 64, 32, [160, 82, 45]),
+        ("tile.png", 16, 16, [200, 200, 210]),
+    ] {
+        image::RgbImage::from_pixel(w, h, image::Rgb(rgb))
+            .save(dir.join("textures").join(file))
+            .unwrap();
+    }
     let mut mismatches = Vec::new();
     for name in &names {
         let batch = root.join("commands").join(format!("{name}.plyrb"));
@@ -395,6 +405,7 @@ fn every_command_matches_its_golden_file() {
         let out = dir.join(format!("{name}.json"));
         let d = doc.to_str().unwrap();
         planyrith()
+            .current_dir(&dir)
             .args(["batch", batch.to_str().unwrap(), "-f", d, "--deterministic"])
             .assert()
             .success();

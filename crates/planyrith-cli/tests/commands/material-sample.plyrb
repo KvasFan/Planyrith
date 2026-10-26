@@ -1,0 +1,5 @@
+# Read back the material painted on a face (changes nothing).
+material-create --name Oak --color '#A0522D'
+rectangle --corner-a 0,0,0 --corner-b 1000,1000,0
+material-apply --targets 'face & last' --material Oak
+material-sample --face '{face}'

@@ -342,3 +342,204 @@ fn scenes_capture_and_restore_camera_tags_and_style() {
         .unwrap_err();
     assert_eq!(err.code(), "E1201");
 }
+
+/// A small PNG of `w`×`h` pixels.
+fn png(w: u32, h: u32, color: [u8; 4]) -> Vec<u8> {
+    let image = image::RgbaImage::from_pixel(w, h, image::Rgba(color));
+    let mut bytes = Vec::new();
+    image::DynamicImage::ImageRgba8(image)
+        .write_to(
+            &mut std::io::Cursor::new(&mut bytes),
+            image::ImageFormat::Png,
+        )
+        .unwrap();
+    bytes
+}
+
+fn engine_with_storage() -> (Engine, Arc<crate::io::MemoryStorage>) {
+    use crate::io::{Storage, StorageKey};
+    let storage = Arc::new(crate::io::MemoryStorage::new());
+    storage
+        .write(
+            &StorageKey::new("textures/oak.png"),
+            &png(64, 32, [160, 82, 45, 255]),
+        )
+        .unwrap();
+    storage
+        .write(
+            &StorageKey::new("textures/tile.png"),
+            &png(16, 16, [200, 200, 210, 255]),
+        )
+        .unwrap();
+    let mut e = engine();
+    e.set_storage(storage.clone());
+    (e, storage)
+}
+
+#[test]
+fn textures_load_size_colorize_sample_and_undo() {
+    let (mut e, _storage) = engine_with_storage();
+    run(
+        &mut e,
+        "material-create",
+        json!({ "name": "Oak", "color": "#A0522D", "texture": "textures/oak.png" }),
+    );
+    let doc = e.document();
+    assert_eq!(doc.images.len(), 1);
+    let oak = doc
+        .materials
+        .get(doc.materials.by_name("Oak").unwrap())
+        .unwrap();
+    let t = oak.texture.as_ref().unwrap();
+    // One meter wide, the height following the 64×32 image.
+    assert_eq!(t.size_mm, glam::DVec2::new(1000.0, 500.0));
+
+    // Width only: the tile keeps its proportions.
+    run(
+        &mut e,
+        "material-edit",
+        json!({ "material": "Oak", "texture_width": 300.0, "colorize": "tint" }),
+    );
+    let doc = e.document();
+    let t = doc
+        .materials
+        .get(doc.materials.by_name("Oak").unwrap())
+        .unwrap()
+        .texture
+        .clone()
+        .unwrap();
+    assert_eq!(t.size_mm, glam::DVec2::new(300.0, 150.0));
+    assert_eq!(t.colorize, Some(crate::document::ColorizeMode::Tint));
+
+    // Paint a face and sample it back.
+    let r = run(
+        &mut e,
+        "rectangle",
+        json!({ "corner_a": [0, 0, 0], "corner_b": [1000, 1000, 0] }),
+    );
+    run(
+        &mut e,
+        "material-apply",
+        json!({ "targets": format!("@{}", r["face"]), "material": "Oak" }),
+    );
+    let sampled = run(
+        &mut e,
+        "material-sample",
+        json!({ "face": { "Pid": r["face"] } }),
+    );
+    assert_eq!(sampled["material"], "Oak");
+    let back = run(
+        &mut e,
+        "material-sample",
+        json!({ "face": { "Pid": r["face"] }, "side": "back" }),
+    );
+    assert_eq!(back["material"], "Default Back");
+
+    // A missing file is an I/O error; a material without a texture cannot
+    // be sized.
+    let err = e
+        .execute_erased(
+            "material-create",
+            json!({ "name": "Gone", "color": "#000000", "texture": "missing.png" }),
+        )
+        .unwrap_err();
+    assert!(matches!(err, crate::commands::CommandError::Io(_)), "{err}");
+    run(
+        &mut e,
+        "material-create",
+        json!({ "name": "Plain", "color": "#808080" }),
+    );
+    assert!(
+        e.execute_erased(
+            "material-edit",
+            json!({ "material": "Plain", "texture_width": 10.0 })
+        )
+        .is_err()
+    );
+
+    // Undo back to the start removes the image again.
+    while e.history().can_undo() {
+        e.undo().unwrap();
+    }
+    assert_eq!(e.document().images.len(), 0);
+    assert!(e.document().materials.by_name("Oak").is_none());
+    e.redo().unwrap();
+    assert_eq!(e.document().images.len(), 1);
+    assert_valid(&e);
+}
+
+#[test]
+fn material_libraries_round_trip_with_textures() {
+    let (mut e, storage) = engine_with_storage();
+    run(
+        &mut e,
+        "material-create",
+        json!({ "name": "Oak", "color": "#A0522D", "texture": "textures/oak.png", "texture_width": 600.0 }),
+    );
+    run(
+        &mut e,
+        "material-create",
+        json!({ "name": "Tile", "color": "#C8C8D2", "texture": "textures/tile.png", "opacity": 0.5 }),
+    );
+    run(
+        &mut e,
+        "material-create",
+        json!({ "name": "Paint", "color": "#336699" }),
+    );
+    let generation = e.generation();
+    let saved = run(
+        &mut e,
+        "material-library-save",
+        json!({ "path": "libs/woods.plyrm", "materials": ["Oak", "Tile"] }),
+    );
+    assert_eq!(saved["materials"], json!(["Oak", "Tile"]));
+    assert_eq!(
+        e.generation(),
+        generation,
+        "saving a library changes nothing"
+    );
+
+    // Another document loads it: same materials, same images.
+    let mut other = engine();
+    other.set_storage(storage.clone());
+    run(
+        &mut other,
+        "material-create",
+        json!({ "name": "Tile", "color": "#000000" }),
+    );
+    let loaded = run(
+        &mut other,
+        "material-library-load",
+        json!({ "path": "libs/woods.plyrm" }),
+    );
+    assert_eq!(loaded["materials"], json!(["Oak"]));
+    assert_eq!(loaded["skipped"], json!(["Tile"]));
+    let replaced = run(
+        &mut other,
+        "material-library-load",
+        json!({ "path": "libs/woods.plyrm", "replace": true }),
+    );
+    assert_eq!(replaced["materials"], json!(["Oak", "Tile"]));
+    let (a, b) = (e.document(), other.document());
+    for name in ["Oak", "Tile"] {
+        let ma = a.materials.get(a.materials.by_name(name).unwrap()).unwrap();
+        let mb = b.materials.get(b.materials.by_name(name).unwrap()).unwrap();
+        assert_eq!(ma, mb, "{name}");
+        let image = mb.texture.as_ref().unwrap().image;
+        assert_eq!(a.images.get(image), b.images.get(image));
+    }
+    assert!(b.materials.by_name("Paint").is_none());
+    // Saving the same library twice gives the same bytes.
+    use crate::io::{Storage, StorageKey};
+    let first = storage.read(&StorageKey::new("libs/woods.plyrm")).unwrap();
+    run(
+        &mut e,
+        "material-library-save",
+        json!({ "path": "libs/woods.plyrm", "materials": ["Oak", "Tile"] }),
+    );
+    assert_eq!(
+        storage.read(&StorageKey::new("libs/woods.plyrm")).unwrap(),
+        first
+    );
+    assert_valid(&other);
+}

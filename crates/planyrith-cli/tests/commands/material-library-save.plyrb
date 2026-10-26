@@ -1,0 +1,4 @@
+# Save two textured materials to a library file (the document is unchanged).
+material-create --name Oak --color '#A0522D' --texture textures/oak.png --texture-width 600mm
+material-create --name Tile --color '#C8C8D2' --texture textures/tile.png
+material-library-save --path libs/save.plyrm --materials Oak --materials Tile

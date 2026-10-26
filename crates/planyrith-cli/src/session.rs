@@ -97,6 +97,9 @@ impl Session {
             .map(|l| l.history.clone())
             .unwrap_or_default();
         let mut engine = Engine::new(doc, registry);
+        // File commands (textures, libraries) read and write next to the
+        // working directory (docs/01 §3.1 rule 2).
+        engine.set_storage(Arc::new(NativeFs::new()));
         if let Some(last) = history.last() {
             engine.set_last_created(last.created.clone());
         }
