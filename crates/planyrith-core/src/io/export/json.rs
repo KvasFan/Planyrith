@@ -138,6 +138,7 @@ impl Exporter for JsonExporter {
             bytes_written: bytes.len() as u64,
             entities,
             warnings: Vec::new(),
+            side_files: Vec::new(),
         })
     }
 }

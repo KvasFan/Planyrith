@@ -8,7 +8,9 @@ All notable changes to Planyrith are recorded here. Versions follow
 
 - **Import and export**: `import` and `export` commands and the `planyrith import` verb;
   `planyrith export` writes the mesh formats too. STL import (ASCII and binary, triangles merged
-  into faces) and export (binary or ASCII, Y-up unless `--z-up`). The server's capabilities list
+  into faces) and export (binary or ASCII, Y-up unless `--z-up`). OBJ import (objects, MTL
+  materials and textures, concave polygons) and export (with an MTL and the textures beside
+  it). The server's capabilities list
   the formats this build reads and writes.
 
 ## 0.4.0 — Organization and materials (2026-10-26)

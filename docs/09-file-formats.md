@@ -206,4 +206,14 @@ save unless `--no-thumbnail`. `manifest.json` carries `title`, `author`, `descri
   command changes nothing in the document and is not undoable. The import/export unit parameter
   is `file_units` because `--units` is the CLI's global input unit; the `import`/`export` verbs
   accept `--units` for it as docs/08 §2 writes, and `--z-up` on `import` for `--no-swap-yz`.
+- 2026-10-26 — **OBJ.** Import: objects and groups (`o`/`g`) become one group each (the parts of
+  one object split by `usemtl` stay together); MTL files and `map_Kd` textures are read through
+  the storage relative to the OBJ (texture options before the file name are ignored); a missing
+  MTL or texture is a `W2004` warning and the default material is used; polygons are ear-clipped
+  in their plane (concave ones included), points and lines are skipped and counted. `Kd` is the
+  material color as given (0–1 per channel), `d` its opacity. Export: one object per occurrence
+  (named after its definition, `_2`, `_3`… when repeated), faces as triangles with texture
+  coordinates in texture repeats and one normal per face; the MTL is written next to the OBJ
+  (`<name>.mtl`) and each texture under `<name>_textures/`; names have spaces turned into `_`.
+  Exporters return side files to the `export` command, which writes them through the storage.
 

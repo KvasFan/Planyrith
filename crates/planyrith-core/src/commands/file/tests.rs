@@ -233,3 +233,265 @@ fn random_bytes_never_panic_the_stl_reader() {
         let _ = read_triangles(&solid);
     }
 }
+
+fn png(w: u32, h: u32, rgb: [u8; 3]) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(w, h, image::Rgb(rgb)))
+        .write_to(
+            &mut std::io::Cursor::new(&mut bytes),
+            image::ImageFormat::Png,
+        )
+        .unwrap();
+    bytes
+}
+
+/// Faces of each definition, by definition name.
+fn faces_by_definition(e: &Engine) -> Vec<(String, usize)> {
+    let doc = e.document();
+    let mut out: Vec<(String, usize)> = doc
+        .definitions
+        .iter()
+        .map(|(id, d)| {
+            let faces = doc
+                .container(ContainerRef::Definition(id))
+                .map_or(0, |c| c.mesh().faces().count());
+            (d.name.clone(), faces)
+        })
+        .collect();
+    out.sort();
+    out
+}
+
+const OBJ: &str = "# two objects
+mtllib parts.mtl
+o Plate
+v 0 0 0
+v 4 0 0
+v 4 0 4
+v 2 0 4
+v 2 0 2
+v 0 0 2
+vt 0 0
+vt 1 0
+vt 1 1
+vt 0.5 1
+vt 0.5 0.5
+vt 0 0.5
+usemtl Brick
+f 1/1 6/6 5/5 4/4 3/3 2/2
+o Card
+v 0 1 0
+v 1 1 0
+v 1 2 0
+v 0 2 0
+usemtl Paint
+f 7 8 9 10
+l 7 9
+";
+
+const MTL: &str = "newmtl Brick
+Kd 0.6 0.3 0.2
+map_Kd -s 1 1 1 textures/brick.png
+newmtl Paint
+Kd 0 0 1
+d 0.5
+";
+
+#[test]
+fn obj_imports_objects_materials_textures_and_concave_polygons() {
+    let (mut e, storage) = engine();
+    storage
+        .write(&StorageKey::new("in/parts.obj"), OBJ.as_bytes())
+        .unwrap();
+    storage
+        .write(&StorageKey::new("in/parts.mtl"), MTL.as_bytes())
+        .unwrap();
+    storage
+        .write(
+            &StorageKey::new("in/textures/brick.png"),
+            &png(4, 4, [150, 70, 50]),
+        )
+        .unwrap();
+    let out = run(
+        &mut e,
+        "import",
+        json!({ "path": "in/parts.obj", "file_units": "m" }),
+    );
+    assert_eq!(out["format"], "obj");
+    // The L-shaped hexagon is one face, the quad another.
+    assert_eq!(out["faces"], 2);
+    assert_eq!(out["skipped"], 1, "{out}");
+    let doc = e.document();
+    let brick = doc
+        .materials
+        .by_name("Brick")
+        .and_then(|m| doc.materials.get(m))
+        .unwrap();
+    assert_eq!(brick.color, crate::document::Rgba8::rgb(153, 77, 51));
+    assert!(brick.texture.is_some());
+    let paint = doc
+        .materials
+        .by_name("Paint")
+        .and_then(|m| doc.materials.get(m))
+        .unwrap();
+    assert!((paint.opacity - 0.5).abs() < 1e-6);
+    let faces = faces_by_definition(&e);
+    assert!(faces.contains(&("Group 1".into(), 0)), "{faces:?}");
+    assert_eq!(faces.iter().map(|(_, n)| n).sum::<usize>(), 2, "{faces:?}");
+    let report = crate::diagnostics::validate(e.document());
+    assert!(report.is_clean(), "{report:#?}");
+
+    // Without its MTL the geometry still comes in, with a warning.
+    let (mut e, storage) = engine();
+    storage
+        .write(&StorageKey::new("parts.obj"), OBJ.as_bytes())
+        .unwrap();
+    let out = run(&mut e, "import", json!({ "path": "parts.obj" }));
+    assert_eq!(out["faces"], 2);
+    assert!(
+        out["warnings"].to_string().contains("parts.mtl"),
+        "{}",
+        out["warnings"]
+    );
+}
+
+#[test]
+fn obj_export_round_trips_with_materials_and_textures() {
+    let (mut e, storage) = engine();
+    storage
+        .write(&StorageKey::new("oak.png"), &png(8, 8, [160, 110, 60]))
+        .unwrap();
+    run(
+        &mut e,
+        "material-create",
+        json!({ "name": "Light Oak", "color": "#A06E3C", "texture": "oak.png" }),
+    );
+    run(
+        &mut e,
+        "rectangle",
+        json!({ "corner_a": [0, 0, 0], "corner_b": [1000, 600, 0] }),
+    );
+    run(
+        &mut e,
+        "push-pull",
+        json!({ "face": { "Query": "face" }, "distance": 300.0 }),
+    );
+    run(
+        &mut e,
+        "material-apply",
+        json!({ "targets": "face & normal:z", "material": "Light Oak" }),
+    );
+    run(&mut e, "make-group", json!({ "targets": "all" }));
+    let out = run(&mut e, "export", json!({ "path": "out/box.obj" }));
+    assert_eq!(out["format"], "obj");
+    assert_eq!(out["entities"], 12);
+    let obj = String::from_utf8(storage.read(&StorageKey::new("out/box.obj")).unwrap()).unwrap();
+    assert!(obj.contains("mtllib box.mtl"));
+    assert!(obj.contains("usemtl Light_Oak"));
+    let mtl = String::from_utf8(storage.read(&StorageKey::new("out/box.mtl")).unwrap()).unwrap();
+    assert!(mtl.contains("map_Kd box_textures/Light_Oak.png"), "{mtl}");
+    assert!(
+        storage
+            .read(&StorageKey::new("out/box_textures/Light_Oak.png"))
+            .is_ok()
+    );
+    // Same bytes again: deterministic.
+    run(&mut e, "export", json!({ "path": "out/again.obj" }));
+    let again =
+        String::from_utf8(storage.read(&StorageKey::new("out/again.obj")).unwrap()).unwrap();
+    assert_eq!(
+        obj.replace("box.mtl", "again.mtl"),
+        again,
+        "deterministic output"
+    );
+
+    let (mut back, back_storage) = engine();
+    for key in [
+        "out/box.obj",
+        "out/box.mtl",
+        "out/box_textures/Light_Oak.png",
+    ] {
+        back_storage
+            .write(
+                &StorageKey::new(key),
+                &storage.read(&StorageKey::new(key)).unwrap(),
+            )
+            .unwrap();
+    }
+    let out = run(&mut back, "import", json!({ "path": "out/box.obj" }));
+    assert_eq!(out["faces"], 6, "{out}");
+    let (_, _, lo, hi) = imported(&back);
+    assert!(close(lo, DVec3::ZERO), "{lo}");
+    assert!(close(hi, DVec3::new(1000.0, 600.0, 300.0)), "{hi}");
+    let doc = back.document();
+    let oak = doc
+        .materials
+        .by_name("Light_Oak")
+        .and_then(|m| doc.materials.get(m))
+        .unwrap();
+    assert_eq!(oak.color, crate::document::Rgba8::rgb(160, 110, 60));
+    assert!(oak.texture.is_some());
+}
+
+#[test]
+fn random_obj_and_stl_files_never_panic_the_importers() {
+    let mut state = 0x9e37_79b9_u32;
+    let mut next = move || {
+        state ^= state << 13;
+        state ^= state >> 17;
+        state ^= state << 5;
+        state
+    };
+    let words = [
+        "v",
+        "vt",
+        "vn",
+        "f",
+        "o",
+        "g",
+        "usemtl",
+        "mtllib",
+        "l",
+        "p",
+        "s",
+        "1",
+        "-1",
+        "0",
+        "2/3",
+        "1//2",
+        "-2/-1/-3",
+        "nan",
+        "inf",
+        "1e308",
+        "x",
+        "/",
+        "#",
+        "3/",
+        "999999999",
+    ];
+    for round in 0..300 {
+        let mut text = String::new();
+        for _ in 0..(next() % 40) {
+            for _ in 0..(next() % 6) {
+                text.push_str(words[next() as usize % words.len()]);
+                text.push(' ');
+            }
+            text.push('\n');
+        }
+        let (mut e, storage) = engine();
+        storage
+            .write(&StorageKey::new("r.obj"), text.as_bytes())
+            .unwrap();
+        let raw: Vec<u8> = (0..(next() % 300)).map(|_| next() as u8).collect();
+        storage.write(&StorageKey::new("r.stl"), &raw).unwrap();
+        for path in ["r.obj", "r.stl"] {
+            if e.execute_erased("import", json!({ "path": path })).is_ok() {
+                let report = crate::diagnostics::validate(e.document());
+                assert!(
+                    !report.has_errors(),
+                    "round {round} {path}: {report:#?}\n{text}"
+                );
+            }
+        }
+    }
+}

@@ -10,7 +10,9 @@ use glam::DVec3;
 use crate::commands::Transaction;
 use crate::commands::params::Target;
 use crate::io::import::build::{ImportedMesh, ImportedScene, build_scene};
-use crate::io::import::{Confidence, ImportFormat, ImportOptions, ImportReport, Importer};
+use crate::io::import::{
+    Confidence, ImportFormat, ImportOptions, ImportReport, Importer, source_stem,
+};
 use crate::io::{IoError, Progress};
 
 /// The STL importer.
@@ -133,7 +135,7 @@ impl Importer for StlImporter {
             tx,
             target,
             ImportedScene {
-                name: "STL".into(),
+                name: source_stem(&opts.source, "STL"),
                 meshes: vec![mesh],
                 y_up: true,
                 ..ImportedScene::default()

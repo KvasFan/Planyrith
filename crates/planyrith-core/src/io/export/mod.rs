@@ -7,6 +7,7 @@
 //! stream their output.
 
 pub mod json;
+pub mod obj;
 pub mod scene;
 pub mod stl;
 
@@ -122,6 +123,10 @@ pub struct ExportOptions {
     pub ascii: bool,
     /// Keep Z up in formats that are Y-up by default (OBJ, STL).
     pub z_up: bool,
+    /// Storage key of the file written: names side files (an OBJ's MTL
+    /// and textures).
+    #[serde(default)]
+    pub destination: String,
 }
 
 impl Default for ExportOptions {
@@ -135,6 +140,7 @@ impl Default for ExportOptions {
             pretty: false,
             ascii: false,
             z_up: false,
+            destination: String::new(),
         }
     }
 }
@@ -148,6 +154,10 @@ pub struct ExportReport {
     pub entities: usize,
     /// Warnings.
     pub warnings: Vec<Warning>,
+    /// Files to write next to the output (name relative to its folder,
+    /// contents), e.g. an OBJ's MTL and textures.
+    #[serde(skip)]
+    pub side_files: Vec<(String, Vec<u8>)>,
 }
 
 /// An exporter (docs/09 §6).
@@ -169,6 +179,7 @@ pub trait Exporter: Send + Sync {
 pub fn exporter(format: ExportFormat) -> Option<Box<dyn Exporter>> {
     match format {
         ExportFormat::Json => Some(Box::new(json::JsonExporter)),
+        ExportFormat::Obj => Some(Box::new(obj::ObjExporter)),
         ExportFormat::Stl => Some(Box::new(stl::StlExporter)),
         _ => None,
     }

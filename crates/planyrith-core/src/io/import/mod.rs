@@ -10,6 +10,7 @@
 //! Owner key: `later`.
 
 pub mod build;
+pub mod obj;
 pub mod stl;
 
 use std::io::Read;
@@ -126,6 +127,10 @@ pub struct ImportOptions {
     /// Placement of the result.
     #[schemars(with = "[f64; 3]")]
     pub at: DVec3,
+    /// Storage key of the file read: names the import and locates side
+    /// files (an OBJ's MTL and textures) next to it.
+    #[serde(default)]
+    pub source: String,
 }
 
 impl Default for ImportOptions {
@@ -138,6 +143,7 @@ impl Default for ImportOptions {
             soften_angle: Angle::degrees(20.0),
             import_as: ImportAs::Group,
             at: DVec3::ZERO,
+            source: String::new(),
         }
     }
 }
@@ -174,9 +180,35 @@ pub trait Importer: Send + Sync {
     ) -> Result<ImportReport, IoError>;
 }
 
+/// The file name of `source` without directory and extension (`fallback`
+/// when empty).
+pub fn source_stem(source: &str, fallback: &str) -> String {
+    let file = source.rsplit(['/', '\\']).next().unwrap_or("");
+    let stem = file.rsplit_once('.').map_or(file, |(s, _)| s);
+    if stem.is_empty() {
+        fallback.to_string()
+    } else {
+        stem.to_string()
+    }
+}
+
+/// The storage key of `name` (relative, `/` or `\\` separated) next to
+/// `source`.
+pub fn sibling(source: &str, name: &str) -> String {
+    let name = name.trim().replace('\\', "/");
+    if name.starts_with('/') {
+        return name;
+    }
+    match source.rfind(['/', '\\']) {
+        Some(i) => format!("{}/{name}", &source[..i]),
+        None => name,
+    }
+}
+
 /// The importer of `format`, when this build has one.
 pub fn importer(format: ImportFormat) -> Option<Box<dyn Importer>> {
     match format {
+        ImportFormat::Obj => Some(Box::new(obj::ObjImporter)),
         ImportFormat::Stl => Some(Box::new(stl::StlImporter)),
         _ => None,
     }

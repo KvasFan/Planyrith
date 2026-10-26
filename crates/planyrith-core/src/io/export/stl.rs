@@ -101,6 +101,7 @@ impl Exporter for StlExporter {
             bytes_written: written,
             entities: triangles.len(),
             warnings: Vec::new(),
+            side_files: Vec::new(),
         })
     }
 }

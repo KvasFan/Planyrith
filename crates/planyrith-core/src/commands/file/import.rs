@@ -170,6 +170,7 @@ impl Command for Import {
             soften_angle: p.soften,
             import_as: import_as(&p)?,
             at: p.at.unwrap_or(DVec3::ZERO),
+            source: p.path.clone(),
         };
         let report = importer.import(&mut bytes.as_slice(), &opts, tx, &target, &NoProgress)?;
         Ok(ImportOutput { format, report })

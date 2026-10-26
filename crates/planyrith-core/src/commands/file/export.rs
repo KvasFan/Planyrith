@@ -14,6 +14,7 @@ use crate::commands::{
 };
 use crate::document::{Document, Query};
 use crate::io::export::{ExportFormat, ExportOptions, ExportReport, ExportScope, exporter};
+use crate::io::import::sibling;
 use crate::io::{IoError, NoProgress, StorageKey};
 use crate::units::LengthUnit;
 
@@ -127,11 +128,16 @@ impl Command for Export {
             units: units(&p)?,
             ascii: p.ascii,
             z_up: p.z_up,
+            destination: p.path.clone(),
             ..ExportOptions::default()
         };
         let mut bytes = Vec::new();
         let report = exporter.export(tx.document(), &scope, &opts, &mut bytes, &NoProgress)?;
-        storage(tx, &p.path)?.write(&StorageKey::new(&p.path), &bytes)?;
+        let storage = storage(tx, &p.path)?;
+        storage.write(&StorageKey::new(&p.path), &bytes)?;
+        for (name, contents) in &report.side_files {
+            storage.write(&StorageKey::new(sibling(&p.path, name)), contents)?;
+        }
         Ok(ExportOutput { format, report })
     }
 
