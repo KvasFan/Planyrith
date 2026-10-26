@@ -101,3 +101,12 @@ humans or GUI automation before releases, with expected screenshots.
   whole-window PNGs of the GUI (both themes, a tool hovering the model, the context menu)
   through `egui_kittest`'s wgpu renderer, optionally with `PLANYRITH_SCREENSHOT_DOC=<file>`
   loaded. It is a review aid, not a golden test: without the variable it does nothing.
+- 2026-10-26 — **External validators (docs/13 0.5).** `tools/validate-exports.sh` builds the
+  textured kitchen of the 0.4 acceptance batches, exports every format and runs other tools'
+  validators: the Khronos glTF-Validator on GLB and glTF, ezdxf's recover/audit on 3D and 2D
+  DXF, `xmllint` on SVG and `pdfinfo` on PDF. It downloads the glTF validator and ezdxf on first
+  use, so it is a local check, not a CI job. Run on 2026-10-26: glTF-Validator 0 errors and
+  0 warnings (GLB and glTF with textures), ezdxf 0 errors and 0 fixes (both DXF), SVG well-formed,
+  PDF read by `pdfinfo`. In CI, every format has round-trip tests in the core
+  (`commands::file::tests`), robustness tests on random and damaged files, and the
+  `import_benchmark` (ignored) measures the 100 MB glTF case.
