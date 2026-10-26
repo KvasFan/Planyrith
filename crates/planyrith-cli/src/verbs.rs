@@ -34,12 +34,15 @@ pub fn dispatch(global: Global, verb: Verb) -> Result<(), CliError> {
             stats,
         } => query_verb(&global, &query, &fields, count, stats),
         Verb::Tool { name, args } => tool(&global, name, args),
-        Verb::Export {
-            output,
-            format,
-            canonical,
-            pretty,
-        } => export(&global, &output, format, canonical, pretty),
+        Verb::Import { input, args } => {
+            let mut raw = vec!["--path".to_string(), input];
+            raw.extend(args.into_iter().map(|a| match a.as_str() {
+                "--z-up" => "--no-swap-yz".to_string(),
+                _ => file_units(a),
+            }));
+            tool(&global, Some("import".into()), raw)
+        }
+        Verb::Export { output, args } => export(&global, &output, args),
         Verb::Validate => validate_verb(&global),
         Verb::Repair { fix } => repair_verb(&global, &fix),
         Verb::Batch { script } => batch(&global, script.as_deref()),
@@ -643,15 +646,17 @@ pub(crate) fn entity_row(
 
 // ----- export ---------------------------------------------------------------------------
 
-fn export(
-    global: &Global,
-    output: &Path,
-    format: Option<String>,
-    canonical: bool,
-    pretty: bool,
-) -> Result<(), CliError> {
+fn export(global: &Global, output: &Path, args: Vec<String>) -> Result<(), CliError> {
     let started = Instant::now();
-    let session = Session::open(global, false)?;
+    // `--format x`/`--format=x`, else the extension.
+    let mut format = None;
+    for (i, a) in args.iter().enumerate() {
+        if a == "--format" {
+            format = args.get(i + 1).cloned();
+        } else if let Some(f) = a.strip_prefix("--format=") {
+            format = Some(f.to_string());
+        }
+    }
     let format = format
         .or_else(|| {
             output
@@ -659,13 +664,26 @@ fn export(
                 .map(|e| e.to_string_lossy().to_lowercase())
         })
         .unwrap_or_default();
-    if format != "json" {
-        return Err(CliError::io(
-            planyrith_core::io::IoError::UnsupportedFormat(format!(
-                "export format `{format}` (milestone 0.1 exports json)"
-            )),
-        ));
+    if format != "json" || args.iter().any(|a| a == "--help" || a == "-h") {
+        return export_mesh(global, output, args, started);
     }
+    let (mut canonical, mut pretty) = (false, false);
+    let mut skip = false;
+    for a in &args {
+        match a.as_str() {
+            _ if skip => skip = false,
+            "--format" => skip = true,
+            "--canonical" => canonical = true,
+            "--pretty" => pretty = true,
+            a if a.starts_with("--format=") => {}
+            other => {
+                return Err(CliError::usage(format!(
+                    "`{other}` is not an option of the json export (--canonical, --pretty)"
+                )));
+            }
+        }
+    }
+    let session = Session::open(global, false)?;
     let mut value = document_to_json(session.engine.document()).map_err(CliError::io)?;
     if canonical {
         canonicalize(&mut value);
@@ -686,6 +704,51 @@ fn export(
         global,
         "export",
         json!({ "path": output.display().to_string(), "format": format }),
+        Some(&session),
+        None,
+        started,
+        None,
+    )
+}
+
+/// `--units` of `import`/`export` is the file's unit (docs/08 §2), the
+/// `file_units` parameter; the global `--units` stays the input default.
+fn file_units(arg: String) -> String {
+    match arg.strip_prefix("--units") {
+        Some("") => "--file-units".into(),
+        Some(rest) if rest.starts_with('=') => format!("--file-units{rest}"),
+        _ => arg,
+    }
+}
+
+/// `export` to the formats of the core's `export` command: nothing is
+/// saved, the document does not change.
+fn export_mesh(
+    global: &Global,
+    output: &Path,
+    args: Vec<String>,
+    started: Instant,
+) -> Result<(), CliError> {
+    let registry = CommandRegistry::with_builtins();
+    let mut raw = vec!["--path".to_string(), output.display().to_string()];
+    raw.extend(args.into_iter().map(file_units));
+    let invocation = match parse_tool_args(&registry, "export", &raw, true) {
+        Ok(inv) => inv,
+        Err(e) if e.exit == 0 => return Ok(()),
+        Err(e) => return Err(e),
+    };
+    let global = global.merged(&invocation.globals);
+    let session = Session::open(&global, false)?;
+    let params = invocation.params(&session, &global)?;
+    let mut session = session;
+    let result = session
+        .engine
+        .execute_erased("export", params)
+        .map_err(CliError::from_command)?;
+    emit(
+        &global,
+        "export",
+        result,
         Some(&session),
         None,
         started,

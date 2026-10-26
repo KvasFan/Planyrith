@@ -88,12 +88,16 @@ planyrith tool scene-add -f house.plyr --name "Plan" --capture camera,tags
 
 ### `planyrith import -f model.plyr <input> [--format obj|stl|gltf|dxf|step|image|csv|plyr] [--as group|component:<name>|image] [--units <u>] [--merge-coplanar] [--soften <deg>] [--scale <f>] [--swap-yz] [--at x,y,z]`
 Imports into the current context as a group (default) or component. Format autodetected from the
-extension. Options are per format (`docs/09 §6`). Output lists created entities and warnings.
+extension. Options are per format (`docs/09 §6`). Output lists created entities and warnings. The verb
+runs the `import` command (`planyrith tool import --help` lists its options); `--units` is the
+file's unit (`file_units`) and `--z-up` keeps a Y-up format's axes as they are (`--no-swap-yz`).
 
 ### `planyrith export -f model.plyr <output> [--format …] [--scene <name>] [--selection-only] [--per-tag] [--triangulate] [--units <u>] [--include-hidden] [--copy-textures <dir>] …`
 Exports 3D formats (`obj`, `stl`, `gltf`, `glb`, `dxf`, `step`, `plyr`, `json`), 2D
 (`svg`, `pdf`, `dxf` with `--2d --scene <name> --scale 1:50`) and data (`csv` component counts,
-`json` document dump). `--format json --pretty` is the debugging dump.
+`json` document dump). `--format json --pretty` is the debugging dump. Formats other than `json` run
+the `export` command (`planyrith tool export --help`): `--ascii` (STL), `--z-up`, `--units` (the
+file's unit), `--targets <query>`, `--include-hidden`; the document is not saved.
 
 ### `planyrith render -f model.plyr <out.png> [--width 1920 --height 1080] [--scene <name> | --camera 'eye=…;target=…;fov=35'] [--style <name>] [--shadows] [--transparent] [--msaa 4] [--show-hidden] [--deterministic]`
 Headless rendering (`docs/06 §11`). `--format png|jpg|webp` from extension. `--all-scenes

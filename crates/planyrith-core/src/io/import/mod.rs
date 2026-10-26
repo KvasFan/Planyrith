@@ -9,6 +9,9 @@
 //!
 //! Owner key: `later`.
 
+pub mod build;
+pub mod stl;
+
 use std::io::Read;
 
 use glam::DVec3;
@@ -44,6 +47,26 @@ pub enum ImportFormat {
 }
 
 impl ImportFormat {
+    /// Every import format.
+    pub const ALL: [ImportFormat; 8] = [
+        ImportFormat::Obj,
+        ImportFormat::Stl,
+        ImportFormat::Gltf,
+        ImportFormat::Dxf,
+        ImportFormat::Step,
+        ImportFormat::Image,
+        ImportFormat::Csv,
+        ImportFormat::Plyr,
+    ];
+
+    /// The formats this build imports.
+    pub fn supported() -> Vec<ImportFormat> {
+        Self::ALL
+            .into_iter()
+            .filter(|f| importer(*f).is_some())
+            .collect()
+    }
+
     /// Format from a file extension (case-insensitive), docs/08 §2 autodetection.
     pub fn from_extension(ext: &str) -> Option<Self> {
         Some(match ext.to_ascii_lowercase().as_str() {
@@ -140,14 +163,23 @@ pub trait Importer: Send + Sync {
     fn format(&self) -> ImportFormat;
     /// How confidently `bytes` (first KiB suffice) named `name` can be read.
     fn probe(&self, bytes: &[u8], name: &str) -> Confidence;
-    /// Imports into the transaction's current context.
+    /// Imports into `target` (the edit context the command resolved).
     fn import(
         &self,
         src: &mut dyn Read,
         opts: &ImportOptions,
         tx: &mut Transaction<'_>,
+        target: &crate::commands::params::Target,
         progress: &dyn Progress,
     ) -> Result<ImportReport, IoError>;
+}
+
+/// The importer of `format`, when this build has one.
+pub fn importer(format: ImportFormat) -> Option<Box<dyn Importer>> {
+    match format {
+        ImportFormat::Stl => Some(Box::new(stl::StlImporter)),
+        _ => None,
+    }
 }
 
 #[cfg(test)]

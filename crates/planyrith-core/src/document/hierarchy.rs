@@ -734,6 +734,28 @@ impl Entities {
         Ok(())
     }
 
+    /// A container holding `mesh`, its edges then its faces bound to pids
+    /// from `next` in slot order (importers, docs/09 §6).
+    pub(crate) fn from_mesh(mesh: HalfEdgeMesh, mut next: impl FnMut() -> Pid) -> Entities {
+        let mut e = Entities {
+            mesh,
+            ..Entities::default()
+        };
+        let ids: Vec<EntityId> = e
+            .mesh
+            .edges()
+            .map(|(id, _)| EntityId::Edge(id))
+            .chain(e.mesh.faces().map(|(id, _)| EntityId::Face(id)))
+            .collect();
+        for id in ids {
+            let pid = next();
+            e.order.push(id);
+            e.pids.insert(id, pid);
+            e.by_pid.insert(pid, id);
+        }
+        e
+    }
+
     /// Re-synchronizes pid bindings with the mesh after a change made outside
     /// a transaction (file repair): unbinds edges/faces that no longer exist
     /// and binds fresh pids to those without one. Returns `(bound, unbound)`.

@@ -7,6 +7,8 @@
 //! stream their output.
 
 pub mod json;
+pub mod scene;
+pub mod stl;
 
 use std::io::Write;
 
@@ -47,6 +49,29 @@ pub enum ExportFormat {
 }
 
 impl ExportFormat {
+    /// Every export format.
+    pub const ALL: [ExportFormat; 11] = [
+        ExportFormat::Obj,
+        ExportFormat::Stl,
+        ExportFormat::Gltf,
+        ExportFormat::Glb,
+        ExportFormat::Dxf,
+        ExportFormat::Step,
+        ExportFormat::Plyr,
+        ExportFormat::Json,
+        ExportFormat::Svg,
+        ExportFormat::Pdf,
+        ExportFormat::Csv,
+    ];
+
+    /// The formats this build exports.
+    pub fn supported() -> Vec<ExportFormat> {
+        Self::ALL
+            .into_iter()
+            .filter(|f| exporter(*f).is_some())
+            .collect()
+    }
+
     /// Format from a file extension (case-insensitive).
     pub fn from_extension(ext: &str) -> Option<Self> {
         Some(match ext.to_ascii_lowercase().as_str() {
@@ -93,6 +118,10 @@ pub struct ExportOptions {
     pub canonical: bool,
     /// Pretty-print text formats.
     pub pretty: bool,
+    /// ASCII instead of binary (STL).
+    pub ascii: bool,
+    /// Keep Z up in formats that are Y-up by default (OBJ, STL).
+    pub z_up: bool,
 }
 
 impl Default for ExportOptions {
@@ -104,6 +133,8 @@ impl Default for ExportOptions {
             copy_textures: None,
             canonical: false,
             pretty: false,
+            ascii: false,
+            z_up: false,
         }
     }
 }
@@ -132,6 +163,27 @@ pub trait Exporter: Send + Sync {
         dst: &mut dyn Write,
         progress: &dyn Progress,
     ) -> Result<ExportReport, IoError>;
+}
+
+/// The exporter of `format`, when this build has one.
+pub fn exporter(format: ExportFormat) -> Option<Box<dyn Exporter>> {
+    match format {
+        ExportFormat::Json => Some(Box::new(json::JsonExporter)),
+        ExportFormat::Stl => Some(Box::new(stl::StlExporter)),
+        _ => None,
+    }
+}
+
+/// Document (mm, Z-up) → output coordinates: `opts.units`, and Y-up
+/// unless `z_up` for formats that are Y-up by default.
+pub fn output_transform(opts: &ExportOptions, y_up_format: bool) -> glam::DAffine3 {
+    let axes = if y_up_format && !opts.z_up {
+        // (x, y, z) → (x, z, −y): Z-up to Y-up.
+        glam::DMat3::from_cols(glam::DVec3::X, -glam::DVec3::Z, glam::DVec3::Y)
+    } else {
+        glam::DMat3::IDENTITY
+    };
+    glam::DAffine3::from_mat3(axes / opts.units.millimeters())
 }
 
 #[cfg(test)]

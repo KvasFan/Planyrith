@@ -147,7 +147,7 @@ fn entity_hidden(doc: &Document, entities: &Entities, id: EntityId) -> bool {
 /// takes the point in the face frame (or the projection plane's frame) to
 /// texture millimeters, which are divided by the texture's tile size; fixed
 /// pins are already in tiles.
-fn uv_of(
+pub(crate) fn uv_of(
     map: Option<&UvMap>,
     frame_point: DVec2,
     vertex: crate::ids::VertexId,

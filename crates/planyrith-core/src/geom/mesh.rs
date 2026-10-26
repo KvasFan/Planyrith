@@ -472,6 +472,8 @@ pub struct TriangleMergeResult {
     pub non_manifold_edges: usize,
     /// Degenerate input triangles skipped.
     pub degenerate_triangles: usize,
+    /// The face each input triangle became part of (`None` when skipped).
+    pub triangle_faces: Vec<Option<FaceId>>,
 }
 
 /// One violated invariant found by [`HalfEdgeMesh::validate`] (docs/03 §3.1).
@@ -1021,7 +1023,19 @@ impl HalfEdgeMesh {
         opts: TriangleMergeOptions,
         tol: &Tolerances,
     ) -> Result<TriangleMergeResult, GeometryError> {
-        indexed::from_triangles_merged(positions, triangles, opts, tol)
+        indexed::from_triangles_merged(positions, triangles, None, opts, tol)
+    }
+
+    /// [`HalfEdgeMesh::from_triangles_merged`] where only triangles with the
+    /// same key (one per triangle, e.g. a material) merge.
+    pub fn from_triangles_keyed(
+        positions: &[DVec3],
+        triangles: &[[u32; 3]],
+        keys: &[u32],
+        opts: TriangleMergeOptions,
+        tol: &Tolerances,
+    ) -> Result<TriangleMergeResult, GeometryError> {
+        indexed::from_triangles_merged(positions, triangles, Some(keys), opts, tol)
     }
 
     /// Transforms every vertex and face plane (bulk, no merging; used by

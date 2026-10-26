@@ -527,7 +527,12 @@ impl Server {
         json!({
             "version": env!("CARGO_PKG_VERSION"),
             "schema_version": schema_version,
-            "formats": { "open": ["plyr"], "save": ["plyr"], "export": ["json"] },
+            "formats": {
+                "open": ["plyr"],
+                "save": ["plyr"],
+                "import": planyrith_core::io::import::ImportFormat::supported(),
+                "export": planyrith_core::io::export::ExportFormat::supported(),
+            },
             "features": {
                 "transports": if cfg!(unix) {
                     json!(["stdio", "tcp", "unix"])

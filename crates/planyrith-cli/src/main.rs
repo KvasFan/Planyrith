@@ -142,19 +142,23 @@ enum Verb {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
-    /// Export the document (0.1: `json`).
+    /// Import a file into the document as a group or component (docs/08 §2).
+    Import {
+        /// File to import (obj, stl, gltf, glb, dxf, png, jpg, csv, plyr…).
+        input: String,
+        /// Options of `planyrith tool import --help`; `--units` is the file's
+        /// unit, `--z-up` keeps Z up.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// Export the document: `json` (with `--canonical`, `--pretty`) or a
+    /// mesh format (options of `planyrith tool export --help`).
     Export {
-        /// Output path (`-` = stdout).
+        /// Output path (`-` = stdout, json only).
         output: PathBuf,
-        /// Format (default: from the extension).
-        #[arg(long)]
-        format: Option<String>,
-        /// Sorted keys and fixed float formatting for diffs.
-        #[arg(long)]
-        canonical: bool,
-        /// Indented JSON.
-        #[arg(long)]
-        pretty: bool,
+        /// `--format`, `--canonical`, `--pretty` and the export options.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
     },
     /// Check the document (docs/04 §13); exit code 3 if problems remain.
     Validate,

@@ -102,7 +102,7 @@ Import of any unsupported entity yields `W2004` with counts, never a failure.
 ## 6. Importer/exporter contracts
 
 ```rust
-pub trait Importer { fn probe(bytes: &[u8], name: &str) -> Confidence; fn import(&self, src: &mut dyn Read, opts: &ImportOptions, tx: &mut Transaction, progress: &dyn Progress) -> Result<ImportReport, IoError>; }
+pub trait Importer { fn probe(bytes: &[u8], name: &str) -> Confidence; fn import(&self, src: &mut dyn Read, opts: &ImportOptions, tx: &mut Transaction, target: &Target, progress: &dyn Progress) -> Result<ImportReport, IoError>; }
 pub trait Exporter { fn export(&self, doc: &Document, scope: &ExportScope, opts: &ExportOptions, dst: &mut dyn Write, progress: &dyn Progress) -> Result<ExportReport, IoError>; }
 ```
 Common options: `units` (source unit for unitless formats), `scale`, `swap_yz` (Y-up formats are
@@ -187,3 +187,23 @@ save unless `--no-thumbnail`. `manifest.json` carries `title`, `author`, `descri
   anew. Definition UUIDs are a hash (blake3, as a version-8 UUID) of the name, the contents and
   the document's pid counter: deterministic, yet distinct for components made in different
   documents. (Before 0.4 they were the pid counter alone, which collided across documents.)
+- 2026-10-26 — **Importers build into a target.** `Importer::import` also receives the command's
+  resolved edit context (`Target`), so an import lands in the context it was run in. Every mesh
+  importer fills one intermediate scene (meshes with per-triangle materials and texture
+  coordinates, nodes with transforms, materials with optional texture bytes) and one shared
+  builder turns it into geometry: units, `scale`, then Y-up → Z-up (`(x, y, z) → (x, −z, y)`)
+  when `swap_yz` is set or, absent, when the format is Y-up (OBJ, STL; glTF always). Triangles
+  merge into faces only with neighbours of the same material and the same texture mapping. A mesh
+  used once becomes a group, a mesh used by several nodes a component; the import is one
+  top-level group (named `Group N`) or, with `as: component:<name>`, one instance of a new
+  component. A file holding a single mesh placed without a transform becomes that group or
+  component directly, without a wrapper. Imported textures get a 1 m tile (texture coordinates
+  in the file are in tiles).
+- 2026-10-26 — **Export orientation and STL.** Exporters of Y-up formats (OBJ, STL) write Y-up
+  (`(x, y, z) → (x, z, −y)`) unless `z_up`, mirroring the import rule, so an export imported back
+  with default options lands where it was. STL is binary by default (`ascii` for text), with every
+  visible face triangulated in world coordinates, in `file_units` (mm by default). The `export`
+  command changes nothing in the document and is not undoable. The import/export unit parameter
+  is `file_units` because `--units` is the CLI's global input unit; the `import`/`export` verbs
+  accept `--units` for it as docs/08 §2 writes, and `--z-up` on `import` for `--no-swap-yz`.
+

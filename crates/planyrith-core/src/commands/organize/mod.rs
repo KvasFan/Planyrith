@@ -12,7 +12,7 @@
 mod components;
 mod groups;
 mod images;
-mod libraries;
+pub(crate) mod libraries;
 mod materials;
 mod scenes;
 mod styles;

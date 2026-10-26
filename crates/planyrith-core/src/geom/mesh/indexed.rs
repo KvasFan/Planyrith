@@ -396,10 +396,12 @@ impl UnionFind {
     }
 }
 
-/// docs/09 §6 importer fast path.
+/// docs/09 §6 importer fast path. With `keys` (one per triangle), only
+/// triangles of the same key merge (materials of imported meshes).
 pub(super) fn from_triangles_merged(
     positions: &[DVec3],
     triangles: &[[u32; 3]],
+    keys: Option<&[u32]>,
     opts: TriangleMergeOptions,
     tol: &Tolerances,
 ) -> Result<TriangleMergeResult, GeometryError> {
@@ -449,7 +451,9 @@ pub(super) fn from_triangles_merged(
     let mut non_manifold_edges = 0;
     let mut used_directed: BTreeSet<(usize, usize)> = BTreeSet::new();
     let mut tris: Vec<[usize; 3]> = Vec::with_capacity(triangles.len());
-    for t in triangles {
+    // The input triangle of each accepted one.
+    let mut source: Vec<usize> = Vec::with_capacity(triangles.len());
+    for (input, t) in triangles.iter().enumerate() {
         let mut idx = [0usize; 3];
         for k in 0..3 {
             idx[k] = *weld
@@ -477,6 +481,7 @@ pub(super) fn from_triangles_merged(
                     used_directed.insert((tri[k], tri[(k + 1) % 3]));
                 }
                 tris.push(tri);
+                source.push(input);
             }
             None => non_manifold_edges += 1,
         }
@@ -496,7 +501,9 @@ pub(super) fn from_triangles_merged(
     let mut groups = UnionFind::new(tris.len());
     if opts.merge_coplanar {
         for (&(a, b), &i) in &by_directed {
+            let key = |t: usize| keys.and_then(|k| k.get(source[t]).copied());
             if let Some(&j) = by_directed.get(&(b, a))
+                && key(i) == key(j)
                 && let (Some(pi), Some(pj)) = (planes[i], planes[j])
                 && tol.is_coplanar_same_side(&pi, &pj)
             {
@@ -512,19 +519,20 @@ pub(super) fn from_triangles_merged(
         let r = groups.find(i);
         members.entry(r).or_default().push(i);
     }
-    let mut faces: Vec<(Vec<Vec<usize>>, Plane)> = Vec::new();
+    // Each face with the accepted triangles it covers.
+    let mut faces: Vec<(Vec<Vec<usize>>, Plane, Vec<usize>)> = Vec::new();
     let mut merged_faces = 0;
     for tri_ids in members.values() {
         if tri_ids.len() > 1
-            && let Some(face) = group_face(&reps, &tris, tri_ids, tol)
+            && let Some((loops, plane)) = group_face(&reps, &tris, tri_ids, tol)
         {
             merged_faces += tri_ids.len() - 1;
-            faces.push(face);
+            faces.push((loops, plane, tri_ids.clone()));
             continue;
         }
         for &i in tri_ids {
             if let Some(plane) = planes[i] {
-                faces.push((vec![tris[i].to_vec()], plane));
+                faces.push((vec![tris[i].to_vec()], plane, vec![i]));
             }
         }
     }
@@ -534,7 +542,7 @@ pub(super) fn from_triangles_merged(
     let d = &mut NoDeltas;
     let mut vertex_ids: BTreeMap<usize, VertexId> = BTreeMap::new();
     let mut edge_set: BTreeSet<(usize, usize)> = BTreeSet::new();
-    for (loops, _) in &faces {
+    for (loops, _, _) in &faces {
         for lp in loops {
             for k in 0..lp.len() {
                 let (a, b) = (lp[k], lp[(k + 1) % lp.len()]);
@@ -550,7 +558,8 @@ pub(super) fn from_triangles_merged(
         }
         mesh.new_edge(vertex_ids[&a], vertex_ids[&b], EdgeFlags::NONE, d)?;
     }
-    for (loops, plane) in faces {
+    let mut triangle_faces: Vec<Option<FaceId>> = vec![None; triangles.len()];
+    for (loops, plane, covered) in faces {
         let mut cycles: Vec<Vec<HalfEdgeId>> = Vec::with_capacity(loops.len());
         for lp in &loops {
             let mut cycle = Vec::with_capacity(lp.len());
@@ -566,11 +575,13 @@ pub(super) fn from_triangles_merged(
         let Some((outer, holes)) = cycles.split_first() else {
             continue;
         };
-        if mesh
-            .create_face(outer, holes, plane, FaceSides::default(), tol, d)
-            .is_err()
-        {
-            degenerate_triangles += 1;
+        match mesh.create_face(outer, holes, plane, FaceSides::default(), tol, d) {
+            Ok(f) => {
+                for t in covered {
+                    triangle_faces[source[t]] = Some(f);
+                }
+            }
+            Err(_) => degenerate_triangles += 1,
         }
     }
 
@@ -593,6 +604,7 @@ pub(super) fn from_triangles_merged(
         merged_faces,
         non_manifold_edges,
         degenerate_triangles,
+        triangle_faces,
     })
 }
 
