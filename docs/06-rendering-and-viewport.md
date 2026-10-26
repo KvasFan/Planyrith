@@ -284,3 +284,6 @@ exposes a frame-time overlay (`F11` panel).
   the face (and outside its holes) is ignored. Instances of components that always face the
   camera turn about their blue axis, through their origin, so that their front (the definition's
   −green direction) faces the eye; picking still uses the stored placement.
+- 2026-10-26 — In textured modes a texture shows its own colors; the material color multiplies
+  it only when the material colorizes it (both `shift` and `tint` act as a tint for now). The
+  material color stays the face color in untextured modes.

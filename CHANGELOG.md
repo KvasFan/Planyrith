@@ -13,6 +13,8 @@ All notable changes to Planyrith are recorded here. Versions follow
 - **Components**: `make-unique`, `component-insert` (from the model or a `.plyrc` file, glued to
   a face), `component-save-as`, `component-reload`, `component-replace`. Definition UUIDs are
   now content hashes, so components from different documents no longer collide.
+- **Bundled materials**: ten procedurally generated textured materials in the Materials panel;
+  textures render in their own colors; Paint paints the side facing the eye.
 - **Images and textures**: `image-insert` (image entities, drawn textured), `explode` of images
   into textured faces, `texture-position` (offset, rotation, scale) with a GUI window.
 - **Tags**: `tag-move` and `tag-folder-set-visible`; the Tags panel shows folders.

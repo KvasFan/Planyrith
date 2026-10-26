@@ -10,6 +10,7 @@
 #![forbid(unsafe_code)]
 
 mod app;
+mod bundled;
 mod icons;
 mod panels;
 mod resources;

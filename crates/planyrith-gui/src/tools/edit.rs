@@ -935,6 +935,24 @@ pub struct PaintTool {
     material: Option<String>,
 }
 
+/// The side of the face under the pointer that faces the eye.
+fn visible_side(p: &Pointer, cx: &Cx<'_>) -> planyrith_core::document::FrontOrBack {
+    use planyrith_core::document::FrontOrBack;
+    let plane = p.face.as_ref().and_then(|element| {
+        let r = cx.doc.resolve(element).ok()?;
+        let EntityId::Face(f) = r.entity else {
+            return None;
+        };
+        let face = cx.doc.container(r.container)?.mesh().face(f)?;
+        Some(face.plane.transformed(&r.world))
+    });
+    match plane {
+        // In parallel views the eye is far along the view direction too.
+        Some(plane) if plane.signed_distance(cx.camera.eye) < 0.0 => FrontOrBack::Back,
+        _ => FrontOrBack::Front,
+    }
+}
+
 impl PaintTool {
     /// Paints with `material`.
     pub fn with_material(material: impl Into<String>) -> Self {
@@ -970,6 +988,8 @@ impl Tool for PaintTool {
         else {
             return Flow::Continue;
         };
+        // The side of the face the eye sees is the one painted or sampled.
+        let side = visible_side(p, cx);
         if p.modifiers.alt {
             // Sample the material of the face under the cursor.
             if let Some(element) = &p.face
@@ -977,10 +997,13 @@ impl Tool for PaintTool {
                 && let EntityId::Face(f) = r.entity
                 && let Some(face) = cx.doc.container(r.container).and_then(|c| c.mesh().face(f))
             {
-                let id = cx.doc.materials.resolve(
-                    face.sides.material_front,
-                    planyrith_core::document::FrontOrBack::Front,
-                );
+                let (material, side) = match side {
+                    planyrith_core::document::FrontOrBack::Back => (face.sides.material_back, side),
+                    planyrith_core::document::FrontOrBack::Front => {
+                        (face.sides.material_front, side)
+                    }
+                };
+                let id = cx.doc.materials.resolve(material, side);
                 self.material = cx.doc.materials.get(id).map(|m| m.name.clone());
             }
             return Flow::Continue;
@@ -1001,9 +1024,13 @@ impl Tool for PaintTool {
         } else {
             "single"
         };
+        let side = match side {
+            planyrith_core::document::FrontOrBack::Front => "front",
+            planyrith_core::document::FrontOrBack::Back => "back",
+        };
         Flow::run(
             "material-apply",
-            json!({ "targets": format!("{}", target.target), "material": material, "fill": fill }),
+            json!({ "targets": format!("{}", target.target), "material": material, "fill": fill, "side": side }),
         )
     }
 

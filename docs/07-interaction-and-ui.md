@@ -317,3 +317,10 @@ collected by clicks: e.g. segments for Circle, array count, copy toggle).
   the active style's editor — edges, faces, background with sky and ground, watermarks, fog,
   modeling colors — where colors are hex codes and numbers apply when a drag or an edit ends, so
   each change is one command. Files come from the file dialog with the matching filter.
+- 2026-10-26 — **Bundled materials and Paint sides.** The Materials panel offers bundled
+  textured materials (oak, walnut, brick, ceramic tile, concrete, marble, grass, stone paving,
+  brushed steel, fabric) with thumbnails; their textures are generated procedurally by the
+  application (no third-party images), written once to a cache folder and loaded with
+  `material-create` like any file; clicking one creates it if needed and paints with it.
+  Textured materials show their texture as the swatch. Paint paints (and Alt samples) the side
+  of the face that faces the eye, not always the front.

@@ -95,6 +95,8 @@ pub enum ToolRequest {
 /// Panel state kept between frames.
 #[derive(Default)]
 pub struct ResourceState {
+    /// Thumbnails: bundled materials by name, document images by hash.
+    thumbnails: std::collections::HashMap<String, egui::TextureHandle>,
     selected_material: Option<String>,
     new_material: String,
     selected_component: Option<String>,
@@ -118,6 +120,38 @@ fn color32(c: Rgba8) -> Color32 {
 
 fn hex(c: Rgba8) -> String {
     format!("#{:02X}{:02X}{:02X}", c.r, c.g, c.b)
+}
+
+/// A 48-pixel thumbnail of an RGB image as an egui texture.
+fn thumbnail_of(ctx: &egui::Context, name: &str, image: &image::RgbImage) -> egui::TextureHandle {
+    let small = image::imageops::thumbnail(image, 48, 48);
+    let pixels: Vec<egui::Color32> = small
+        .pixels()
+        .map(|p| egui::Color32::from_rgb(p[0], p[1], p[2]))
+        .collect();
+    ctx.load_texture(
+        name,
+        egui::ColorImage::new([small.width() as usize, small.height() as usize], pixels),
+        egui::TextureOptions::LINEAR,
+    )
+}
+
+/// The thumbnail of a document image (decoded once).
+fn image_thumbnail(
+    ui: &egui::Ui,
+    state: &mut ResourceState,
+    session: &Session,
+    image: planyrith_core::document::ImageRef,
+) -> Option<egui::TextureHandle> {
+    let key = format!("{image:?}");
+    if let Some(t) = state.thumbnails.get(&key) {
+        return Some(t.clone());
+    }
+    let data = session.doc().images.get(image)?;
+    let decoded = image::load_from_memory(&data.bytes).ok()?.to_rgb8();
+    let t = thumbnail_of(ui.ctx(), &key, &decoded);
+    state.thumbnails.insert(key, t.clone());
+    Some(t)
 }
 
 fn swatch(ui: &mut egui::Ui, color: Rgba8, textured: bool) {
@@ -220,13 +254,28 @@ pub fn materials(
             )
         })
         .collect();
+    let images: Vec<Option<planyrith_core::document::ImageRef>> = doc
+        .materials
+        .iter()
+        .map(|(_, m)| m.texture.as_ref().map(|t| t.image))
+        .collect();
+    let thumbs: Vec<Option<egui::TextureHandle>> = images
+        .iter()
+        .map(|i| i.and_then(|i| image_thumbnail(ui, state, session, i)))
+        .collect();
+    let doc = session.doc();
     egui::ScrollArea::vertical()
         .id_salt("materials")
         .max_height(ui.available_height() * 0.45)
         .show(ui, |ui| {
-            for (name, color, textured, _) in &list {
+            for ((name, color, textured, _), thumb) in list.iter().zip(&thumbs) {
                 ui.horizontal(|ui| {
-                    swatch(ui, *color, *textured);
+                    match thumb {
+                        Some(t) => {
+                            ui.add(egui::Image::new(t).fit_to_exact_size(egui::vec2(18.0, 18.0)));
+                        }
+                        None => swatch(ui, *color, *textured),
+                    }
                     let selected = state.selected_material.as_deref() == Some(name.as_str());
                     let label = ui.selectable_label(selected, name);
                     if label.clicked() {
@@ -277,6 +326,47 @@ pub fn materials(
             actions.push(("material-purge", json!({})));
         }
     });
+    egui::CollapsingHeader::new("Bundled")
+        .default_open(true)
+        .show(ui, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                for b in crate::bundled::catalogue() {
+                    let key = format!("bundled:{}", b.name);
+                    let thumb = state
+                        .thumbnails
+                        .entry(key.clone())
+                        .or_insert_with(|| thumbnail_of(ui.ctx(), &key, &(b.generate)()))
+                        .clone();
+                    let button = egui::Button::image(
+                        egui::Image::new(&thumb).fit_to_exact_size(egui::vec2(40.0, 40.0)),
+                    );
+                    if ui
+                        .add(button)
+                        .on_hover_text(format!("{} — click to paint with it", b.name))
+                        .clicked()
+                    {
+                        let existing = list.iter().any(|(m, ..)| m == b.name);
+                        if !existing {
+                            match crate::bundled::texture_path(&b) {
+                                Ok(path) => actions.push((
+                                    "material-create",
+                                    json!({
+                                        "name": b.name,
+                                        "color": b.color,
+                                        "texture": path.to_string_lossy(),
+                                        "texture_width": b.size_mm.0,
+                                        "texture_height": b.size_mm.1,
+                                    }),
+                                )),
+                                Err(e) => *error = Some(e),
+                            }
+                        }
+                        state.selected_material = Some(b.name.to_string());
+                        state.activate = Some(ToolRequest::Paint(b.name.to_string()));
+                    }
+                }
+            });
+        });
 
     // The selected material's editor.
     let selected = state

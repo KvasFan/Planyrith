@@ -356,6 +356,16 @@ impl App {
         }
     }
 
+    /// Runs commands for the screenshot test, panicking on failure.
+    #[cfg(test)]
+    pub fn run_for_screens(&mut self, commands: &[(&str, Value)]) {
+        for (name, params) in commands {
+            if let Err(e) = self.session.execute(name, params.clone()) {
+                panic!("{name}: {e}");
+            }
+        }
+    }
+
     fn tool(&self) -> &dyn Tool {
         self.tools[self.active].0.as_ref()
     }
@@ -2055,6 +2065,59 @@ mod tests {
             .faces()
             .any(|(_, f)| f.sides.material_front == Some(red));
         assert!(painted, "{:?}", shell.app.message);
+    }
+
+    #[test]
+    fn bundled_materials_load_and_paint_the_visible_side() {
+        let mut shell = Shell::new();
+        for b in crate::bundled::catalogue() {
+            let path = crate::bundled::texture_path(&b).unwrap();
+            shell
+                .app
+                .session
+                .execute(
+                    "material-create",
+                    json!({ "name": b.name, "color": b.color, "texture": path.to_string_lossy(),
+                            "texture_width": b.size_mm.0, "texture_height": b.size_mm.1 }),
+                )
+                .unwrap();
+        }
+        let doc = shell.app.session.doc();
+        assert_eq!(doc.images.len(), crate::bundled::catalogue().len());
+
+        // A vertical face whose front looks away from the camera: Paint
+        // paints the side the eye sees.
+        let session = &mut shell.app.session;
+        session
+            .execute(
+                "rectangle",
+                json!({ "corner_a": [0, 0, 0], "corner_b": [2000, 0, 1500], "plane": { "normal": [0, 1, 0], "d": 0 } }),
+            )
+            .unwrap();
+        session
+            .execute(
+                "position-camera",
+                json!({ "eye": [1000, -6000, 750], "target": [1000, 0, 750] }),
+            )
+            .unwrap();
+        shell.frame(Vec::new());
+        shell
+            .app
+            .activate_request(ToolRequest::Paint("Brick".into()));
+        shell.click(DVec3::new(1000.0, 0.0, 750.0));
+        let doc = shell.app.session.doc();
+        let brick = doc.materials.by_name("Brick").unwrap();
+        let (_, face) = doc.model.mesh().faces().next().unwrap();
+        let eye_side_is_front = face
+            .plane
+            .signed_distance(glam::DVec3::new(1000.0, -6000.0, 750.0))
+            > 0.0;
+        let painted = if eye_side_is_front {
+            face.sides.material_front
+        } else {
+            face.sides.material_back
+        };
+        assert_eq!(painted, Some(brick), "{:?}", shell.app.message);
     }
 
     /// docs/qa/model-a-room.md, automated: the same ten steps with synthetic

@@ -80,4 +80,88 @@ fn screenshots() {
         }
         save(&mut harness, &dir, &format!("panel-{}", tab.to_lowercase()));
     }
+
+    // A texture applied through the GUI's path: material-create, then
+    // material-edit with a file, then Paint.
+    if let Some(texture) = std::env::var_os("PLANYRITH_SCREENSHOT_TEXTURE") {
+        let mut harness = Harness::builder()
+            .with_size(egui::vec2(1400.0, 900.0))
+            .wgpu()
+            .build_eframe(|cc| App::new(cc, None));
+        theme::apply(&harness.ctx, ThemeChoice::Light);
+        harness.state_mut().run_for_screens(&[
+            (
+                "rectangle",
+                serde_json::json!({ "corner_a": [0, 0, 0], "corner_b": [2000, 1500, 0] }),
+            ),
+            (
+                "push-pull",
+                serde_json::json!({ "face": { "Query": "face & last" }, "distance": 1000.0 }),
+            ),
+            (
+                "material-create",
+                serde_json::json!({ "name": "Wood", "color": "#FFFFFF" }),
+            ),
+            (
+                "material-apply",
+                serde_json::json!({ "targets": "face", "material": "Wood", "side": "both" }),
+            ),
+            (
+                "camera-standard",
+                serde_json::json!({ "view": "iso", "extents": true }),
+            ),
+        ]);
+        harness.run_steps(3);
+        harness.state_mut().run_for_screens(&[(
+            "material-edit",
+            serde_json::json!({ "material": "Wood", "texture": texture.to_string_lossy() }),
+        )]);
+        save(&mut harness, &dir, "texture");
+    }
+
+    // The bundled materials, one block each, with the Materials panel open.
+    let mut harness = Harness::builder()
+        .with_size(egui::vec2(1400.0, 900.0))
+        .wgpu()
+        .build_eframe(|cc| App::new(cc, None));
+    theme::apply(&harness.ctx, ThemeChoice::Light);
+    let mut commands: Vec<(String, serde_json::Value)> = Vec::new();
+    for (i, b) in crate::bundled::catalogue().iter().enumerate() {
+        let x = (i % 5) as f64 * 1600.0;
+        let y = (i / 5) as f64 * 1600.0;
+        let path = crate::bundled::texture_path(b).expect("bundled texture");
+        commands.push((
+            "material-create".into(),
+            serde_json::json!({
+            "name": b.name, "color": b.color, "texture": path.to_string_lossy(),
+            "texture_width": b.size_mm.0, "texture_height": b.size_mm.1 }),
+        ));
+        commands.push((
+            "rectangle".into(),
+            serde_json::json!({
+            "corner_a": [x, y, 0], "corner_b": [x + 1200.0, y + 1200.0, 0] }),
+        ));
+        commands.push((
+            "push-pull".into(),
+            serde_json::json!({
+            "face": { "Query": "face & last" }, "distance": 800.0 }),
+        ));
+        commands.push((
+            "material-apply".into(),
+            serde_json::json!({
+            "targets": "face & last", "material": b.name, "side": "both" }),
+        ));
+    }
+    commands.push((
+        "camera-standard".into(),
+        serde_json::json!({ "view": "iso", "extents": true }),
+    ));
+    let refs: Vec<(&str, serde_json::Value)> = commands
+        .iter()
+        .map(|(n, p)| (n.as_str(), p.clone()))
+        .collect();
+    harness.state_mut().run_for_screens(&refs);
+    harness.run_steps(2);
+    harness.get_by_label("Materials").click();
+    save(&mut harness, &dir, "bundled-materials");
 }

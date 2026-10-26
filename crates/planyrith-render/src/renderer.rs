@@ -714,13 +714,17 @@ impl Renderer {
 
             // Faces.
             for (key, range) in &mesh.ranges {
-                let (color, texture) = face_color(doc, style, *key, item.material_override);
+                let (mut color, texture) = face_color(doc, style, *key, item.material_override);
                 let texture = texture.filter(|t| textured_mode && self.textures.contains_key(t));
+                // A texture shows its own colors unless the material
+                // colorizes it (tint multiplies by the material color).
+                if texture.is_some() && !tints(doc, *key, item.material_override) {
+                    color = [1.0, 1.0, 1.0, color[3]];
+                }
                 let mut flags = 0;
                 if texture.is_some() {
                     flags |= TEXTURED;
                 }
-                let mut color = color;
                 match mode {
                     FaceMode::HiddenLine => {
                         color = [background[0], background[1], background[2], 1.0];
@@ -1550,6 +1554,17 @@ fn face_color(
         }
         None => (linear(Rgba8::WHITE), None),
     }
+}
+
+/// Whether the material of a range colorizes its texture.
+fn tints(doc: &Document, key: MaterialKey, material_override: Option<MaterialId>) -> bool {
+    let id = doc
+        .materials
+        .resolve(key.material.or(material_override), key.side);
+    doc.materials
+        .get(id)
+        .and_then(|m| m.texture.as_ref())
+        .is_some_and(|t| t.colorize.is_some())
 }
 
 /// Uploads one container's buffers (`source` is the container's mesh).
