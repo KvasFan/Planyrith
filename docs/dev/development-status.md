@@ -5,7 +5,7 @@ implementation stands, what is done, what remains, and how to resume. Update it 
 every working session. Ground truth for *what to build* stays in `docs/00`–`docs/15`; this file
 is only *progress state*.
 
-_Last updated: 2026-10-26 (0.7 implemented: web build, browser storage, autosave and recovery; 0.6.0 released)._
+_Last updated: 2026-10-26 (0.7 implemented, untagged: the user still reports a web failure; work paused by the user; 0.6.0 released)._
 
 ## 1. Where we are
 
@@ -88,8 +88,13 @@ Frontends:
    (`BrowserStorage` over IndexedDB, the dialogs' file system, uploads/downloads, clock),
    `io::autosave` in the core with `Session::{tick, recover}` in the GUI and `planyrith recover`.
    The web tests (`crates/planyrith-gui/tests/web.rs`) run only in CI's `web` job (headless
-   Chrome); locally `wasm-bindgen-cli` is not installed. Next: the user tries the
-   `planyrith-web` CI artifact, then 0.7.0 is tagged; then milestone 0.8.
+   Chrome); locally `wasm-bindgen-cli` is not installed. Trying the build (2026-10-26) found a
+   black page (WebGL2 lacks texture view formats: fixed with a display pass, docs/06 Decisions)
+   and a recovery that lost a deletion (selection not journaled: fixed, docs/11 Decisions);
+   both verified in headless Firefox through WebDriver BiDi (Node's built-in WebSocket, no
+   installs). **The user still reports a failure in their browser** (details not yet given);
+   work is paused at the user's request. Resume by asking for the browser, its version and the
+   console error (F12), reproduce, fix; only then tag 0.7.0 and move to milestone 0.8.
 2. **Journal and undo.** The journal (`history.msgpack`, docs/09 §3) is append-only and every
    frontend journals executed commands but not undo/redo, so after an undo it lists a command
    that is no longer in the document. Decide whether undo/redo are journaled (entries) or the
