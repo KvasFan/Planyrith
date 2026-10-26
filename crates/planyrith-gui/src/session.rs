@@ -1,25 +1,28 @@
-//! The open document: engine, file metadata, journal and the caches the
-//! viewport needs (docs/07 §1, docs/09). The GUI never mutates the document
-//! itself: every change is a registered command (docs/01 §3.3).
+//! The open document: engine, file metadata, journal, autosave (docs/11 §2)
+//! and the caches the viewport needs (docs/07 §1, docs/09). The GUI never
+//! mutates the document itself: every change is a registered command
+//! (docs/01 §3.3).
 
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use planyrith_core::commands::{CommandRegistry, Delta, Engine, Event};
 use planyrith_core::document::{Camera, ContainerRef, Document};
 use planyrith_core::inference::{Inference, InferenceEngine, InferenceRequest};
 use planyrith_core::io::NoProgress;
+use planyrith_core::io::autosave::{self, Autosave};
 use planyrith_core::io::native::{
     HistoryEntry, LoadedDocument, WriteOptions, read_document, write_document,
 };
-use planyrith_core::io::storage::{NativeFs, Storage, StorageKey};
+use planyrith_core::io::storage::{Storage, StorageKey};
 use planyrith_core::math::Ray;
 use planyrith_core::spatial::{DocumentIndex, Hit, HitFilter};
 use serde_json::Value;
+
+use crate::platform::{self, now_rfc3339};
 
 /// An open document.
 pub struct Session {
@@ -39,6 +42,16 @@ pub struct Session {
     /// A camera change for the viewport to animate: from, to, seconds
     /// (a scene's transition, docs/07 §6).
     transition: Option<(Camera, Camera, f64)>,
+    storage: Arc<dyn Storage + Send + Sync>,
+    /// Journal and snapshots of unsaved work, when enabled.
+    autosave: Option<Autosave>,
+    /// A snapshot is due whatever the journal (after undo and redo, which
+    /// the journal does not replay).
+    snapshot_now: bool,
+    /// The autosave clock started.
+    clock_started: bool,
+    /// This session wrote autosave files (only those are its to delete).
+    autosaved: bool,
 }
 
 impl Session {
@@ -49,7 +62,7 @@ impl Session {
 
     /// Opens a `.plyr` file.
     pub fn open(path: &Path) -> Result<Session, String> {
-        let bytes = NativeFs::new()
+        let bytes = platform::storage()
             .read(&key(path))
             .map_err(|e| e.to_string())?;
         let mut loaded = read_document(&bytes, &NoProgress).map_err(|e| e.to_string())?;
@@ -72,8 +85,9 @@ impl Session {
             .map(|l| l.history.clone())
             .unwrap_or_default();
         let registry = Arc::new(CommandRegistry::with_builtins());
+        let storage = platform::storage();
         let mut engine = Engine::new(doc, Arc::clone(&registry));
-        engine.set_storage(Arc::new(NativeFs::new()));
+        engine.set_storage(Arc::clone(&storage));
         if let Some(last) = history.last() {
             engine.set_last_created(last.created.clone());
         }
@@ -100,7 +114,134 @@ impl Session {
             index: None,
             registry,
             transition: None,
+            storage,
+            autosave: None,
+            snapshot_now: false,
+            clock_started: false,
+            autosaved: false,
         }
+    }
+
+    /// The key this document's unsaved work is autosaved under.
+    fn autosave_key(path: Option<&Path>) -> StorageKey {
+        path.map_or_else(platform::untitled_key, key)
+    }
+
+    /// Journals commands and snapshots the document from now on (docs/11
+    /// §2); the GUI turns it on, tests leave it off.
+    pub fn enable_autosave(&mut self) {
+        let key = Session::autosave_key(self.path.as_deref());
+        self.autosave = Some(Autosave::new(key, 0.0));
+    }
+
+    /// Deletes this document's autosave (its changes were saved or
+    /// discarded).
+    pub fn drop_autosave(&mut self) {
+        if !self.autosaved {
+            return;
+        }
+        if let Some(autosave) = self.autosave.as_mut() {
+            let key = autosave.doc_key().clone();
+            if let Err(e) = autosave.reset(self.storage.as_ref(), key, 0.0) {
+                self.warnings.borrow_mut().push(format!("autosave: {e}"));
+            }
+        }
+    }
+
+    /// Marks the current state as saved (an example just built).
+    pub fn mark_saved(&mut self) {
+        self.saved_generation = self.engine.generation();
+    }
+
+    /// The document as `.plyr` bytes (a download).
+    pub fn to_bytes(&self) -> Result<Vec<u8>, String> {
+        self.encode(&now_rfc3339())
+    }
+
+    /// `true` when the document at `path` (`None`: untitled) has unsaved work
+    /// to recover.
+    pub fn recoverable(path: Option<&Path>) -> bool {
+        autosave::pending(platform::storage().as_ref(), &Session::autosave_key(path))
+    }
+
+    /// Drops the unsaved work of the document at `path`.
+    pub fn discard_recovery(path: Option<&Path>) -> Result<(), String> {
+        autosave::discard(platform::storage().as_ref(), &Session::autosave_key(path))
+            .map_err(|e| e.to_string())
+    }
+
+    /// The document at `path` (`None`: untitled) with its unsaved work
+    /// recovered: its snapshot with the journal replayed. Unsaved until
+    /// saved; the commands that failed to replay are in the warnings.
+    pub fn recover(path: Option<&Path>) -> Result<Session, String> {
+        let registry = Arc::new(CommandRegistry::with_builtins());
+        let recovered =
+            autosave::recover(platform::storage(), &Session::autosave_key(path), registry)
+                .map_err(|e| e.to_string())?;
+        let doc = recovered.engine.document().clone();
+        let mut session = Session::build(doc, recovered.loaded, path.map(Path::to_path_buf));
+        session.history = recovered.history;
+        if let Some(last) = session.history.last() {
+            session.engine.set_last_created(last.created.clone());
+        }
+        // Unsaved: the dirty flag stays up until an explicit save.
+        session.saved_generation = u64::MAX;
+        session.snapshot_now = true;
+        for skipped in recovered.skipped {
+            session
+                .warnings
+                .borrow_mut()
+                .push(format!("not recovered: {skipped}"));
+        }
+        Ok(session)
+    }
+
+    /// Takes a snapshot when one is due (docs/11 §2); call every frame with
+    /// the frontend's clock in seconds. Failures go to the warnings.
+    pub fn tick(&mut self, now_s: f64) {
+        let Some(mut autosave) = self.autosave.take() else {
+            return;
+        };
+        if !self.clock_started {
+            autosave.restart_clock(now_s);
+            self.clock_started = true;
+        }
+        if self.snapshot_now || autosave.due(now_s) {
+            self.snapshot_now = false;
+            self.autosaved = true;
+            let result = if self.dirty() {
+                self.encode(&now_rfc3339()).and_then(|bytes| {
+                    autosave
+                        .snapshot(self.storage.as_ref(), &bytes, now_s)
+                        .map_err(|e| e.to_string())
+                })
+            } else {
+                // Back to the saved state: nothing to recover.
+                let key = autosave.doc_key().clone();
+                autosave
+                    .reset(self.storage.as_ref(), key, now_s)
+                    .map_err(|e| e.to_string())
+            };
+            if let Err(e) = result {
+                self.warnings.borrow_mut().push(format!("autosave: {e}"));
+            }
+        }
+        self.autosave = Some(autosave);
+    }
+
+    /// The document as `.plyr` bytes, stamped `now`.
+    fn encode(&self, now: &str) -> Result<Vec<u8>, String> {
+        let mut opts = WriteOptions {
+            created: now.to_string(),
+            modified: now.to_string(),
+            generator: format!("planyrith-gui {}", env!("CARGO_PKG_VERSION")),
+            ..WriteOptions::default()
+        };
+        if let Some(loaded) = &self.loaded {
+            opts = opts.carry_over(loaded);
+        }
+        write_document(self.engine.document(), &self.history, &opts, &NoProgress)
+            .map_err(|e| e.to_string())
     }
 
     /// The document.
@@ -151,6 +292,12 @@ impl Session {
             }
         }
         if !view_only {
+            if let Some(autosave) = self.autosave.as_mut() {
+                self.autosaved = true;
+                if let Err(e) = autosave.record(self.storage.as_ref(), name, &params, None) {
+                    self.warnings.borrow_mut().push(format!("autosave: {e}"));
+                }
+            }
             self.history.push(HistoryEntry {
                 command: name.to_string(),
                 params,
@@ -164,12 +311,16 @@ impl Session {
 
     /// Undoes the last step.
     pub fn undo(&mut self) -> Result<(), String> {
-        self.engine.undo().map_err(|e| e.to_string())
+        self.engine.undo().map_err(|e| e.to_string())?;
+        self.snapshot_now = true;
+        Ok(())
     }
 
     /// Redoes the last undone step.
     pub fn redo(&mut self) -> Result<(), String> {
-        self.engine.redo().map_err(|e| e.to_string())
+        self.engine.redo().map_err(|e| e.to_string())?;
+        self.snapshot_now = true;
+        Ok(())
     }
 
     /// Saves to `path` (or where it came from).
@@ -178,21 +329,19 @@ impl Session {
             .map(Path::to_path_buf)
             .or_else(|| self.path.clone())
             .ok_or_else(|| "choose where to save".to_string())?;
-        let now = now_rfc3339();
-        let mut opts = WriteOptions {
-            created: now.clone(),
-            modified: now,
-            generator: format!("planyrith-gui {}", env!("CARGO_PKG_VERSION")),
-            ..WriteOptions::default()
-        };
-        if let Some(loaded) = &self.loaded {
-            opts = opts.carry_over(loaded);
-        }
-        let bytes = write_document(self.engine.document(), &self.history, &opts, &NoProgress)
-            .map_err(|e| e.to_string())?;
-        NativeFs::new()
+        let bytes = self.encode(&now_rfc3339())?;
+        self.storage
             .write(&key(&target), &bytes)
             .map_err(|e| e.to_string())?;
+        if let Some(autosave) = self.autosave.as_mut() {
+            // Saved work needs no recovery; the new name autosaves from now.
+            autosave
+                .reset(self.storage.as_ref(), key(&target), 0.0)
+                .map_err(|e| e.to_string())?;
+            self.clock_started = false;
+        }
+        #[cfg(target_arch = "wasm32")]
+        platform::web::request_persistence();
         self.path = Some(target.clone());
         self.saved_generation = self.engine.generation();
         Ok(target)
@@ -207,7 +356,7 @@ impl Session {
         params: Value,
     ) -> Result<(Document, BTreeSet<ContainerRef>), String> {
         let mut fork = Engine::new(self.doc().clone(), Arc::clone(&self.registry));
-        fork.set_storage(Arc::new(NativeFs::new()));
+        fork.set_storage(Arc::clone(&self.storage));
         fork.set_last_created(self.engine.last_created().to_vec());
         fork.set_context(self.engine.context().clone())
             .map_err(|e| e.to_string())?;
@@ -315,31 +464,6 @@ fn key(path: &Path) -> StorageKey {
     StorageKey::new(path.to_string_lossy().to_string())
 }
 
-/// Current UTC time as RFC 3339 (the GUI supplies the clock, not the core).
-fn now_rfc3339() -> String {
-    let secs = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    let (days, rem) = (secs / 86_400, secs % 86_400);
-    // Days since 1970-01-01 to a proleptic Gregorian date.
-    let z = days as i64 + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z.rem_euclid(146_097);
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = yoe + era * 400 + i64::from(m <= 2);
-    format!(
-        "{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z",
-        rem / 3600,
-        rem % 3600 / 60,
-        rem % 60
-    )
-}
-
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
@@ -399,6 +523,44 @@ mod tests {
         );
         let hits = reopened.ray_cast(&ray, &HitFilter::default());
         assert!(!hits.is_empty());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn unsaved_work_is_recovered_after_a_crash() {
+        let dir = std::env::temp_dir().join(format!("planyrith-gui-rec-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("plan.plyr");
+        let mut s = Session::new();
+        s.enable_autosave();
+        s.execute(
+            "rectangle",
+            json!({ "corner_a": [0, 0, 0], "corner_b": [1000, 500, 0] }),
+        )
+        .unwrap();
+        s.save(Some(&path)).unwrap();
+        assert!(!Session::recoverable(Some(&path)));
+        s.execute(
+            "push-pull",
+            json!({ "face": { "Query": "face & last" }, "distance": 300.0 }),
+        )
+        .unwrap();
+        s.tick(0.0);
+        s.undo().unwrap();
+        s.redo().unwrap();
+        s.tick(1.0);
+        s.execute("line", json!({ "points": [[0, 0, 300], [1000, 500, 300]] }))
+            .unwrap();
+        // The process ends here without saving.
+        let faces = s.doc().model.counts().faces;
+        drop(s);
+        assert!(Session::recoverable(Some(&path)));
+        let back = Session::recover(Some(&path)).unwrap();
+        assert!(back.dirty());
+        assert_eq!(back.doc().model.counts().faces, faces);
+        assert_eq!(Session::open(&path).unwrap().doc().model.counts().faces, 1);
+        Session::discard_recovery(Some(&path)).unwrap();
+        assert!(!Session::recoverable(Some(&path)));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

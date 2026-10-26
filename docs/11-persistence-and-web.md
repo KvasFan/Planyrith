@@ -114,3 +114,36 @@ The core never calls `std::fs` directly outside `NativeFs`. Open/save commands t
   backends are blocking and the web build wraps IndexedDB behind the same signatures (or an
   `async` adapter) at milestone 0.7. `MemoryStorage` and `conformance_check` ship with the
   skeleton; `NativeFs` is the only module allowed to use `std::fs`.
+- 2026-10-26 — **Browser storage as built (0.7).** `BrowserStorage` (`planyrith-gui::platform::web`)
+  keeps the synchronous `Storage` trait: every file is held in memory, loaded from IndexedDB
+  (database `planyrith`, store `files`, one record `{bytes, modified}` per key) before the
+  application starts, and changes are written behind through one ordered queue. Keys are
+  absolute paths (`/house.plyr`); folders are key prefixes (an empty folder is a marker key
+  ending in `/`). The GUI's file dialogs browse this storage, so Open, Save As, Import, Export
+  and the panels' files work as on the desktop; files reach the computer through File ›
+  Upload from Computer… (`<input type=file>`, several at once) and dropping files on the page,
+  and leave it through File › Download This Document / Download a File… (a blob download). Not
+  in 0.7: the File System Access API, the 8 MB record chunking (current browsers store records of
+  hundreds of MB), the `meta` store (settings, layouts and recent files use the page's
+  `localStorage` through the GUI's persistence), the quota meter, dropped folders and the
+  "Export all" zip. `navigator.storage.persist()` is requested on every save.
+- 2026-10-26 — **Autosave as built (0.7).** `planyrith-core::io::autosave`: the journal
+  (`<doc>.plyr.journal`) is JSON lines `{seq, command, params, group}` rewritten whole after each
+  journaled command (at most 200 rows); a snapshot (`<doc>.autosave.plyr`, the full container with
+  its history) is taken after 200 commands or 2 minutes with commands journaled, and after every
+  undo or redo (the journal replays commands only, so an undo past the snapshot could not be
+  replayed). Recovery replays the journal on the snapshot, else on the document. An explicit save,
+  and discarding changes in the unsaved-changes prompt, delete both. A torn last journal line is
+  dropped. Untitled documents autosave as `untitled.plyr` in the application's data folder on the
+  desktop and as `/.untitled.plyr` in the browser. On startup the GUI offers Recover / Discard for
+  the untitled document and the recent files, and when a file with unsaved work is opened. The
+  per-command journal write makes the `localStorage` dirty flag and a synchronous flush on
+  `beforeunload` unnecessary; at most the commands of the last few milliseconds before a tab
+  closes can be lost.
+- 2026-10-26 — **Web build without trunk.** `tools/build-web.sh` runs `cargo build` for
+  `wasm32-unknown-unknown`, the `wasm-bindgen` CLI (`--target web`) and, when installed,
+  `wasm-opt`, then copies `crates/planyrith-gui/web/` (page, manifest, icon, service worker stamped
+  with the build): the same static output with one tool fewer. The size budget is checked with
+  brotli (4.5 MB on 2026-10-26 without `wasm-opt`, budget 12 MB). WebGL2 is enabled next to
+  WebGPU; the renderer already keeps to downlevel limits. Reading the id buffer back (hover) does
+  not block in the browser: it is started in one frame and read in a later one.

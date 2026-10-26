@@ -1,0 +1,32 @@
+<!doctype html>
+<!-- The web build's page (docs/11 §4): one canvas the application fills. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="theme-color" content="#2f3a45">
+  <title>Planyrith</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #f4f3f0; }
+    canvas#planyrith { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; outline: none; }
+    #status { position: absolute; top: 45%; left: 16px; right: 16px; text-align: center; font: 16px system-ui, sans-serif; color: #555; pointer-events: none; }
+    @media (prefers-color-scheme: dark) { html, body { background: #1e1f22; } #status { color: #aaa; } }
+  </style>
+</head>
+<body>
+  <canvas id="planyrith"></canvas>
+  <div id="status">Loading Planyrith…</div>
+  <noscript>Planyrith needs JavaScript and WebAssembly.</noscript>
+  <script type="module">
+    import init from "./planyrith-gui.js";
+    init().catch((e) => {
+      document.getElementById("status").textContent = "Planyrith could not start: " + e;
+    });
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("sw.js").catch(() => {});
+    }
+  </script>
+</body>
+</html>

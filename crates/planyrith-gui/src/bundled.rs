@@ -1,12 +1,14 @@
 //! Bundled materials (docs/07 §6 Materials "bundled" library): textures
 //! generated procedurally and deterministically (hash-based value noise, no
 //! clock or randomness), so the application ships no third-party images.
-//! Using one writes its PNG once to a cache folder and creates the material
-//! with `material-create`, like any texture file (docs/01 §3.3).
+//! Using one writes its PNG once to a cache folder of the platform's storage
+//! and creates the material with `material-create`, like any texture file
+//! (docs/01 §3.3).
 
 use std::path::PathBuf;
 
 use image::{Rgb, RgbImage};
+use planyrith_core::io::storage::StorageKey;
 
 /// A bundled material.
 pub struct Bundled {
@@ -88,11 +90,19 @@ pub fn catalogue() -> Vec<Bundled> {
 
 /// The tile's PNG in the cache folder, written when missing.
 pub fn texture_path(b: &Bundled) -> Result<PathBuf, String> {
+    #[cfg(not(target_arch = "wasm32"))]
     let dir = std::env::temp_dir().join("planyrith-bundled-1");
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    #[cfg(target_arch = "wasm32")]
+    let dir = PathBuf::from("/.bundled");
     let file = dir.join(format!("{}.png", b.name.to_lowercase().replace(' ', "-")));
-    if !file.exists() {
-        (b.generate)().save(&file).map_err(|e| e.to_string())?;
+    let storage = crate::platform::storage();
+    let key = StorageKey::new(file.to_string_lossy().to_string());
+    if !storage.exists(&key).unwrap_or(false) {
+        let mut png = Vec::new();
+        (b.generate)()
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .map_err(|e| e.to_string())?;
+        storage.write(&key, &png).map_err(|e| e.to_string())?;
     }
     Ok(file)
 }

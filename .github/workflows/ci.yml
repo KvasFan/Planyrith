@@ -1,4 +1,4 @@
-# Continuous integration — implements the lint, test and wasm jobs of
+# Continuous integration — implements the lint, test, wasm and web jobs of
 # docs/12-testing-and-quality.md §4. The render, fuzz, bench and release jobs
 # are added with the milestones that need them (docs/13-roadmap.md).
 name: CI
@@ -95,3 +95,30 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: cargo check (wasm32-unknown-unknown)
         run: cargo check -p planyrith-core --target wasm32-unknown-unknown
+
+  web:
+    name: web (GUI build, size budget, headless Chrome)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      # The CLI must match the `wasm-bindgen` crate in Cargo.lock.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen@0.2.129
+      - name: cargo clippy (wasm32-unknown-unknown)
+        run: cargo clippy -p planyrith-gui -p planyrith-render --target wasm32-unknown-unknown --all-targets -- -D warnings
+      - name: build the web application and check its size budget (docs/11 §4)
+        run: tools/build-web.sh dist/web
+      - name: storage conformance and classroom scenario in headless Chrome (docs/11 §7, docs/13 0.7)
+        run: CHROMEDRIVER="$CHROMEWEBDRIVER/chromedriver" cargo test -p planyrith-gui --target wasm32-unknown-unknown --test web
+        env:
+          CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
+      - uses: actions/upload-artifact@v4
+        with:
+          name: planyrith-web
+          path: dist/web

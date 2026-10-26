@@ -45,6 +45,7 @@ pub fn dispatch(global: Global, verb: Verb) -> Result<(), CliError> {
         Verb::Export { output, args } => export(&global, &output, args),
         Verb::Validate => validate_verb(&global),
         Verb::Repair { fix } => repair_verb(&global, &fix),
+        Verb::Recover { document } => recover_verb(&global, &document),
         Verb::Batch { script } => batch(&global, script.as_deref()),
         #[cfg(feature = "render")]
         Verb::Render(args) => crate::render::render(&global, &args),
@@ -824,6 +825,42 @@ fn repair_verb(global: &Global, fix: &str) -> Result<(), CliError> {
         remaining.as_ref(),
     )?;
     remaining.map_or(Ok(()), Err)
+}
+
+fn recover_verb(global: &Global, document: &std::path::Path) -> Result<(), CliError> {
+    use planyrith_core::io::autosave;
+    use planyrith_core::io::storage::{NativeFs, Storage};
+    use std::sync::Arc;
+
+    let started = Instant::now();
+    let storage: Arc<dyn Storage + Send + Sync> = Arc::new(NativeFs::new());
+    let key = crate::session::key(document);
+    if !autosave::pending(storage.as_ref(), &key) {
+        return Err(CliError::io(planyrith_core::io::IoError::NotFound(
+            format!("unsaved work of {}", document.display()),
+        )));
+    }
+    let recovered = autosave::recover(
+        Arc::clone(&storage),
+        &key,
+        Arc::new(CommandRegistry::with_builtins()),
+    )
+    .map_err(CliError::io)?;
+    let report = json!({ "replayed": recovered.replayed, "skipped": recovered.skipped });
+    let session = Session::recovered(recovered, Some(document.to_path_buf()));
+    let saved = session.save(global)?;
+    if saved.is_some() {
+        autosave::discard(storage.as_ref(), &key).map_err(CliError::io)?;
+    }
+    emit(
+        global,
+        "recover",
+        report,
+        Some(&session),
+        saved,
+        started,
+        None,
+    )
 }
 
 // ----- batch -------------------------------------------------------------------------------

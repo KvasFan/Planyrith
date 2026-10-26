@@ -117,3 +117,11 @@ parametric/dynamic components, GPU path-traced preview, mobile UI.
   drawing and picking alike. Not in 0.6: leader styles for texts (`leader: View|Pushpin`),
   `label-style` editing, two shadow cascades, edges casting shadows (`from_edges` is stored, not
   drawn) and scenes from glTF cameras.
+- 2026-10-26 — **0.7 as built.** The GUI builds for `wasm32-unknown-unknown` from the same code
+  (`planyrith-gui::platform` holds what differs: storage, file dialogs, clock, autosave place);
+  browser storage, uploads and downloads, example documents, autosave and recovery on both
+  platforms (`planyrith recover` in the CLI), a service worker, WebGPU with WebGL2 fallback,
+  touch basics. Acceptance: `crates/planyrith-gui/tests/web.rs` (classroom scenario: open an
+  example, model, save to the browser, reload, recover) in headless Chrome in CI, and
+  `tools/build-web.sh`'s size check (4.5 MB brotli). Deferred items are listed in docs/11 and
+  docs/07 Decisions.

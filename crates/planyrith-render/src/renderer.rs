@@ -12,6 +12,7 @@ use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::num::NonZeroU64;
 use std::ops::Range;
+use std::sync::{Arc, Mutex};
 
 use bytemuck::{Pod, Zeroable};
 use glam::{DAffine3, DMat3, DVec3};
@@ -95,6 +96,26 @@ pub struct PickHit {
     pub item: usize,
     /// The element.
     pub kind: PickKind,
+}
+
+/// The id buffer region around a pick.
+#[derive(Debug, Clone, Copy)]
+struct PickRegion {
+    x: u32,
+    y: u32,
+    x0: u32,
+    y0: u32,
+    width: u32,
+    height: u32,
+}
+
+/// A pick read back without blocking: the buffer, its padded row size, the
+/// region and whether mapping finished (and succeeded).
+struct PendingPick {
+    buffer: wgpu::Buffer,
+    padded: u32,
+    region: PickRegion,
+    done: Arc<Mutex<Option<bool>>>,
 }
 
 /// The element of a [`PickHit`].
@@ -300,6 +321,8 @@ pub struct Renderer {
     /// Draw items of the last frame (id buffer → item).
     last_items: Vec<(ContainerRef, usize)>,
     ids_valid: bool,
+    /// A non-blocking pick waiting for the GPU.
+    pending_pick: Option<PendingPick>,
     /// The sun's depth map and its bind group (a 1×1 one while shadows are
     /// off).
     shadow_view: wgpu::TextureView,
@@ -467,6 +490,7 @@ impl Renderer {
             targets: None,
             last_items: Vec::new(),
             ids_valid: false,
+            pending_pick: None,
             shadow_view,
             shadow_group,
             shadow_layout,
@@ -1681,20 +1705,112 @@ impl Renderer {
     /// The element under pixel `(x, y)` of the last frame's id buffer, or
     /// the nearest one within `radius` pixels (docs/06 §8: edges and faces
     /// near the cursor). Needs a frame rendered with `ids`. Blocks until the
-    /// GPU is done.
+    /// GPU is done; [`Renderer::pick_start`] is the non-blocking form.
     pub fn pick(&self, x: u32, y: u32, radius: u32) -> Result<Option<PickHit>, RenderError> {
+        let Some(region) = self.pick_region(x, y, radius) else {
+            return Ok(None);
+        };
         let Some(targets) = self.targets.as_ref() else {
             return Ok(None);
         };
+        let ids = self.read_region(
+            &targets.ids,
+            region.x0,
+            region.y0,
+            region.width,
+            region.height,
+            8,
+        )?;
+        Ok(self.pick_in(&ids, &region))
+    }
+
+    /// Starts reading the id buffer around `(x, y)` back without blocking
+    /// (the browser cannot wait for the GPU); [`Renderer::pick_poll`] gives
+    /// the result in a later frame. Replaces a pick in progress.
+    pub fn pick_start(&mut self, x: u32, y: u32, radius: u32) {
+        self.pending_pick = None;
+        let (Some(region), Some(targets)) = (self.pick_region(x, y, radius), self.targets.as_ref())
+        else {
+            return;
+        };
+        let (buffer, padded) = self.copy_region(
+            &targets.ids,
+            region.x0,
+            region.y0,
+            region.width,
+            region.height,
+            8,
+        );
+        let done = Arc::new(Mutex::new(None));
+        let flag = Arc::clone(&done);
+        buffer.map_async(wgpu::MapMode::Read, .., move |result| {
+            if let Ok(mut slot) = flag.lock() {
+                *slot = Some(result.is_ok());
+            }
+        });
+        self.pending_pick = Some(PendingPick {
+            buffer,
+            padded,
+            region,
+            done,
+        });
+    }
+
+    /// The result of [`Renderer::pick_start`] once the GPU delivered it
+    /// (`None` while waiting or when no pick is in progress).
+    pub fn pick_poll(&mut self) -> Option<Result<Option<PickHit>, RenderError>> {
+        let pending = self.pending_pick.as_ref()?;
+        let _ = self.device.poll(wgpu::PollType::Poll);
+        let ok = pending.done.lock().ok().and_then(|slot| *slot)?;
+        let pending = self.pending_pick.take()?;
+        if !ok {
+            return Some(Err(RenderError::Readback("mapping failed".into())));
+        }
+        let ids = {
+            let mapped = match pending.buffer.get_mapped_range(..) {
+                Ok(m) => m,
+                Err(e) => return Some(Err(RenderError::Readback(e.to_string()))),
+            };
+            let unpadded = (pending.region.width * 8) as usize;
+            let mut out = Vec::with_capacity(unpadded * pending.region.height as usize);
+            for row in mapped.chunks_exact(pending.padded as usize) {
+                out.extend_from_slice(&row[..unpadded]);
+            }
+            out
+        };
+        pending.buffer.unmap();
+        Some(Ok(self.pick_in(&ids, &pending.region)))
+    }
+
+    /// `true` while a [`Renderer::pick_start`] waits for the GPU.
+    pub fn pick_pending(&self) -> bool {
+        self.pending_pick.is_some()
+    }
+
+    /// The id buffer region a pick at `(x, y)` reads.
+    fn pick_region(&self, x: u32, y: u32, radius: u32) -> Option<PickRegion> {
+        let targets = self.targets.as_ref()?;
         if !self.ids_valid || x >= targets.width || y >= targets.height {
-            return Ok(None);
+            return None;
         }
         let x0 = x.saturating_sub(radius);
         let y0 = y.saturating_sub(radius);
         let x1 = (x + radius + 1).min(targets.width);
         let y1 = (y + radius + 1).min(targets.height);
-        let ids = self.read_region(&targets.ids, x0, y0, x1 - x0, y1 - y0, 8)?;
-        let w = (x1 - x0) as usize;
+        Some(PickRegion {
+            x,
+            y,
+            x0,
+            y0,
+            width: x1 - x0,
+            height: y1 - y0,
+        })
+    }
+
+    /// The nearest element in a region's ids.
+    fn pick_in(&self, ids: &[u8], region: &PickRegion) -> Option<PickHit> {
+        let (x, y, x0, y0) = (region.x, region.y, region.x0, region.y0);
+        let w = region.width as usize;
         let mut best: Option<(u64, bool, [u32; 2])> = None;
         for (i, px) in ids.as_chunks::<8>().0.iter().enumerate() {
             let item = u32::from_le_bytes([px[0], px[1], px[2], px[3]]);
@@ -1714,23 +1830,17 @@ impl Renderer {
                 best = Some((d, is_edge, [item, element]));
             }
         }
-        let Some((_, is_edge, [item, element])) = best else {
-            return Ok(None);
-        };
+        let (_, is_edge, [item, element]) = best?;
         let index = item as usize - 1;
-        let Some(&(container, _)) = self.last_items.get(index) else {
-            return Ok(None);
-        };
-        let Some(mesh) = self.meshes.get(&container) else {
-            return Ok(None);
-        };
+        let &(container, _) = self.last_items.get(index)?;
+        let mesh = self.meshes.get(&container)?;
         let local = (element & 0x7FFF_FFFF) as usize - 1;
         let kind = if is_edge {
             mesh.edge_lookup.get(local).map(|e| PickKind::Edge(*e))
         } else {
             mesh.face_lookup.get(local).map(|f| PickKind::Face(*f))
         };
-        Ok(kind.map(|kind| PickHit { item: index, kind }))
+        kind.map(|kind| PickHit { item: index, kind })
     }
 
     fn read_texture(
@@ -1743,7 +1853,9 @@ impl Renderer {
         self.read_region(texture, 0, 0, width, height, bytes_per_pixel)
     }
 
-    fn read_region(
+    /// Copies a texture region into a mappable buffer: the buffer and its
+    /// padded row size.
+    fn copy_region(
         &self,
         texture: &wgpu::Texture,
         x: u32,
@@ -1751,7 +1863,7 @@ impl Renderer {
         width: u32,
         height: u32,
         bytes_per_pixel: u32,
-    ) -> Result<Vec<u8>, RenderError> {
+    ) -> (wgpu::Buffer, u32) {
         let unpadded = width * bytes_per_pixel;
         let padded = unpadded.div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT)
             * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
@@ -1788,6 +1900,20 @@ impl Renderer {
             },
         );
         self.queue.submit([encoder.finish()]);
+        (buffer, padded)
+    }
+
+    fn read_region(
+        &self,
+        texture: &wgpu::Texture,
+        x: u32,
+        y: u32,
+        width: u32,
+        height: u32,
+        bytes_per_pixel: u32,
+    ) -> Result<Vec<u8>, RenderError> {
+        let unpadded = width * bytes_per_pixel;
+        let (buffer, padded) = self.copy_region(texture, x, y, width, height, bytes_per_pixel);
         let (tx, rx) = std::sync::mpsc::channel();
         buffer.map_async(wgpu::MapMode::Read, .., move |result| {
             let _ = tx.send(result);

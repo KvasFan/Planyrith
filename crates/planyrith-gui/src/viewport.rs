@@ -344,6 +344,32 @@ impl Viewport {
                 moved = true;
             }
         }
+        // Touch basics (docs/11 §4): two fingers pinch to zoom toward their
+        // center, move together to pan and twist to orbit; one finger works
+        // the tools like the left button.
+        if let Some(touch) = ui.input(|i| i.multi_touch())
+            && rect.contains(touch.center_pos)
+        {
+            let ray = camera.ray_through_ndc(to_ndc(touch.center_pos));
+            let toward = cast(session, &camera, &ray, f64::from(height))
+                .map(|(_, p)| p)
+                .unwrap_or_else(|| visible_center(session, &camera));
+            let depth = camera.depth_of(toward).max(1.0);
+            let pan = touch.translation_delta * ppp;
+            camera.pan(camera.pan_delta_for_pixels(
+                f64::from(pan.x),
+                f64::from(pan.y),
+                f64::from(height),
+                depth,
+            ));
+            if (touch.zoom_delta - 1.0).abs() > 1e-4 {
+                camera.zoom(f64::from(touch.zoom_delta), Some(toward));
+            }
+            if touch.rotation_delta.abs() > 1e-4 {
+                camera.orbit(toward, -f64::from(touch.rotation_delta), 0.0);
+            }
+            moved = true;
+        }
         if moved {
             self.transition = None;
             match &mut self.own_camera {
@@ -564,11 +590,29 @@ impl Viewport {
             self.error = Some(e.to_string());
             return flows;
         }
+        // What lies under the pointer: read back at once on the desktop, in
+        // a later frame in the browser, which cannot wait for the GPU.
+        let mut picked = None;
         if want_ids && let Some(pos) = hover {
             self.last_hover = Some(pos);
             let px = ((pos.x - rect.left()) * ppp) as u32;
             let py = ((pos.y - rect.top()) * ppp) as u32;
-            self.hover = match renderer.pick(px, py, (4.0 * ppp) as u32) {
+            let radius = (4.0 * ppp) as u32;
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                picked = Some(renderer.pick(px, py, radius));
+            }
+            #[cfg(target_arch = "wasm32")]
+            renderer.pick_start(px, py, radius);
+        }
+        #[cfg(target_arch = "wasm32")]
+        match renderer.pick_poll() {
+            Some(result) => picked = Some(result),
+            None if renderer.pick_pending() => ui.ctx().request_repaint(),
+            None => {}
+        }
+        if let Some(result) = picked {
+            self.hover = match result {
                 Ok(Some(hit)) => items.get(hit.item).map(|item| {
                     let target = match hit.kind {
                         PickKind::Face(f) => EntityId::Face(f),

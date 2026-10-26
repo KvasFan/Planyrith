@@ -12,6 +12,7 @@ use planyrith_core::commands::{CommandRegistry, Engine, Event};
 use planyrith_core::diagnostics::Warning;
 use planyrith_core::document::{Document, EditContext, EntityPath};
 use planyrith_core::io::NoProgress;
+use planyrith_core::io::autosave::Recovered;
 use planyrith_core::io::native::{
     HistoryEntry, LoadedDocument, WriteOptions, read_document, write_document,
 };
@@ -83,6 +84,23 @@ impl Session {
     pub fn create(doc: Document, path: Option<PathBuf>) -> Session {
         let registry = Arc::new(CommandRegistry::with_builtins());
         Session::build(registry, doc, None, path, None)
+    }
+
+    /// A session on a recovered document (docs/11 §2) that saves to `path`.
+    pub fn recovered(recovered: Recovered, path: Option<PathBuf>) -> Session {
+        let doc = recovered.engine.document().clone();
+        let mut session = Session::build(
+            Arc::new(CommandRegistry::with_builtins()),
+            doc,
+            recovered.loaded,
+            path,
+            None,
+        );
+        session.history = recovered.history;
+        if let Some(last) = session.history.last() {
+            session.engine.set_last_created(last.created.clone());
+        }
+        session
     }
 
     fn build(

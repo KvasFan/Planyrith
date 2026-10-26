@@ -1,9 +1,10 @@
 //! The application shell (docs/07 §1, §7, §9): menu bar, docks, status bar,
-//! keyboard shortcuts, file dialogs and the unsaved-changes guard. Menu items
-//! are commands (docs/07 §7).
+//! keyboard shortcuts, file dialogs, the unsaved-changes guard and the
+//! recovery of unsaved work (docs/11 §2); on the web, uploading and
+//! downloading files (docs/11 §4.3). Menu items are commands (docs/07 §7).
 
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use egui::Key;
 use egui_file_dialog::FileDialog;
@@ -15,9 +16,11 @@ use planyrith_core::math::Axis;
 use planyrith_core::units::{ValueFieldInput, parse_value_field};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use web_time::Instant;
 
 use crate::icons::{self, Icon};
 use crate::panels::{self, PanelState};
+use crate::platform;
 use crate::resources::{self, FileRequest, ResourceState, ToolRequest};
 use crate::session::Session;
 use crate::theme::{self, ThemeChoice};
@@ -107,6 +110,8 @@ fn default_layout() -> Tree<Pane> {
 enum Pending {
     New,
     Open(Option<PathBuf>),
+    /// An example document (`samples::catalogue` index).
+    Sample(usize),
     Quit,
 }
 
@@ -117,6 +122,9 @@ enum DialogPurpose {
     SaveAs,
     /// A panel's file (texture, library, component).
     Resource(FileRequest),
+    /// A file in the browser to download to the computer (web).
+    #[cfg(target_arch = "wasm32")]
+    Download,
 }
 
 /// Persisted per user (docs/07 §1: layouts are not stored in documents).
@@ -194,6 +202,13 @@ pub struct App {
     texture: Option<(planyrith_core::document::EntityPath, TextureFields)>,
     /// The Shadows window is open (docs/07 §6).
     shadows_open: bool,
+    /// Journal and snapshot the documents (off in tests).
+    autosave: bool,
+    /// The document (`None`: untitled) whose unsaved work can be recovered.
+    recovery: Option<Option<PathBuf>>,
+    /// Files uploaded from the computer, not yet stored.
+    #[cfg(target_arch = "wasm32")]
+    uploads: platform::web::Uploads,
 }
 
 /// The fields of the texture placement window (docs/05 §5.9).
@@ -233,8 +248,19 @@ impl App {
             .unwrap_or_default();
         let mut app = App::blank(tree, settings);
         theme::apply(&cc.egui_ctx, app.settings.theme);
-        if let Some(path) = file {
-            app.open(&path);
+        app.autosave = !cfg!(test);
+        if app.autosave {
+            app.session.enable_autosave();
+        }
+        match file {
+            Some(path) => app.open(&path),
+            // Unsaved work of an untitled or a recent document.
+            None if app.autosave => {
+                app.recovery = std::iter::once(None)
+                    .chain(app.settings.recent.iter().cloned().map(Some))
+                    .find(|p| Session::recoverable(p.as_deref()));
+            }
+            None => {}
         }
         app
     }
@@ -247,9 +273,7 @@ impl App {
             extra_viewports: Vec::new(),
             tree,
             panels: PanelState::default(),
-            dialog: FileDialog::new()
-                .add_file_filter_extensions("Planyrith documents", vec!["plyr"])
-                .default_file_filter("Planyrith documents"),
+            dialog: Self::document_dialog(),
             dialog_purpose: None,
             pending: None,
             quitting: false,
@@ -267,7 +291,23 @@ impl App {
             resources: ResourceState::default(),
             texture: None,
             shadows_open: false,
+            autosave: false,
+            recovery: None,
+            #[cfg(target_arch = "wasm32")]
+            uploads: Default::default(),
         }
+    }
+
+    /// Makes `session` the open document, dropping the autosave of the one
+    /// it replaces (the user saved or discarded its changes).
+    fn adopt(&mut self, mut session: Session) {
+        self.session.drop_autosave();
+        if self.autosave {
+            session.enable_autosave();
+        }
+        self.session = session;
+        self.viewport = Viewport::default();
+        self.activate(0);
     }
 
     fn error(&mut self, text: impl Into<String>) {
@@ -309,11 +349,13 @@ impl App {
     }
 
     fn open(&mut self, path: &std::path::Path) {
+        let recoverable = self.autosave && Session::recoverable(Some(path));
         match Session::open(path) {
             Ok(session) => {
-                self.session = session;
-                self.viewport = Viewport::default();
-                self.activate(0);
+                self.adopt(session);
+                if recoverable {
+                    self.recovery = Some(Some(path.to_path_buf()));
+                }
                 self.remember(path.to_path_buf());
                 self.info(format!("Opened {}", file_name(path)));
             }
@@ -354,10 +396,21 @@ impl App {
 
     fn perform(&mut self, action: Pending) {
         match action {
-            Pending::New => {
-                self.session = Session::new();
-                self.viewport = Viewport::default();
-                self.activate(0);
+            Pending::New => self.adopt(Session::new()),
+            Pending::Sample(i) => {
+                let Some(sample) = crate::samples::catalogue().into_iter().nth(i) else {
+                    return;
+                };
+                let mut session = Session::new();
+                for (name, params) in (sample.commands)() {
+                    if let Err(e) = session.execute(name, params) {
+                        self.error(e);
+                        return;
+                    }
+                }
+                session.mark_saved();
+                self.adopt(session);
+                self.info(format!("Opened the example {}", sample.name));
             }
             Pending::Open(Some(path)) => self.open(&path),
             Pending::Open(None) => {
@@ -365,7 +418,10 @@ impl App {
                 self.dialog_purpose = Some(DialogPurpose::Open);
                 self.dialog.pick_file();
             }
-            Pending::Quit => self.quitting = true,
+            Pending::Quit => {
+                self.session.drop_autosave();
+                self.quitting = true;
+            }
         }
     }
 
@@ -795,6 +851,14 @@ impl App {
                         }
                     }
                 });
+                ui.menu_button("Open Example", |ui| {
+                    for (i, sample) in crate::samples::catalogue().iter().enumerate() {
+                        if ui.button(sample.name).clicked() {
+                            self.guarded(Pending::Sample(i));
+                            ui.close();
+                        }
+                    }
+                });
                 ui.separator();
                 if ui.button("Save").clicked() {
                     self.save(None);
@@ -806,6 +870,8 @@ impl App {
                     self.dialog.save_file();
                     ui.close();
                 }
+                #[cfg(target_arch = "wasm32")]
+                self.web_file_menu(ui);
                 ui.separator();
                 if ui.button("Import…").clicked() {
                     self.resources.file = Some(FileRequest::Import);
@@ -829,10 +895,14 @@ impl App {
                     self.resources.file = Some(FileRequest::Image);
                     ui.close();
                 }
-                ui.separator();
-                if ui.button("Quit").clicked() {
-                    self.guarded(Pending::Quit);
-                    ui.close();
+                // A web page is closed with its tab.
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    ui.separator();
+                    if ui.button("Quit").clicked() {
+                        self.guarded(Pending::Quit);
+                        ui.close();
+                    }
                 }
             });
             ui.menu_button("Edit", |ui| {
@@ -1582,7 +1652,7 @@ impl App {
     /// Opens the file dialog for a panel's request.
     fn open_resource_dialog(&mut self, request: FileRequest) {
         let (title, kind, extensions, saves) = request.dialog();
-        self.dialog = FileDialog::new()
+        self.dialog = platform::file_dialog()
             .title(title)
             .add_file_filter_extensions(kind, extensions.to_vec())
             .default_file_filter(kind);
@@ -1596,7 +1666,7 @@ impl App {
 
     /// The document dialog (open/save) again after a panel's dialog.
     fn document_dialog() -> FileDialog {
-        FileDialog::new()
+        platform::file_dialog()
             .add_file_filter_extensions("Planyrith documents", vec!["plyr"])
             .default_file_filter("Planyrith documents")
     }
@@ -1634,6 +1704,8 @@ impl App {
                     }
                 }
                 Some(DialogPurpose::Open) => self.open(&path),
+                #[cfg(target_arch = "wasm32")]
+                Some(DialogPurpose::Download) => self.download(&path),
                 Some(DialogPurpose::SaveAs) => {
                     let path = if path.extension().is_none() {
                         path.with_extension("plyr")
@@ -1681,6 +1753,152 @@ impl App {
             }
             Some(2) => self.pending = None,
             _ => {}
+        }
+    }
+
+    /// Offers to recover unsaved work left by a session that ended without
+    /// saving (docs/11 §2).
+    fn recovery_prompt(&mut self, ctx: &egui::Context) {
+        let Some(path) = self.recovery.clone() else {
+            return;
+        };
+        let name = path
+            .as_deref()
+            .map_or_else(|| "an untitled document".to_string(), file_name);
+        let mut choice = None;
+        egui::Modal::new(egui::Id::new("recover")).show(ctx, |ui| {
+            ui.heading("Recover unsaved work");
+            ui.label(format!(
+                "Planyrith closed with unsaved changes to {name}. Recover them?"
+            ));
+            ui.horizontal(|ui| {
+                if ui.button("Recover").clicked() {
+                    choice = Some(true);
+                }
+                if ui.button("Discard").clicked() {
+                    choice = Some(false);
+                }
+            });
+        });
+        let Some(recover) = choice else {
+            return;
+        };
+        self.recovery = None;
+        if !recover {
+            if let Err(e) = Session::discard_recovery(path.as_deref()) {
+                self.error(e);
+            }
+            return;
+        }
+        match Session::recover(path.as_deref()) {
+            Ok(session) => {
+                self.adopt(session);
+                self.info(format!("Recovered the unsaved changes to {name}"));
+            }
+            Err(e) => self.error(format!("Could not recover {name}: {e}")),
+        }
+    }
+
+    /// Files dropped on the window: documents open, other files import
+    /// (docs/11 §4.3). In the browser they are read and stored first, like
+    /// uploads.
+    fn dropped_files(&mut self, ctx: &egui::Context) {
+        let dropped = ctx.input(|i| i.raw.dropped_files.clone());
+        for file in dropped {
+            #[cfg(not(target_arch = "wasm32"))]
+            self.take_file(file.path().to_path_buf());
+            #[cfg(target_arch = "wasm32")]
+            {
+                let uploads = std::rc::Rc::clone(&self.uploads);
+                wasm_bindgen_futures::spawn_local(async move {
+                    let name = file_name(file.path());
+                    if let Ok(bytes) = file.bytes_async().await {
+                        uploads.borrow_mut().push((name, bytes));
+                    }
+                });
+            }
+        }
+    }
+
+    /// Opens a dropped or uploaded document, imports anything else.
+    fn take_file(&mut self, path: PathBuf) {
+        let extension = path
+            .extension()
+            .map(|e| e.to_string_lossy().to_lowercase())
+            .unwrap_or_default();
+        if extension == "plyr" {
+            self.guarded(Pending::Open(Some(path)));
+        } else if FileRequest::Import.dialog().2.contains(&extension.as_str()) {
+            let (name, params) = FileRequest::Import.command(&path.to_string_lossy());
+            match self.session.execute(name, params) {
+                Ok(_) => self.info(format!("Imported {}", file_name(&path))),
+                Err(e) => self.error(e),
+            }
+        } else {
+            self.info(format!("Stored {}", file_name(&path)));
+        }
+    }
+
+    /// The web build's File menu entries: files from and to the computer.
+    #[cfg(target_arch = "wasm32")]
+    fn web_file_menu(&mut self, ui: &mut egui::Ui) {
+        ui.separator();
+        if ui.button("Upload from Computer…").clicked() {
+            platform::web::upload("", std::rc::Rc::clone(&self.uploads));
+            ui.close();
+        }
+        if ui.button("Download This Document").clicked() {
+            let name = if self.session.title().ends_with(".plyr") {
+                self.session.title()
+            } else {
+                format!("{}.plyr", self.session.title())
+            };
+            match self
+                .session
+                .to_bytes()
+                .and_then(|bytes| platform::web::download(&name, &bytes))
+            {
+                Ok(()) => self.info(format!("Downloading {name}")),
+                Err(e) => self.error(format!("Could not download: {e}")),
+            }
+            ui.close();
+        }
+        if ui.button("Download a File…").clicked() {
+            self.dialog = platform::file_dialog();
+            self.dialog_purpose = Some(DialogPurpose::Download);
+            self.dialog.pick_file();
+            ui.close();
+        }
+    }
+
+    /// Stores the uploads that finished reading in the browser's files.
+    #[cfg(target_arch = "wasm32")]
+    fn stored_uploads(&mut self) {
+        let done: Vec<(String, Vec<u8>)> = self.uploads.borrow_mut().drain(..).collect();
+        let several = done.len() > 1;
+        for (name, bytes) in done {
+            let path = PathBuf::from(format!("/{name}"));
+            let key = path.to_string_lossy().to_string();
+            if let Err(e) = platform::storage().write(&key.as_str().into(), &bytes) {
+                self.error(format!("Could not store {name}: {e}"));
+            } else if several {
+                self.info(format!("Stored {name} in this browser"));
+            } else {
+                self.take_file(path);
+            }
+        }
+    }
+
+    /// Downloads a file of the browser's storage.
+    #[cfg(target_arch = "wasm32")]
+    fn download(&mut self, path: &std::path::Path) {
+        let key = path.to_string_lossy().to_string();
+        let result = platform::storage()
+            .read(&key.as_str().into())
+            .map_err(|e| e.to_string())
+            .and_then(|bytes| platform::web::download(&file_name(path), &bytes));
+        if let Err(e) = result {
+            self.error(format!("Could not download {}: {e}", file_name(path)));
         }
     }
 }
@@ -1943,6 +2161,13 @@ impl App {
         self.shadows_window(&ctx);
         self.file_dialog(&ctx);
         self.discard_prompt(&ctx);
+        self.recovery_prompt(&ctx);
+        self.dropped_files(&ctx);
+        #[cfg(target_arch = "wasm32")]
+        self.stored_uploads();
+        self.session.tick(ctx.input(|i| i.time));
+        #[cfg(target_arch = "wasm32")]
+        platform::web::set_unsaved(self.session.dirty());
 
         // Window title `<file name>[*] — Planyrith` (docs/07 §1).
         let title = format!(

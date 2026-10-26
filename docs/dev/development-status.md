@@ -5,7 +5,7 @@ implementation stands, what is done, what remains, and how to resume. Update it 
 every working session. Ground truth for *what to build* stays in `docs/00`–`docs/15`; this file
 is only *progress state*.
 
-_Last updated: 2026-10-26 (0.6.0 released: dimensions, texts, guides, sections with caps, sun shadows, 3D text, axes, multiple viewports)._
+_Last updated: 2026-10-26 (0.7 implemented: web build, browser storage, autosave and recovery; 0.6.0 released)._
 
 ## 1. Where we are
 
@@ -58,7 +58,7 @@ Frontends:
 
 | Crate | Status |
 |---|---|
-| `planyrith-cli` | `new`, `info`, `query`, `tool`, `import` and `export` (every format, `--2d`, `--units` as the file's unit), `validate`, `repair`, `batch`, `serve` (stdio and sockets), `repl`, `render`, `infer`; schema-driven tool options; JSON envelopes; exit codes. Later: `script` (0.6). |
+| `planyrith-cli` | `new`, `info`, `query`, `tool`, `import` and `export` (every format, `--2d`, `--units` as the file's unit), `validate`, `repair`, `recover`, `batch`, `serve` (stdio and sockets), `repl`, `render`, `infer`; schema-driven tool options; JSON envelopes; exit codes. Later: `script` (0.6). |
 | `planyrith-render` | **0.2.0** — offscreen renderer (styles, edges with GPU profiles, transparency, selection, id buffer), headless `render_image`; snapshot tests on three OSes. Not yet: shadows, section caps, fog, sky, watermarks. |
 | `planyrith-gui` | **0.3.0** — eframe shell, `egui_tiles` docks, viewport (navigation, selection, double-click to open), Entity Info, Tags, Scenes, Outliner, Tool Options, Tool Help, undo/redo, open/save. 0.3: `tools/` (one state machine per 0.1 command: Select, Line, Rectangle, Circle, Polygon, the four arcs, Push/Pull, Offset, Move, Rotate, Scale, Eraser, Paint), inference overlay, value field with replace-after-completion, previews on a forked engine (`Session::preview`). Tested with synthetic egui input, including a whole-window test (`app::tests`) that draws, pushes, corrects and moves a box. |
 
@@ -82,8 +82,14 @@ Frontends:
    tried it. Known limits (docs/09 Decisions): glTF cameras are skipped; DXF text and
    dimensions are skipped; the 2D export does not split edges where they pierce faces.
    **Milestone 0.6** (sections, annotations, shadows) is implemented on `main` (docs/13
-   Decisions "0.6 as built"); released as 0.6.0 after the user tried it. Next: milestone 0.7 (web
-   build).
+   Decisions "0.6 as built"); released as 0.6.0 after the user tried it.
+   **Milestone 0.7** (web build) is implemented on `main` (docs/13 Decisions "0.7 as built"):
+   `planyrith-gui` is a library plus the binary, `platform` holds what differs on the web
+   (`BrowserStorage` over IndexedDB, the dialogs' file system, uploads/downloads, clock),
+   `io::autosave` in the core with `Session::{tick, recover}` in the GUI and `planyrith recover`.
+   The web tests (`crates/planyrith-gui/tests/web.rs`) run only in CI's `web` job (headless
+   Chrome); locally `wasm-bindgen-cli` is not installed. Next: the user tries the
+   `planyrith-web` CI artifact, then 0.7.0 is tagged; then milestone 0.8.
 2. **Journal and undo.** The journal (`history.msgpack`, docs/09 §3) is append-only and every
    frontend journals executed commands but not undo/redo, so after an undo it lists a command
    that is no longer in the document. Decide whether undo/redo are journaled (entries) or the

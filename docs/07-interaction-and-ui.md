@@ -343,3 +343,12 @@ collected by clicks: e.g. segments for Circle, array count, copy toggle).
   projection with cameras of their own (not stored in the document), fitted to the model when
   they open; tools work in any of them; the value field follows the main one. Labels of
   dimensions, texts and section planes are drawn over the model, not hidden by faces.
+- 2026-10-26 — **Web UI and recovery (0.7).** File gains Open Example ► (Room, Bookcase: example
+  documents built by commands, `planyrith-gui::samples`); in the browser also Upload from
+  Computer…, Download This Document and Download a File… (docs/11 Decisions), and no Quit. Files
+  dropped on the window open (`.plyr`) or import (every importable format). After a session ended
+  without saving, a Recover unsaved work prompt offers Recover or Discard (docs/11 §2). The
+  browser asks before closing a page with unsaved changes (`beforeunload`). Touch: two fingers
+  pinch to zoom toward their center, move to pan and twist to orbit; one finger works the tools.
+  Not in 0.7: remapping the shortcuts browsers reserve (`Ctrl+N`, `Ctrl+W`, `Ctrl+T`), and the
+  overwrite confirmation of the browser's Save As (the dialog checks the computer's disk).

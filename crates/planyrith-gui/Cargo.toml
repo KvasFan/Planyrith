@@ -8,12 +8,14 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 
+[lib]
+path = "src/lib.rs"
+
 [[bin]]
 name = "planyrith-gui"
 path = "src/main.rs"
 
 # Allowed dependencies are listed in docs/01-architecture.md §1.1.
-# wasm-bindgen / web-sys / rexie are added with the web build (docs/11).
 [dependencies]
 planyrith-core = { workspace = true }
 planyrith-render = { workspace = true }
@@ -28,6 +30,25 @@ image = { workspace = true }
 pollster = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+# `Instant` that also works in the browser (std's panics on wasm32).
+web-time = "1"
+
+# The web build (docs/11 §4): the browser's IndexedDB, files and events.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# WebGPU where the browser has it, WebGL2 elsewhere (docs/11 §4.2).
+wgpu = { workspace = true, features = ["webgl"] }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+rexie = "0.6"
+web-sys = { version = "0.3", features = [
+    "Window", "Document", "Element", "HtmlElement", "HtmlInputElement", "HtmlAnchorElement",
+    "HtmlCanvasElement", "File", "FileList", "Blob", "BlobPropertyBag", "Url", "Event",
+    "Storage", "Navigator", "StorageManager", "Location", "BeforeUnloadEvent",
+] }
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = "0.3"
 
 [dev-dependencies]
 # Whole-window screenshots of the GUI, headless (docs/12 §7).

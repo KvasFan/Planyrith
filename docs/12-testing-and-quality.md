@@ -115,4 +115,11 @@ humans or GUI automation before releases, with expected screenshots.
   precision (hardware on the development machine, lavapipe, Metal and WARP in CI differed on
   0.2–0.5 % of the pixels). Its caps are checked separately by counting section-fill pixels.
   The other snapshots keep the 2/255, 0.1 % tolerance of docs/06 §11.
-
+- 2026-10-26 — **Web job (0.7).** CI gains `web`: clippy of `planyrith-gui` and `planyrith-render`
+  for `wasm32-unknown-unknown`, `tools/build-web.sh` with its size budget, and
+  `crates/planyrith-gui/tests/web.rs` in headless Chrome through `wasm-bindgen-test-runner` (the
+  `Storage` conformance suite on the browser's storage and the classroom scenario of docs/13
+  0.7). The built application is uploaded as the `planyrith-web` artifact. The recovery test of
+  docs/11 §7 runs on both platforms: `session::tests::unsaved_work_is_recovered_after_a_crash`
+  (desktop), the classroom scenario (web, the reload is a fresh storage read from IndexedDB) and
+  the CLI's `recover_replays_the_autosave_journal`.

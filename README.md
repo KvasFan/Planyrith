@@ -5,7 +5,7 @@ architecture, interiors, landscape, woodworking and product mock-ups. It is writ
 entirely in Rust, runs on Linux, macOS, Windows and in the browser (WebAssembly), and is
 built *CLI-first*: every modeling tool exists as a command before it gets a button.
 
-> **Status: version 0.6.0 — sections, annotations, shadows.**
+> **Status: version 0.7.0 — web build.**
 > The geometry kernel, the document model, the modeling commands, the native file format, the
 > `planyrith` command line (headless rendering, a JSON-RPC server, a shell) and the GUI work:
 > drawing and editing tools that snap through the inference engine, exact input, previews,
@@ -13,7 +13,8 @@ built *CLI-first*: every modeling tool exists as a command before it gets a butt
 > with animated transitions, styles with fog and watermarks, material, component and style
 > libraries, import and export of glTF/GLB, OBJ, STL, DXF, images and CSV, 2D drawings of a
 > view as SVG, PDF or DXF, dimensions, texts, guides, section cuts, sun shadows, 3D text and
-> multiple viewports. See [`CHANGELOG.md`](CHANGELOG.md) and the milestones in
+> multiple viewports. The same application runs in the browser, and both autosave and recover
+> unsaved work. See [`CHANGELOG.md`](CHANGELOG.md) and the milestones in
 > [`docs/13-roadmap.md`](docs/13-roadmap.md).
 
 ## What Planyrith will be
@@ -72,6 +73,10 @@ planyrith -f box.plyr validate
 planyrith -f box.plyr render box.png           # a headless image
 planyrith tool                                # every command; `planyrith tool <name> --help`
 ```
+
+The web build: `tools/build-web.sh` (needs the `wasm-bindgen` CLI matching `Cargo.lock`) writes
+static files to `dist/web`; serve them with any static server, e.g.
+`python3 -m http.server -d dist/web`, and open the address in a browser.
 
 Longer scripts run as one undo step with `planyrith -f room.plyr batch room.plyrb`; see
 [`docs/08-cli-specification.md`](docs/08-cli-specification.md) and the acceptance script

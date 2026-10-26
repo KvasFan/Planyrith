@@ -13,7 +13,7 @@ planyrith [GLOBAL OPTIONS] <SUBCOMMAND> [ARGS]
 Two families of subcommands:
 
 1. **Session verbs** that operate on a document file and exit: `new`, `info`, `query`, `tool`,
-   `import`, `export`, `render`, `validate`, `repair`, `script`, `batch`.
+   `import`, `export`, `render`, `validate`, `repair`, `recover`, `script`, `batch`.
 2. **Server verbs**: `serve` (JSON-RPC over stdio or a local socket), `repl` (interactive shell).
 
 A **session** = open (or create) a document → apply zero or more commands → save (unless
@@ -107,6 +107,14 @@ Headless rendering (`docs/06 §11`). `--format png|jpg|webp` from extension. `--
 
 ### `planyrith validate -f model.plyr [--json]` / `planyrith repair -f model.plyr [--fix all|merge-vertices,degenerate-faces,dangling-refs]`
 `docs/04 §13`. Exit code 3 if problems remain.
+
+### `planyrith recover <model.plyr> [-o out.plyr] [--no-save] [--json]`
+Rebuilds the unsaved work an interactive session left for `model.plyr` (`docs/11 §2`): its
+autosave snapshot (`model.autosave.plyr`, else the document itself) with the journal
+(`model.plyr.journal`) replayed, then saves it in place (or to `-o`) and deletes the autosave.
+Output: `{replayed, skipped}` (`skipped` lists the journal rows that failed, `command: error`).
+Exit code 4 (`E1403`) when there is nothing to recover. An untitled GUI document is autosaved as
+`untitled.plyr` in the application's data folder; pass that path with `-o`.
 
 ### `planyrith script -f model.plyr <file.rhai|-> [--arg k=v]…`
 Runs an embedded-language script (`docs/10`) with the document bound as `doc`.
@@ -419,3 +427,7 @@ On failure: `{"ok": false, "error": {"code": "E1002", "message": "...", "param":
   first. JSON output: `{kind, label, point, on, axis, from, locked}`.
 - 2026-10-26 — In queries, a dimension's `length` is what it measures (`query dimension --fields
   length`), absent when it is detached.
+- 2026-10-26 — **`recover`** (§2, docs/11 §2) takes the document as a positional argument, like
+  the spec's `planyrith recover <doc>`, and saves where the other session verbs save (in place,
+  `-o`, or not with `--no-save`); the autosave is deleted only after the recovered document was
+  written.

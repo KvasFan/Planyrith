@@ -1,8 +1,9 @@
 //! Implements the `io/` entry of docs/01-architecture.md §2 and the error model
 //! of docs/01 §7 for I/O: `IoError` (codes from docs/08 §9), the `Progress` /
 //! `CancelToken` cooperation contract of docs/01 §6, and the sub-modules for
-//! storage (docs/11 §1), the native container (docs/09 §1–§4), interchange
-//! (docs/09 §5–§6) and render-mesh extraction (docs/06 §2).
+//! storage (docs/11 §1), autosave (docs/11 §2), the native container
+//! (docs/09 §1–§4), interchange (docs/09 §5–§6) and render-mesh extraction
+//! (docs/06 §2).
 //!
 //! Owner key: `io-native` for this file. The `#![warn(unused_variables,
 //! dead_code)]` opt-out of the skeleton allowance lives in the leaf modules
@@ -10,6 +11,7 @@
 //! because an attribute on this file would cascade into `render_mesh` and
 //! `import`, which still carry `todo!()` bodies.
 
+pub mod autosave;
 pub mod export;
 pub mod import;
 pub mod native;

@@ -225,4 +225,7 @@ powerful but add ~10 MB and do not run inside the web build; they are a post-1.0
   `crates/planyrith-core/assets/fonts/`).
 - 2026-10-26 — `ab_glyph` 0.2 (Apache-2.0, already in the GUI's tree through egui) draws the
   labels of headless renders in `planyrith-render`.
-
+- 2026-10-26 — The web build adds `web-time` 1 (MIT/Apache-2.0; `Instant` that works in browsers,
+  already in the tree through eframe), `rexie` 0.6 (MIT/Apache-2.0, IndexedDB) and, for tests,
+  `wasm-bindgen-test` 0.3 (MIT/Apache-2.0). `trunk` is not needed: `tools/build-web.sh` drives the
+  `wasm-bindgen` CLI directly (docs/11 Decisions).

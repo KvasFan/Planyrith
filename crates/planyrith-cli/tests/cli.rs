@@ -1277,3 +1277,43 @@ fn inference_matches_the_golden_file() {
         golden.display()
     );
 }
+
+#[test]
+fn recover_replays_the_autosave_journal() {
+    let dir = scratch("recover");
+    let doc = build_table(&dir, "table.plyr");
+    let f = doc.to_str().unwrap();
+    // What a GUI session left behind: a journal of unsaved commands.
+    let journal = format!("{f}.journal");
+    std::fs::write(
+        &journal,
+        concat!(
+            r#"{"seq":1,"command":"rectangle","params":{"corner_a":[2000,0,0],"corner_b":[3000,1000,0]}}"#,
+            "\n",
+            r#"{"seq":2,"command":"push-pull","params":{"face":{"Query":"face & last"},"distance":400}}"#,
+            "\n",
+        ),
+    )
+    .unwrap();
+    let out = planyrith()
+        .args(["recover", f, "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let v = json_of(&out);
+    assert_eq!(v["output"]["replayed"], 2);
+    assert!(!Path::new(&journal).exists(), "the autosave is gone");
+    let out = planyrith()
+        .args(["query", "-f", f, "face", "--count"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    // The table (26 faces) and the new box (6).
+    assert!(String::from_utf8_lossy(&out).contains("32"));
+    // Nothing left to recover.
+    planyrith().args(["recover", f]).assert().failure().code(4);
+}

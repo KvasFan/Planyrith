@@ -4,6 +4,20 @@ All notable changes to Planyrith are recorded here. Versions follow
 [Semantic Versioning](https://semver.org/); before 1.0, minor versions are milestones of
 [`docs/13-roadmap.md`](docs/13-roadmap.md).
 
+## 0.7.0 — Web build (2026-10-26)
+
+- **Web**: the GUI runs in the browser (WebGPU, or WebGL2), built by `tools/build-web.sh` into
+  static files (4.5 MB with brotli) with a service worker for offline use. Documents live in the
+  browser's storage (IndexedDB); the file dialogs browse it; File › Upload from Computer… and
+  dropping files bring files in, Download This Document / Download a File… take them out. The
+  page asks before closing with unsaved changes. Touch: pinch to zoom, two fingers to pan,
+  twist to orbit.
+- **Autosave and recovery** on the desktop and the web: a journal of every command and periodic
+  snapshots beside the document (never over it); after a session ends without saving, the GUI
+  offers Recover or Discard. `planyrith recover <doc>` does it from the command line.
+- **Examples**: File › Open Example ► Room, Bookcase.
+- Dropping files on the desktop window opens or imports them.
+
 ## 0.6.0 — Sections, annotations, shadows (2026-10-26)
 
 - **Annotations**: `dimension` (aligned, linear, radius, diameter) re-measures when its

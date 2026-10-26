@@ -1,0 +1,10 @@
+{
+  "name": "Planyrith",
+  "short_name": "Planyrith",
+  "description": "3D modeling in the browser",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#f4f3f0",
+  "theme_color": "#2f3a45",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

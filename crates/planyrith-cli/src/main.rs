@@ -168,6 +168,12 @@ enum Verb {
         #[arg(long, default_value = "all")]
         fix: String,
     },
+    /// Rebuild a document's unsaved work from its autosave (docs/11 §2) and
+    /// save it (in place, or `-o`); the autosave is then deleted.
+    Recover {
+        /// The document whose autosave to recover.
+        document: PathBuf,
+    },
     /// Run a command batch (one command per line) as one undo step and one save.
     Batch {
         /// Batch file (`-` or absent = standard input).
