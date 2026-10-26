@@ -4,7 +4,7 @@ All notable changes to Planyrith are recorded here. Versions follow
 [Semantic Versioning](https://semver.org/); before 1.0, minor versions are milestones of
 [`docs/13-roadmap.md`](docs/13-roadmap.md).
 
-## Unreleased
+## 0.6.0 — Sections, annotations, shadows (2026-10-26)
 
 - **Annotations**: `dimension` (aligned, linear, radius, diameter) re-measures when its
   geometry moves, also after saving and inside components; `text` with default measurements.

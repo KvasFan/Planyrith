@@ -5,14 +5,15 @@ architecture, interiors, landscape, woodworking and product mock-ups. It is writ
 entirely in Rust, runs on Linux, macOS, Windows and in the browser (WebAssembly), and is
 built *CLI-first*: every modeling tool exists as a command before it gets a button.
 
-> **Status: version 0.5.0 — interchange.**
+> **Status: version 0.6.0 — sections, annotations, shadows.**
 > The geometry kernel, the document model, the modeling commands, the native file format, the
 > `planyrith` command line (headless rendering, a JSON-RPC server, a shell) and the GUI work:
 > drawing and editing tools that snap through the inference engine, exact input, previews,
 > textured materials (bundled and your own images), components and component files, scenes
 > with animated transitions, styles with fog and watermarks, material, component and style
-> libraries, import and export of glTF/GLB, OBJ, STL, DXF, images and CSV, and 2D drawings of
-> a view as SVG, PDF or DXF. See [`CHANGELOG.md`](CHANGELOG.md) and the milestones in
+> libraries, import and export of glTF/GLB, OBJ, STL, DXF, images and CSV, 2D drawings of a
+> view as SVG, PDF or DXF, dimensions, texts, guides, section cuts, sun shadows, 3D text and
+> multiple viewports. See [`CHANGELOG.md`](CHANGELOG.md) and the milestones in
 > [`docs/13-roadmap.md`](docs/13-roadmap.md).
 
 ## What Planyrith will be

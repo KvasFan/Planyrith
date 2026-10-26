@@ -5,7 +5,7 @@ implementation stands, what is done, what remains, and how to resume. Update it 
 every working session. Ground truth for *what to build* stays in `docs/00`–`docs/15`; this file
 is only *progress state*.
 
-_Last updated: 2026-10-26 (0.6 implemented: dimensions, texts, guides, sections with caps, sun shadows, 3D text, axes, multiple viewports)._
+_Last updated: 2026-10-26 (0.6.0 released: dimensions, texts, guides, sections with caps, sun shadows, 3D text, axes, multiple viewports)._
 
 ## 1. Where we are
 
@@ -82,7 +82,7 @@ Frontends:
    tried it. Known limits (docs/09 Decisions): glTF cameras are skipped; DXF text and
    dimensions are skipped; the 2D export does not split edges where they pierce faces.
    **Milestone 0.6** (sections, annotations, shadows) is implemented on `main` (docs/13
-   Decisions "0.6 as built"); release 0.6.0 after the user tries it. Next: milestone 0.7 (web
+   Decisions "0.6 as built"); released as 0.6.0 after the user tried it. Next: milestone 0.7 (web
    build).
 2. **Journal and undo.** The journal (`history.msgpack`, docs/09 §3) is append-only and every
    frontend journals executed commands but not undo/redo, so after an undo it lists a command
@@ -127,7 +127,7 @@ Frontends:
 
 ## 4. Repository state
 
-- Branch `main`; releases `v0.1.0`, `v0.2.0`, `v0.3.0` (2026-10-25) `v0.4.0` and `v0.5.0` (2026-10-26) tagged and pushed. The user wants finished work
+- Branch `main`; releases `v0.1.0`, `v0.2.0`, `v0.3.0` (2026-10-25) `v0.4.0`, `v0.5.0` and `v0.6.0` (2026-10-26) tagged and pushed. The user wants finished work
   pushed, in batches: run the full local check once per batch, then push once (each push to
   `main` runs the CI matrix; tags do not).
 - The 0.1 review fixes were made on a temporary branch and worktree, fast-forwarded into `main`
