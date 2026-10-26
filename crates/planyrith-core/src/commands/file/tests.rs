@@ -1417,3 +1417,42 @@ fn perspective_views_draw_what_the_eye_sees() {
     let lines = out["entities"].as_u64().unwrap();
     assert!((9..=24).contains(&lines), "{out}");
 }
+
+#[test]
+fn shared_shading_normals_make_soft_edges() {
+    // Two quads meeting at 60° along x (Z up, kept with `swap_yz: false`).
+    let geometry = "v 0 0 0\nv 1 0 0\nv 1 1 0\nv 0 1 0\nv 1 1.5 0.866\nv 0 1.5 0.866\n";
+    let smooth = format!(
+        "{geometry}vn 0 0 1\nvn 0 -0.5 0.866\nvn 0 -0.866 0.5\n\
+         f 1//1 2//1 3//2 4//2\nf 4//2 3//2 5//3 6//3\n"
+    );
+    let flat = format!(
+        "{geometry}vn 0 0 1\nvn 0 -0.866 0.5\n\
+         f 1//1 2//1 3//1 4//1\nf 4//2 3//2 5//2 6//2\n"
+    );
+    for (text, soft) in [(smooth, true), (flat, false)] {
+        let (mut e, storage) = engine();
+        storage
+            .write(&StorageKey::new("s.obj"), text.as_bytes())
+            .unwrap();
+        let out = run(
+            &mut e,
+            "import",
+            json!({ "path": "s.obj", "swap_yz": false }),
+        );
+        assert_eq!(out["faces"], 2, "{out}");
+        let doc = e.document();
+        let shared = doc
+            .definitions
+            .iter()
+            .flat_map(|(id, _)| {
+                let mesh = doc.container(ContainerRef::Definition(id)).unwrap().mesh();
+                mesh.edges()
+                    .filter(|(e, _)| matches!(mesh.edge_faces(*e), Ok([Some(_), Some(_)])))
+                    .map(|(_, edge)| edge.flags.contains(crate::geom::EdgeFlags::SOFT))
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(shared, vec![soft], "smooth source: {soft}");
+    }
+}

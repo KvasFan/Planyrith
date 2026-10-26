@@ -51,6 +51,10 @@ pub struct ImportedMesh {
     pub materials: Vec<Option<usize>>,
     /// Texture coordinates per position (empty when the file has none).
     pub uvs: Vec<DVec2>,
+    /// Shading normals per position (empty when the file has none; zero
+    /// where a corner has none). Edges whose two sides share them were
+    /// smooth in the file and become soft.
+    pub normals: Vec<DVec3>,
 }
 
 /// A placement of a mesh (world transform in source units).
@@ -184,6 +188,7 @@ fn shells(positions: &[DVec3], triangles: &[[u32; 3]], tol: &Tolerances) -> Vec<
 #[allow(clippy::too_many_arguments)]
 fn build_part(
     positions: &[DVec3],
+    normals: &[DVec3],
     mesh: &ImportedMesh,
     subset: &[usize],
     keys: &[u32],
@@ -242,6 +247,7 @@ fn build_part(
         };
         let _ = built.set_face_sides(*f, sides, &mut Vec::new());
     }
+    soften_shared_normals(&mut built, positions, normals, mesh, subset, tol);
     Ok((built, skipped))
 }
 
@@ -383,8 +389,15 @@ pub fn build_scene(
             let next = key_ids.len() as u32;
             keys.push(*key_ids.entry((material, quantized)).or_insert(next));
         }
+        // Normals turn with the axes (scale does not change directions).
+        let normals: Vec<DVec3> = mesh
+            .normals
+            .iter()
+            .map(|n| (axes * *n).normalize_or_zero())
+            .collect();
         let pieces = triangle_pieces(
             &positions,
+            &normals,
             mesh,
             &keys,
             &maps,
@@ -521,6 +534,7 @@ pub(crate) fn place(
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn triangle_pieces(
     positions: &[DVec3],
+    normals: &[DVec3],
     mesh: &ImportedMesh,
     keys: &[u32],
     maps: &[Option<DAffine2>],
@@ -532,8 +546,11 @@ pub(crate) fn triangle_pieces(
     if mesh.triangles.is_empty() {
         return Ok(Vec::new());
     }
-    let part =
-        |subset: &[usize]| build_part(positions, mesh, subset, keys, maps, materials, opts, tol);
+    let part = |subset: &[usize]| {
+        build_part(
+            positions, normals, mesh, subset, keys, maps, materials, opts, tol,
+        )
+    };
     let all: Vec<usize> = (0..mesh.triangles.len()).collect();
     let (whole, mut skipped) = part(&all)?;
     let pieces: Vec<HalfEdgeMesh> = if whole.edge_crossings(tol).is_empty() {
@@ -625,6 +642,70 @@ pub(crate) fn entities_of_pieces(
                     })?;
             }
             Ok(entities)
+        }
+    }
+}
+
+/// Makes soft (and smooth) the edges of `built` whose two sides had the
+/// same shading normals at both ends in the source (`normals` per position
+/// of `mesh`): the file drew them smooth, whatever their angle.
+fn soften_shared_normals(
+    built: &mut HalfEdgeMesh,
+    positions: &[DVec3],
+    normals: &[DVec3],
+    mesh: &ImportedMesh,
+    subset: &[usize],
+    tol: &Tolerances,
+) {
+    if normals.len() != positions.len() {
+        return;
+    }
+    let cell = tol.length.max(f64::MIN_POSITIVE);
+    let key = |p: DVec3| [p.x, p.y, p.z].map(|c| (c / cell).round() as i64);
+    // Per undirected source edge: the normals at its two ends (in key
+    // order), one entry per triangle side.
+    type Ends = ([i64; 3], [i64; 3]);
+    let mut sides: BTreeMap<Ends, Vec<[DVec3; 2]>> = BTreeMap::new();
+    for &t in subset {
+        let tri = mesh.triangles[t];
+        for k in 0..3 {
+            let (a, b) = (tri[k] as usize, tri[(k + 1) % 3] as usize);
+            let (ka, kb) = (key(positions[a]), key(positions[b]));
+            let (first, second) = if ka <= kb {
+                ((ka, a), (kb, b))
+            } else {
+                ((kb, b), (ka, a))
+            };
+            sides
+                .entry((first.0, second.0))
+                .or_default()
+                .push([normals[first.1], normals[second.1]]);
+        }
+    }
+    let same = |x: DVec3, y: DVec3| {
+        x.length_squared() > 0.5 && y.length_squared() > 0.5 && x.dot(y) > 0.9995
+    };
+    let edges: Vec<crate::ids::EdgeId> = built.edges().map(|(e, _)| e).collect();
+    for e in edges {
+        let Some(edge) = built.edge(e) else { continue };
+        if edge.flags.contains(crate::geom::EdgeFlags::SOFT) {
+            continue;
+        }
+        let flags = edge.flags | crate::geom::EdgeFlags::SOFT | crate::geom::EdgeFlags::SMOOTH;
+        let (Ok([Some(fa), Some(fb)]), Ok(seg)) = (built.edge_faces(e), built.edge_segment(e))
+        else {
+            continue;
+        };
+        if fa == fb {
+            continue;
+        }
+        let (ka, kb) = (key(seg.a), key(seg.b));
+        let k = if ka <= kb { (ka, kb) } else { (kb, ka) };
+        if let Some([x, y]) = sides.get(&k).map(Vec::as_slice)
+            && same(x[0], y[0])
+            && same(x[1], y[1])
+        {
+            let _ = built.set_edge_flags(e, flags, &mut crate::geom::NoDeltas);
         }
     }
 }

@@ -282,3 +282,8 @@ save unless `--no-thumbnail`. `manifest.json` carries `title`, `author`, `descri
   in SVG); a 2D DXF has `LINE`s on layers `Edges` and `Profiles`, in model units of the view
   plane for parallel views (`file_units`) and paper millimeters for perspective views. Output is
   deterministic (PDF without metadata).
+- 2026-10-26 — **Shading normals soften edges.** When a glTF or OBJ mesh carries vertex
+  normals, an edge whose two sides have the same normal at both ends (within 1.8°) was drawn
+  smooth by the source and becomes `SOFT | SMOOTH` whatever the angle between its faces; other
+  edges follow `soften` (20°). Low-poly cylinders and spheres therefore import without hard
+  lines between their facets, while models with flat normals keep their edges.

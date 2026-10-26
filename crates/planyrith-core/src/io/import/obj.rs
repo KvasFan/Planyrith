@@ -213,6 +213,14 @@ impl Importer for ObjImporter {
                     .map(|t| DVec2::new(f64::from(t[0]), f64::from(t[1])))
             };
             let has_uv = !m.texcoord_indices.is_empty();
+            let normal = |i: u32| {
+                let i = i as usize * 3;
+                m.normals
+                    .get(i..i + 3)
+                    .map(|n| DVec3::new(f64::from(n[0]), f64::from(n[1]), f64::from(n[2])))
+                    .filter(|n| n.is_finite())
+            };
+            let has_normals = !m.normal_indices.is_empty();
             let material = m.material_id.filter(|&i| i < imported_materials.len());
             let arities: Vec<usize> = if m.face_arities.is_empty() {
                 vec![3; m.indices.len() / 3]
@@ -235,6 +243,18 @@ impl Importer for ObjImporter {
                 if corners.iter().any(|c| !c.is_finite()) {
                     return Err(corrupt("a vertex is not a finite number"));
                 }
+                let normals: Vec<DVec3> = if has_normals {
+                    m.normal_indices
+                        .get(range.clone())
+                        .map(|ix| {
+                            ix.iter()
+                                .map(|&i| normal(i).unwrap_or(DVec3::ZERO))
+                                .collect()
+                        })
+                        .unwrap_or_default()
+                } else {
+                    Vec::new()
+                };
                 let uvs: Vec<DVec2> = if has_uv {
                     m.texcoord_indices
                         .get(range)
@@ -248,6 +268,8 @@ impl Importer for ObjImporter {
                     for k in tri {
                         out.positions.push(corners[k]);
                         out.uvs.push(uvs.get(k).copied().unwrap_or(DVec2::ZERO));
+                        out.normals
+                            .push(normals.get(k).copied().unwrap_or(DVec3::ZERO));
                     }
                     out.triangles.push([base, base + 1, base + 2]);
                     out.materials.push(material);
@@ -258,6 +280,9 @@ impl Importer for ObjImporter {
         for (mesh, textured) in meshes.iter_mut().zip(&textured) {
             if !textured {
                 mesh.uvs.clear();
+            }
+            if mesh.normals.iter().all(|n| n.length_squared() < 0.5) {
+                mesh.normals.clear();
             }
         }
         meshes.retain(|m| !m.triangles.is_empty());

@@ -254,6 +254,7 @@ impl Importer for GltfImporter {
                 ..ImportedMesh::default()
             };
             let mut any_uv = false;
+            let mut any_normal = false;
             for primitive in mesh.primitives() {
                 let reader = primitive.reader(get);
                 let Some(positions) = reader.read_positions() else {
@@ -305,6 +306,21 @@ impl Importer for GltfImporter {
                     },
                     None => Vec::new(),
                 };
+                let normals: Vec<DVec3> = reader
+                    .read_normals()
+                    .map(|n| {
+                        n.map(|v| DVec3::new(f64::from(v[0]), f64::from(v[1]), f64::from(v[2])))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                any_normal |= normals.len() == positions.len();
+                out.normals.extend((0..positions.len()).map(|i| {
+                    normals
+                        .get(i)
+                        .copied()
+                        .filter(|n| n.is_finite())
+                        .unwrap_or(DVec3::ZERO)
+                }));
                 let base = out.positions.len() as u32;
                 out.positions.extend_from_slice(&positions);
                 out.uvs.extend(
@@ -318,6 +334,9 @@ impl Importer for GltfImporter {
             }
             if !any_uv {
                 out.uvs.clear();
+            }
+            if !any_normal {
+                out.normals.clear();
             }
             meshes.push(out);
         }

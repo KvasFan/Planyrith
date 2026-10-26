@@ -722,6 +722,7 @@ impl Builder<'_, '_> {
         let maps = vec![None; mesh.triangles.len()];
         let mut pieces = triangle_pieces(
             &mesh.positions,
+            &[],
             &mesh,
             &keys,
             &maps,
