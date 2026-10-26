@@ -491,3 +491,50 @@ fn sections_shadows_and_overlays() {
     // precision (docs/12 Decisions): 1 % of the pixels may differ.
     check_within("room-section-shadows", &image, 24, 100);
 }
+
+/// The browser build falls back to WebGL2 (docs/11 §4.2), which lacks some
+/// downlevel features (a second view format of a texture, for one): the
+/// renderer draws, hands the UI its display view and picks on the GL backend
+/// with WebGL2's limits. Skipped where no GL adapter exists.
+#[test]
+fn renders_within_webgl2_limits() {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::GL,
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
+    });
+    let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+        power_preference: wgpu::PowerPreference::LowPower,
+        force_fallback_adapter: false,
+        compatible_surface: None,
+        apply_limit_buckets: false,
+    })) else {
+        eprintln!("skipping the WebGL2-like test: no GL adapter");
+        return;
+    };
+    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        label: Some("webgl2-like"),
+        required_features: wgpu::Features::empty(),
+        required_limits:
+            wgpu::Limits::downlevel_webgl2_defaults().using_resolution(adapter.limits()),
+        experimental_features: wgpu::ExperimentalFeatures::default(),
+        memory_hints: wgpu::MemoryHints::default(),
+        trace: wgpu::Trace::default(),
+    }))
+    .unwrap();
+    let mut renderer = Renderer::new(device, queue, RendererOptions::default());
+    let e = room();
+    let doc = e.document();
+    let style = Style::default();
+    let image = frame(
+        &mut renderer,
+        doc,
+        &Selection::new(),
+        &EditContext::model(),
+        &doc.camera,
+        &style,
+        true,
+    );
+    assert!(image.pixels().any(|p| p.0 != image.get_pixel(0, 0).0));
+    assert!(renderer.display_view().is_some());
+    assert!(renderer.pick(WIDTH / 2, HEIGHT / 2, 4).unwrap().is_some());
+}

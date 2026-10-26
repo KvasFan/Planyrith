@@ -219,9 +219,12 @@ struct Targets {
     color_msaa: Option<wgpu::TextureView>,
     color: wgpu::Texture,
     color_view: wgpu::TextureView,
-    /// The same texture viewed as `Rgba8Unorm` (gamma-encoded values for
-    /// UIs that composite in gamma space, such as egui).
+    /// The frame copied into an `Rgba8Unorm` texture with the same
+    /// gamma-encoded values (for UIs that composite in gamma space, such as
+    /// egui), by the display pass.
     display_view: wgpu::TextureView,
+    /// The display pass's input (the color target).
+    display_group: wgpu::BindGroup,
     depth: wgpu::TextureView,
     ids: wgpu::Texture,
     ids_view: wgpu::TextureView,
@@ -332,6 +335,9 @@ pub struct Renderer {
     shadow_size: u32,
     /// Section caps by container and plane (dropped with the container).
     caps: BTreeMap<(ContainerRef, [i64; 5]), Cap>,
+    /// The display pass (color target to `Rgba8Unorm`).
+    display_layout: wgpu::BindGroupLayout,
+    display_pipeline: wgpu::RenderPipeline,
 }
 
 impl std::fmt::Debug for Renderer {
@@ -442,6 +448,7 @@ impl Renderer {
             immediate_size: 0,
         });
         let pipelines = build_pipelines(&device, &shader, &face_layout, &edge_layout, options.msaa);
+        let (display_layout, display_pipeline) = display_pipeline(&device);
         let shadow_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("shadow"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -497,6 +504,8 @@ impl Renderer {
             shadow_sampler,
             shadow_size: 1,
             caps: BTreeMap::new(),
+            display_layout,
+            display_pipeline,
         }
     }
 
@@ -575,7 +584,6 @@ impl Renderer {
             depth_or_array_layers: 1,
         };
         let texture = |label: &str, format, samples, usage| {
-            let unorm = [wgpu::TextureFormat::Rgba8Unorm];
             self.device.create_texture(&wgpu::TextureDescriptor {
                 label: Some(label),
                 size,
@@ -584,11 +592,7 @@ impl Renderer {
                 dimension: wgpu::TextureDimension::D2,
                 format,
                 usage,
-                view_formats: if format == COLOR_FORMAT && samples == 1 {
-                    &unorm
-                } else {
-                    &[]
-                },
+                view_formats: &[],
             })
         };
         let msaa = self.options.msaa;
@@ -629,16 +633,29 @@ impl Renderer {
             wgpu::TextureUsages::RENDER_ATTACHMENT,
         )
         .create_view(&wgpu::TextureViewDescriptor::default());
+        let color_view = color.create_view(&wgpu::TextureViewDescriptor::default());
+        let display_view = texture(
+            "color (gamma)",
+            wgpu::TextureFormat::Rgba8Unorm,
+            1,
+            wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+        )
+        .create_view(&wgpu::TextureViewDescriptor::default());
+        let display_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("display"),
+            layout: &self.display_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&color_view),
+            }],
+        });
         self.targets = Some(Targets {
             width,
             height,
             color_msaa,
-            color_view: color.create_view(&wgpu::TextureViewDescriptor::default()),
-            display_view: color.create_view(&wgpu::TextureViewDescriptor {
-                label: Some("color (gamma)"),
-                format: Some(wgpu::TextureFormat::Rgba8Unorm),
-                ..Default::default()
-            }),
+            color_view,
+            display_view,
+            display_group,
             color,
             depth,
             ids_view: ids.create_view(&wgpu::TextureViewDescriptor::default()),
@@ -1559,6 +1576,27 @@ impl Renderer {
                     pass.draw_indexed(range.clone(), 0, 0..1);
                 }
             }
+        }
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("display"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &targets.display_view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(&self.display_pipeline);
+            pass.set_bind_group(0, &targets.display_group, &[]);
+            pass.draw(0..3, 0..1);
         }
         self.queue.submit([encoder.finish()]);
         Ok(())
@@ -2585,6 +2623,58 @@ fn plane_key(plane: &planyrith_core::math::Plane, fill: bool) -> [i64; 5] {
         (plane.d * 1e3).round() as i64,
         i64::from(fill),
     ]
+}
+
+/// The display pass: its bind group layout and pipeline.
+fn display_pipeline(device: &wgpu::Device) -> (wgpu::BindGroupLayout, wgpu::RenderPipeline) {
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("display.wgsl"),
+        source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("shaders/display.wgsl"))),
+    });
+    let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("display"),
+        entries: &[wgpu::BindGroupLayoutEntry {
+            binding: 0,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                view_dimension: wgpu::TextureViewDimension::D2,
+                multisampled: false,
+            },
+            count: None,
+        }],
+    });
+    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("display"),
+        bind_group_layouts: &[Some(&layout)],
+        immediate_size: 0,
+    });
+    let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("display"),
+        layout: Some(&pipeline_layout),
+        vertex: wgpu::VertexState {
+            module: &shader,
+            entry_point: Some("vs_main"),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            buffers: &[],
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &shader,
+            entry_point: Some("fs_main"),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            targets: &[Some(wgpu::ColorTargetState {
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                blend: None,
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+        }),
+        primitive: wgpu::PrimitiveState::default(),
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState::default(),
+        multiview_mask: None,
+        cache: None,
+    });
+    (layout, pipeline)
 }
 
 #[cfg(test)]

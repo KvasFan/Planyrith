@@ -308,3 +308,9 @@ exposes a frame-time overlay (`F11` panel).
   guide points are drawn on top by the frontend — egui in the GUI, and on the CPU with the
   bundled Inter font (`ab_glyph`) for headless renders.
 
+- 2026-10-26 — **Display pass.** The frame for the GUI (an `Rgba8Unorm` texture with sRGB-encoded
+  values, since egui composites in gamma space) is written by a small full-screen pass that reads
+  the sRGB color target, not by a second view format of that target: WebGL2 and some GL drivers
+  lack view formats (wgpu's `VIEW_FORMATS` downlevel flag), and the web build showed a black page.
+  `renders_within_webgl2_limits` renders and picks on the GL backend with WebGL2's limits, where
+  a GL adapter exists.
