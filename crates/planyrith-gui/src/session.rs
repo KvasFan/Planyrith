@@ -13,7 +13,7 @@ use planyrith_core::commands::{CommandRegistry, Delta, Engine, Event};
 use planyrith_core::document::{Camera, ContainerRef, Document};
 use planyrith_core::inference::{Inference, InferenceEngine, InferenceRequest};
 use planyrith_core::io::NoProgress;
-use planyrith_core::io::autosave::{self, Autosave};
+use planyrith_core::io::autosave::{self, Autosave, RowState};
 use planyrith_core::io::native::{
     HistoryEntry, LoadedDocument, WriteOptions, read_document, write_document,
 };
@@ -271,6 +271,11 @@ impl Session {
             .map(|c| c.meta().view_only)
             .unwrap_or(false);
         let camera_before = self.engine.document().camera;
+        // What the command acts on, for the autosave journal.
+        let state = self
+            .autosave
+            .is_some()
+            .then(|| RowState::capture(&self.engine));
         let output = self
             .engine
             .execute_erased(name, params.clone())
@@ -294,7 +299,8 @@ impl Session {
         if !view_only {
             if let Some(autosave) = self.autosave.as_mut() {
                 self.autosaved = true;
-                if let Err(e) = autosave.record(self.storage.as_ref(), name, &params, None) {
+                let state = state.unwrap_or_default();
+                if let Err(e) = autosave.record(self.storage.as_ref(), name, &params, None, state) {
                     self.warnings.borrow_mut().push(format!("autosave: {e}"));
                 }
             }
@@ -551,8 +557,14 @@ mod tests {
         s.tick(1.0);
         s.execute("line", json!({ "points": [[0, 0, 300], [1000, 500, 300]] }))
             .unwrap();
+        // Selecting is not journaled; deleting the selection is.
+        s.execute("select", json!({ "query": "face & normal:z" }))
+            .unwrap();
+        s.execute("delete", json!({ "targets": "selection" }))
+            .unwrap();
         // The process ends here without saving.
         let faces = s.doc().model.counts().faces;
+        assert_eq!(faces, 5);
         drop(s);
         assert!(Session::recoverable(Some(&path)));
         let back = Session::recover(Some(&path)).unwrap();

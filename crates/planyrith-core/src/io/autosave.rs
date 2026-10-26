@@ -13,7 +13,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use crate::commands::{CommandRegistry, Engine};
-use crate::document::Document;
+use crate::document::{Document, EditContext, Selection};
 use crate::io::native::{HistoryEntry, LoadedDocument, read_document};
 use crate::io::storage::{Storage, StorageKey};
 use crate::io::{IoError, NoProgress};
@@ -37,6 +37,52 @@ pub struct JournalRow {
     /// Undo group label, if grouped.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group: Option<String>,
+    /// The selection and edit context the command ran with.
+    #[serde(flatten)]
+    pub state: RowState,
+}
+
+/// The selection and edit context a command ran with, in persistent ids
+/// (they are not commands themselves, yet commands act on them: `delete`
+/// of the selection replays only with the selection it had).
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct RowState {
+    /// The selection (absent when empty).
+    #[serde(default, skip_serializing_if = "Selection::is_empty")]
+    pub selection: Selection,
+    /// The open container (absent for the model).
+    #[serde(default, skip_serializing_if = "is_model")]
+    pub context: EditContext,
+}
+
+fn is_model(context: &EditContext) -> bool {
+    context.path.steps.is_empty()
+}
+
+impl RowState {
+    /// The engine's selection and context, named by persistent ids.
+    pub fn capture(engine: &Engine) -> RowState {
+        let doc = engine.document();
+        RowState {
+            selection: engine
+                .selection()
+                .iter()
+                .map(|path| path.canonical(doc))
+                .collect(),
+            context: EditContext {
+                path: engine.context().path.canonical(doc),
+            },
+        }
+    }
+
+    /// Restores them in `engine` (a context that no longer opens leaves the
+    /// model open).
+    pub fn apply(&self, engine: &mut Engine) {
+        if engine.set_context(self.context.clone()).is_err() {
+            let _ = engine.set_context(EditContext::default());
+        }
+        engine.set_selection(self.selection.clone());
+    }
 }
 
 /// The autosave state of one open document.
@@ -74,19 +120,22 @@ impl Autosave {
         self.rows.len()
     }
 
-    /// Appends a committed command to the journal.
+    /// Appends a committed command to the journal, with the selection and
+    /// context it ran with ([`RowState::capture`] before running it).
     pub fn record(
         &mut self,
         storage: &dyn Storage,
         command: &str,
         params: &serde_json::Value,
         group: Option<&str>,
+        state: RowState,
     ) -> Result<(), IoError> {
         self.rows.push(JournalRow {
             seq: self.rows.len() as u64 + 1,
             command: command.to_string(),
             params: params.clone(),
             group: group.map(str::to_string),
+            state,
         });
         storage.write(&self.doc_key.journal(), &encode_journal(&self.rows))
     }
@@ -191,6 +240,7 @@ pub fn recover(
     }
     let (mut replayed, mut skipped) = (0, Vec::new());
     for row in rows {
+        row.state.apply(&mut engine);
         match engine.execute_erased(&row.command, row.params.clone()) {
             Ok(_) => {
                 replayed += 1;
@@ -275,7 +325,13 @@ mod tests {
             let params = rect(f64::from(i) * 2000.0);
             live.execute_erased("rectangle", params.clone()).unwrap();
             autosave
-                .record(storage.as_ref(), "rectangle", &params, None)
+                .record(
+                    storage.as_ref(),
+                    "rectangle",
+                    &params,
+                    None,
+                    RowState::default(),
+                )
                 .unwrap();
             history.push(HistoryEntry {
                 command: "rectangle".into(),
@@ -323,10 +379,22 @@ mod tests {
         storage.write(&key, &bytes).unwrap();
         let mut autosave = Autosave::new(key.clone(), 0.0);
         autosave
-            .record(storage.as_ref(), "rectangle", &rect(5000.0), None)
+            .record(
+                storage.as_ref(),
+                "rectangle",
+                &rect(5000.0),
+                None,
+                RowState::default(),
+            )
             .unwrap();
         autosave
-            .record(storage.as_ref(), "no-such-command", &json!({}), None)
+            .record(
+                storage.as_ref(),
+                "no-such-command",
+                &json!({}),
+                None,
+                RowState::default(),
+            )
             .unwrap();
         let back = recover(Arc::clone(&storage), &key, registry()).unwrap();
         assert_eq!((back.replayed, back.skipped.len()), (1, 1));
@@ -339,12 +407,51 @@ mod tests {
     }
 
     #[test]
+    fn commands_replay_with_their_selection() {
+        let storage: Arc<dyn Storage + Send + Sync> = Arc::new(MemoryStorage::new());
+        let key = StorageKey::new("sel.plyr");
+        let mut live = Engine::new(Document::new(), registry());
+        let mut autosave = Autosave::new(key.clone(), 0.0);
+        let mut run = |live: &mut Engine, name: &str, params: serde_json::Value| {
+            let state = RowState::capture(live);
+            live.execute_erased(name, params.clone()).unwrap();
+            autosave
+                .record(storage.as_ref(), name, &params, None, state)
+                .unwrap();
+        };
+        run(&mut live, "rectangle", rect(0.0));
+        run(&mut live, "rectangle", rect(3000.0));
+        // The GUI selects without a journaled command.
+        let face = live
+            .document()
+            .model
+            .order()
+            .iter()
+            .copied()
+            .find(|id| matches!(id, crate::ids::EntityId::Face(_)))
+            .unwrap();
+        live.set_selection(Selection::single(crate::document::EntityPath::new(
+            crate::document::InstancePath::root(),
+            crate::document::EntityKey::Id(face),
+        )));
+        run(&mut live, "delete", json!({ "targets": "selection" }));
+        let back = recover(Arc::clone(&storage), &key, registry()).unwrap();
+        assert_eq!(back.skipped, Vec::<String>::new());
+        assert_eq!(
+            back.engine.document().model.mesh().face_count(),
+            live.document().model.mesh().face_count()
+        );
+        assert_eq!(live.document().model.mesh().face_count(), 1);
+    }
+
+    #[test]
     fn a_torn_last_line_is_dropped() {
         let rows = vec![JournalRow {
             seq: 1,
             command: "line".into(),
             params: json!({ "points": [[0, 0, 0], [1, 0, 0]] }),
             group: None,
+            state: RowState::default(),
         }];
         let mut bytes = encode_journal(&rows);
         bytes.extend_from_slice(b"{\"seq\":2,\"comm");

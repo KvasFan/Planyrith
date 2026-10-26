@@ -87,6 +87,11 @@ async fn classroom_scenario() {
         json!({ "points": [[7000.0, 0.0, 500.0], [8000.0, 1000.0, 500.0]] }),
     )
     .unwrap();
+    // Selecting is not journaled; deleting the selection is.
+    s.execute("select", json!({ "query": "face & normal:z" }))
+        .unwrap();
+    s.execute("delete", json!({ "targets": "selection" }))
+        .unwrap();
     let expected = canonical(s.doc());
     assert_ne!(expected, saved);
     web::flush().await;
@@ -107,7 +112,7 @@ async fn classroom_scenario() {
     )
     .unwrap();
     assert!(back.skipped.is_empty(), "{:?}", back.skipped);
-    assert_eq!(back.replayed, 1);
+    assert_eq!(back.replayed, 2, "line and delete");
     assert_eq!(canonical(back.engine.document()), expected);
 
     // Saving again leaves nothing to recover.

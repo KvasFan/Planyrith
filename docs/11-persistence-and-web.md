@@ -128,7 +128,10 @@ The core never calls `std::fs` directly outside `NativeFs`. Open/save commands t
   `localStorage` through the GUI's persistence), the quota meter, dropped folders and the
   "Export all" zip. `navigator.storage.persist()` is requested on every save.
 - 2026-10-26 — **Autosave as built (0.7).** `planyrith-core::io::autosave`: the journal
-  (`<doc>.plyr.journal`) is JSON lines `{seq, command, params, group}` rewritten whole after each
+  (`<doc>.plyr.journal`) is JSON lines `{seq, command, params, group, selection, context}` (the
+  selection and open container the command ran with, by persistent ids, restored before it is
+  replayed: selecting is not a journaled command, yet `delete` of the selection depends on it)
+  rewritten whole after each
   journaled command (at most 200 rows); a snapshot (`<doc>.autosave.plyr`, the full container with
   its history) is taken after 200 commands or 2 minutes with commands journaled, and after every
   undo or redo (the journal replays commands only, so an undo past the snapshot could not be
