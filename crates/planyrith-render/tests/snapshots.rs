@@ -162,7 +162,11 @@ fn check_within(name: &str, image: &image::RgbaImage, channel: u8, per: usize) {
     let differing = golden
         .pixels()
         .zip(image.pixels())
-        .filter(|(a, b)| a.0.iter().zip(b.0.iter()).any(|(x, y)| x.abs_diff(*y) > channel))
+        .filter(|(a, b)| {
+            a.0.iter()
+                .zip(b.0.iter())
+                .any(|(x, y)| x.abs_diff(*y) > channel)
+        })
         .count();
     let allowed = (golden.width() * golden.height()) as usize / per;
     if differing > allowed {
