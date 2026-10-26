@@ -525,3 +525,6 @@ within `tolerances.length`.
   lies in that face's plane. Testers expected a circle's center to snap when the cursor is over
   it; the plane condition keeps a cylinder's side facets from offering the cap's center through
   themselves.
+- 2026-10-26 — **The origin snaps.** The origin of the drawing axes (0, 0, 0) is an
+  `Endpoint`-level inference labelled "Origin", offered within the pixel tolerance unless a face
+  in front of it hides it. Users start drawings there and expect it to snap.

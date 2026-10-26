@@ -583,6 +583,13 @@ impl InferenceEngine {
                 _ => {}
             }
         }
+        // The origin of the drawing axes snaps like an endpoint unless a face
+        // hides it (docs/03 Decisions).
+        if within(DVec3::ZERO) && visible(ray.closest_param(DVec3::ZERO)) {
+            let mut i = Inference::new(DVec3::ZERO, InferenceKind::Endpoint);
+            i.label = "Origin".into();
+            out.push(i);
+        }
         // Edge × edge intersections near the cursor.
         for (i, (a, pa)) in edges.iter().enumerate() {
             for (b, _) in &edges[i + 1..] {
@@ -963,6 +970,19 @@ mod tests {
             json!({ "center": [5000, 0, 0], "radius": 500.0, "normal": [0, 0, 1] }),
         );
         e
+    }
+
+    #[test]
+    fn the_origin_snaps_like_an_endpoint() {
+        let e = Engine::new(Document::new(), Arc::new(CommandRegistry::with_builtins()));
+        let engine = InferenceEngine::new();
+        let i = infer(&e, &engine, &request(down(4.0, -3.0)));
+        assert_eq!(i.kind, InferenceKind::Endpoint);
+        assert_eq!(i.label, "Origin");
+        assert!(close(i.point, DVec3::ZERO));
+        // Away from it, a free point.
+        let i = infer(&e, &engine, &request(down(400.0, -300.0)));
+        assert_eq!(i.kind, InferenceKind::Free);
     }
 
     fn down(x: f64, y: f64) -> Ray {

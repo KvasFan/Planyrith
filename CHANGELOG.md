@@ -14,7 +14,7 @@ All notable changes to Planyrith are recorded here. Versions follow
   (View › Axes), depth-tested and dashed on the negative side.
 - **Tests**: whole-window GUI screenshots through wgpu (`PLANYRITH_SCREENSHOTS`).
 - **Inference**: the center of a circle, arc or polygon snaps when the cursor is over its face,
-  without hovering the curve first.
+  without hovering the curve first; the axes' origin snaps like an endpoint ("Origin").
 
 ## 0.3.0 — Interactive modeling with inference (2026-10-25)
 
