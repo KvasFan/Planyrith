@@ -85,6 +85,8 @@ egui_tiles = "0.17"
 egui-file-dialog = "0.15"
 egui_kittest = "0.36"
 pollster = "1.0"
+# Labels of headless renders (docs/06 §3.1 step 7).
+ab_glyph = "0.2"
 
 # ---- dev -----------------------------------------------------------------------
 proptest = "1.12"

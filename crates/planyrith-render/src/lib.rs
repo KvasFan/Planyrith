@@ -16,16 +16,20 @@
 //! projections) is `planyrith_core::document::camera`. Milestone 0.2 draws
 //! faces (shaded, textured, monochrome, hidden-line, X-ray, wireframe),
 //! edges with profiles and dashed back edges, transparency, selection and
-//! edit-context fading; shadows, section cuts and fog follow (docs/13).
+//! edit-context fading; later milestones add fog and watermarks (0.4), and
+//! section cuts with caps, sun shadows and overlays — guides, dimensions,
+//! texts and section plane widgets, with CPU-drawn labels headless (0.6).
 
 #![forbid(unsafe_code)]
 
 mod gpu;
 mod headless;
+mod labels;
 mod renderer;
 
 pub use gpu::Gpu;
 pub use headless::{HeadlessOptions, render_image};
+pub use labels::draw_labels;
 pub use renderer::{FrameRequest, PickHit, PickKind, Renderer, RendererOptions};
 
 /// Rendering failures.

@@ -14,7 +14,7 @@ use crate::commands::params::{PointSchema, VectorSchema, check_point, target_con
 use crate::commands::{
     Command, CommandCategory, CommandError, CommandMeta, CommonParams, Transaction,
 };
-use crate::document::annotations::{ANCHOR_SNAP_MM, find_anchor};
+use crate::document::annotations::{edge_direction_at, find_anchor};
 use crate::document::{AnchorKind, Document, EntityRecord, Guide};
 use crate::geom::TransformOptions;
 use crate::ids::{EntityId, Pid};
@@ -83,23 +83,6 @@ pub struct TapeMeasureOutput {
 /// The `tape-measure` command.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct TapeMeasure;
-
-/// The direction of the context's edge `p` (local) lies on, if any.
-fn edge_direction_at(
-    doc: &Document,
-    container: crate::document::ContainerRef,
-    p: DVec3,
-) -> Option<DVec3> {
-    let entities = doc.container(container)?;
-    let mesh = entities.mesh();
-    entities.order().iter().find_map(|&id| {
-        let EntityId::Edge(e) = id else { return None };
-        let seg = mesh.edge_segment(e).ok()?;
-        let d = seg.b - seg.a;
-        let t = ((p - seg.a).dot(d) / d.length_squared()).clamp(0.0, 1.0);
-        ((seg.a + d * t - p).length() <= ANCHOR_SNAP_MM).then(|| d.normalize())
-    })
-}
 
 impl Command for TapeMeasure {
     type Params = TapeMeasureParams;

@@ -13,6 +13,7 @@
 pub mod export;
 pub mod import;
 pub mod native;
+pub mod overlay;
 pub mod render_mesh;
 pub mod storage;
 

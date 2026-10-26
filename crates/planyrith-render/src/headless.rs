@@ -68,6 +68,7 @@ pub fn render_image(
         &EditContext::model(),
         options.show_hidden,
     );
+    let overlay = planyrith_core::io::overlay::overlay(doc, &items);
     let camera = options.camera.unwrap_or(doc.camera);
     let style = options
         .style
@@ -85,6 +86,9 @@ pub fn render_image(
         ids: false,
         transparent_background: options.transparent_background,
         axes: false,
+        overlay: Some(&overlay),
     })?;
-    renderer.read_color()
+    let mut image = renderer.read_color()?;
+    crate::labels::draw_labels(&mut image, &overlay, &camera);
+    Ok(image)
 }

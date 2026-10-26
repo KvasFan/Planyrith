@@ -149,6 +149,40 @@ pub fn find_anchor(doc: &Document, container: ContainerRef, p: DVec3) -> Anchor 
     point_anchor(p)
 }
 
+/// The direction (in `container` coordinates) of an edge `p` lies on, in
+/// `container` or the groups and instances inside it (outer levels first).
+pub fn edge_direction_at(doc: &Document, container: ContainerRef, p: DVec3) -> Option<DVec3> {
+    let mut levels: Vec<(ContainerRef, DAffine3, usize)> = vec![(container, DAffine3::IDENTITY, 0)];
+    let mut next = 0;
+    while next < levels.len() && next < 4096 {
+        let (c, transform, depth) = levels[next];
+        next += 1;
+        let entities = doc.container(c)?;
+        let local = transform.inverse().transform_point3(p);
+        let mesh = entities.mesh();
+        for &id in entities.order() {
+            let EntityId::Edge(e) = id else { continue };
+            let Ok(seg) = mesh.edge_segment(e) else {
+                continue;
+            };
+            let d = seg.b - seg.a;
+            let t = ((local - seg.a).dot(d) / d.length_squared()).clamp(0.0, 1.0);
+            if (seg.a + d * t - local).length() <= ANCHOR_SNAP_MM {
+                return transform.transform_vector3(d).try_normalize();
+            }
+        }
+        if depth >= MAX_DEPTH {
+            continue;
+        }
+        for &id in entities.order() {
+            if let (Some(def), Some(t)) = (entities.definition_of(id), entities.transform_of(id)) {
+                levels.push((ContainerRef::Definition(def), transform * t, depth + 1));
+            }
+        }
+    }
+    None
+}
+
 /// What frontends draw for a dimension (docs/05 §7.1), in the coordinates
 /// of its container.
 #[derive(Debug, Clone, PartialEq)]

@@ -29,6 +29,13 @@ struct Draw {
     fog: vec4<f32>,
     // Fog color; a: 0 off, 1 perspective depth (clip w), 2 parallel depth.
     fog_color: vec4<f32>,
+    // Section plane in local coordinates (n, d): fragments with
+    // n·p + d > 0 are cut away when ids.y has CLIPPED (docs/06 §3.1 step 2).
+    section: vec4<f32>,
+    // Light clip space from local coordinates (shadow map, docs/06 §6).
+    light_clip: mat4x4<f32>,
+    // x: shadows on; y: lit intensity; z: shadowed intensity; w: depth bias.
+    shadow: vec4<f32>,
 };
 
 // Distance along the view of a clip position (fog).
@@ -51,6 +58,8 @@ fn fogged(rgb: vec3<f32>, depth: f32) -> vec3<f32> {
 @group(0) @binding(0) var<uniform> draw: Draw;
 @group(1) @binding(0) var tex: texture_2d<f32>;
 @group(1) @binding(1) var tex_sampler: sampler;
+@group(2) @binding(0) var shadow_map: texture_depth_2d;
+@group(2) @binding(1) var shadow_sampler: sampler_comparison;
 
 const TEXTURED: u32 = 1u;
 const UNLIT: u32 = 2u;
@@ -58,6 +67,38 @@ const HIDE_SOFT: u32 = 4u;
 const DASHED: u32 = 8u;
 const BY_AXIS: u32 = 16u;
 const BY_MATERIAL: u32 = 32u;
+const CLIPPED: u32 = 64u;
+const SHADOW_CATCHER: u32 = 128u;
+
+// The section plane cuts this local point away.
+fn cut_away(local: vec3<f32>) -> bool {
+    return (draw.ids.y & CLIPPED) != 0u && dot(draw.section.xyz, local) + draw.section.w > 1e-3;
+}
+
+// 1 lit, 0 in shadow: 3×3 percentage-closer filtering of the sun's depth.
+fn sun_visibility(light: vec4<f32>) -> f32 {
+    if (draw.shadow.x < 0.5) {
+        return 1.0;
+    }
+    let ndc = light.xyz / light.w;
+    let uv = vec2<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
+    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || ndc.z > 1.0) {
+        return 1.0;
+    }
+    let texel = 1.0 / vec2<f32>(textureDimensions(shadow_map));
+    var sum = 0.0;
+    for (var y = -1; y <= 1; y++) {
+        for (var x = -1; x <= 1; x++) {
+            sum += textureSampleCompareLevel(
+                shadow_map,
+                shadow_sampler,
+                uv + vec2<f32>(f32(x), f32(y)) * texel,
+                ndc.z - draw.shadow.w,
+            );
+        }
+    }
+    return sum / 9.0;
+}
 
 // Edge flag bits (io::render_mesh::edge_flag_bits) plus face presence.
 const EDGE_SOFT: u32 = 2u;
@@ -80,12 +121,16 @@ struct FaceOut {
     @location(1) uv: vec2<f32>,
     @location(2) @interpolate(flat) face: u32,
     @location(3) depth: f32,
+    @location(4) local: vec3<f32>,
+    @location(5) light: vec4<f32>,
 };
 
 @vertex
 fn vs_face(input: FaceIn) -> FaceOut {
     var out: FaceOut;
     out.clip = draw.clip_from_local * vec4<f32>(input.position, 1.0);
+    out.local = input.position;
+    out.light = draw.light_clip * vec4<f32>(input.position, 1.0);
     let normal_matrix = mat3x3<f32>(draw.normal_x.xyz, draw.normal_y.xyz, draw.normal_z.xyz);
     out.normal = normal_matrix * input.normal;
     out.uv = input.uv;
@@ -94,12 +139,17 @@ fn vs_face(input: FaceIn) -> FaceOut {
     return out;
 }
 
-fn shade(base: vec4<f32>, normal: vec3<f32>) -> vec4<f32> {
+fn shade(base: vec4<f32>, normal: vec3<f32>, visibility: f32) -> vec4<f32> {
     var lit = 1.0;
     if ((draw.ids.y & UNLIT) == 0u) {
         let n = normalize(normal);
         let diffuse = max(dot(n, draw.light.xyz), 0.0);
-        lit = draw.light.w + (1.0 - draw.light.w) * diffuse;
+        if (draw.shadow.x > 0.5) {
+            // The sun: shadowed intensity everywhere, the lit one in light.
+            lit = draw.shadow.z + (draw.shadow.y - draw.shadow.z) * diffuse * visibility;
+        } else {
+            lit = draw.light.w + (1.0 - draw.light.w) * diffuse;
+        }
     }
     var rgb = base.rgb * lit;
     rgb = mix(rgb, draw.tint.rgb, draw.tint.a);
@@ -109,18 +159,38 @@ fn shade(base: vec4<f32>, normal: vec3<f32>) -> vec4<f32> {
 
 @fragment
 fn fs_face(input: FaceOut) -> @location(0) vec4<f32> {
+    if (cut_away(input.local)) {
+        discard;
+    }
+    let visibility = sun_visibility(input.light);
+    if ((draw.ids.y & SHADOW_CATCHER) != 0u) {
+        // The ground: only its shadow shows.
+        let amount = (1.0 - visibility) * (1.0 - draw.shadow.z / max(draw.shadow.y, 1e-3));
+        return vec4<f32>(0.0, 0.0, 0.0, clamp(amount, 0.0, 1.0) * 0.8);
+    }
     var base = draw.color;
     if ((draw.ids.y & TEXTURED) != 0u) {
         // Texture rows run top to bottom; face-frame v runs upward.
         base = base * textureSample(tex, tex_sampler, vec2<f32>(input.uv.x, 1.0 - input.uv.y));
     }
-    let lit = shade(base, input.normal);
+    let lit = shade(base, input.normal, visibility);
     return vec4<f32>(fogged(lit.rgb, input.depth), lit.a);
 }
 
 @fragment
 fn fs_face_id(input: FaceOut) -> @location(0) vec2<u32> {
+    if (cut_away(input.local)) {
+        discard;
+    }
     return vec2<u32>(draw.ids.x, input.face + 1u);
+}
+
+// The sun's depth (draws whose clip_from_local is the light's).
+@fragment
+fn fs_shadow(input: FaceOut) {
+    if (cut_away(input.local)) {
+        discard;
+    }
 }
 
 // ----- edges -----------------------------------------------------------------------------
@@ -143,6 +213,7 @@ struct EdgeOut {
     @location(1) along: f32,
     @location(2) @interpolate(flat) index: u32,
     @location(3) depth: f32,
+    @location(4) local: vec3<f32>,
 };
 
 // Keeps a clip-space point in front of the eye (perspective views).
@@ -224,10 +295,12 @@ fn vs_edge(input: EdgeIn) -> EdgeOut {
     var base = p;
     var along = 0.0;
     var extend = -0.5;
+    out.local = input.a;
     if (at_b) {
         base = q;
         along = length_px;
         extend = 0.5;
+        out.local = input.b;
     }
     // Half a pixel past each end so joints close.
     let offset_px = perp * side * width * 0.5 + dir * extend * min(width, 1.0);
@@ -257,6 +330,9 @@ fn vs_edge(input: EdgeIn) -> EdgeOut {
 
 @fragment
 fn fs_edge(input: EdgeOut) -> @location(0) vec4<f32> {
+    if (cut_away(input.local)) {
+        discard;
+    }
     if ((draw.ids.y & DASHED) != 0u && fract(input.along / 8.0) > 0.5) {
         discard;
     }
@@ -265,6 +341,9 @@ fn fs_edge(input: EdgeOut) -> @location(0) vec4<f32> {
 
 @fragment
 fn fs_edge_id(input: EdgeOut) -> @location(0) vec2<u32> {
+    if (cut_away(input.local)) {
+        discard;
+    }
     return vec2<u32>(draw.ids.x, 0x80000000u | (input.index + 1u));
 }
 

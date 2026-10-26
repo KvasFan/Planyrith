@@ -290,3 +290,18 @@ exposes a frame-time overlay (`F11` panel).
 - 2026-10-26 — The sun uses the NOAA solar position algorithm after Meeus (about 0.01°), not
   the low-precision fractional-year series: it matches the SPA paper's published example within
   0.05° (`document::shadows` tests), well inside the 0.5° acceptance of docs/13 0.6.
+- 2026-10-26 — **Sections, caps, shadows and overlays as built.** Each draw item carries the
+  outermost active section plane on its path (in its own coordinates); faces, edges and picking
+  discard fragments on the plane's `+normal` side. Caps are computed on the CPU, not with the
+  stencil: the plane's cut segments of a solid container are joined into faces by the kernel and
+  drawn in the style's section fill, with the cut lines in the section line color and width
+  (open cuts of non-solids get lines only); they are cached per container and plane. The sun's
+  shadow map is one 2048² orthographic map fitted to the model's bounds (one cascade, 3×3 PCF);
+  lit and shadowed intensities are the settings' `light` and `dark`; with `on_ground` a plane at
+  the model's lowest Z shows only its shadow; when the sun is below the horizon everything takes
+  the shadowed intensity. Guides (infinite lines clipped to the view), dimensions (extension
+  lines, line, end marks; red when detached) and section plane widgets (a rectangle 10 % larger
+  than the container's contents, its symbol as a label) are lines from `io::overlay`; labels and
+  guide points are drawn on top by the frontend — egui in the GUI, and on the CPU with the
+  bundled Inter font (`ab_glyph`) for headless renders.
+

@@ -22,8 +22,10 @@ use planyrith_core::document::{
 };
 use planyrith_core::geom::HalfEdgeMesh;
 use planyrith_core::ids::{EdgeId, FaceId, MaterialId};
+use planyrith_core::io::overlay::{Overlay, OverlayKind};
 use planyrith_core::io::render_mesh::{
     DrawItem, ExtractOptions, MaterialKey, NO_FACE, RenderMesh, edge_flag_bits, extract,
+    section_cap,
 };
 use planyrith_core::math::Aabb;
 use wgpu::util::DeviceExt;
@@ -34,7 +36,11 @@ const COLOR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 const ID_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rg32Uint;
 /// Dynamic uniform offsets are multiples of this (the WebGPU minimum).
-const UNIFORM_STRIDE: u64 = 256;
+const UNIFORM_STRIDE: u64 = 512;
+
+/// Shadow map size (docs/06 §3.1 step 1).
+const SHADOW_SIZE: u32 = 2048;
+const SHADOW_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
 /// Renderer settings.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -77,6 +83,9 @@ pub struct FrameRequest<'a> {
     pub transparent_background: bool,
     /// Draw the drawing axes (View › Axes, docs/06 §3.1 step 7).
     pub axes: bool,
+    /// Guides, dimensions and section plane widgets to draw
+    /// (`io::overlay::overlay`); labels are the frontend's.
+    pub overlay: Option<&'a Overlay>,
 }
 
 /// What lies under a pixel of the id buffer (docs/06 §8 hover picking).
@@ -120,7 +129,7 @@ struct EdgeInstance {
     material_color: [f32; 4],
 }
 
-/// The per-draw uniform block (`Draw` in `scene.wgsl`, 224 bytes).
+/// The per-draw uniform block (`Draw` in `scene.wgsl`, 320 bytes).
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]
 struct DrawUniform {
@@ -139,6 +148,12 @@ struct DrawUniform {
     fog: [f32; 4],
     /// Fog color; alpha 0 off, 1 perspective, 2 parallel.
     fog_color: [f32; 4],
+    /// Section plane in local coordinates (with `CLIPPED`).
+    section: [f32; 4],
+    /// Light clip space from local coordinates.
+    light_clip: [[f32; 4]; 4],
+    /// Shadows on, lit and shadowed intensities, depth bias.
+    shadow: [f32; 4],
 }
 
 const TEXTURED: u32 = 1;
@@ -147,6 +162,8 @@ const HIDE_SOFT: u32 = 4;
 const DASHED: u32 = 8;
 const BY_AXIS: u32 = 16;
 const BY_MATERIAL: u32 = 32;
+const CLIPPED: u32 = 64;
+const SHADOW_CATCHER: u32 = 128;
 const EDGE_HAS_FACE0: u32 = 256;
 const EDGE_HAS_FACE1: u32 = 512;
 // `scene.wgsl` reads the extraction's flag bits directly.
@@ -202,6 +219,10 @@ struct Pipelines {
     edge_id: wgpu::RenderPipeline,
     sky: wgpu::RenderPipeline,
     mark: wgpu::RenderPipeline,
+    /// Depth from the sun.
+    shadow: wgpu::RenderPipeline,
+    /// Section caps (both windings, so no culling).
+    cap: wgpu::RenderPipeline,
 }
 
 /// One recorded draw.
@@ -235,6 +256,13 @@ enum Draw {
     Sky { uniform: u32 },
     /// A watermark image on the screen.
     Mark { uniform: u32, image: ImageRef },
+    /// Triangles from a transient vertex buffer (section caps, the ground).
+    Triangles {
+        pipeline: Stage,
+        uniform: u32,
+        buffer: wgpu::Buffer,
+        count: u32,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -244,7 +272,14 @@ enum Stage {
     DepthOnly,
     Edge,
     BackEdge,
+    Cap,
 }
+
+/// A section cap's fill triangles and cut lines.
+type Cap = (Vec<FaceVertex>, Vec<EdgeInstance>);
+
+/// Overlay lines grouped by look: (color, width) and instances.
+type LineGroup = (([f32; 4], f32), Vec<EdgeInstance>);
 
 /// The renderer: device, pipelines, caches and targets.
 pub struct Renderer {
@@ -265,6 +300,15 @@ pub struct Renderer {
     /// Draw items of the last frame (id buffer → item).
     last_items: Vec<(ContainerRef, usize)>,
     ids_valid: bool,
+    /// The sun's depth map and its bind group (a 1×1 one while shadows are
+    /// off).
+    shadow_view: wgpu::TextureView,
+    shadow_group: wgpu::BindGroup,
+    shadow_layout: wgpu::BindGroupLayout,
+    shadow_sampler: wgpu::Sampler,
+    shadow_size: u32,
+    /// Section caps by container and plane (dropped with the container).
+    caps: BTreeMap<(ContainerRef, [i64; 5]), Cap>,
 }
 
 impl std::fmt::Debug for Renderer {
@@ -339,9 +383,34 @@ impl Renderer {
                 },
             ],
         });
+        let shadow_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("shadow map"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Depth,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Comparison),
+                    count: None,
+                },
+            ],
+        });
         let face_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("faces"),
-            bind_group_layouts: &[Some(&draw_layout), Some(&texture_layout)],
+            bind_group_layouts: &[
+                Some(&draw_layout),
+                Some(&texture_layout),
+                Some(&shadow_layout),
+            ],
             immediate_size: 0,
         });
         let edge_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -350,6 +419,17 @@ impl Renderer {
             immediate_size: 0,
         });
         let pipelines = build_pipelines(&device, &shader, &face_layout, &edge_layout, options.msaa);
+        let shadow_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("shadow"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            compare: Some(wgpu::CompareFunction::LessEqual),
+            ..Default::default()
+        });
+        let shadow_view = shadow_texture(&device, 1);
+        let shadow_group = shadow_group(&device, &shadow_layout, &shadow_view, &shadow_sampler);
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("material"),
             address_mode_u: wgpu::AddressMode::Repeat,
@@ -387,6 +467,12 @@ impl Renderer {
             targets: None,
             last_items: Vec::new(),
             ids_valid: false,
+            shadow_view,
+            shadow_group,
+            shadow_layout,
+            shadow_sampler,
+            shadow_size: 1,
+            caps: BTreeMap::new(),
         }
     }
 
@@ -407,10 +493,12 @@ impl Renderer {
             match delta.container() {
                 Some(c) => {
                     self.meshes.remove(&c);
+                    self.caps.retain(|(k, _), _| *k != c);
                 }
                 None => {
                     self.meshes.clear();
                     self.textures.clear();
+                    self.caps.clear();
                 }
             }
         }
@@ -420,12 +508,14 @@ impl Renderer {
     /// version of it).
     pub fn invalidate(&mut self, container: ContainerRef) {
         self.meshes.remove(&container);
+        self.caps.retain(|(k, _), _| *k != container);
     }
 
     /// Drops every cached buffer and texture (another document).
     pub fn clear_cache(&mut self) {
         self.meshes.clear();
         self.textures.clear();
+        self.caps.clear();
         self.last_items.clear();
         self.ids_valid = false;
     }
@@ -647,6 +737,7 @@ impl Renderer {
                 bounds = bounds.union(&mesh.bounds.transformed(&item.world));
             }
         }
+        let model_bounds = bounds;
         // The axes reach a few times past the model and the eye.
         let axis_length = 4.0
             * (camera.eye.length()
@@ -669,6 +760,28 @@ impl Renderer {
         let edge_width = ppp;
         let profile_width = style.edges.profiles.map_or(0.0, |w| f32::from(w) * ppp);
         let fade_amount = style.modeling.inactive_fade.clamp(0.0, 1.0);
+
+        // The sun (docs/06 §6): its direction lights the faces; its depth
+        // map shadows them and the ground.
+        let shadows = doc.rendering.shadows;
+        let sun = shadows.sun.direction();
+        let sun_up = shadows.enabled && sun.z > 1e-3 && !model_bounds.is_empty();
+        let sun_clip = if sun_up {
+            sun_clip(sun, &model_bounds)
+        } else {
+            glam::DMat4::IDENTITY
+        };
+        let lit = f32::from(shadows.light.min(100)) / 100.0;
+        let dark = f32::from(shadows.dark.min(100)) / 100.0;
+        // x: 1 sun with shadow map, 2 sun without (faces not receiving).
+        let face_shadow = match (shadows.enabled, sun_up, shadows.on_faces) {
+            (false, _, _) => [0.0; 4],
+            (true, false, _) => [2.0, dark, dark, 0.0],
+            (true, true, true) => [1.0, lit, dark, 0.0015],
+            (true, true, false) => [2.0, lit, dark, 0.0],
+        };
+        let sun_light = f32x4(sun, 0.35);
+        let mut shadow_draws: Vec<(u32, ContainerRef, Range<u32>)> = Vec::new();
 
         let mut uniforms: Vec<DrawUniform> = Vec::new();
         let mut opaque: Vec<Draw> = Vec::new();
@@ -700,7 +813,19 @@ impl Renderer {
                 _ => item.world,
             };
             let clip = camera.clip_from_local(&world, depth);
-            let base = make_uniform(&clip.as_mat4().to_cols_array_2d(), &world, &camera);
+            let mut base = make_uniform(&clip.as_mat4().to_cols_array_2d(), &world, &camera);
+            let mut cut = 0;
+            if let Some(section) = item.section {
+                base.section = f32x4(section.plane.normal, section.plane.d);
+                cut = CLIPPED;
+            }
+            if shadows.enabled {
+                base.light = sun_light;
+                base.shadow = face_shadow;
+                base.light_clip = (sun_clip * glam::DMat4::from(world))
+                    .as_mat4()
+                    .to_cols_array_2d();
+            }
             let fade = if item.faded {
                 [background[0], background[1], background[2], fade_amount]
             } else {
@@ -721,7 +846,7 @@ impl Renderer {
                 if texture.is_some() && !tints(doc, *key, item.material_override) {
                     color = [1.0, 1.0, 1.0, color[3]];
                 }
-                let mut flags = 0;
+                let mut flags = cut;
                 if texture.is_some() {
                     flags |= TEXTURED;
                 }
@@ -747,6 +872,16 @@ impl Renderer {
                 } else {
                     Stage::Opaque
                 };
+                if sun_up && stage == Stage::Opaque {
+                    let u = DrawUniform {
+                        clip_from_local: (sun_clip * glam::DMat4::from(world))
+                            .as_mat4()
+                            .to_cols_array_2d(),
+                        ids: [0, cut, 0, 0],
+                        ..base
+                    };
+                    shadow_draws.push((push(&mut uniforms, u), item.container, range.clone()));
+                }
                 let draw = Draw::Faces {
                     pipeline: stage,
                     uniform: slot,
@@ -764,7 +899,7 @@ impl Renderer {
 
             // Edges.
             if mesh.edge_count > 0 && (style.edges.show || mode == FaceMode::Wireframe) {
-                let mut flags = 0;
+                let mut flags = cut;
                 if !req.show_hidden {
                     flags |= HIDE_SOFT;
                 }
@@ -810,6 +945,95 @@ impl Renderer {
                         uniform: slot,
                         container: item.container,
                     });
+                }
+            }
+
+            // Section caps and cut lines (docs/06 §3.1 step 4).
+            if let Some(section) = item.section {
+                let key = (item.container, plane_key(&section.plane, section.fill));
+                if !self.caps.contains_key(&key)
+                    && let Some(entities) = doc.container(item.container)
+                {
+                    let cap = section_cap(entities, &section.plane, section.fill, doc.tolerances());
+                    let n = section.plane.normal.as_vec3().to_array();
+                    let back = (-section.plane.normal).as_vec3().to_array();
+                    let vertices: Vec<FaceVertex> = cap
+                        .triangles
+                        .iter()
+                        .enumerate()
+                        .map(|(i, p)| FaceVertex {
+                            position: *p,
+                            normal: if (i / 3) % 2 == 0 { n } else { back },
+                            uv: [0.0; 2],
+                            face: u32::MAX,
+                        })
+                        .collect();
+                    let outline: Vec<EdgeInstance> = cap
+                        .outline
+                        .as_chunks::<2>()
+                        .0
+                        .iter()
+                        .map(|[a, b]| EdgeInstance {
+                            a: *a,
+                            b: *b,
+                            n0: [0.0; 3],
+                            n1: [0.0; 3],
+                            flags: 0,
+                            index: 0,
+                            material_color: [0.0; 4],
+                        })
+                        .collect();
+                    self.caps.insert(key, (vertices, outline));
+                }
+                if let Some((vertices, outline)) = self.caps.get(&key) {
+                    if !vertices.is_empty() {
+                        let u = DrawUniform {
+                            color: linear(style.modeling.section_fill),
+                            fade,
+                            ids: [item_id, UNLIT, 0, 0],
+                            ..base
+                        };
+                        let slot = push(&mut uniforms, u);
+                        opaque.push(Draw::Triangles {
+                            pipeline: Stage::Cap,
+                            uniform: slot,
+                            buffer: self.device.create_buffer_init(
+                                &wgpu::util::BufferInitDescriptor {
+                                    label: Some("section cap"),
+                                    contents: bytemuck::cast_slice(vertices),
+                                    usage: wgpu::BufferUsages::VERTEX,
+                                },
+                            ),
+                            count: vertices.len() as u32,
+                        });
+                    }
+                    if !outline.is_empty() && style.edges.show {
+                        let c = linear(style.modeling.section_line_color);
+                        let u = DrawUniform {
+                            color: [c[0], c[1], c[2], 1.0],
+                            fade,
+                            viewport: [
+                                req.width as f32,
+                                req.height as f32,
+                                style.modeling.section_line_width_px * ppp,
+                                0.0,
+                            ],
+                            ids: [item_id, 0, 0, 0],
+                            ..base
+                        };
+                        let slot = push(&mut uniforms, u);
+                        edges.push(Draw::EdgeList {
+                            uniform: slot,
+                            buffer: self.device.create_buffer_init(
+                                &wgpu::util::BufferInitDescriptor {
+                                    label: Some("cut lines"),
+                                    contents: bytemuck::cast_slice(outline),
+                                    usage: wgpu::BufferUsages::VERTEX,
+                                },
+                            ),
+                            count: outline.len() as u32,
+                        });
+                    }
                 }
             }
 
@@ -890,48 +1114,55 @@ impl Renderer {
                 });
             }
         }
+        // Segments are cut to the view (four times the screen, in front
+        // of the eye) here, in f64: a segment reaching far off screen
+        // becomes a quad too long and thin for every rasterizer to clip
+        // exactly (software adapters drop it).
+        let clip_f64 = camera.clip_from_local(&DAffine3::IDENTITY, depth);
+        let clip_to_view = |a: DVec3, b: DVec3| -> Option<(DVec3, DVec3)> {
+            let (ca, cb) = (clip_f64 * a.extend(1.0), clip_f64 * b.extend(1.0));
+            let guard = 4.0;
+            let tests = |c: glam::DVec4| {
+                [
+                    c.w - 1e-3,
+                    guard * c.w - c.x,
+                    guard * c.w + c.x,
+                    guard * c.w - c.y,
+                    guard * c.w + c.y,
+                ]
+            };
+            let (fa, fb) = (tests(ca), tests(cb));
+            let (mut t0, mut t1) = (0.0f64, 1.0f64);
+            for (va, vb) in fa.iter().zip(fb.iter()) {
+                match (*va >= 0.0, *vb >= 0.0) {
+                    (true, true) => {}
+                    (false, false) => return None,
+                    (true, false) => t1 = t1.min(va / (va - vb)),
+                    (false, true) => t0 = t0.max(va / (va - vb)),
+                }
+            }
+            (t0 < t1).then(|| (a + (b - a) * t0, a + (b - a) * t1))
+        };
+        let world_base = make_uniform(
+            &clip_f64.as_mat4().to_cols_array_2d(),
+            &DAffine3::IDENTITY,
+            &camera,
+        );
         // The drawing axes: solid on the positive side, dashed on the
         // negative side, colored by axis, hidden behind faces.
         if req.axes {
-            let clip = camera.clip_from_local(&DAffine3::IDENTITY, depth);
-            let base = make_uniform(
-                &clip.as_mat4().to_cols_array_2d(),
-                &DAffine3::IDENTITY,
-                &camera,
-            );
-            // Segments are cut to the view (four times the screen, in front
-            // of the eye) here, in f64: a segment reaching far off screen
-            // becomes a quad too long and thin for every rasterizer to clip
-            // exactly (software adapters drop it).
-            let clip_f64 = camera.clip_from_local(&DAffine3::IDENTITY, depth);
-            let clip_to_view = |a: DVec3, b: DVec3| -> Option<(DVec3, DVec3)> {
-                let (ca, cb) = (clip_f64 * a.extend(1.0), clip_f64 * b.extend(1.0));
-                let guard = 4.0;
-                let tests = |c: glam::DVec4| {
-                    [
-                        c.w - 1e-3,
-                        guard * c.w - c.x,
-                        guard * c.w + c.x,
-                        guard * c.w - c.y,
-                        guard * c.w + c.y,
-                    ]
-                };
-                let (fa, fb) = (tests(ca), tests(cb));
-                let (mut t0, mut t1) = (0.0f64, 1.0f64);
-                for (va, vb) in fa.iter().zip(fb.iter()) {
-                    match (*va >= 0.0, *vb >= 0.0) {
-                        (true, true) => {}
-                        (false, false) => return None,
-                        (true, false) => t1 = t1.min(va / (va - vb)),
-                        (false, true) => t0 = t0.max(va / (va - vb)),
-                    }
-                }
-                (t0 < t1).then(|| (a + (b - a) * t0, a + (b - a) * t1))
-            };
+            let base = world_base;
+            let axes = doc.info.axes;
             let segments = |sign: f64| -> Vec<EdgeInstance> {
                 [DVec3::X, DVec3::Y, DVec3::Z]
                     .iter()
-                    .filter_map(|d| clip_to_view(DVec3::ZERO, *d * sign * axis_length))
+                    .filter_map(|d| {
+                        let dir = (axes.matrix3 * *d).normalize_or(*d);
+                        clip_to_view(
+                            axes.translation,
+                            axes.translation + dir * sign * axis_length,
+                        )
+                    })
                     .map(|(a, b)| EdgeInstance {
                         a: a.as_vec3().to_array(),
                         b: b.as_vec3().to_array(),
@@ -968,6 +1199,105 @@ impl Renderer {
                     count: instances.len() as u32,
                 });
             }
+        }
+        // Guides, dimensions and section plane widgets (docs/06 §3.1 step 7).
+        if let Some(o) = req.overlay {
+            let guide = linear(style.modeling.guide_color);
+            let mut groups: BTreeMap<(u8, bool), LineGroup> = BTreeMap::new();
+            for line in &o.lines {
+                let (rank, color, width) = match line.kind {
+                    OverlayKind::Guide => (0, [guide[0], guide[1], guide[2], 1.0], 1.0),
+                    OverlayKind::Dimension | OverlayKind::Text => (1, [0.05, 0.05, 0.05, 1.0], 1.0),
+                    OverlayKind::Detached => (2, [0.85, 0.1, 0.1, 1.0], 1.0),
+                    OverlayKind::SectionPlane { active: true } => (3, [0.95, 0.5, 0.05, 1.0], 1.5),
+                    OverlayKind::SectionPlane { active: false } => (4, [0.95, 0.65, 0.3, 0.8], 1.0),
+                };
+                let (a, b) = if line.infinite {
+                    let d = (line.b - line.a).normalize_or_zero();
+                    (line.a - d * axis_length, line.a + d * axis_length)
+                } else {
+                    (line.a, line.b)
+                };
+                let Some((a, b)) = clip_to_view(a, b) else {
+                    continue;
+                };
+                groups
+                    .entry((rank, line.dashed))
+                    .or_insert(((color, width), Vec::new()))
+                    .1
+                    .push(EdgeInstance {
+                        a: a.as_vec3().to_array(),
+                        b: b.as_vec3().to_array(),
+                        n0: [0.0; 3],
+                        n1: [0.0; 3],
+                        flags: 0,
+                        index: 0,
+                        material_color: [0.0; 4],
+                    });
+            }
+            for ((_, dashed), ((color, width), instances)) in groups {
+                let u = DrawUniform {
+                    color,
+                    viewport: [req.width as f32, req.height as f32, width * ppp, 0.0],
+                    ids: [0, if dashed { DASHED } else { 0 }, 0, 0],
+                    ..world_base
+                };
+                let slot = push(&mut uniforms, u);
+                edges.push(Draw::EdgeList {
+                    uniform: slot,
+                    buffer: self
+                        .device
+                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some("overlay"),
+                            contents: bytemuck::cast_slice(&instances),
+                            usage: wgpu::BufferUsages::VERTEX,
+                        }),
+                    count: instances.len() as u32,
+                });
+            }
+        }
+        // Shadows on the ground: a plane under the model that shows only
+        // its shadow.
+        if sun_up && shadows.on_ground {
+            let c = model_bounds.center();
+            let r = (model_bounds.max - model_bounds.min).length().max(1000.0) * 3.0;
+            let z = model_bounds.min.z;
+            let corner = |x: f64, y: f64| FaceVertex {
+                position: [(c.x + x * r) as f32, (c.y + y * r) as f32, z as f32],
+                normal: [0.0, 0.0, 1.0],
+                uv: [0.0; 2],
+                face: u32::MAX,
+            };
+            let quad = [
+                corner(-1.0, -1.0),
+                corner(1.0, -1.0),
+                corner(1.0, 1.0),
+                corner(-1.0, -1.0),
+                corner(1.0, 1.0),
+                corner(-1.0, 1.0),
+            ];
+            let u = DrawUniform {
+                ids: [0, SHADOW_CATCHER, 0, 0],
+                shadow: [1.0, lit, dark, 0.0015],
+                light_clip: sun_clip.as_mat4().to_cols_array_2d(),
+                ..world_base
+            };
+            let slot = push(&mut uniforms, u);
+            transparent.push((
+                f64::MAX,
+                Draw::Triangles {
+                    pipeline: Stage::Transparent,
+                    uniform: slot,
+                    buffer: self
+                        .device
+                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some("ground"),
+                            contents: bytemuck::cast_slice(&quad),
+                            usage: wgpu::BufferUsages::VERTEX,
+                        }),
+                    count: 6,
+                },
+            ));
         }
         // The sky (style background) behind everything.
         let mut sky = None;
@@ -1062,6 +1392,16 @@ impl Renderer {
             }
         }
 
+        if sun_up && self.shadow_size != SHADOW_SIZE {
+            self.shadow_view = shadow_texture(&self.device, SHADOW_SIZE);
+            self.shadow_size = SHADOW_SIZE;
+            self.shadow_group = shadow_group(
+                &self.device,
+                &self.shadow_layout,
+                &self.shadow_view,
+                &self.shadow_sampler,
+            );
+        }
         self.upload_uniforms(&uniforms);
         let Some(targets) = self.targets.as_ref() else {
             return Ok(());
@@ -1071,6 +1411,36 @@ impl Renderer {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("frame"),
             });
+        if sun_up {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("sun"),
+                color_attachments: &[],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.shadow_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(&self.pipelines.shadow);
+            for (slot, container, range) in &shadow_draws {
+                let Some(mesh) = self.meshes.get(container) else {
+                    continue;
+                };
+                let (Some(vb), Some(ib)) = (&mesh.vertices, &mesh.indices) else {
+                    continue;
+                };
+                pass.set_bind_group(0, &self.uniform_group, &[*slot * UNIFORM_STRIDE as u32]);
+                pass.set_vertex_buffer(0, vb.slice(..));
+                pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
+                pass.draw_indexed(range.clone(), 0, 0..1);
+            }
+        }
         {
             let (view, resolve) = match &targets.color_msaa {
                 Some(msaa) => (msaa, Some(&targets.color_view)),
@@ -1159,6 +1529,7 @@ impl Renderer {
                     pass.set_pipeline(&self.pipelines.face_id);
                     pass.set_bind_group(0, &self.uniform_group, &offset);
                     pass.set_bind_group(1, &self.white, &[]);
+                    pass.set_bind_group(2, &self.shadow_group, &[]);
                     pass.set_vertex_buffer(0, vb.slice(..));
                     pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
                     pass.draw_indexed(range.clone(), 0, 0..1);
@@ -1194,9 +1565,26 @@ impl Renderer {
                     .and_then(|t| self.textures.get(&t))
                     .unwrap_or(&self.white);
                 pass.set_bind_group(1, group, &[]);
+                pass.set_bind_group(2, &self.shadow_group, &[]);
                 pass.set_vertex_buffer(0, vb.slice(..));
                 pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
                 pass.draw_indexed(range.clone(), 0, 0..1);
+            }
+            Draw::Triangles {
+                pipeline,
+                uniform,
+                buffer,
+                count,
+            } => {
+                pass.set_pipeline(match pipeline {
+                    Stage::Transparent => &self.pipelines.face_overlay,
+                    _ => &self.pipelines.cap,
+                });
+                pass.set_bind_group(0, &self.uniform_group, &[uniform * UNIFORM_STRIDE as u32]);
+                pass.set_bind_group(1, &self.white, &[]);
+                pass.set_bind_group(2, &self.shadow_group, &[]);
+                pass.set_vertex_buffer(0, buffer.slice(..));
+                pass.draw(0..*count, 0..1);
             }
             Draw::Overlay {
                 uniform,
@@ -1211,6 +1599,7 @@ impl Renderer {
                 pass.set_pipeline(&self.pipelines.face_overlay);
                 pass.set_bind_group(0, &self.uniform_group, &[uniform * UNIFORM_STRIDE as u32]);
                 pass.set_bind_group(1, &self.white, &[]);
+                pass.set_bind_group(2, &self.shadow_group, &[]);
                 pass.set_vertex_buffer(0, vb.slice(..));
                 pass.set_index_buffer(buffer.slice(..), wgpu::IndexFormat::Uint32);
                 pass.draw_indexed(0..*count, 0, 0..1);
@@ -1255,6 +1644,7 @@ impl Renderer {
                 pass.set_pipeline(&self.pipelines.mark);
                 pass.set_bind_group(0, &self.uniform_group, &[uniform * UNIFORM_STRIDE as u32]);
                 pass.set_bind_group(1, group, &[]);
+                pass.set_bind_group(2, &self.shadow_group, &[]);
                 pass.draw(0..6, 0..1);
             }
         }
@@ -1464,6 +1854,9 @@ fn make_uniform(clip: &[[f32; 4]; 4], world: &DAffine3, camera: &Camera) -> Draw
         ids: [0; 4],
         fog: [0.0; 4],
         fog_color: [0.0; 4],
+        section: [0.0; 4],
+        light_clip: [[0.0; 4]; 4],
+        shadow: [0.0; 4],
     }
 }
 
@@ -1942,7 +2335,130 @@ fn build_pipelines(
             depth(false, wgpu::CompareFunction::Always),
             msaa,
         ),
+        shadow: device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("sun depth"),
+            layout: Some(edge_layout),
+            vertex: wgpu::VertexState {
+                module: shader,
+                entry_point: Some("vs_face"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                buffers: &face_buffers,
+            },
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                cull_mode: None,
+                ..Default::default()
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: SHADOW_FORMAT,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(Less),
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState {
+                    constant: 2,
+                    slope_scale: 2.0,
+                    clamp: 0.0,
+                },
+            }),
+            multisample: wgpu::MultisampleState::default(),
+            fragment: Some(wgpu::FragmentState {
+                module: shader,
+                entry_point: Some("fs_shadow"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                targets: &[],
+            }),
+            multiview_mask: None,
+            cache: None,
+        }),
+        cap: pipeline(
+            "section caps",
+            face_layout,
+            "vs_face",
+            "fs_face",
+            &face_buffers,
+            None,
+            color(None, all),
+            depth(true, Greater),
+            msaa,
+        ),
     }
+}
+
+/// A square depth texture for the sun (`size` × `size`).
+fn shadow_texture(device: &wgpu::Device, size: u32) -> wgpu::TextureView {
+    device
+        .create_texture(&wgpu::TextureDescriptor {
+            label: Some("shadow map"),
+            size: wgpu::Extent3d {
+                width: size,
+                height: size,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: SHADOW_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        })
+        .create_view(&wgpu::TextureViewDescriptor::default())
+}
+
+fn shadow_group(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    view: &wgpu::TextureView,
+    sampler: &wgpu::Sampler,
+) -> wgpu::BindGroup {
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("shadow map"),
+        layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::Sampler(sampler),
+            },
+        ],
+    })
+}
+
+/// The sun's clip space: an orthographic view along `toward_sun` that
+/// covers `bounds` (standard depth, 0 near the sun).
+fn sun_clip(toward_sun: DVec3, bounds: &Aabb) -> glam::DMat4 {
+    let center = bounds.center();
+    let radius = (bounds.max - bounds.min).length().max(1.0) * 0.5;
+    let dir = toward_sun.normalize_or(DVec3::Z);
+    let up = if dir.cross(DVec3::Z).length() > 1e-3 {
+        DVec3::Z
+    } else {
+        DVec3::Y
+    };
+    let view = glam::dcamera::rh::view::look_at_mat4(center + dir * radius * 2.0, center, up);
+    let proj = glam::dcamera::rh::proj::directx::orthographic(
+        -radius,
+        radius,
+        -radius,
+        radius,
+        0.0,
+        radius * 4.0,
+    );
+    proj * view
+}
+
+/// A key for a plane (cap cache).
+fn plane_key(plane: &planyrith_core::math::Plane, fill: bool) -> [i64; 5] {
+    let q = |x: f64| (x * 1e6).round() as i64;
+    [
+        q(plane.normal.x),
+        q(plane.normal.y),
+        q(plane.normal.z),
+        (plane.d * 1e3).round() as i64,
+        i64::from(fill),
+    ]
 }
 
 #[cfg(test)]

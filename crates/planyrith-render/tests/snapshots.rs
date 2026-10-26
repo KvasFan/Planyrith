@@ -205,6 +205,7 @@ fn frame_with_axes(
             ids,
             transparent_background: false,
             axes,
+            overlay: None,
         })
         .unwrap();
     renderer.read_color().unwrap()
@@ -414,4 +415,67 @@ fn fog_ground_and_watermarks() {
         false,
     );
     check("room-fog-ground-watermark", &image);
+}
+
+/// docs/13 0.6: a section cut with caps, sun shadows, a dimension, a guide
+/// and the section plane's widget.
+#[test]
+fn sections_shadows_and_overlays() {
+    let Some(gpu) = gpu() else { return };
+    let mut e = room();
+    run(&mut e, "make-group", json!({ "targets": "face | edge" }));
+    run(
+        &mut e,
+        "section-plane-add",
+        json!({ "plane": { "normal": [0, 0, 1], "d": -1200.0 } }),
+    );
+    run(
+        &mut e,
+        "shadows-set",
+        json!({ "enabled": true, "date": "2026-06-21", "time": "16:00",
+                "latitude": 45.0, "longitude": 9.0, "utc_offset": 2.0 }),
+    );
+    run(
+        &mut e,
+        "dimension",
+        json!({ "start": [-200, -200, 0], "end": [4200, -200, 0], "offset": [0, -600, 0] }),
+    );
+    run(
+        &mut e,
+        "tape-measure",
+        json!({ "from": [2000, 1000, 0], "to": [2000, 1300, 0], "guide": "line" }),
+    );
+    let doc = e.document();
+    let items = draw_list(doc, &Selection::new(), &EditContext::model(), false);
+    let overlay = planyrith_core::io::overlay::overlay(doc, &items);
+    let mut renderer = Renderer::new(
+        gpu.device.clone(),
+        gpu.queue.clone(),
+        RendererOptions::default(),
+    );
+    renderer
+        .render(&FrameRequest {
+            doc,
+            items: &items,
+            camera: &doc.camera,
+            style: &Style::default(),
+            width: WIDTH,
+            height: HEIGHT,
+            show_hidden: false,
+            ids: false,
+            transparent_background: false,
+            axes: false,
+            overlay: Some(&overlay),
+        })
+        .unwrap();
+    let mut image = renderer.read_color().unwrap();
+    // Caps: the cut walls show the section fill color.
+    let fill = [0x40u8, 0x40, 0x40];
+    let capped = image
+        .pixels()
+        .filter(|p| p.0[..3].iter().zip(fill).all(|(a, b)| a.abs_diff(b) <= 8))
+        .count();
+    assert!(capped > 200, "{capped} cap pixels");
+    planyrith_render::draw_labels(&mut image, &overlay, &doc.camera);
+    check("room-section-shadows", &image);
 }

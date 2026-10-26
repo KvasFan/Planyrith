@@ -22,6 +22,7 @@ image = { workspace = true }
 pollster = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
+ab_glyph = { workspace = true }
 
 [lints]
 workspace = true

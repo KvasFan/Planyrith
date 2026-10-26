@@ -33,6 +33,7 @@ pub mod commands;
 pub mod diagnostics;
 pub mod document;
 pub(crate) mod fastmap;
+pub mod fonts;
 pub mod geom;
 pub mod ids;
 pub mod inference;

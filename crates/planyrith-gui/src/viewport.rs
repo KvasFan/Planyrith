@@ -496,6 +496,7 @@ impl Viewport {
             self.show_hidden,
         );
         let style = doc.styles.active_style().cloned().unwrap_or_default();
+        let overlay = planyrith_core::io::overlay::overlay(doc, &items);
         let hover = response.hover_pos();
         let want_ids = hover.is_some() && self.nav.is_none() && hover != self.last_hover;
         let frame_camera = Camera { aspect, ..shown };
@@ -510,6 +511,7 @@ impl Viewport {
             ids: want_ids,
             transparent_background: false,
             axes: self.show_axes,
+            overlay: Some(&overlay),
         }) {
             self.error = Some(e.to_string());
             return flows;
@@ -570,6 +572,7 @@ impl Viewport {
         // Overlays: the tool's hints, then the inference (docs/06 §10).
         let cx = cx_for(session, camera, depth, rect, unit);
         let painter = ui.painter_at(rect);
+        paint_overlay(&painter, &cx, &overlay);
         let mut shapes = Vec::new();
         tool.shapes(&mut shapes);
         for shape in &shapes {
@@ -762,6 +765,54 @@ fn paint_shape(painter: &egui::Painter, cx: &Cx<'_>, shape: &Shape) {
 }
 
 /// Inference marks and labels (docs/06 §10, docs/07 §5).
+/// Guide points and the labels of dimensions, texts and section planes
+/// (docs/06 §3.1 step 7; their lines are the renderer's).
+fn paint_overlay(
+    painter: &egui::Painter,
+    cx: &Cx<'_>,
+    overlay: &planyrith_core::io::overlay::Overlay,
+) {
+    use planyrith_core::io::overlay::OverlayKind;
+    for p in &overlay.points {
+        if let Some(s) = cx.to_screen(*p) {
+            let d = 4.0;
+            let stroke = Stroke::new(1.5, Color32::from_gray(60));
+            painter.line_segment([s + Vec2::new(-d, 0.0), s + Vec2::new(d, 0.0)], stroke);
+            painter.line_segment([s + Vec2::new(0.0, -d), s + Vec2::new(0.0, d)], stroke);
+        }
+    }
+    let font = egui::FontId::proportional(12.0);
+    for label in &overlay.labels {
+        let screen_only = label.kind == OverlayKind::Text
+            && label.at == glam::DVec3::ZERO
+            && label.screen_offset == glam::DVec2::ZERO;
+        let anchor = if screen_only {
+            Some(painter.clip_rect().left_top() + Vec2::new(12.0, 12.0))
+        } else {
+            cx.to_screen(label.at)
+        };
+        let Some(anchor) = anchor else { continue };
+        let offset = Vec2::new(label.screen_offset.x as f32, -label.screen_offset.y as f32);
+        let at = anchor + offset;
+        let (text_color, fill) = match label.kind {
+            OverlayKind::Detached => (
+                Color32::from_rgb(200, 20, 20),
+                Color32::from_white_alpha(220),
+            ),
+            OverlayKind::SectionPlane { .. } => (Color32::WHITE, Color32::from_rgb(235, 120, 20)),
+            _ => (Color32::from_gray(20), Color32::from_white_alpha(220)),
+        };
+        if offset.length() > 1.0 {
+            painter.line_segment([anchor, at], Stroke::new(1.0, Color32::from_gray(40)));
+            painter.circle_filled(anchor, 2.0, Color32::from_gray(40));
+        }
+        let galley = painter.layout_no_wrap(label.text.clone(), font.clone(), text_color);
+        let rect = egui::Align2::CENTER_CENTER.anchor_size(at, galley.size());
+        painter.rect_filled(rect.expand(2.0), 2.0, fill);
+        painter.galley(rect.min, galley, text_color);
+    }
+}
+
 fn paint_inference(
     painter: &egui::Painter,
     cx: &Cx<'_>,

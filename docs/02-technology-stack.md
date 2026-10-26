@@ -223,3 +223,6 @@ powerful but add ~10 MB and do not run inside the web build; they are a post-1.0
 - 2026-10-26 — `ttf-parser` 0.25 (MIT/Apache-2.0, no default features beyond `std`) reads glyph
   outlines for `text-3d`; the core bundles Inter Regular (SIL Open Font License 1.1, license in
   `crates/planyrith-core/assets/fonts/`).
+- 2026-10-26 — `ab_glyph` 0.2 (Apache-2.0, already in the GUI's tree through egui) draws the
+  labels of headless renders in `planyrith-render`.
+

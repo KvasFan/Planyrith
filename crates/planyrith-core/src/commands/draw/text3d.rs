@@ -23,8 +23,7 @@ use crate::ids::Pid;
 use crate::io::StorageKey;
 use crate::units::Length;
 
-/// The bundled font.
-const INTER: &[u8] = include_bytes!("../../../assets/fonts/Inter-Regular.ttf");
+use crate::fonts::INTER;
 
 /// Line segments per quadratic and cubic curve piece.
 const QUAD_STEPS: usize = 4;

@@ -527,6 +527,84 @@ pub struct DrawItem {
     pub selected_edges: Vec<EdgeId>,
     /// Outside the active edit context (drawn faded, docs/06 §9).
     pub faded: bool,
+    /// The active section plane cutting this occurrence (the outermost one
+    /// on its path, docs/04 §3.8), in container coordinates.
+    pub section: Option<SectionCut>,
+}
+
+/// A section plane as it cuts one draw item (docs/06 §3.1 steps 2 and 4).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SectionCut {
+    /// Geometry on the `+normal` side is hidden (container coordinates).
+    pub plane: crate::math::Plane,
+    /// Fill the cut of solids.
+    pub fill: bool,
+}
+
+/// The active, visible section plane of `entities` (in its coordinates).
+fn active_section(doc: &Document, entities: &Entities) -> Option<SectionCut> {
+    if !doc.rendering.section.cuts_visible {
+        return None;
+    }
+    entities
+        .order()
+        .iter()
+        .find_map(|&id| match entities.view(id) {
+            Some(EntityView::SectionPlane(s)) if s.active && !entities.is_hidden(id) => {
+                Some(SectionCut {
+                    plane: s.plane,
+                    fill: s.fill_cap && doc.rendering.section.fills_visible,
+                })
+            }
+            _ => None,
+        })
+}
+
+/// The cap of a section cut (docs/06 §3.1 step 4): the cut outlines of
+/// `entities`' faces on `plane`, as filled triangles (both windings) and
+/// as line segments, in container coordinates.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct SectionCap {
+    /// Triangle corners, three per triangle, front then back winding.
+    pub triangles: Vec<[f32; 3]>,
+    /// Outline segments, two points each.
+    pub outline: Vec<[f32; 3]>,
+}
+
+/// The cap of `entities` cut by `plane`; filled only when its mesh is a
+/// solid and `fill` (docs/06 §3.1: open cuts stay open).
+pub fn section_cap(
+    entities: &Entities,
+    plane: &crate::math::Plane,
+    fill: bool,
+    tol: &crate::tolerance::Tolerances,
+) -> SectionCap {
+    let mesh = entities.mesh();
+    let segments = crate::geom::section::slice(mesh, plane, tol);
+    let mut cap = SectionCap::default();
+    for (a, b) in &segments {
+        cap.outline.push(a.as_vec3().to_array());
+        cap.outline.push(b.as_vec3().to_array());
+    }
+    if !fill || segments.is_empty() || !mesh.is_solid() {
+        return cap;
+    }
+    let mut outline = crate::geom::HalfEdgeMesh::new();
+    for (a, b) in &segments {
+        let _ = outline.add_edge(*a, *b, tol, &mut crate::geom::NoDeltas);
+    }
+    let faces: Vec<FaceId> = outline.faces().map(|(f, _)| f).collect();
+    for f in faces {
+        let Ok(t) = tessellate_face(&outline, f, tol) else {
+            continue;
+        };
+        for tri in &t.triangles {
+            let p = tri.map(|i| t.positions[i as usize].as_vec3().to_array());
+            cap.triangles.extend([p[0], p[1], p[2]]);
+            cap.triangles.extend([p[0], p[2], p[1]]);
+        }
+    }
+    cap
 }
 
 /// The draw list of a document (docs/06 §2): every container occurrence in
@@ -547,6 +625,11 @@ pub fn draw_list(
         let mut container = ContainerRef::Model;
         let mut steps = Vec::with_capacity(occ.path.depth());
         let mut material_override = None;
+        // The outermost active section plane on the path, in world space.
+        let mut level_world = DAffine3::IDENTITY;
+        let mut section: Option<SectionCut> = doc
+            .container(ContainerRef::Model)
+            .and_then(|e| active_section(doc, e));
         for &step in &occ.path.steps {
             let Some(entities) = doc.container(container) else {
                 break;
@@ -554,6 +637,7 @@ pub fn draw_list(
             let Some(id) = entities.key_to_id(step) else {
                 break;
             };
+            level_world *= entities.transform_of(id).unwrap_or(DAffine3::IDENTITY);
             if let Some(EntityView::Instance(i)) = entities.view(id)
                 && i.material_override.is_some()
             {
@@ -568,7 +652,24 @@ pub fn draw_list(
                 break;
             };
             container = ContainerRef::Definition(def);
+            if section.is_none()
+                && let Some(cut) = doc
+                    .container(container)
+                    .and_then(|e| active_section(doc, e))
+            {
+                section = Some(SectionCut {
+                    plane: cut.plane.transformed(&level_world),
+                    ..cut
+                });
+            }
         }
+        // World plane → this occurrence's coordinates.
+        let section = section.and_then(|cut| {
+            (occ.world.matrix3.determinant().abs() > 1e-12).then(|| SectionCut {
+                plane: cut.plane.transformed(&occ.world.inverse()),
+                ..cut
+            })
+        });
         items.push(DrawItem {
             path: InstancePath { steps },
             container: occ.container,
@@ -579,6 +680,7 @@ pub fn draw_list(
             selected_faces: Vec::new(),
             selected_edges: Vec::new(),
             faded: false,
+            section,
         });
     }
 
