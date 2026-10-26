@@ -10,7 +10,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use planyrith_core::commands::{CommandRegistry, Delta, Engine, Event};
-use planyrith_core::document::{ContainerRef, Document};
+use planyrith_core::document::{Camera, ContainerRef, Document};
 use planyrith_core::inference::{Inference, InferenceEngine, InferenceRequest};
 use planyrith_core::io::NoProgress;
 use planyrith_core::io::native::{
@@ -36,6 +36,9 @@ pub struct Session {
     warnings: Rc<RefCell<Vec<String>>>,
     index: Option<(u64, DocumentIndex)>,
     registry: Arc<CommandRegistry>,
+    /// A camera change for the viewport to animate: from, to, seconds
+    /// (a scene's transition, docs/07 §6).
+    transition: Option<(Camera, Camera, f64)>,
 }
 
 impl Session {
@@ -96,6 +99,7 @@ impl Session {
             warnings,
             index: None,
             registry,
+            transition: None,
         }
     }
 
@@ -125,10 +129,27 @@ impl Session {
             .get(name)
             .map(|c| c.meta().view_only)
             .unwrap_or(false);
+        let camera_before = self.engine.document().camera;
         let output = self
             .engine
             .execute_erased(name, params.clone())
             .map_err(|e| format!("{name}: {e} [{}]", e.code()))?;
+        // Scenes animate the camera unless asked not to.
+        if name == "scene-activate"
+            && params.get("no_transition").and_then(Value::as_bool) != Some(true)
+            && self.engine.document().camera != camera_before
+        {
+            let doc = self.engine.document();
+            let seconds = params
+                .get("scene")
+                .and_then(Value::as_str)
+                .and_then(|n| doc.scenes.by_name(n))
+                .and_then(|id| doc.scenes.get(id))
+                .map_or(0.0, |s| f64::from(s.transition_s));
+            if seconds > 0.0 {
+                self.transition = Some((camera_before, doc.camera, seconds));
+            }
+        }
         if !view_only {
             self.history.push(HistoryEntry {
                 command: name.to_string(),
@@ -215,6 +236,11 @@ impl Session {
             touched.extend(doc.containers());
         }
         Ok((doc, touched))
+    }
+
+    /// Takes the camera transition to animate, if any.
+    pub fn take_transition(&mut self) -> Option<(Camera, Camera, f64)> {
+        self.transition.take()
     }
 
     /// Takes the deltas since the last call.

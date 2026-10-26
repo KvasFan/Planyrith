@@ -88,7 +88,11 @@ pub struct Viewport {
     /// The viewport rectangle of the last frame, in points.
     rect: Option<egui::Rect>,
     /// The scene whose tab was clicked last.
-    active_scene: Option<String>,
+    pub active_scene: Option<String>,
+    /// A camera transition being shown: from, to, start time, seconds.
+    transition: Option<(Camera, Camera, f64, f64)>,
+    /// The camera a running transition showed last frame.
+    showing: Option<Camera>,
     /// The pointer of the last frame it was over the viewport.
     pointer: Option<Pointer>,
     /// `Tab` presses since the pointer last moved, and where it was.
@@ -168,6 +172,12 @@ impl Viewport {
         });
     }
 
+    /// The camera shown last frame while a scene transition ran.
+    #[cfg(test)]
+    pub fn shown_camera(&self) -> Option<Camera> {
+        self.showing
+    }
+
     /// The pointer as of the last frame it was over the viewport (`Enter`
     /// with an empty value field confirms it, docs/05 §1).
     pub fn pointer(&self) -> Option<&Pointer> {
@@ -212,10 +222,24 @@ impl Viewport {
         let width = (rect.width() * ppp).round().max(1.0) as u32;
         let height = (rect.height() * ppp).round().max(1.0) as u32;
         let aspect = f64::from(width) / f64::from(height);
-        let mut camera = Camera {
-            aspect,
-            ..session.doc().camera
+        // A scene transition shows cameras between the old and the new one
+        // (the document already has the new one).
+        let now = ui.input(|i| i.time);
+        if let Some((from, to, seconds)) = session.take_transition() {
+            self.transition = Some((from, to, now, seconds));
+        }
+        let shown = match self.transition {
+            Some((from, to, start, seconds)) if now < start + seconds => {
+                ui.ctx().request_repaint();
+                interpolate(&from, &to, (now - start) / seconds)
+            }
+            _ => {
+                self.transition = None;
+                session.doc().camera
+            }
         };
+        self.showing = self.transition.map(|_| shown);
+        let mut camera = Camera { aspect, ..shown };
         let to_ndc = |pos: egui::Pos2| {
             DVec2::new(
                 f64::from((pos.x - rect.left()) / rect.width()) * 2.0 - 1.0,
@@ -276,6 +300,7 @@ impl Viewport {
             }
         }
         if moved {
+            self.transition = None;
             session.engine.set_camera(Camera {
                 aspect: session.doc().camera.aspect,
                 ..camera
@@ -473,10 +498,7 @@ impl Viewport {
         let style = doc.styles.active_style().cloned().unwrap_or_default();
         let hover = response.hover_pos();
         let want_ids = hover.is_some() && self.nav.is_none() && hover != self.last_hover;
-        let frame_camera = Camera {
-            aspect,
-            ..session.doc().camera
-        };
+        let frame_camera = Camera { aspect, ..shown };
         if let Err(e) = renderer.render(&FrameRequest {
             doc,
             items: &items,
@@ -584,6 +606,42 @@ impl Viewport {
             icons::paint(&painter, at, icon, Color32::from_gray(30));
         }
         flows
+    }
+}
+
+/// A camera between `from` and `to` at `t` (0–1), eased in and out: eye and
+/// target move straight, the field of view blends, the projection kind
+/// switches halfway.
+pub fn interpolate(from: &Camera, to: &Camera, t: f64) -> Camera {
+    use planyrith_core::document::Projection;
+    let t = t.clamp(0.0, 1.0);
+    let s = t * t * (3.0 - 2.0 * t);
+    let projection = match (from.projection, to.projection) {
+        (Projection::Perspective { fov_y_deg: a }, Projection::Perspective { fov_y_deg: b }) => {
+            Projection::Perspective {
+                fov_y_deg: a + (b - a) * s,
+            }
+        }
+        (Projection::Parallel { height_mm: a }, Projection::Parallel { height_mm: b }) => {
+            Projection::Parallel {
+                height_mm: a + (b - a) * s,
+            }
+        }
+        (a, b) => {
+            if s < 0.5 {
+                a
+            } else {
+                b
+            }
+        }
+    };
+    let up = from.up.lerp(to.up, s).try_normalize().unwrap_or(to.up);
+    Camera {
+        eye: from.eye.lerp(to.eye, s),
+        target: from.target.lerp(to.target, s),
+        up,
+        projection,
+        aspect: to.aspect,
     }
 }
 

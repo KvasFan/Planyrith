@@ -793,3 +793,73 @@ fn gluing_components_lie_on_matching_faces() {
     assert!(err.to_string().contains("does not glue"), "{err}");
     assert_valid(&e);
 }
+
+#[test]
+fn scenes_restore_hidden_entities_shadows_and_keep_properties() {
+    let mut e = engine();
+    boxed(&mut e, 0.0, 0.0, 1000.0);
+    run(
+        &mut e,
+        "hide",
+        json!({ "targets": "face & normal:z & plane:xy@1000" }),
+    );
+    let hidden_before = e
+        .document()
+        .model
+        .iter()
+        .filter(|id| e.document().model.is_hidden(*id))
+        .count();
+    assert_eq!(hidden_before, 1);
+    run(
+        &mut e,
+        "scene-add",
+        json!({ "name": "Open top", "description": "Looking in", "transition_s": 2.5,
+                "include_in_animation": false, "axes_visible": false }),
+    );
+    run(&mut e, "unhide", json!({ "targets": "all" }));
+    run(&mut e, "scene-activate", json!({ "scene": "Open top" }));
+    let doc = e.document();
+    assert_eq!(
+        doc.model
+            .iter()
+            .filter(|id| doc.model.is_hidden(*id))
+            .count(),
+        1
+    );
+    let scene = doc
+        .scenes
+        .get(doc.scenes.by_name("Open top").unwrap())
+        .unwrap();
+    assert_eq!(scene.description, "Looking in");
+    assert_eq!(scene.transition_s, 2.5);
+    assert!(!scene.include_in_animation);
+    assert_eq!(scene.axes_visible, Some(false));
+    assert_eq!(scene.hidden_entities.as_ref().unwrap().len(), 1);
+    assert!(scene.shadows.is_some());
+
+    // Properties alone, keeping the captured view.
+    run(&mut e, "unhide", json!({ "targets": "all" }));
+    run(
+        &mut e,
+        "scene-update",
+        json!({ "scene": "Open top", "properties_only": true, "transition_s": 0.0 }),
+    );
+    let doc = e.document();
+    let scene = doc
+        .scenes
+        .get(doc.scenes.by_name("Open top").unwrap())
+        .unwrap();
+    assert_eq!(scene.transition_s, 0.0);
+    assert_eq!(
+        scene.hidden_entities.as_ref().unwrap().len(),
+        1,
+        "not re-captured"
+    );
+    assert!(
+        e.execute_erased(
+            "scene-update",
+            json!({ "scene": "Open top", "transition_s": -1.0 })
+        )
+        .is_err()
+    );
+}

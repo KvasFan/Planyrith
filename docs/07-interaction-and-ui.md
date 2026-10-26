@@ -298,3 +298,10 @@ collected by clicks: e.g. segments for Circle, array count, copy toggle).
   150 ms, so passing over it is enough for its alignments and perpendicular projections; edges
   and faces still need 400 ms. A perpendicular projection is drawn as a dotted magenta line from
   the remembered point (marked with a ring) to the snapped point.
+- 2026-10-26 — **Scene transitions and animation.** Activating a scene from the GUI (scene tabs,
+  Scenes panel, animation) moves the document camera at once and shows cameras in between for
+  the scene's `transition_s` seconds (eye and target move straight, eased in and out; the field
+  of view blends; the projection kind switches halfway); navigating stops the transition. The
+  Scenes panel edits the selected scene's transition, "Include in animation" and description,
+  and "Play animation" activates the included scenes in turn — each transition, then a
+  one-second pause — looping until Stop or `Esc`.

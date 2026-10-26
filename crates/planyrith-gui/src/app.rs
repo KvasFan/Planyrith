@@ -165,6 +165,8 @@ pub struct App {
     preview: PreviewState,
     /// `Tab` presses taken from egui's focus traversal this frame.
     tabs: usize,
+    /// The scene animation: scenes to play, the next one, when.
+    animation: Option<(Vec<String>, usize, f64)>,
 }
 
 impl App {
@@ -209,6 +211,7 @@ impl App {
             revalue_open: false,
             preview: PreviewState::default(),
             tabs: 0,
+            animation: None,
         }
     }
 
@@ -523,6 +526,9 @@ impl App {
     /// the tool's step, else clears the selection, else leaves the open
     /// group or component.
     fn escape(&mut self) {
+        if self.animation.take().is_some() {
+            return;
+        }
         if !self.value.is_empty() {
             self.value.clear();
         } else if self.tools[self.active].0.escape() {
@@ -535,6 +541,53 @@ impl App {
         } else {
             viewport::exit_context(&mut self.session);
         }
+    }
+
+    /// The scene animation (docs/07 §6): each scene included in the
+    /// animation in turn, its transition, then a one-second pause, looping
+    /// until stopped.
+    fn play_scenes(&mut self, ctx: &egui::Context) {
+        let now = ctx.input(|i| i.time);
+        match self.panels.play.take() {
+            Some(true) => {
+                let doc = self.session.doc();
+                let scenes: Vec<String> = doc
+                    .scenes
+                    .iter()
+                    .filter(|(_, s)| s.include_in_animation)
+                    .map(|(_, s)| s.name.clone())
+                    .collect();
+                self.animation = (!scenes.is_empty()).then_some((scenes, 0, now));
+            }
+            Some(false) => self.animation = None,
+            None => {}
+        }
+        self.panels.playing = self.animation.is_some();
+        let Some((scenes, next, at)) = &mut self.animation else {
+            return;
+        };
+        if now < *at {
+            ctx.request_repaint_after(Duration::from_secs_f64(*at - now));
+            return;
+        }
+        let name = scenes[*next].clone();
+        *next = (*next + 1) % scenes.len();
+        let doc = self.session.doc();
+        let seconds = doc
+            .scenes
+            .by_name(&name)
+            .and_then(|id| doc.scenes.get(id))
+            .map_or(0.0, |s| f64::from(s.transition_s));
+        *at = now + seconds + 1.0;
+        self.viewport.active_scene = Some(name.clone());
+        if let Err(e) = self
+            .session
+            .execute("scene-activate", json!({ "scene": name }))
+        {
+            self.animation = None;
+            self.error(e);
+        }
+        ctx.request_repaint();
     }
 
     /// Recomputes the tool's preview when needed (docs/07 §3).
@@ -1341,6 +1394,7 @@ impl App {
             self.info(warning);
         }
         self.update_preview(&ctx);
+        self.play_scenes(&ctx);
         self.viewport.show_axes = self.settings.show_axes;
         egui::Panel::top("menu").show(ui, |ui| self.menu_bar(ui));
         egui::Panel::top("toolbar")
@@ -1676,6 +1730,63 @@ mod tests {
         }
         shell.frame(Vec::new());
         assert_eq!(shell.app.session.engine.selection().len(), 1);
+    }
+
+    #[test]
+    fn scenes_animate_their_transitions_and_play_in_turn() {
+        let mut shell = Shell::new();
+        let session = &mut shell.app.session;
+        session
+            .execute(
+                "rectangle",
+                json!({ "corner_a": [0, 0, 0], "corner_b": [2000, 1500, 0] }),
+            )
+            .unwrap();
+        session
+            .execute("camera-standard", json!({ "view": "top", "extents": true }))
+            .unwrap();
+        session
+            .execute("scene-add", json!({ "name": "Plan", "transition_s": 2.0 }))
+            .unwrap();
+        session
+            .execute("camera-standard", json!({ "view": "iso", "extents": true }))
+            .unwrap();
+        session
+            .execute("scene-add", json!({ "name": "Iso" }))
+            .unwrap();
+        let iso = shell.app.session.doc().camera;
+        shell.frame(Vec::new());
+
+        // Activating "Plan" moves the document camera at once; the viewport
+        // shows cameras in between for two seconds.
+        shell
+            .app
+            .session
+            .execute("scene-activate", json!({ "scene": "Plan" }))
+            .unwrap();
+        let plan = shell.app.session.doc().camera;
+        shell.frame(Vec::new());
+        shell.time += 1.0;
+        shell.frame(Vec::new());
+        let shown = shell.app.viewport.shown_camera().expect("a transition");
+        let (to_plan, to_iso) = (shown.eye.distance(plan.eye), shown.eye.distance(iso.eye));
+        assert!(to_plan > 1.0 && to_iso > 1.0, "{to_plan} {to_iso}");
+        shell.time += 1.5;
+        shell.frame(Vec::new());
+        assert!(
+            shell.app.viewport.shown_camera().is_none(),
+            "the transition ended"
+        );
+
+        // Playing steps through the scenes included in the animation.
+        shell.app.panels.play = Some(true);
+        shell.frame(Vec::new());
+        assert_eq!(shell.app.viewport.active_scene.as_deref(), Some("Plan"));
+        shell.time += 3.5;
+        shell.frame(Vec::new());
+        assert_eq!(shell.app.viewport.active_scene.as_deref(), Some("Iso"));
+        shell.app.key(Key::Escape);
+        assert!(shell.app.animation.is_none());
     }
 
     /// docs/qa/model-a-room.md, automated: the same ten steps with synthetic

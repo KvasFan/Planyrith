@@ -182,11 +182,24 @@
             ]
           },
           "description": "",
-          "hidden_entities": null,
+          "hidden_entities": [],
           "include_in_animation": true,
           "name": "Front",
-          "section_planes": null,
-          "shadows": null,
+          "section_planes": {},
+          "shadows": {
+            "dark": 45,
+            "enabled": false,
+            "from_edges": false,
+            "light": 80,
+            "on_faces": true,
+            "on_ground": true,
+            "sun": {
+              "manual": {
+                "altitude": 0.7853981633974483,
+                "azimuth": 2.356194490192345
+              }
+            }
+          },
           "style": {
             "idx": 1,
             "version": 1

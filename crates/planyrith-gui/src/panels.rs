@@ -22,6 +22,11 @@ pub struct PanelState {
     renaming_tag: Option<(String, String)>,
     renaming_scene: Option<(String, String)>,
     selected_scene: Option<String>,
+    scene_description: Option<(String, String)>,
+    /// Play (`true`) or stop (`false`) the scene animation, for the app.
+    pub play: Option<bool>,
+    /// Whether the animation is playing (set by the app each frame).
+    pub playing: bool,
 }
 
 /// Runs a command; a failure goes to `error`.
@@ -436,6 +441,61 @@ pub fn scenes(
                 state.selected_scene = None;
             }
         });
+        // The selected scene's properties (docs/07 §6).
+        let doc = session.doc();
+        if let Some(scene) = doc
+            .scenes
+            .by_name(&selected)
+            .and_then(|id| doc.scenes.get(id))
+        {
+            let mut seconds = scene.transition_s;
+            let mut include = scene.include_in_animation;
+            ui.horizontal(|ui| {
+                ui.label("Transition");
+                let drag = ui.add(
+                    egui::DragValue::new(&mut seconds)
+                        .range(0.0..=60.0)
+                        .speed(0.05)
+                        .suffix(" s"),
+                );
+                if drag.drag_stopped() || (drag.changed() && !drag.dragged()) {
+                    actions.push((
+                        "scene-update",
+                        json!({ "scene": selected, "properties_only": true, "transition_s": seconds }),
+                    ));
+                }
+            });
+            if ui.checkbox(&mut include, "Include in animation").changed() {
+                actions.push((
+                    "scene-update",
+                    json!({ "scene": selected, "properties_only": true, "include_in_animation": include }),
+                ));
+            }
+            let editing = state
+                .scene_description
+                .get_or_insert_with(|| (selected.clone(), scene.description.clone()));
+            if editing.0 != selected {
+                *editing = (selected.clone(), scene.description.clone());
+            }
+            let edit = ui.add(egui::TextEdit::singleline(&mut editing.1).hint_text("Description"));
+            if edit.lost_focus() && editing.1 != scene.description {
+                actions.push((
+                    "scene-update",
+                    json!({ "scene": selected, "properties_only": true, "description": editing.1 }),
+                ));
+            }
+        }
+    }
+    if !names.is_empty() {
+        ui.separator();
+        let label = if state.playing {
+            "■ Stop"
+        } else {
+            "▶ Play animation"
+        };
+        if ui.button(label).clicked() {
+            state.play = Some(!state.playing);
+        }
     }
     for (name, params) in actions {
         run(session, error, name, params);

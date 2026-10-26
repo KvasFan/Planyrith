@@ -1,11 +1,11 @@
 //! Implements docs/05-modeling-tools.md §5.7 (scenes): `scene-add`,
 //! `scene-update`, `scene-delete`, `scene-rename`, `scene-reorder` (undoable)
-//! and `scene-activate` (a view command, not undoable). Milestone 0.2 scenes
-//! capture and restore the camera, tag visibility and the active style; the
-//! other properties of docs/04 §6 arrive with their features (docs/05
-//! Decisions).
+//! and `scene-activate` (a view command, not undoable). Scenes capture and
+//! restore the camera, tag visibility, the active style, hidden entities,
+//! section plane states and shadow settings; the axes visibility is the
+//! frontend's to give and to apply (docs/05 Decisions).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -13,8 +13,8 @@ use serde::{Deserialize, Serialize};
 use crate::commands::{
     Command, CommandCategory, CommandError, CommandMeta, CommonParams, Transaction,
 };
-use crate::document::{Camera, Document, Scene};
-use crate::ids::SceneId;
+use crate::document::{Camera, Document, EntityRecord, EntityView, Scene};
+use crate::ids::{EntityId, Pid, SceneId};
 
 fn meta(name: &str, label: &str) -> CommandMeta {
     CommandMeta {
@@ -55,6 +55,12 @@ pub struct SceneCapture {
     pub tags: bool,
     /// The active style.
     pub style: bool,
+    /// Which entities are hidden.
+    pub hidden: bool,
+    /// Which section planes are active.
+    pub sections: bool,
+    /// The shadow settings.
+    pub shadows: bool,
 }
 
 impl Default for SceneCapture {
@@ -63,8 +69,68 @@ impl Default for SceneCapture {
             camera: true,
             tags: true,
             style: true,
+            hidden: true,
+            sections: true,
+            shadows: true,
         }
     }
+}
+
+/// Scene properties that are not captured from the view.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(default)]
+pub struct SceneProperties {
+    /// Free text.
+    pub description: Option<String>,
+    /// Seconds the transition to this scene takes (0 jumps).
+    pub transition_s: Option<f32>,
+    /// Whether the scene animation plays this scene.
+    pub include_in_animation: Option<bool>,
+    /// Axes visibility to store (the frontend's setting; `None` keeps it).
+    pub axes_visible: Option<bool>,
+}
+
+fn check_properties(p: &SceneProperties) -> Result<(), CommandError> {
+    if let Some(t) = p.transition_s
+        && !(t.is_finite() && (0.0..=600.0).contains(&t))
+    {
+        return Err(CommandError::OutOfRange {
+            name: "transition_s".into(),
+            reason: "must be between 0 and 600 seconds".into(),
+        });
+    }
+    Ok(())
+}
+
+fn set_properties(p: &SceneProperties, scene: &mut Scene) {
+    if let Some(d) = &p.description {
+        scene.description = d.clone();
+    }
+    if let Some(t) = p.transition_s {
+        scene.transition_s = t;
+    }
+    if let Some(i) = p.include_in_animation {
+        scene.include_in_animation = i;
+    }
+    if p.axes_visible.is_some() {
+        scene.axes_visible = p.axes_visible;
+    }
+}
+
+/// Every entity occurrence's pid with its container and id, in container
+/// order (scenes refer to entities by pid).
+fn all_pids(doc: &Document) -> Vec<(crate::document::ContainerRef, EntityId, Pid)> {
+    let mut out = Vec::new();
+    for c in doc.containers() {
+        if let Some(entities) = doc.container(c) {
+            for id in entities.iter() {
+                if let Some(pid) = entities.pid_of(id) {
+                    out.push((c, id, pid));
+                }
+            }
+        }
+    }
+    out
 }
 
 /// Fills the captured properties of `scene` from the document (and `camera`).
@@ -77,6 +143,23 @@ fn capture(doc: &Document, camera: Camera, flags: SceneCapture, scene: &mut Scen
             .collect::<BTreeMap<_, _>>()
     });
     scene.style = flags.style.then(|| doc.styles.active());
+    scene.hidden_entities = flags.hidden.then(|| {
+        all_pids(doc)
+            .into_iter()
+            .filter(|(c, id, _)| doc.container(*c).is_some_and(|e| e.is_hidden(*id)))
+            .map(|(_, _, pid)| pid)
+            .collect::<BTreeSet<_>>()
+    });
+    scene.section_planes = flags.sections.then(|| {
+        all_pids(doc)
+            .into_iter()
+            .filter_map(|(c, id, pid)| match doc.container(c)?.view(id)? {
+                EntityView::SectionPlane(s) => Some((pid, s.active)),
+                _ => None,
+            })
+            .collect::<BTreeMap<_, _>>()
+    });
+    scene.shadows = flags.shadows.then_some(doc.rendering.shadows);
 }
 
 /// A scene command's result.
@@ -99,6 +182,9 @@ pub struct SceneAddParams {
     /// What to capture (all by default).
     #[serde(default)]
     pub capture: SceneCapture,
+    /// Description, transition, animation and axes.
+    #[serde(flatten)]
+    pub properties: SceneProperties,
 }
 
 /// The `scene-add` command: a new last scene capturing the current view.
@@ -114,7 +200,8 @@ impl Command for SceneAdd {
     }
 
     fn validate(&self, doc: &Document, p: &SceneAddParams) -> Result<(), CommandError> {
-        check_new_name(doc, "name", &p.name)
+        check_new_name(doc, "name", &p.name)?;
+        check_properties(&p.properties)
     }
 
     fn apply(
@@ -124,6 +211,7 @@ impl Command for SceneAdd {
     ) -> Result<SceneOutput, CommandError> {
         let mut scene = Scene::named(p.name.clone());
         capture(tx.document(), tx.camera(), p.capture, &mut scene);
+        set_properties(&p.properties, &mut scene);
         tx.insert_scene(scene)?;
         Ok(SceneOutput { name: p.name })
     }
@@ -144,6 +232,12 @@ pub struct SceneUpdateParams {
     /// What to capture again (all by default; the rest is cleared).
     #[serde(default)]
     pub capture: SceneCapture,
+    /// Keep the captured view and change only the properties.
+    #[serde(default)]
+    pub properties_only: bool,
+    /// Description, transition, animation and axes.
+    #[serde(flatten)]
+    pub properties: SceneProperties,
 }
 
 /// The `scene-update` command: re-captures the current view into a scene.
@@ -159,7 +253,8 @@ impl Command for SceneUpdate {
     }
 
     fn validate(&self, doc: &Document, p: &SceneUpdateParams) -> Result<(), CommandError> {
-        scene_named(doc, &p.scene).map(|_| ())
+        scene_named(doc, &p.scene)?;
+        check_properties(&p.properties)
     }
 
     fn apply(
@@ -174,7 +269,10 @@ impl Command for SceneUpdate {
             .get(id)
             .cloned()
             .ok_or_else(|| CommandError::Internal("scene vanished".into()))?;
-        capture(tx.document(), tx.camera(), p.capture, &mut scene);
+        if !p.properties_only {
+            capture(tx.document(), tx.camera(), p.capture, &mut scene);
+        }
+        set_properties(&p.properties, &mut scene);
         tx.replace_scene(id, scene)?;
         Ok(SceneOutput { name: p.scene })
     }
@@ -389,6 +487,41 @@ impl Command for SceneActivate {
             && tx.document().styles.active() != style
         {
             tx.set_active_style(style)?;
+        }
+        if let Some(hidden) = &scene.hidden_entities {
+            for (c, id, pid) in all_pids(tx.document()) {
+                // Hidden applies to entities that can be hidden; unknown
+                // pids (deleted since) are ignored.
+                let want = hidden.contains(&pid);
+                let is = tx.document().container(c).is_some_and(|e| e.is_hidden(id));
+                if want != is {
+                    tx.set_hidden(c, id, want)?;
+                }
+            }
+        }
+        if let Some(states) = &scene.section_planes {
+            for (c, id, pid) in all_pids(tx.document()) {
+                let Some(&active) = states.get(&pid) else {
+                    continue;
+                };
+                let Some(EntityView::SectionPlane(plane)) =
+                    tx.document().container(c).and_then(|e| e.view(id))
+                else {
+                    continue;
+                };
+                if plane.active != active {
+                    let mut plane = plane.clone();
+                    plane.active = active;
+                    tx.replace_entity(c, id, EntityRecord::SectionPlane(plane))?;
+                }
+            }
+        }
+        if let Some(shadows) = &scene.shadows
+            && tx.document().rendering.shadows != *shadows
+        {
+            let mut rendering = tx.document().rendering.clone();
+            rendering.shadows = *shadows;
+            tx.set_rendering(rendering)?;
         }
         Ok(SceneOutput { name: p.scene })
     }

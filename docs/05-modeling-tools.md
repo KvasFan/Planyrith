@@ -556,3 +556,11 @@ UI hints are generated from one source.
   file nests are matched by UUID, so nested components already in the model are not updated.
   `component-replace { instances, with }` takes a model component (name or UUID) or a component
   file. Moving glued instances with their face and cutting openings come later in 0.4.
+- 2026-10-26 — **Scenes (0.4).** `SceneCaptureFlags` is `{ camera, tags, style, hidden,
+  sections, shadows }`, all on by default: scenes also capture the hidden entities (by pid, every
+  container), the active state of section planes and the shadow settings, and `scene-activate`
+  restores them (still a view command: not an undo step, though hidden and section states are
+  document state and mark it changed). `scene-add` and `scene-update` take `description`,
+  `transition_s` (0–600), `include_in_animation` and `axes_visible` (the frontend's axes
+  setting, which it applies itself on activation); `scene-update` with `properties_only` changes
+  those without re-capturing the view.
