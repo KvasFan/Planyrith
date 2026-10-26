@@ -713,7 +713,11 @@ fn export(global: &Global, output: &Path, args: Vec<String>) -> Result<(), CliEr
 
 /// `--units` of `import`/`export` is the file's unit (docs/08 §2), the
 /// `file_units` parameter; the global `--units` stays the input default.
+/// `--2d` is `two_d`.
 fn file_units(arg: String) -> String {
+    if arg == "--2d" {
+        return "--two-d".into();
+    }
     match arg.strip_prefix("--units") {
         Some("") => "--file-units".into(),
         Some(rest) if rest.starts_with('=') => format!("--file-units{rest}"),

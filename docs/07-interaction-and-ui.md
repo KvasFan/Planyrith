@@ -329,3 +329,5 @@ collected by clicks: e.g. segments for Circle, array count, copy toggle).
   with the format from the chosen extension (GLB when none), and Export ► Component Report…
   writes the CSV report (not in the §7 list, which predates the report: it belongs with the other
   exports). Further Export entries arrive with their exporters.
+- 2026-10-26 — File › Export ► 2D Graphic… writes the current view as PDF, SVG or DXF (`export`
+  with `two_d`), hidden lines removed (docs/09 Decisions).

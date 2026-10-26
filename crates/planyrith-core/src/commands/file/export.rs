@@ -16,7 +16,12 @@ use crate::document::{Document, Query};
 use crate::io::export::{ExportFormat, ExportOptions, ExportReport, ExportScope, exporter};
 use crate::io::import::sibling;
 use crate::io::{IoError, NoProgress, StorageKey};
-use crate::units::LengthUnit;
+use std::sync::Arc;
+
+use serde_json::json;
+
+use crate::commands::{CommandRegistry, Engine};
+use crate::units::{Length, LengthUnit};
 
 /// `export` parameters.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -44,6 +49,21 @@ pub struct ExportParams {
     /// Keep Z up in formats that are Y-up by default (OBJ, STL).
     #[serde(default)]
     pub z_up: bool,
+    /// A 2D drawing of the view, hidden lines removed (DXF; SVG and PDF
+    /// always are).
+    #[serde(default)]
+    pub two_d: bool,
+    /// Draw this scene's view (its camera, tags, hidden entities…) instead
+    /// of the current one.
+    #[serde(default)]
+    pub scene: Option<String>,
+    /// Paper scale of a parallel view, `1:50` (else the view fits the
+    /// paper width).
+    #[serde(default)]
+    pub scale: Option<String>,
+    /// Paper width of a fitted view (297 mm).
+    #[serde(default)]
+    pub paper_width: Option<Length>,
 }
 
 /// `export` output.
@@ -68,6 +88,29 @@ fn units(p: &ExportParams) -> Result<LengthUnit, CommandError> {
                 CommandError::invalid_param("file_units", format!("unknown unit `{u}`"))
             })
         })
+}
+
+/// `1:50`, `1/50` or a plain factor → paper per model length.
+fn paper_scale(p: &ExportParams) -> Result<Option<f64>, CommandError> {
+    let Some(text) = p.scale.as_deref().map(str::trim) else {
+        return Ok(None);
+    };
+    let bad = || CommandError::invalid_param("scale", format!("`{text}`: expected 1:50"));
+    let value = match text.split_once([':', '/']) {
+        Some((a, b)) => {
+            let (a, b): (f64, f64) = (
+                a.trim().parse().map_err(|_| bad())?,
+                b.trim().parse().map_err(|_| bad())?,
+            );
+            a / b
+        }
+        None => text.parse::<f64>().map_err(|_| bad())?,
+    };
+    if value.is_finite() && value > 0.0 {
+        Ok(Some(value))
+    } else {
+        Err(bad())
+    }
 }
 
 fn format(p: &ExportParams) -> Result<ExportFormat, CommandError> {
@@ -101,6 +144,15 @@ impl Command for Export {
         }
         units(p)?;
         format(p)?;
+        paper_scale(p)?;
+        if let Some(w) = p.paper_width
+            && !(w.as_mm() > 0.0 && w.as_mm().is_finite())
+        {
+            return Err(CommandError::OutOfRange {
+                name: "paper_width".into(),
+                reason: "must be a positive length".into(),
+            });
+        }
         Ok(())
     }
 
@@ -121,7 +173,7 @@ impl Command for Export {
         };
         let scope = ExportScope {
             selection,
-            scene: None,
+            scene: p.scene.clone(),
             include_hidden: p.include_hidden,
         };
         let opts = ExportOptions {
@@ -129,10 +181,33 @@ impl Command for Export {
             ascii: p.ascii,
             z_up: p.z_up,
             destination: p.path.clone(),
+            two_d: p.two_d,
+            scale: paper_scale(&p)?,
+            paper_width_mm: p.paper_width.map(Length::as_mm),
             ..ExportOptions::default()
         };
+        // A scene applies to a copy, as `scene-activate` would.
+        let scened;
+        let doc = match &p.scene {
+            Some(name) => {
+                let mut copy = Engine::new(
+                    tx.document().clone(),
+                    Arc::new(CommandRegistry::with_builtins()),
+                );
+                copy.execute_erased("scene-activate", json!({ "scene": name }))
+                    .map_err(|e| match e {
+                        CommandError::InvalidParam { reason, .. } => {
+                            CommandError::invalid_param("scene", reason)
+                        }
+                        other => other,
+                    })?;
+                scened = copy.document().clone();
+                &scened
+            }
+            None => tx.document(),
+        };
         let mut bytes = Vec::new();
-        let report = exporter.export(tx.document(), &scope, &opts, &mut bytes, &NoProgress)?;
+        let report = exporter.export(doc, &scope, &opts, &mut bytes, &NoProgress)?;
         let storage = storage(tx, &p.path)?;
         storage.write(&StorageKey::new(&p.path), &bytes)?;
         for (name, contents) in &report.side_files {

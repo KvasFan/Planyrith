@@ -97,7 +97,9 @@ Exports 3D formats (`obj`, `stl`, `gltf`, `glb`, `dxf`, `step`, `plyr`, `json`),
 (`svg`, `pdf`, `dxf` with `--2d --scene <name> --scale 1:50`) and data (`csv` component counts,
 `json` document dump). `--format json --pretty` is the debugging dump. Formats other than `json` run
 the `export` command (`planyrith tool export --help`): `--ascii` (STL), `--z-up`, `--units` (the
-file's unit), `--targets <query>`, `--include-hidden`; the document is not saved.
+file's unit), `--targets <query>`, `--include-hidden`, and for drawings `--2d` (DXF; SVG and PDF
+always are), `--scene <name>`, `--scale 1:50`, `--paper-width <length>`; the document is not
+saved.
 
 ### `planyrith render -f model.plyr <out.png> [--width 1920 --height 1080] [--scene <name> | --camera 'eye=…;target=…;fov=35'] [--style <name>] [--shadows] [--transparent] [--msaa 4] [--show-hidden] [--deterministic]`
 Headless rendering (`docs/06 §11`). `--format png|jpg|webp` from extension. `--all-scenes

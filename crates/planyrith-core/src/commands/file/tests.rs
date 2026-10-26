@@ -1279,3 +1279,141 @@ fn random_dxf_files_never_panic_the_importer() {
         }
     }
 }
+
+/// A 1 m cube in front of a taller box half hidden behind it, seen from
+/// the front with a parallel camera 3 m high centered on x 750, z 1000.
+fn boxes_front_view() -> (Engine, Arc<MemoryStorage>) {
+    let (mut e, storage) = engine();
+    for (a, b, h) in [
+        ([0, 0, 0], [1000, 1000, 0], 1000.0),
+        ([500, 2000, 0], [1500, 3000, 0], 2000.0),
+    ] {
+        run(&mut e, "rectangle", json!({ "corner_a": a, "corner_b": b }));
+        run(
+            &mut e,
+            "push-pull",
+            json!({ "face": { "Query": "face & last" }, "distance": h }),
+        );
+        run(&mut e, "make-group", json!({ "targets": "face | edge" }));
+    }
+    e.set_camera(crate::document::Camera {
+        eye: DVec3::new(750.0, -5000.0, 1000.0),
+        target: DVec3::new(750.0, 0.0, 1000.0),
+        up: DVec3::Z,
+        projection: crate::document::Projection::Parallel { height_mm: 3000.0 },
+        aspect: 1.0,
+    });
+    (e, storage)
+}
+
+#[test]
+fn view_drawings_remove_hidden_lines() {
+    use crate::io::export::view2d::{LineKind, Paper, draw_view};
+    let (e, _) = boxes_front_view();
+    let doc = e.document();
+    let d = draw_view(
+        doc,
+        &crate::io::export::ExportScope::default(),
+        &doc.camera,
+        Paper {
+            scale: Some(0.1),
+            width_mm: 297.0,
+        },
+    );
+    assert!((d.width_mm - 300.0).abs() < 1e-9 && (d.height_mm - 300.0).abs() < 1e-9);
+    // Model length of the visible lines: the cube's square (4 m) and the
+    // box's outline but the part behind the cube (1 + 2 + 1 + 0.5 m).
+    let total: f64 = d
+        .lines
+        .iter()
+        .map(|(a, b, _)| (*b - *a).length() * 10.0)
+        .sum();
+    assert!((total - 8500.0).abs() < 1.0, "{total}: {:?}", d.lines);
+    assert!(d.lines.iter().all(|(_, _, k)| *k == LineKind::Profile));
+    // Nothing of the box shows inside the cube's square (paper x 75–175,
+    // y 50–150 mm).
+    for (a, b, _) in &d.lines {
+        let m = (*a + *b) / 2.0;
+        let inside = m.x > 75.5 && m.x < 174.5 && m.y > 50.5 && m.y < 149.5;
+        assert!(!inside, "{a} {b}");
+    }
+}
+
+#[test]
+fn views_export_as_svg_pdf_and_2d_dxf() {
+    let (mut e, storage) = boxes_front_view();
+    let out = run(
+        &mut e,
+        "export",
+        json!({ "path": "v/front.svg", "scale": "1:10" }),
+    );
+    assert_eq!(out["format"], "svg");
+    let svg = String::from_utf8(storage.read(&StorageKey::new("v/front.svg")).unwrap()).unwrap();
+    assert!(svg.contains("width=\"300mm\" height=\"300mm\""), "{svg}");
+    assert!(svg.contains("stroke-width=\"0.5\""));
+    run(&mut e, "export", json!({ "path": "v/front.pdf" }));
+    let pdf = storage.read(&StorageKey::new("v/front.pdf")).unwrap();
+    assert!(pdf.starts_with(b"%PDF-"));
+    run(&mut e, "export", json!({ "path": "v/again.pdf" }));
+    assert_eq!(
+        storage.read(&StorageKey::new("v/again.pdf")).unwrap(),
+        pdf,
+        "deterministic"
+    );
+    let out = run(
+        &mut e,
+        "export",
+        json!({ "path": "v/front.dxf", "two_d": true, "scale": "1:10" }),
+    );
+    assert_eq!(out["format"], "dxf");
+    let dxf = String::from_utf8(storage.read(&StorageKey::new("v/front.dxf")).unwrap()).unwrap();
+    assert!(dxf.contains("LINE\n8\nProfiles\n"));
+    assert!(!dxf.contains("3DFACE"));
+    // The 2D DXF is in model units of the view plane: re-imported, its
+    // lines span the 3 m frame's drawing (2.25 m wide, 2 m high).
+    let (mut back, back_storage) = engine();
+    back_storage
+        .write(&StorageKey::new("front.dxf"), dxf.as_bytes())
+        .unwrap();
+    run(&mut back, "import", json!({ "path": "front.dxf" }));
+    let (lo, hi) = bounds_of_model(&back);
+    assert!(close(hi - lo, DVec3::new(1500.0, 2000.0, 0.0)), "{lo} {hi}");
+
+    // A scene's camera: from above, the cube and the box do not overlap.
+    e.set_camera(crate::document::Camera {
+        eye: DVec3::new(750.0, 1500.0, 9000.0),
+        target: DVec3::new(750.0, 1500.0, 0.0),
+        up: DVec3::Y,
+        projection: crate::document::Projection::Parallel { height_mm: 4000.0 },
+        aspect: 1.0,
+    });
+    run(&mut e, "scene-add", json!({ "name": "Plan" }));
+    e.set_camera(crate::document::Camera::default());
+    let out = run(
+        &mut e,
+        "export",
+        json!({ "path": "v/plan.svg", "scene": "Plan", "scale": "1:20" }),
+    );
+    assert_eq!(out["entities"], 8, "{out}");
+    assert!(
+        e.execute_erased("export", json!({ "path": "v/x.svg", "scene": "Nope" }))
+            .is_err()
+    );
+    assert!(
+        e.execute_erased("export", json!({ "path": "v/x.svg", "scale": "1:0" }))
+            .is_err()
+    );
+}
+
+#[test]
+fn perspective_views_draw_what_the_eye_sees() {
+    let (mut e, storage) = boxes_front_view();
+    e.set_camera(crate::document::Camera::default());
+    let out = run(&mut e, "export", json!({ "path": "p.svg" }));
+    let svg = String::from_utf8(storage.read(&StorageKey::new("p.svg")).unwrap()).unwrap();
+    assert!(svg.contains("width=\"297mm\""), "{svg}");
+    // Of the 24 edges, the hidden ones (at least the three behind each box)
+    // are gone.
+    let lines = out["entities"].as_u64().unwrap();
+    assert!((9..=24).contains(&lines), "{out}");
+}

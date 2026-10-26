@@ -34,6 +34,7 @@ image = { workspace = true }
 tracing = { workspace = true }
 tobj = { workspace = true }
 gltf = { workspace = true }
+pdf-writer = { workspace = true }
 rayon = { workspace = true, optional = true }
 
 # Random UUIDs in the browser go through the JavaScript crypto API.

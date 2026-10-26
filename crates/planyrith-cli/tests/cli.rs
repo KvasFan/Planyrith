@@ -195,6 +195,39 @@ fn batches_are_deterministic_and_validate_clean() {
 }
 
 #[test]
+fn export_writes_mesh_formats_and_2d_views() {
+    let dir = scratch("export2d");
+    let doc = build_table(&dir, "t.plyr");
+    let d = doc.to_str().unwrap();
+    for (file, extra) in [
+        ("t.glb", vec![]),
+        ("t.obj", vec!["--units", "m"]),
+        ("t.svg", vec![]),
+        ("t-plan.dxf", vec!["--2d"]),
+    ] {
+        let out = dir.join(file);
+        planyrith()
+            .args(["export", "-f", d, out.to_str().unwrap()])
+            .args(extra)
+            .assert()
+            .success();
+        assert!(out.exists(), "{file}");
+    }
+    let dxf = std::fs::read_to_string(dir.join("t-plan.dxf")).unwrap();
+    assert!(dxf.contains("Profiles") && !dxf.contains("3DFACE"));
+    let obj = std::fs::read_to_string(dir.join("t.obj")).unwrap();
+    assert!(obj.contains("mtllib t.mtl"));
+    assert!(dir.join("t.mtl").exists());
+    // Exporting does not save the document.
+    let before = std::fs::read(&doc).unwrap();
+    planyrith()
+        .args(["export", "-f", d, dir.join("again.stl").to_str().unwrap()])
+        .assert()
+        .success();
+    assert_eq!(std::fs::read(&doc).unwrap(), before);
+}
+
+#[test]
 fn table_export_matches_the_golden_file() {
     let dir = scratch("golden");
     let doc = build_table(&dir, "t.plyr");

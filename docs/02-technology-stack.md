@@ -217,3 +217,6 @@ powerful but add ~10 MB and do not run inside the web build; they are a post-1.0
   locale or randomness; it would also differ between runs). ASCII DXF is a simple group-code
   format: the core reads the entities docs/09 §5 lists (R12–2018 ASCII; binary DXF is refused
   with `E1401`) and writes R12 ASCII, the most widely read version.
+- 2026-10-26 — PDF export uses `pdf-writer` 0.15 (MIT/Apache-2.0; `bitflags`, `itoa`, `memchr`,
+  `ryu`), chosen at 0.5 instead of 0.9 because the 2D view export (docs/13 0.5) needs it first.
+  It writes no metadata unless asked, so output depends only on the drawing.

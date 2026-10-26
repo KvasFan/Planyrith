@@ -38,6 +38,8 @@ pub enum FileRequest {
     Export,
     /// A CSV file for the component report.
     Report,
+    /// An SVG, PDF or DXF drawing of the current view.
+    Export2d,
 }
 
 impl FileRequest {
@@ -77,6 +79,12 @@ impl FileRequest {
                 true,
             ),
             FileRequest::Report => ("Export component report", "CSV files", &["csv"], true),
+            FileRequest::Export2d => (
+                "Export 2D graphic",
+                "Drawings",
+                &["pdf", "svg", "dxf"],
+                true,
+            ),
         }
     }
 
@@ -103,6 +111,7 @@ impl FileRequest {
             FileRequest::Image => ("image-insert", json!({ "path": path })),
             FileRequest::Import => ("import", json!({ "path": path })),
             FileRequest::Export | FileRequest::Report => ("export", json!({ "path": path })),
+            FileRequest::Export2d => ("export", json!({ "path": path, "two_d": true })),
         }
     }
 }

@@ -268,3 +268,17 @@ save unless `--no-thumbnail`. `manifest.json` carries `title`, `author`, `descri
   as `3DFACE` triangles and each hard edge as a `LINE` in world coordinates and `file_units`
   (`$INSUNITS`), on the layer named after the occurrence's innermost tag (characters DXF forbids
   become `_`; untagged: `0`). 2D DXF of a view comes with the 2D exports.
+- 2026-10-26 — **2D export of a view (SVG, PDF, DXF `two_d`).** The view is the document's
+  camera, or the camera and visibility of `scene` applied to a copy as `scene-activate` would.
+  Drawn lines are hard edges and profiles (soft edges between a face turned to the eye and one
+  turned away); profiles and boundary edges are drawn 0.5 mm wide, other edges 0.25 mm. Hidden
+  lines are removed in software: each line is split wherever another projected edge crosses it,
+  and a piece is kept when a ray from its middle toward the eye meets no visible face (triangles
+  found through a screen grid). Edges that pierce a face without crossing an edge are not split
+  there, and in perspective, triangles reaching behind the near plane do not hide anything —
+  both rare in modeled geometry. Lines are clipped to the camera's frame (its aspect and height
+  or field of view). Paper: a parallel view at `scale` (`1:50`) is the frame at that scale;
+  other views fit `paper_width` (297 mm). SVG and PDF are paper millimeters (y up in PDF, down
+  in SVG); a 2D DXF has `LINE`s on layers `Edges` and `Profiles`, in model units of the view
+  plane for parallel views (`file_units`) and paper millimeters for perspective views. Output is
+  deterministic (PDF without metadata).

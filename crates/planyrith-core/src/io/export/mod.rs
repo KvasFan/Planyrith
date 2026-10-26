@@ -14,6 +14,7 @@ pub mod obj;
 pub mod plyr;
 pub mod scene;
 pub mod stl;
+pub mod view2d;
 
 use std::io::Write;
 
@@ -131,6 +132,16 @@ pub struct ExportOptions {
     /// and textures).
     #[serde(default)]
     pub destination: String,
+    /// A 2D drawing of the view instead of 3D geometry (DXF; SVG and PDF
+    /// are always 2D).
+    #[serde(default)]
+    pub two_d: bool,
+    /// Paper per model length of a parallel view (`1:50` → 0.02).
+    #[serde(default)]
+    pub scale: Option<f64>,
+    /// Paper width of a fitted view, mm.
+    #[serde(default)]
+    pub paper_width_mm: Option<f64>,
 }
 
 impl Default for ExportOptions {
@@ -145,6 +156,9 @@ impl Default for ExportOptions {
             ascii: false,
             z_up: false,
             destination: String::new(),
+            two_d: false,
+            scale: None,
+            paper_width_mm: None,
         }
     }
 }
@@ -190,6 +204,8 @@ pub fn exporter(format: ExportFormat) -> Option<Box<dyn Exporter>> {
         ExportFormat::Obj => Some(Box::new(obj::ObjExporter)),
         ExportFormat::Plyr => Some(Box::new(plyr::PlyrExporter)),
         ExportFormat::Stl => Some(Box::new(stl::StlExporter)),
+        ExportFormat::Svg => Some(Box::new(view2d::SvgExporter)),
+        ExportFormat::Pdf => Some(Box::new(view2d::PdfExporter)),
         _ => None,
     }
 }

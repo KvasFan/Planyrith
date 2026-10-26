@@ -397,9 +397,12 @@ perpendicular to hovered edge); `Esc` = cancel current step (second `Esc` = canc
   merge_coplanar (true), soften (20°), at? }` reads `path` through the engine's storage into the
   edit context (docs/09 §5–§6, Decisions). Output: `{ format, created, faces, edges, skipped,
   warnings }`. Undo removes everything the import made (definitions, materials, images).
-- `export { path, format?, targets?, include_hidden, file_units?, ascii, z_up }` writes the
-  visible model, or the occurrences `targets` touches, in a mesh format; it changes nothing and
-  is not undoable. Output: `{ format, bytes_written, entities, warnings }`.
+- `export { path, format?, targets?, include_hidden, file_units?, ascii, z_up, two_d, scene?,
+  scale?, paper_width? }` writes the visible model, or the occurrences `targets` touches, in a
+  mesh format, or — SVG, PDF, DXF with `two_d` — a drawing of the view (of `scene` when given)
+  with hidden lines removed, at `scale` (`1:50`, parallel views) or fitted to `paper_width`
+  (297 mm). It changes nothing and is not undoable. Output: `{ format, bytes_written, entities,
+  warnings }` (`entities`: triangles, rows or drawn lines).
 
 ## 11. Tool metadata (for frontends)
 

@@ -16,7 +16,9 @@ All notable changes to Planyrith are recorded here. Versions follow
   `validate` is much faster on large meshes. Images import as image entities or textures, CSV
   points as guide points, `.plyr`/`.plyrc` documents merge as groups or components; `.plyr`
   copies and a CSV component report export. DXF import (layers as tags, blocks as components,
-  arcs, splines, 3D faces) and 3D export. File › Import… and File › Export ► in the GUI.
+  arcs, splines, 3D faces) and 3D export. Drawings of a view (SVG, PDF, 2D DXF) with hidden
+  lines removed, at a scale or fitted to the paper, from the current view or a scene.
+  File › Import… and File › Export ► (3D Model, 2D Graphic, Component Report) in the GUI.
   The server's capabilities list
   the formats this build reads and writes.
 

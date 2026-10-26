@@ -787,6 +787,10 @@ impl App {
                         self.resources.file = Some(FileRequest::Export);
                         ui.close();
                     }
+                    if ui.button("2D Graphic…").clicked() {
+                        self.resources.file = Some(FileRequest::Export2d);
+                        ui.close();
+                    }
                     if ui.button("Component Report…").clicked() {
                         self.resources.file = Some(FileRequest::Report);
                         ui.close();

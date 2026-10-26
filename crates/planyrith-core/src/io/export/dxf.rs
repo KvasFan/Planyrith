@@ -3,7 +3,8 @@
 //! read, with every visible face as `3DFACE` triangles and every hard edge
 //! as a `LINE`, in world coordinates and `--units` (`$INSUNITS`), Z up. Each
 //! occurrence goes on the layer of its innermost tag (`0` when untagged);
-//! the layer table lists them. Output is deterministic.
+//! the layer table lists them. With `two_d`, the lines of the view instead
+//! (`view2d`). Output is deterministic.
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -97,6 +98,23 @@ impl Exporter for DxfExporter {
         dst: &mut dyn Write,
         progress: &dyn Progress,
     ) -> Result<ExportReport, IoError> {
+        if opts.two_d {
+            let d = crate::io::export::view2d::drawing(doc, scope, opts);
+            let (body, layers) =
+                crate::io::export::view2d::to_dxf_entities(&d, opts.units.millimeters());
+            let text = document(opts.units, &layers, &body);
+            dst.write_all(text.as_bytes())
+                .map_err(|e| IoError::Storage {
+                    key: "dxf".into(),
+                    reason: e.to_string(),
+                })?;
+            return Ok(ExportReport {
+                bytes_written: text.len() as u64,
+                entities: d.lines.len(),
+                warnings: Vec::new(),
+                side_files: Vec::new(),
+            });
+        }
         let scene = collect(doc, scope);
         let to_unit = 1.0 / opts.units.millimeters();
         let mut layers: BTreeMap<String, ()> = BTreeMap::new();
