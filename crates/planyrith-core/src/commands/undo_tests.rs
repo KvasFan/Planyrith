@@ -25,7 +25,13 @@ fn bytes(doc: &Document, next_pid: crate::ids::PidAllocator) -> Vec<u8> {
 
 /// Runs `steps` in order; checks undo/redo byte equality around each one.
 fn check(steps: &[(&str, Value)]) {
-    let mut e = Engine::new(Document::new(), Arc::new(CommandRegistry::with_builtins()));
+    check_in(
+        Engine::new(Document::new(), Arc::new(CommandRegistry::with_builtins())),
+        steps,
+    );
+}
+
+fn check_in(mut e: Engine, steps: &[(&str, Value)]) {
     for (name, params) in steps {
         let before_doc = e.document().clone();
         let applied = e.history().applied();
@@ -201,4 +207,101 @@ fn scenes() {
         ("scene-reorder", json!({ "scene": "Detail", "index": 0 })),
         ("scene-delete", json!({ "scene": "Overview" })),
     ]);
+}
+
+/// Storage with a texture, a component file and a material library, made
+/// by another engine (saving is a view command, so it is no step here).
+fn prepared_storage() -> Arc<crate::io::MemoryStorage> {
+    use crate::io::{Storage, StorageKey};
+    let storage = Arc::new(crate::io::MemoryStorage::new());
+    let mut png = Vec::new();
+    image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
+        8,
+        4,
+        image::Rgba([90, 60, 30, 255]),
+    ))
+    .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+    .unwrap();
+    storage.write(&StorageKey::new("wood.png"), &png).unwrap();
+    let mut other = Engine::new(Document::new(), Arc::new(CommandRegistry::with_builtins()));
+    other.set_storage(storage.clone());
+    for (name, params) in [
+        (
+            "material-create",
+            json!({ "name": "Walnut", "color": "#5C4033", "texture": "wood.png" }),
+        ),
+        (
+            "rectangle",
+            json!({ "corner_a": [0,0,0], "corner_b": [900,900,0] }),
+        ),
+        (
+            "push-pull",
+            json!({ "face": { "Query": "face & last" }, "distance": 700.0 }),
+        ),
+        (
+            "material-apply",
+            json!({ "targets": "face", "material": "Walnut" }),
+        ),
+        (
+            "make-component",
+            json!({ "targets": "all", "name": "Table" }),
+        ),
+        (
+            "component-save-as",
+            json!({ "definition": "Table", "path": "table.plyrc" }),
+        ),
+        ("material-library-save", json!({ "path": "woods.plyrm" })),
+    ] {
+        other.execute_erased(name, params).unwrap();
+    }
+    storage
+}
+
+#[test]
+fn textures_libraries_and_components() {
+    let mut e = Engine::new(Document::new(), Arc::new(CommandRegistry::with_builtins()));
+    e.set_storage(prepared_storage());
+    check_in(
+        e,
+        &[
+            (
+                "material-create",
+                json!({ "name": "Oak", "color": "#A0522D", "texture": "wood.png" }),
+            ),
+            (
+                "material-edit",
+                json!({ "material": "Oak", "texture_width": 300.0, "colorize": "shift" }),
+            ),
+            ("material-library-load", json!({ "path": "woods.plyrm" })),
+            (
+                "rectangle",
+                json!({ "corner_a": [0,0,0], "corner_b": [400,400,0] }),
+            ),
+            (
+                "push-pull",
+                json!({ "face": { "Query": "face" }, "distance": 400.0 }),
+            ),
+            (
+                "make-component",
+                json!({ "targets": "all", "name": "Stool" }),
+            ),
+            (
+                "move",
+                json!({ "targets": "instance", "delta": [600,0,0], "copy": true, "copies": 2 }),
+            ),
+            ("make-unique", json!({ "targets": "last" })),
+            (
+                "component-insert",
+                json!({ "path": "table.plyrc", "position": [0, 2000, 0] }),
+            ),
+            (
+                "component-replace",
+                json!({ "instances": "definition:Stool", "with": "Table" }),
+            ),
+            (
+                "component-reload",
+                json!({ "definition": "Table", "path": "table.plyrc" }),
+            ),
+        ],
+    );
 }
