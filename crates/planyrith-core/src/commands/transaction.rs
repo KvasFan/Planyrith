@@ -1954,6 +1954,21 @@ impl<'a> Transaction<'a> {
         Ok(id)
     }
 
+    /// Removes these images from the store when nothing uses them any more
+    /// (a texture or a watermark was replaced or deleted).
+    pub fn release_images(&mut self, images: &[ImageRef]) {
+        for &id in images {
+            if !crate::diagnostics::image_used(self.doc, id)
+                && let Some(data) = self.doc.images.remove(id)
+            {
+                self.deltas.push(Delta::ImageRemoved {
+                    id,
+                    data: Box::new(data),
+                });
+            }
+        }
+    }
+
     /// Adds a material.
     pub fn insert_material(&mut self, material: Material) -> Result<MaterialId, CommandError> {
         let id = self

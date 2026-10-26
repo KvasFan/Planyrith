@@ -305,3 +305,34 @@ fn textures_libraries_and_components() {
         ],
     );
 }
+
+#[test]
+fn styles_and_watermarks() {
+    let mut e = Engine::new(Document::new(), Arc::new(CommandRegistry::with_builtins()));
+    e.set_storage(prepared_storage());
+    check_in(
+        e,
+        &[
+            ("style-create", json!({ "name": "Sketch" })),
+            (
+                "style-edit",
+                json!({ "profiles": 4, "faces": "monochrome", "sky": "none", "ground": "#808060" }),
+            ),
+            (
+                "style-watermark-add",
+                json!({ "image": "wood.png", "placement": "tiled", "behind_model": true }),
+            ),
+            ("style-watermark-remove", json!({ "index": 0 })),
+            (
+                "material-create",
+                json!({ "name": "Oak", "color": "#A0522D", "texture": "wood.png" }),
+            ),
+            ("material-delete", json!({ "material": "Oak" })),
+            (
+                "style-create",
+                json!({ "name": "Other", "activate": false }),
+            ),
+            ("style-delete", json!({ "style": "Other" })),
+        ],
+    );
+}

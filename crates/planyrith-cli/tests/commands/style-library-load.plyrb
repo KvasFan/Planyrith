@@ -1,0 +1,7 @@
+# Save a style, delete it and load it back with its watermark.
+style-create --name Logo
+style-watermark-add --image textures/tile.png
+style-library-save --path libs/styles-load.plyrs --styles Logo
+style-activate --style Default
+style-delete --style Logo
+style-library-load --path libs/styles-load.plyrs

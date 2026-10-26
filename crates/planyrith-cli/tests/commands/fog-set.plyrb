@@ -1,0 +1,2 @@
+# Fog from 5 m to 20 m in a light grey.
+fog-set --enabled --start 5m --end 20m --color '#D8D8D8'

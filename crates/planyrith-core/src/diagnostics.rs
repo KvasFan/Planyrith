@@ -465,7 +465,9 @@ pub fn validate(doc: &Document) -> Report {
 }
 
 /// `true` when a material texture or an image entity's material uses `image`.
-fn image_used(doc: &Document, image: ImageRef) -> bool {
+/// `true` when a material texture, a watermark or a definition thumbnail
+/// uses the image.
+pub(crate) fn image_used(doc: &Document, image: ImageRef) -> bool {
     doc.materials
         .iter()
         .any(|(_, m)| m.texture.as_ref().is_some_and(|t| t.image == image))

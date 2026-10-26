@@ -1,0 +1,4 @@
+# Save a style with a watermark to a library (the document is unchanged).
+style-create --name Logo
+style-watermark-add --image textures/tile.png
+style-library-save --path libs/styles-save.plyrs --styles Logo

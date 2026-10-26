@@ -227,7 +227,15 @@ impl Command for MaterialLibraryLoad {
             match existing {
                 Some(id) if p.replace && !is_default => {
                     out.materials.push(m.name.clone());
+                    let dropped: Vec<_> = tx
+                        .document()
+                        .materials
+                        .get(id)
+                        .and_then(|old| old.texture.as_ref().map(|t| t.image))
+                        .into_iter()
+                        .collect();
                     tx.replace_material(id, m)?;
+                    tx.release_images(&dropped);
                 }
                 Some(_) => out.skipped.push(m.name.clone()),
                 None => {

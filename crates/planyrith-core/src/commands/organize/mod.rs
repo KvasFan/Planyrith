@@ -14,6 +14,7 @@ mod groups;
 mod libraries;
 mod materials;
 mod scenes;
+mod styles;
 mod tags;
 
 pub use components::{
@@ -41,6 +42,14 @@ pub use scenes::{
     SceneDeleteParams, SceneOutput, SceneRename, SceneRenameParams, SceneReorder,
     SceneReorderParams, SceneUpdate, SceneUpdateParams,
 };
+pub use styles::{
+    PlacementChoice, StyleCreate, StyleCreateParams, StyleDelete, StyleDeleteParams, StyleEdit,
+    StyleEditParams, StyleLibraryLoad, StyleLibraryLoadParams, StyleLibraryOutput,
+    StyleLibrarySave, StyleLibrarySaveParams, StyleOutput, StyleWatermarkAdd,
+    StyleWatermarkAddParams, StyleWatermarkOutput, StyleWatermarkRemove,
+    StyleWatermarkRemoveParams,
+};
+pub(crate) use tags::parse_color as parse_color_param;
 pub use tags::{
     TagAssign, TagAssignOutput, TagAssignParams, TagCreate, TagCreateParams, TagDelete,
     TagDeleteOutput, TagDeleteParams, TagFolderCreate, TagFolderCreateParams, TagFolderDelete,
@@ -82,6 +91,13 @@ pub fn register(registry: &mut CommandRegistry) {
     registry.register(SceneRename);
     registry.register(SceneReorder);
     registry.register(SceneActivate);
+    registry.register(StyleCreate);
+    registry.register(StyleDelete);
+    registry.register(StyleEdit);
+    registry.register(StyleWatermarkAdd);
+    registry.register(StyleWatermarkRemove);
+    registry.register(StyleLibrarySave);
+    registry.register(StyleLibraryLoad);
 }
 
 #[cfg(test)]

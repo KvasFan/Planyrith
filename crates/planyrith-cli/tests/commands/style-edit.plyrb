@@ -1,0 +1,4 @@
+# Edit every part of a new style.
+style-create --name Paper
+style-edit --profiles 3 --jitter --faces hidden-line --background '#F0F0E8' --sky none --ground '#A0B090' --ground-opacity 0.3 --inactive-fade 0.2 --edge-color by-axis
+style-edit --style Paper --name 'Paper sketch' --selection-color '#FF8800'

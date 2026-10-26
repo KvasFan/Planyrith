@@ -17,7 +17,10 @@ pub use camera::{
     OrbitParams, Pan, PanParams, PositionCamera, PositionCameraParams, ProjectionKind, Zoom,
     ZoomExtents, ZoomExtentsParams, ZoomParams,
 };
-pub use style::{StyleSet, StyleSetOutput, StyleSetParams};
+pub use style::{
+    FogSet, FogSetOutput, FogSetParams, StyleActivate, StyleActivateParams, StyleSet,
+    StyleSetOutput, StyleSetParams,
+};
 
 use crate::commands::CommandRegistry;
 
@@ -32,4 +35,6 @@ pub fn register(registry: &mut CommandRegistry) {
     registry.register(Zoom);
     registry.register(ZoomExtents);
     registry.register(StyleSet);
+    registry.register(StyleActivate);
+    registry.register(FogSet);
 }

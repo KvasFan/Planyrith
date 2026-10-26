@@ -13,6 +13,8 @@ All notable changes to Planyrith are recorded here. Versions follow
 - **Components**: `make-unique`, `component-insert` (from the model or a `.plyrc` file, glued to
   a face), `component-save-as`, `component-reload`, `component-replace`. Definition UUIDs are
   now content hashes, so components from different documents no longer collide.
+- **Styles**: `style-create`, `style-delete`, `style-edit`, `style-activate`,
+  `style-watermark-add`/`-remove`, `fog-set`, and `.plyrs` style libraries.
 - **Scenes**: capture hidden entities, section states and shadows too; scene descriptions,
   transition times and "include in animation"; the GUI animates transitions and plays the
   scene animation.

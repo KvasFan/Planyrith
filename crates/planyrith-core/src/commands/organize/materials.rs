@@ -342,7 +342,15 @@ impl Command for MaterialEdit {
             };
         }
         let name = m.name.clone();
+        let dropped: Vec<_> = tx
+            .document()
+            .materials
+            .get(id)
+            .and_then(|old| old.texture.as_ref().map(|t| t.image))
+            .into_iter()
+            .collect();
         tx.replace_material(id, m)?;
+        tx.release_images(&dropped);
         Ok(MaterialOutput { material: name })
     }
 
@@ -393,7 +401,9 @@ impl Command for MaterialDelete {
         p: MaterialDeleteParams,
     ) -> Result<MaterialOutput, CommandError> {
         let id = material_named(tx.document(), &p.material)?;
-        tx.remove_material(id)?;
+        let removed = tx.remove_material(id)?;
+        let dropped: Vec<_> = removed.texture.map(|t| t.image).into_iter().collect();
+        tx.release_images(&dropped);
         Ok(MaterialOutput {
             material: p.material,
         })
@@ -696,10 +706,13 @@ impl Command for MaterialPurge {
             .map(|(id, m)| (id, m.name.clone()))
             .collect();
         let mut removed = Vec::new();
+        let mut dropped = Vec::new();
         for (id, name) in unused {
-            tx.remove_material(id)?;
+            let material = tx.remove_material(id)?;
+            dropped.extend(material.texture.map(|t| t.image));
             removed.push(name);
         }
+        tx.release_images(&dropped);
         Ok(MaterialPurgeOutput { removed })
     }
 

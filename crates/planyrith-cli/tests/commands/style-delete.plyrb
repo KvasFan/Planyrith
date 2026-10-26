@@ -1,0 +1,4 @@
+# Create a style, go back to the default and delete it.
+style-create --name Sketch
+style-activate --style Default
+style-delete --style Sketch

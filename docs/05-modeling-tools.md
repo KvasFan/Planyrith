@@ -564,3 +564,16 @@ UI hints are generated from one source.
   `transition_s` (0–600), `include_in_animation` and `axes_visible` (the frontend's axes
   setting, which it applies itself on activation); `scene-update` with `properties_only` changes
   those without re-capturing the view.
+- 2026-10-26 — **Styles (0.4).** The Styles panel's editor is a set of commands: `style-create
+  { name, from?, activate (true) }` copies a style; `style-delete { style }` (not the active one;
+  scenes that activated it stop changing the style); `style-edit { style?, name?, … }` sets any
+  edge, face, background and modeling field (an undo step, unlike `style-set`, which stays the
+  quick view switch of the active style); `style-watermark-add { style?, image, placement:
+  stretched|tiled|centered|anchored, anchor_x, anchor_y, opacity, scale, behind_model }` and
+  `style-watermark-remove { style?, index }`; `style-library-save { path, styles }` /
+  `style-library-load { path, replace }` for `.plyrs` (the native container holding only styles
+  and their watermark images). `style-activate { style }` and `fog-set { enabled?, start?, end?,
+  color?: #RRGGBB|background }` are view commands (docs/05 §9): fog distances and color belong
+  to the active style, fog on/off to the document's rendering options. An image that nothing
+  uses any more after a texture, watermark, material or style is removed or replaced leaves the
+  document in the same undo step.

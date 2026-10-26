@@ -863,3 +863,84 @@ fn scenes_restore_hidden_entities_shadows_and_keep_properties() {
         .is_err()
     );
 }
+
+#[test]
+fn styles_create_edit_watermark_fog_activate_and_libraries() {
+    let (mut e, storage) = engine_with_storage();
+    run(&mut e, "style-create", json!({ "name": "Sketch" }));
+    let doc = e.document();
+    assert_eq!(doc.styles.len(), 2);
+    assert_eq!(doc.styles.active_style().unwrap().name, "Sketch");
+    run(
+        &mut e,
+        "style-edit",
+        json!({ "profiles": 3, "jitter": true, "faces": "hidden-line", "background": "#F0F0E8",
+                "sky": "none", "ground": "#A0B090", "ground_opacity": 0.3, "inactive_fade": 0.2 }),
+    );
+    let s = e.document().styles.active_style().unwrap().clone();
+    assert_eq!(s.edges.profiles, Some(3));
+    assert!(s.edges.jitter);
+    assert_eq!(s.faces.mode, crate::document::FaceMode::HiddenLine);
+    assert_eq!(s.background.sky, None);
+    assert_eq!(s.background.ground.map(|(_, o)| o), Some(0.3));
+    let w = run(
+        &mut e,
+        "style-watermark-add",
+        json!({ "image": "textures/tile.png", "placement": "anchored", "anchor_x": 1.0, "anchor_y": 1.0, "opacity": 0.5 }),
+    );
+    assert_eq!(w["watermarks"], 1);
+    // Fog: a view command on the active style and the rendering options.
+    let undo = e.history().applied();
+    run(
+        &mut e,
+        "fog-set",
+        json!({ "enabled": true, "start": 5000.0, "end": 20000.0 }),
+    );
+    assert_eq!(e.history().applied(), undo, "fog-set is not an undo step");
+    let doc = e.document();
+    assert!(doc.rendering.fog_enabled);
+    assert_eq!(doc.styles.active_style().unwrap().fog.unwrap().end, 20000.0);
+    assert!(
+        e.execute_erased("fog-set", json!({ "start": 30000.0 }))
+            .is_err(),
+        "the fog must end beyond its start"
+    );
+
+    // The library carries the styles and the watermark image.
+    run(
+        &mut e,
+        "style-library-save",
+        json!({ "path": "styles.plyrs", "styles": ["Sketch"] }),
+    );
+    let mut other = engine();
+    other.set_storage(storage.clone());
+    let loaded = run(
+        &mut other,
+        "style-library-load",
+        json!({ "path": "styles.plyrs" }),
+    );
+    assert_eq!(loaded["styles"], json!(["Sketch"]));
+    let b = other.document();
+    let sketch = b.styles.get(b.styles.by_name("Sketch").unwrap()).unwrap();
+    assert_eq!(sketch.edges.profiles, Some(3));
+    assert!(b.images.contains(sketch.watermarks[0].image));
+
+    // Activation is a view command; the active style cannot be deleted.
+    run(&mut e, "style-activate", json!({ "style": "Default" }));
+    assert_eq!(e.document().styles.active_style().unwrap().name, "Default");
+    run(&mut e, "scene-add", json!({ "name": "Default view" }));
+    run(&mut e, "style-activate", json!({ "style": "Sketch" }));
+    assert!(
+        e.execute_erased("style-delete", json!({ "style": "Sketch" }))
+            .is_err()
+    );
+    run(&mut e, "style-activate", json!({ "style": "Default" }));
+    run(
+        &mut e,
+        "style-watermark-remove",
+        json!({ "style": "Sketch", "index": 0 }),
+    );
+    run(&mut e, "style-delete", json!({ "style": "Sketch" }));
+    assert_eq!(e.document().styles.len(), 1);
+    assert_valid(&e);
+}

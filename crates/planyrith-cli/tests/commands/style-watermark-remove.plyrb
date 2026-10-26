@@ -1,0 +1,4 @@
+# Add two watermarks and remove the first (its image goes with it).
+style-watermark-add --image textures/tile.png --placement tiled --behind-model
+style-watermark-add --image textures/oak.png --placement centered
+style-watermark-remove --index 0

@@ -1,0 +1,2 @@
+# A logo in the bottom right corner, half transparent.
+style-watermark-add --image textures/tile.png --placement anchored --anchor-x 1 --anchor-y 1 --opacity 0.5 --scale 0.1

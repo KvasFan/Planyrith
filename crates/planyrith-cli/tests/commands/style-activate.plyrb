@@ -1,0 +1,3 @@
+# Two styles; the first becomes active again.
+style-create --name Sketch
+style-activate --style Default
