@@ -13,7 +13,7 @@ mod erase;
 mod offset;
 mod push_pull;
 mod select;
-mod transform;
+pub(crate) mod transform;
 
 pub use erase::{
     Delete, DeleteOutput, DeleteParams, Erase, EraseMode, EraseOutput, EraseParams, Hide, Lock,

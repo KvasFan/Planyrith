@@ -1,0 +1,4 @@
+# Flat letters, extruded centered letters, outlines.
+text-3d --text Ob --height 100
+text-3d --text L --height 200 --extrude 20 --align center --placement 't=0,500,0'
+text-3d --text A --height 100 --no-filled --placement 't=0,1000,0'

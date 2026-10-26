@@ -287,3 +287,6 @@ exposes a frame-time overlay (`F11` panel).
 - 2026-10-26 — In textured modes a texture shows its own colors; the material color multiplies
   it only when the material colorizes it (both `shift` and `tint` act as a tint for now). The
   material color stays the face color in untextured modes.
+- 2026-10-26 — The sun uses the NOAA solar position algorithm after Meeus (about 0.01°), not
+  the low-precision fractional-year series: it matches the SPA paper's published example within
+  0.05° (`document::shadows` tests), well inside the 0.5° acceptance of docs/13 0.6.

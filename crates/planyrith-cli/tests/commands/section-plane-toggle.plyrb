@@ -1,0 +1,4 @@
+# Activating the first plane deactivates the second.
+section-plane-add --plane '0,0,400;0,0,1'
+section-plane-add --plane '500,0,0;1,0,0'
+section-plane-toggle --section @1

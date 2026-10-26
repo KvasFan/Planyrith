@@ -12,7 +12,7 @@ use crate::document::attributes::AttributeDictionaries;
 use crate::document::hierarchy::Entities;
 use crate::document::materials::ImageRef;
 use crate::document::selection::EntityPath;
-use crate::ids::{DefinitionId, EdgeId, MaterialId, VertexId};
+use crate::ids::{DefinitionId, MaterialId};
 use crate::math::Plane;
 use crate::units::{Length, LengthUnit};
 
@@ -173,21 +173,29 @@ pub enum Guide {
     },
 }
 
-/// What an anchor points at (docs/04 §3.5 `Anchor::kind`).
+/// What an anchor points at (docs/04 §3.5 `Anchor::kind`, Decisions):
+/// an end or the middle of the edge `Anchor::path` names (by pid, so the
+/// anchor survives saving and follows the edge when it moves), or a fixed
+/// point.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum AnchorKind {
-    /// A vertex of the addressed container's mesh.
-    Vertex(VertexId),
-    /// The midpoint of an edge.
-    EdgeMid(EdgeId),
-    /// A fixed point.
+    /// The edge's first vertex.
+    Start,
+    /// The edge's second vertex.
+    End,
+    /// The edge's midpoint.
+    Mid,
+    /// A fixed point in the coordinates of the container `path.instances`
+    /// reaches (`path.target` is unused).
     Point(DVec3),
 }
 
 /// A re-resolvable reference from a dimension or text (docs/04 §3.5).
+/// `path` is relative to the container holding the dimension or text: its
+/// steps start in that container.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Anchor {
-    /// Occurrence the anchor lives in.
+    /// Occurrence the anchor lives in, and the edge it follows.
     pub path: EntityPath,
     /// Target within that occurrence.
     pub kind: AnchorKind,
@@ -255,9 +263,13 @@ pub enum Dimension {
         end: Anchor,
         /// Leader direction and length.
         offset: DVec3,
+        /// Measured along this unit direction (a linear dimension); `None`
+        /// measures the true distance (aligned).
+        #[serde(default)]
+        direction: Option<DVec3>,
         /// Style.
         style: DimStyle,
-        /// Replaces the measured text.
+        /// Replaces the measured text (`<>` stands for the measurement).
         text_override: Option<String>,
     },
     /// Radius/diameter of a curve.

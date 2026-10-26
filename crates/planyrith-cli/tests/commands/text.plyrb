@@ -1,0 +1,6 @@
+# Texts on a vertex, an edge, a face, and a screen text.
+rectangle --corner-a 0,0,0 --corner-b 2000,1000,0
+text --at 2000,1000,0
+text --at 1000,0,0
+text --at 500,500,0 --screen-offset 60,20
+text --text Kitchen

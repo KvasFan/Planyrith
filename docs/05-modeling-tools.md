@@ -605,3 +605,18 @@ UI hints are generated from one source.
   the context menu of one selected face (a window applying the command) and File › Insert
   Image…. Image entities are drawn two-sided; they are not picked by clicking yet (select them
   with the `image` query).
+- 2026-10-26 — **0.6 command details.** `dimension { kind: aligned|linear|radius|diameter,
+  start?, end?, curve?, offset, direction?, text_override?, text_height? }`: points snap to the
+  vertex or edge midpoint within 0.01 mm (else they stay fixed points); a linear dimension
+  measures along `direction` or the model axis the points spread most along across the offset;
+  `curve` may name a whole circle (its first edge is used). `text { text?, at?, screen_offset? }`
+  defaults to coordinates (vertex), length (edge midpoint) or area (face). `tape-measure` leaves
+  a guide point from a vertex, a guide line parallel to the edge it starts on, nothing from empty
+  space (unless `guide` says). `resize-model` scales the edit context about its origin. Section
+  planes add `section-display-set { planes?, cuts?, fills? }` (view) for docs/05 §9's
+  show-section toggles; `section-plane-align-view` looks at the kept side in a parallel view.
+  `shadows-set` sets docs/04 §7's shadow settings (`date` YYYY-MM-DD, `time` HH:MM, `latitude`,
+  `longitude`, `utc_offset`, `north_angle`, or `azimuth`/`altitude`). `axes-set { origin, x, y }`
+  and `axes-reset` move the drawing axes; inference uses the model's (origin snap, on-axis
+  directions, axis locks). `text-3d` uses the bundled Inter (SIL OFL) or a font file read through
+  the storage; `height` is the capital height; `placement` puts the baseline on local +X.

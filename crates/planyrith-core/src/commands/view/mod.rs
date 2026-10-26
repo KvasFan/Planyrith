@@ -10,6 +10,7 @@
 //! (AGENTS.md §4).
 
 mod camera;
+pub mod shadows;
 mod style;
 
 pub use camera::{
@@ -37,4 +38,5 @@ pub fn register(registry: &mut CommandRegistry) {
     registry.register(StyleSet);
     registry.register(StyleActivate);
     registry.register(FogSet);
+    registry.register(shadows::ShadowsSet);
 }

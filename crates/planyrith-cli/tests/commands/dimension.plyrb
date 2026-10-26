@@ -1,0 +1,10 @@
+# Aligned, linear and radius dimensions; pushing the top further
+# re-measures the height dimension.
+rectangle --corner-a 0,0,0 --corner-b 2000,1000,0
+push-pull --face '{face}' --distance 1000
+dimension --start 0,0,0 --end 0,0,1000 --offset -300,0,0
+dimension --start 0,0,0 --end 2000,0,0 --offset 0,-300,0
+dimension --kind linear --start 0,0,0 --end 2000,1000,0 --offset -300,0,0 --text-override '<> (typ.)'
+circle --center 4000,0,0 --radius 500 --segments 24
+dimension --kind radius --curve '{edge & length<200}' --offset 400,400,0
+push-pull --face '{face & normal:z & area>1000000}' --distance 500

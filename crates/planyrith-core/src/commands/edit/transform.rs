@@ -15,7 +15,7 @@ use crate::commands::params::{PointSchema, Target, VectorSchema, check_point, ta
 use crate::commands::{
     Command, CommandCategory, CommandError, CommandMeta, CommonParams, ToolStep, Transaction,
 };
-use crate::document::{Document, EntityRecord, EntityView, Guide, Query};
+use crate::document::{AnchorKind, Dimension, Document, EntityRecord, EntityView, Guide, Query};
 use crate::geom::TransformOptions;
 use crate::geom::mesh::transform_indexed;
 use crate::ids::{EdgeId, EntityId, FaceId, Pid, VertexId};
@@ -62,7 +62,7 @@ pub struct TransformOutput {
 }
 
 /// Moves or copies `ids` by the world transform `world`.
-fn transform_entities(
+pub(crate) fn transform_entities(
     tx: &mut Transaction<'_>,
     target: &Target,
     ids: &[EntityId],
@@ -180,6 +180,43 @@ fn placed_record(
             let mut s = s.clone();
             s.plane = s.plane.transformed(local);
             Some(Placed::Record(EntityRecord::SectionPlane(s)))
+        }
+        // Edge anchors follow their edges; fixed points and offsets move.
+        EntityView::Dimension(d) => {
+            let point = |a: &mut crate::document::Anchor| {
+                if let AnchorKind::Point(p) = &mut a.kind {
+                    *p = local.transform_point3(*p);
+                }
+            };
+            let mut d = d.clone();
+            match &mut d {
+                Dimension::Linear {
+                    start,
+                    end,
+                    offset,
+                    direction,
+                    ..
+                } => {
+                    point(start);
+                    point(end);
+                    *offset = local.transform_vector3(*offset);
+                    *direction = direction.map(|v| local.transform_vector3(v).normalize_or_zero());
+                }
+                Dimension::Radial { curve, leader, .. } => {
+                    point(curve);
+                    *leader = local.transform_vector3(*leader);
+                }
+            }
+            Some(Placed::Record(EntityRecord::Dimension(d)))
+        }
+        EntityView::Text(t) => {
+            let mut t = t.clone();
+            if let Some(a) = &mut t.anchor
+                && let AnchorKind::Point(p) = &mut a.kind
+            {
+                *p = local.transform_point3(*p);
+            }
+            Some(Placed::Record(EntityRecord::Text(t)))
         }
         _ => None,
     }

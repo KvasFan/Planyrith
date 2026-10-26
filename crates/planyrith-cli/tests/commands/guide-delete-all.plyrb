@@ -1,0 +1,5 @@
+# Guides go, geometry stays.
+rectangle --corner-a 0,0,0 --corner-b 2000,1000,0
+tape-measure --from 500,0,0 --to 500,300,0
+protractor --center 0,0,0 --from-point 1000,0,0 --angle 45
+guide-delete-all

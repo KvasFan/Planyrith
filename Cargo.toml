@@ -68,6 +68,8 @@ tobj = { version = "4.0", default-features = false }
 # Without `import`: buffers and images are resolved through the storage.
 gltf = { version = "1.4", default-features = false, features = ["names", "utils", "KHR_texture_transform"] }
 pdf-writer = "0.15"
+# Glyph outlines for 3D text (docs/05 §3.8).
+ttf-parser = { version = "0.25", default-features = false, features = ["std"] }
 
 # ---- cli -------------------------------------------------------------------
 clap = { version = "4.6", features = ["derive", "env", "string"] }

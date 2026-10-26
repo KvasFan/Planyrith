@@ -352,3 +352,64 @@ fn styles_and_watermarks() {
         ],
     );
 }
+
+#[test]
+fn annotations_sections_and_guides() {
+    check(&[
+        (
+            "rectangle",
+            json!({ "corner_a": [0, 0, 0], "corner_b": [2000, 1000, 0] }),
+        ),
+        (
+            "push-pull",
+            json!({ "face": { "Query": "face" }, "distance": 1000.0 }),
+        ),
+        (
+            "dimension",
+            json!({ "start": [0, 0, 0], "end": [2000, 0, 0], "offset": [0, -300, 0] }),
+        ),
+        ("text", json!({ "at": [2000, 1000, 0] })),
+        (
+            "tape-measure",
+            json!({ "from": [500, 0, 0], "to": [500, -300, 0] }),
+        ),
+        (
+            "protractor",
+            json!({ "center": [0, 0, 0], "from_point": [1000, 0, 0], "angle": 0.5 }),
+        ),
+        ("guide-delete-all", json!({})),
+        (
+            "section-plane-add",
+            json!({ "plane": { "normal": [0, 0, 1], "d": -400.0 } }),
+        ),
+        (
+            "section-plane-reverse",
+            json!({ "section": { "Query": "section & last" } }),
+        ),
+        (
+            "section-plane-add",
+            json!({ "plane": { "normal": [1, 0, 0], "d": -500.0 } }),
+        ),
+        (
+            "section-plane-toggle",
+            json!({ "section": { "Query": "section & last" } }),
+        ),
+        (
+            "section-create-group-from-slice",
+            json!({ "plane": { "normal": [0, 0, 1], "d": -400.0 } }),
+        ),
+        (
+            "axes-set",
+            json!({ "origin": [100, 0, 0], "x": [0, 1, 0], "y": [-1, 0, 0] }),
+        ),
+        ("axes-reset", json!({})),
+        (
+            "text-3d",
+            json!({ "text": "Ab", "height": 100.0, "extrude": 10.0 }),
+        ),
+        (
+            "resize-model",
+            json!({ "measured": 2000.0, "target": 3000.0 }),
+        ),
+    ]);
+}

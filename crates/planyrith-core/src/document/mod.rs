@@ -13,6 +13,7 @@
 //!
 //! Owner key: `document`.
 
+pub mod annotations;
 pub mod attributes;
 pub mod camera;
 pub mod entities;
@@ -164,6 +165,20 @@ pub struct ModelInfo {
     pub next_pid: PidAllocator,
     /// Document-level attributes of the info block.
     pub attrs: AttributeDictionaries,
+    /// The model's drawing axes (docs/05 §5.10): origin and red/green/blue
+    /// directions; identity by default.
+    #[serde(default = "identity_axes", skip_serializing_if = "is_identity_axes")]
+    pub axes: glam::DAffine3,
+}
+
+fn identity_axes() -> glam::DAffine3 {
+    glam::DAffine3::IDENTITY
+}
+
+/// Default axes are not written, so files without moved axes stay as they
+/// were.
+fn is_identity_axes(axes: &glam::DAffine3) -> bool {
+    axes.abs_diff_eq(glam::DAffine3::IDENTITY, 1e-15)
 }
 
 impl Default for ModelInfo {
@@ -182,6 +197,7 @@ impl Default for ModelInfo {
             format_version: FORMAT_VERSION,
             next_pid: PidAllocator::default(),
             attrs: AttributeDictionaries::default(),
+            axes: glam::DAffine3::IDENTITY,
         }
     }
 }

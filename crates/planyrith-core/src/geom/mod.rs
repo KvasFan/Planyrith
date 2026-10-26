@@ -22,6 +22,7 @@ pub mod intersect;
 pub mod mesh;
 pub mod offset;
 pub mod planar;
+pub mod section;
 pub mod sweep;
 pub mod tessellate;
 

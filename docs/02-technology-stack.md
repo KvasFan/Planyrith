@@ -220,3 +220,6 @@ powerful but add ~10 MB and do not run inside the web build; they are a post-1.0
 - 2026-10-26 — PDF export uses `pdf-writer` 0.15 (MIT/Apache-2.0; `bitflags`, `itoa`, `memchr`,
   `ryu`), chosen at 0.5 instead of 0.9 because the 2D view export (docs/13 0.5) needs it first.
   It writes no metadata unless asked, so output depends only on the drawing.
+- 2026-10-26 — `ttf-parser` 0.25 (MIT/Apache-2.0, no default features beyond `std`) reads glyph
+  outlines for `text-3d`; the core bundles Inter Regular (SIL Open Font License 1.1, license in
+  `crates/planyrith-core/assets/fonts/`).

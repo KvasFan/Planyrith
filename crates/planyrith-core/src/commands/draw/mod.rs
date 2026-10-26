@@ -18,6 +18,7 @@ mod arc;
 mod circle;
 mod line;
 mod rectangle;
+pub mod text3d;
 
 pub use arc::{
     Arc2Point, Arc2PointParams, Arc3Point, Arc3PointParams, ArcBulge, ArcBulgeParams, Pie,
@@ -46,6 +47,7 @@ pub fn register(registry: &mut CommandRegistry) {
     registry.register(Arc3Point);
     registry.register(ArcBulge);
     registry.register(Pie);
+    registry.register(text3d::Text3d);
 }
 
 /// What a drawn chain produced, as pids.

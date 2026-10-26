@@ -1,0 +1,3 @@
+# Geographic sun, then a manual one.
+shadows-set --enabled --date 2026-06-21 --time 14:30 --latitude 45.46 --longitude 9.19 --utc-offset 2
+shadows-set --light 70 --dark 30 --no-on-ground

@@ -9,12 +9,14 @@
 
 #![warn(unused_variables, dead_code)]
 
+mod axes;
 pub(crate) mod components;
 mod groups;
 pub(crate) mod images;
 pub(crate) mod libraries;
 mod materials;
 mod scenes;
+pub(crate) mod sections;
 mod styles;
 mod tags;
 
@@ -69,6 +71,15 @@ pub fn register(registry: &mut CommandRegistry) {
     registry.register(Explode);
     registry.register(MakeUnique);
     registry.register(ImageInsert);
+    registry.register(axes::AxesSet);
+    registry.register(axes::AxesReset);
+    registry.register(sections::SectionPlaneAdd);
+    registry.register(sections::SectionPlaneToggle);
+    registry.register(sections::SectionPlaneReverse);
+    registry.register(sections::SectionPlaneDelete);
+    registry.register(sections::SectionPlaneAlignView);
+    registry.register(sections::SectionSlice);
+    registry.register(sections::SectionDisplaySet);
     registry.register(ComponentInsert);
     registry.register(ComponentSaveAs);
     registry.register(ComponentReload);

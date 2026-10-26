@@ -317,3 +317,12 @@ tags, non-invertible transforms, `next_pid` monotonicity. `repair` fixes what it
   cap. Moving the instance alone does not move the face. `cuts_opening` is a display effect: the
   face shows a hole shaped like the component's opening outline (docs/06 Decisions); the face
   geometry is unchanged, so picking and exports still see the whole face.
+- 2026-10-26 — **Persistent anchors.** `Anchor::kind` is `Start | End | Mid | Point(p)`: an end
+  or the middle of the edge `Anchor::path` names by pid (mesh ids do not survive saving), or a
+  fixed point. `path` is relative to the container holding the dimension or text (its steps
+  start there), so annotations inside a component travel with it; copying a definition renames
+  the pids its anchors use. A vertex is anchored as an end of its incident edge with the lowest
+  pid. Linear dimensions gain `direction: Option<Vec3>` (the measuring axis; `None` = aligned).
+  Moving or scaling a dimension or text moves its fixed points and offsets; edge anchors follow
+  their edges. `ModelInfo::axes` holds the model's drawing axes (identity by default, not
+  written then).

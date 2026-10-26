@@ -117,6 +117,23 @@ pub enum Constraint {
     Line(Ray),
 }
 
+impl InferenceRequest {
+    /// The request with an axis lock along the document's drawing axes
+    /// (`axes`) instead of the world's.
+    pub fn in_axes(&self, axes: &glam::DAffine3) -> InferenceRequest {
+        let mut out = *self;
+        if let Constraint::Axis { origin, axis } = self.constraint
+            && !axes.matrix3.abs_diff_eq(glam::DMat3::IDENTITY, 1e-12)
+        {
+            out.constraint = Constraint::Line(Ray::new(
+                origin,
+                (axes.matrix3 * axis.direction()).normalize_or(axis.direction()),
+            ));
+        }
+        out
+    }
+}
+
 impl Constraint {
     /// The line of an `Axis` or `Line` constraint.
     fn line(&self) -> Option<(DVec3, DVec3)> {
@@ -529,6 +546,11 @@ impl InferenceEngine {
         req: &InferenceRequest,
     ) -> Vec<Inference> {
         let tol = doc.tolerances();
+        // The drawing axes of the document (docs/05 §5.10).
+        let axes = doc.info.axes;
+        let axes_origin = axes.translation;
+        let dir_of = |axis: Axis| (axes.matrix3 * axis.direction()).normalize_or(axis.direction());
+        let req = &req.in_axes(&axes);
         let constraint = self.lock_constraint().unwrap_or(req.constraint);
         let locked = self.lock.is_some();
         let ray = &req.ray;
@@ -625,8 +647,8 @@ impl InferenceEngine {
         }
         // The origin of the drawing axes snaps like an endpoint unless a face
         // hides it (docs/03 Decisions).
-        if within(DVec3::ZERO) && visible(ray.closest_param(DVec3::ZERO)) {
-            let mut i = Inference::new(DVec3::ZERO, InferenceKind::Endpoint);
+        if within(axes_origin) && visible(ray.closest_param(axes_origin)) {
+            let mut i = Inference::new(axes_origin, InferenceKind::Endpoint);
             i.label = "Origin".into();
             out.push(i);
         }
@@ -675,7 +697,7 @@ impl InferenceEngine {
                 lines.push((kind, dir, None, Some(path)));
             }
             for axis in Axis::ALL {
-                lines.push((InferenceKind::OnAxis, axis.direction(), Some(axis), None));
+                lines.push((InferenceKind::OnAxis, dir_of(axis), Some(axis), None));
             }
             for (kind, dir, axis, path) in &lines {
                 let (kind, dir, axis) = (*kind, *dir, *axis);
@@ -704,7 +726,7 @@ impl InferenceEngine {
                 // Where the line crosses the drawing axes.
                 for drawing_axis in Axis::ALL {
                     if let Some((p, q)) =
-                        lines_closest(origin, *dir, DVec3::ZERO, drawing_axis.direction())
+                        lines_closest(origin, *dir, axes_origin, dir_of(drawing_axis))
                         && p.distance(q) <= tol.length
                         && p.distance(origin) > tol.length
                         && within(p)
@@ -740,13 +762,13 @@ impl InferenceEngine {
             // Alignment with remembered points along the axes.
             for r in &self.references {
                 for axis in Axis::ALL {
-                    if let Some((p, _)) = line_near_ray(r.point, axis.direction(), ray)
+                    if let Some((p, _)) = line_near_ray(r.point, dir_of(axis), ray)
                         && within(p)
                         && p.distance(r.point) > tol.length
                     {
                         let mut i = Inference::new(p, InferenceKind::FromPoint);
                         i.from = Some(r.point);
-                        i.direction = Some(axis.direction());
+                        i.direction = Some(dir_of(axis));
                         i.axis = Some(axis);
                         i.on = Some(r.path.clone());
                         out.push(i);
@@ -764,23 +786,23 @@ impl InferenceEngine {
             _ => false,
         };
         for axis in Axis::ALL {
-            let d = axis.direction();
-            if let Some((p, _)) = line_near_ray(DVec3::ZERO, d, ray)
+            let d = dir_of(axis);
+            if let Some((p, _)) = line_near_ray(axes_origin, d, ray)
                 && within(p)
                 && visible(ray.closest_param(p))
                 && on_constraint(p)
-                && p.length() > tol.length
+                && p.distance(axes_origin) > tol.length
             {
                 let mut i = Inference::new(p, InferenceKind::OnAxis);
                 i.axis = Some(axis);
-                i.from = Some(DVec3::ZERO);
+                i.from = Some(axes_origin);
                 i.direction = Some(d);
                 i.label = format!("On {}", axis_label(axis));
                 out.push(i);
             }
             for (seg, path) in &edges {
                 let along = seg.b - seg.a;
-                if let Some((p, q)) = lines_closest(seg.a, along, DVec3::ZERO, d)
+                if let Some((p, q)) = lines_closest(seg.a, along, axes_origin, d)
                     && p.distance(q) <= tol.length
                     && (p - seg.a).dot(along) >= -tol.length * along.length()
                     && (p - seg.b).dot(along) <= tol.length * along.length()
@@ -813,7 +835,7 @@ impl InferenceEngine {
                 }
             }
             for axis in Axis::ALL {
-                if let Some((p, q)) = lines_closest(o, d, DVec3::ZERO, axis.direction())
+                if let Some((p, q)) = lines_closest(o, d, axes_origin, dir_of(axis))
                     && p.distance(q) <= tol.length
                     && within(p)
                 {

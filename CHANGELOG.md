@@ -4,6 +4,18 @@ All notable changes to Planyrith are recorded here. Versions follow
 [Semantic Versioning](https://semver.org/); before 1.0, minor versions are milestones of
 [`docs/13-roadmap.md`](docs/13-roadmap.md).
 
+## Unreleased
+
+- **Annotations**: `dimension` (aligned, linear, radius, diameter) re-measures when its
+  geometry moves, also after saving and inside components; `text` with default measurements.
+- **Guides**: `tape-measure`, `protractor`, `guide-delete-all`, `resize-model`.
+- **Sections**: `section-plane-add`/`-toggle`/`-reverse`/`-delete`/`-align-view`,
+  `section-create-group-from-slice` (closed cuts become faces), `section-display-set`.
+- **Shadows**: `shadows-set`; the sun position follows the NOAA algorithm (within 0.05° of the
+  published reference).
+- **Axes**: `axes-set`, `axes-reset`; inference uses the moved axes.
+- **3D text**: `text-3d` with a bundled open font, flat, extruded or as outlines.
+
 ## 0.5.0 — Interchange (2026-10-26)
 
 - **Import and export**: `import` and `export` commands and the `planyrith import` verb;

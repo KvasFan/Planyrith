@@ -1,0 +1,6 @@
+# The cut of a cube at 400 mm becomes a group with one face.
+rectangle --corner-a 0,0,0 --corner-b 1000,1000,0
+push-pull --face '{face}' --distance 1000
+make-group --targets all
+section-plane-add --plane '0,0,400;0,0,1'
+section-create-group-from-slice --section '{section}'

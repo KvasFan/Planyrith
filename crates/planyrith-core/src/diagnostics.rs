@@ -322,7 +322,7 @@ pub fn validate(doc: &Document) -> Report {
         }
         let dangling: Vec<(Option<Pid>, EntityId)> = anchors
             .into_iter()
-            .filter(|(_, a)| doc.resolve(&a.path).is_err())
+            .filter(|(_, a)| crate::document::annotations::anchor_position(doc, c, a).is_none())
             .map(|(id, _)| (entities.pid_of(id), id))
             .collect();
         for (pid, id) in dangling {

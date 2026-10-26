@@ -1,0 +1,3 @@
+# A view command: the camera looks at the kept side of the plane.
+section-plane-add --plane '0,0,400;0,0,1'
+section-plane-align-view --section '{section}'

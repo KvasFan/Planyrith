@@ -640,11 +640,40 @@ impl Entities {
     /// needs its own pids: pids are document-unique, docs/04 §2). Extra pids
     /// are ignored; missing ones leave the remaining entities unchanged.
     pub(crate) fn reassign_pids(&mut self, pids: impl IntoIterator<Item = Pid>) {
+        let mut renamed: BTreeMap<Pid, Pid> = BTreeMap::new();
         for (&id, pid) in self.order.iter().zip(pids) {
             if let Some(old) = self.pids.insert(id, pid) {
                 self.by_pid.remove(&old);
+                renamed.insert(old, pid);
             }
             self.by_pid.insert(pid, id);
+        }
+        // Anchors name entities of this container by pid: their first step,
+        // or the edge itself when they point into this container.
+        let fix = |anchor: &mut crate::document::Anchor| {
+            let key = match anchor.path.instances.steps.first_mut() {
+                Some(step) => step,
+                None => &mut anchor.path.target,
+            };
+            if let crate::document::EntityKey::Pid(p) = key
+                && let Some(new) = renamed.get(p)
+            {
+                *p = *new;
+            }
+        };
+        for (_, dim) in self.dimensions.iter_mut() {
+            match dim {
+                Dimension::Linear { start, end, .. } => {
+                    fix(start);
+                    fix(end);
+                }
+                Dimension::Radial { curve, .. } => fix(curve),
+            }
+        }
+        for (_, text) in self.texts.iter_mut() {
+            if let Some(anchor) = &mut text.anchor {
+                fix(anchor);
+            }
         }
     }
 
