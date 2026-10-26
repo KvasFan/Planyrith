@@ -13,6 +13,7 @@ All notable changes to Planyrith are recorded here. Versions follow
 - **Components**: `make-unique`, `component-insert` (from the model or a `.plyrc` file, glued to
   a face), `component-save-as`, `component-reload`, `component-replace`. Definition UUIDs are
   now content hashes, so components from different documents no longer collide.
+- **Renderer**: distance fog and style watermarks (behind or over the model).
 - **Styles**: `style-create`, `style-delete`, `style-edit`, `style-activate`,
   `style-watermark-add`/`-remove`, `fog-set`, and `.plyrs` style libraries.
 - **Scenes**: capture hidden entities, section states and shadows too; scene descriptions,

@@ -25,7 +25,28 @@ struct Draw {
     // x: item id + 1; y: flags (1 textured, 2 unlit, 4 hide soft edges,
     // 8 dashed, 16 color by axis, 32 color by material); z, w: unused.
     ids: vec4<u32>,
+    // Fog: start, end, near, far (mm along the view).
+    fog: vec4<f32>,
+    // Fog color; a: 0 off, 1 perspective depth (clip w), 2 parallel depth.
+    fog_color: vec4<f32>,
 };
+
+// Distance along the view of a clip position (fog).
+fn view_depth(clip: vec4<f32>) -> f32 {
+    if (draw.fog_color.a > 1.5) {
+        // Parallel views map depth linearly: z = (far - d) / (far - near).
+        return draw.fog.w - clip.z / clip.w * (draw.fog.w - draw.fog.z);
+    }
+    return clip.w;
+}
+
+fn fogged(rgb: vec3<f32>, depth: f32) -> vec3<f32> {
+    if (draw.fog_color.a < 0.5) {
+        return rgb;
+    }
+    let f = clamp((depth - draw.fog.x) / max(draw.fog.y - draw.fog.x, 1e-3), 0.0, 1.0);
+    return mix(rgb, draw.fog_color.rgb, f);
+}
 
 @group(0) @binding(0) var<uniform> draw: Draw;
 @group(1) @binding(0) var tex: texture_2d<f32>;
@@ -58,6 +79,7 @@ struct FaceOut {
     @location(0) normal: vec3<f32>,
     @location(1) uv: vec2<f32>,
     @location(2) @interpolate(flat) face: u32,
+    @location(3) depth: f32,
 };
 
 @vertex
@@ -68,6 +90,7 @@ fn vs_face(input: FaceIn) -> FaceOut {
     out.normal = normal_matrix * input.normal;
     out.uv = input.uv;
     out.face = input.face;
+    out.depth = view_depth(out.clip);
     return out;
 }
 
@@ -91,7 +114,8 @@ fn fs_face(input: FaceOut) -> @location(0) vec4<f32> {
         // Texture rows run top to bottom; face-frame v runs upward.
         base = base * textureSample(tex, tex_sampler, vec2<f32>(input.uv.x, 1.0 - input.uv.y));
     }
-    return shade(base, input.normal);
+    let lit = shade(base, input.normal);
+    return vec4<f32>(fogged(lit.rgb, input.depth), lit.a);
 }
 
 @fragment
@@ -118,6 +142,7 @@ struct EdgeOut {
     // Distance along the edge in pixels (dashes).
     @location(1) along: f32,
     @location(2) @interpolate(flat) index: u32,
+    @location(3) depth: f32,
 };
 
 // Keeps a clip-space point in front of the eye (perspective views).
@@ -210,6 +235,7 @@ fn vs_edge(input: EdgeIn) -> EdgeOut {
     var clip = base + vec4<f32>(offset_ndc * base.w, 0.0, 0.0);
     // Edges sit on their faces (docs/06 §3.1 step 5): a small pull toward
     // the eye in reversed Z.
+    out.depth = view_depth(clip);
     clip.z = clip.z * 1.0004 + 1e-7 * clip.w;
     out.clip = clip;
     out.along = along;
@@ -234,7 +260,7 @@ fn fs_edge(input: EdgeOut) -> @location(0) vec4<f32> {
     if ((draw.ids.y & DASHED) != 0u && fract(input.along / 8.0) > 0.5) {
         discard;
     }
-    return input.color;
+    return vec4<f32>(fogged(input.color.rgb, input.depth), input.color.a);
 }
 
 @fragment
@@ -273,4 +299,37 @@ fn fs_sky(input: SkyOut) -> @location(0) vec4<f32> {
         return vec4<f32>(mix(horizon, draw.color.rgb, 1.0 - h * h), 1.0);
     }
     return vec4<f32>(mix(horizon, draw.tint.rgb, draw.tint.a), 1.0);
+}
+
+// ----- watermarks (docs/06 §3.1, style watermarks) -----------------------------------------
+
+struct MarkOut {
+    @builtin(position) clip: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+};
+
+// A screen rectangle: viewport = NDC (x0, y0, x1, y1), tint = UV (u0, v0,
+// u1, v1) with v0 at the top edge.
+@vertex
+fn vs_mark(@builtin(vertex_index) i: u32) -> MarkOut {
+    // Corners: 0 (0,0) 1 (1,0) 2 (1,1) 3 (0,0) 4 (1,1) 5 (0,1); (0,0) is the
+    // bottom left.
+    var corner = vec2<f32>(0.0, 0.0);
+    if (i == 1u || i == 2u || i == 4u) {
+        corner.x = 1.0;
+    }
+    if (i == 2u || i == 4u || i == 5u) {
+        corner.y = 1.0;
+    }
+    var out: MarkOut;
+    let xy = mix(draw.viewport.xy, draw.viewport.zw, corner);
+    out.clip = vec4<f32>(xy, 0.0, 1.0);
+    out.uv = vec2<f32>(mix(draw.tint.x, draw.tint.z, corner.x), mix(draw.tint.w, draw.tint.y, corner.y));
+    return out;
+}
+
+@fragment
+fn fs_mark(input: MarkOut) -> @location(0) vec4<f32> {
+    let texel = textureSample(tex, tex_sampler, input.uv);
+    return vec4<f32>(texel.rgb, texel.a * draw.color.a);
 }

@@ -355,3 +355,63 @@ fn projections_selection_and_picking() {
     );
     assert!(doc.resolve(&path).is_ok(), "pick at ({x}, {y}) resolves");
 }
+
+#[test]
+fn fog_ground_and_watermarks() {
+    let Some(gpu) = gpu() else { return };
+    let mut e = room();
+    // A watermark image: a 16×8 two-color badge.
+    use planyrith_core::io::{MemoryStorage, Storage, StorageKey};
+    let badge = image::RgbaImage::from_fn(16, 8, |x, _| {
+        if x < 8 {
+            image::Rgba([200, 40, 40, 255])
+        } else {
+            image::Rgba([40, 40, 200, 255])
+        }
+    });
+    let mut png = Vec::new();
+    image::DynamicImage::ImageRgba8(badge)
+        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .unwrap();
+    let storage = Arc::new(MemoryStorage::new());
+    storage.write(&StorageKey::new("badge.png"), &png).unwrap();
+    e.set_storage(storage);
+    run(
+        &mut e,
+        "style-edit",
+        json!({ "ground": "#B8C4A8", "ground_opacity": 1.0 }),
+    );
+    run(
+        &mut e,
+        "style-watermark-add",
+        json!({ "image": "badge.png", "placement": "anchored", "anchor_x": 1.0, "anchor_y": 1.0, "scale": 0.15 }),
+    );
+    run(
+        &mut e,
+        "fog-set",
+        json!({ "enabled": true, "start": 6000.0, "end": 14000.0 }),
+    );
+    let mut renderer = Renderer::new(
+        gpu.device.clone(),
+        gpu.queue.clone(),
+        RendererOptions::default(),
+    );
+    let doc = e.document();
+    let style = doc.styles.active_style().unwrap().clone();
+    let camera = Camera {
+        projection: Projection::Perspective { fov_y_deg: 40.0 },
+        eye: DVec3::new(9000.0, -7000.0, 1700.0),
+        target: DVec3::new(2000.0, 1500.0, 1000.0),
+        ..doc.camera
+    };
+    let image = frame(
+        &mut renderer,
+        doc,
+        &Selection::new(),
+        &EditContext::model(),
+        &camera,
+        &style,
+        false,
+    );
+    check("room-fog-ground-watermark", &image);
+}

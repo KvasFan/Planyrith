@@ -18,7 +18,7 @@ use glam::{DAffine3, DMat3, DVec3};
 use planyrith_core::commands::Delta;
 use planyrith_core::document::{
     Camera, ContainerRef, Document, EdgeColorMode, FaceMode, FrontOrBack, ImageRef, Projection,
-    Rgba8, Style,
+    Rgba8, Style, Watermark, WatermarkPlacement,
 };
 use planyrith_core::geom::HalfEdgeMesh;
 use planyrith_core::ids::{EdgeId, FaceId, MaterialId};
@@ -135,6 +135,10 @@ struct DrawUniform {
     viewport: [f32; 4],
     local_eye: [f32; 4],
     ids: [u32; 4],
+    /// Fog start, end, depth near, depth far (mm).
+    fog: [f32; 4],
+    /// Fog color; alpha 0 off, 1 perspective, 2 parallel.
+    fog_color: [f32; 4],
 }
 
 const TEXTURED: u32 = 1;
@@ -197,6 +201,7 @@ struct Pipelines {
     face_id: wgpu::RenderPipeline,
     edge_id: wgpu::RenderPipeline,
     sky: wgpu::RenderPipeline,
+    mark: wgpu::RenderPipeline,
 }
 
 /// One recorded draw.
@@ -228,6 +233,8 @@ enum Draw {
     },
     /// The sky gradient behind everything.
     Sky { uniform: u32 },
+    /// A watermark image on the screen.
+    Mark { uniform: u32, image: ImageRef },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -979,8 +986,65 @@ impl Renderer {
                 uniform: push(&mut uniforms, u),
             });
         }
+        // Watermarks, behind the model or over it (style).
+        let mut behind = Vec::new();
+        let mut over = Vec::new();
+        if !req.transparent_background {
+            for w in &style.watermarks {
+                if !self.ensure_texture(doc, w.image) {
+                    continue;
+                }
+                let Some(data) = doc.images.get(w.image) else {
+                    continue;
+                };
+                let (ndc, uv) = watermark_rect(
+                    w,
+                    f64::from(data.width) / f64::from(data.height.max(1)),
+                    f64::from(req.width),
+                    f64::from(req.height),
+                );
+                let u = DrawUniform {
+                    viewport: ndc,
+                    tint: uv,
+                    color: [1.0, 1.0, 1.0, w.opacity.clamp(0.0, 1.0)],
+                    ..DrawUniform::zeroed()
+                };
+                let draw = Draw::Mark {
+                    uniform: push(&mut uniforms, u),
+                    image: w.image,
+                };
+                if w.behind_model {
+                    behind.push(draw);
+                } else {
+                    over.push(draw);
+                }
+            }
+        }
         // Back to front (docs/06 §3.1 step 6: per draw item).
         transparent.sort_by(|a, b| b.0.total_cmp(&a.0));
+
+        // Fog (style distances, document switch) on every face and edge.
+        if let (true, Some(fog)) = (doc.rendering.fog_enabled, style.fog) {
+            let color = if fog.use_background_color {
+                background
+            } else {
+                linear(fog.color)
+            };
+            let mode = if matches!(camera.projection, Projection::Parallel { .. }) {
+                2.0
+            } else {
+                1.0
+            };
+            for u in &mut uniforms {
+                u.fog = [
+                    fog.start as f32,
+                    fog.end as f32,
+                    depth.near as f32,
+                    depth.far as f32,
+                ];
+                u.fog_color = [color[0], color[1], color[2], mode];
+            }
+        }
 
         self.upload_uniforms(&uniforms);
         let Some(targets) = self.targets.as_ref() else {
@@ -1026,10 +1090,12 @@ impl Renderer {
             });
             for draw in sky
                 .iter()
+                .chain(behind.iter())
                 .chain(opaque.iter())
                 .chain(edges.iter())
                 .chain(transparent.iter().map(|(_, d)| d))
                 .chain(overlay.iter())
+                .chain(over.iter())
             {
                 self.encode(&mut pass, draw);
             }
@@ -1165,6 +1231,15 @@ impl Renderer {
                 pass.set_pipeline(&self.pipelines.sky);
                 pass.set_bind_group(0, &self.uniform_group, &[uniform * UNIFORM_STRIDE as u32]);
                 pass.draw(0..3, 0..1);
+            }
+            Draw::Mark { uniform, image } => {
+                let Some(group) = self.textures.get(image) else {
+                    return;
+                };
+                pass.set_pipeline(&self.pipelines.mark);
+                pass.set_bind_group(0, &self.uniform_group, &[uniform * UNIFORM_STRIDE as u32]);
+                pass.set_bind_group(1, group, &[]);
+                pass.draw(0..6, 0..1);
             }
         }
     }
@@ -1371,6 +1446,47 @@ fn make_uniform(clip: &[[f32; 4]; 4], world: &DAffine3, camera: &Camera) -> Draw
         viewport: [0.0; 4],
         local_eye,
         ids: [0; 4],
+        fog: [0.0; 4],
+        fog_color: [0.0; 4],
+    }
+}
+
+/// A watermark's screen rectangle (NDC x0, y0, x1, y1) and texture
+/// coordinates (u0, v0, u1, v1, v0 at the top) for an image of `aspect`
+/// (width / height) in a `width` × `height` pixel target. Sizes are the
+/// style's `scale` times the target height.
+fn watermark_rect(w: &Watermark, aspect: f64, width: f64, height: f64) -> ([f32; 4], [f32; 4]) {
+    let h = f64::from(w.scale) * height;
+    let wd = h * aspect;
+    let to_ndc = |x0: f64, y0: f64, x1: f64, y1: f64| {
+        [
+            (2.0 * x0 / width - 1.0) as f32,
+            (1.0 - 2.0 * y1 / height) as f32,
+            (2.0 * x1 / width - 1.0) as f32,
+            (1.0 - 2.0 * y0 / height) as f32,
+        ]
+    };
+    match w.placement {
+        WatermarkPlacement::Stretched => ([-1.0, -1.0, 1.0, 1.0], [0.0, 0.0, 1.0, 1.0]),
+        WatermarkPlacement::Tiled => (
+            [-1.0, -1.0, 1.0, 1.0],
+            [
+                0.0,
+                0.0,
+                (width / wd.max(1.0)) as f32,
+                (height / h.max(1.0)) as f32,
+            ],
+        ),
+        WatermarkPlacement::Centered => {
+            let (x0, y0) = ((width - wd) * 0.5, (height - h) * 0.5);
+            (to_ndc(x0, y0, x0 + wd, y0 + h), [0.0, 0.0, 1.0, 1.0])
+        }
+        WatermarkPlacement::Anchored(ax, ay) => {
+            let margin = 0.02 * height;
+            let x0 = margin + f64::from(ax.clamp(0.0, 1.0)) * (width - wd - 2.0 * margin);
+            let y0 = margin + f64::from(ay.clamp(0.0, 1.0)) * (height - h - 2.0 * margin);
+            (to_ndc(x0, y0, x0 + wd, y0 + h), [0.0, 0.0, 1.0, 1.0])
+        }
     }
 }
 
@@ -1763,6 +1879,17 @@ fn build_pipelines(
             &[],
             None,
             color(None, all),
+            depth(false, wgpu::CompareFunction::Always),
+            msaa,
+        ),
+        mark: pipeline(
+            "watermarks",
+            face_layout,
+            "vs_mark",
+            "fs_mark",
+            &[],
+            None,
+            color(alpha, all),
             depth(false, wgpu::CompareFunction::Always),
             msaa,
         ),

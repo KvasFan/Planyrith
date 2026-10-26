@@ -268,3 +268,12 @@ exposes a frame-time overlay (`F11` panel).
   origin colored by axis, solid on the positive side and dashed on the negative side, depth
   tested against faces like model edges; they reach four times past the eye and the model, and
   that extent is included when fitting the depth range.
+- 2026-10-26 — **Fog and watermarks.** With the document's fog switch on and a fog in the active
+  style, faces and edges blend linearly toward the fog color (the background's, or its own)
+  between `start` and `end`, measured along the view (clip `w` in perspective views, the linear
+  depth in parallel ones); the sky is not fogged. Watermarks are screen quads drawn after the sky
+  (`behind_model`) or after everything, with the image's alpha times the watermark's opacity;
+  sizes are `scale` × the target height (the width follows the image): stretched fills the
+  target, tiled repeats tiles of that size from the top left, centered sits in the middle,
+  anchored places it at `(anchor_x, anchor_y)` of the free space with a margin of 2 % of the
+  height. Transparent-background renders draw neither.
