@@ -271,6 +271,7 @@ impl Importer for ObjImporter {
                 meshes,
                 nodes: Vec::new(),
                 y_up: true,
+                units: None,
             },
             opts,
         )?;

@@ -40,6 +40,15 @@ impl HalfEdgeMesh {
         out
     }
 
+    /// Invariant 4 alone (edges crossing away from a shared vertex): the one
+    /// a mesh welded from triangles can break (`from_triangles_merged`
+    /// guarantees the others).
+    pub(crate) fn edge_crossings(&self, tol: &Tolerances) -> Vec<MeshViolation> {
+        let mut out = Vec::new();
+        self.check_edge_crossings(tol, &mut out);
+        out
+    }
+
     fn check_structure(&self, out: &mut Vec<MeshViolation>) {
         let mut push =
             |invariant: u8, detail: String| out.push(MeshViolation { invariant, detail });
@@ -255,49 +264,118 @@ impl HalfEdgeMesh {
         }
     }
 
+    /// Invariant 4 by a uniform grid broad phase (cells about twice the
+    /// mean edge size): only edges sharing a cell are compared, each pair
+    /// once, in the first cell both cover, so meshes whose edges overlap a
+    /// lot along one axis (terrains, grids) stay near linear. Violations
+    /// come in the order of edges sorted by their lowest x.
     fn check_edge_crossings(&self, tol: &Tolerances, out: &mut Vec<MeshViolation>) {
-        let mut items: Vec<(f64, f64, EdgeId)> = Vec::with_capacity(self.edges.len());
+        type Cells = ([i64; 3], [i64; 3]);
+        // Lowest x, edge, box, segment and end vertices.
+        let mut items: Vec<(f64, EdgeId, crate::math::Aabb, _, _)> =
+            Vec::with_capacity(self.edges.len());
         for (e, _) in &self.edges {
-            if let Ok(seg) = self.edge_segment(e) {
-                let bb = seg.aabb();
-                items.push((bb.min.x, bb.max.x, e));
+            if let (Ok(seg), Ok(ends)) = (self.edge_segment(e), self.edge_endpoints(e)) {
+                let bb = seg.aabb().expanded(tol.length);
+                items.push((bb.min.x, e, bb, seg, ends));
             }
         }
-        items.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.2.cmp(&b.2)));
-        for i in 0..items.len() {
-            let (_, max_x, e) = items[i];
-            let (Ok(sa), Ok((a0, a1))) = (self.edge_segment(e), self.edge_endpoints(e)) else {
+        items.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+        if items.len() < 2 {
+            return;
+        }
+        let mean = items
+            .iter()
+            .map(|(_, _, bb, _, _)| (bb.max - bb.min).max_element())
+            .sum::<f64>()
+            / items.len() as f64;
+        let cell = (2.0 * mean).max(tol.length * 4.0).max(f64::MIN_POSITIVE);
+        let index = |x: f64| (x / cell).floor().clamp(-1e15, 1e15) as i64;
+        // Edges spanning more than this many cells are compared with all.
+        const MAX_CELLS: i64 = 64;
+        let ranges: Vec<Cells> = items
+            .iter()
+            .map(|(_, _, bb, _, _)| {
+                (
+                    [index(bb.min.x), index(bb.min.y), index(bb.min.z)],
+                    [index(bb.max.x), index(bb.max.y), index(bb.max.z)],
+                )
+            })
+            .collect();
+        let mut entries: Vec<([i64; 3], u32)> = Vec::with_capacity(items.len() * 2);
+        let mut large: Vec<u32> = Vec::new();
+        for (i, (lo, hi)) in ranges.iter().enumerate() {
+            let cells = (0..3).fold(1i64, |n, k| n.saturating_mul(hi[k] - lo[k] + 1));
+            if cells > MAX_CELLS {
+                large.push(i as u32);
                 continue;
-            };
-            for item in &items[i + 1..] {
-                if item.0 > max_x + tol.length {
-                    break;
-                }
-                let g = item.2;
-                let (Ok(sb), Ok((b0, b1))) = (self.edge_segment(g), self.edge_endpoints(g)) else {
-                    continue;
-                };
-                if !sa.aabb().expanded(tol.length).intersects(&sb.aabb()) {
-                    continue;
-                }
-                let shared: Vec<_> = [a0, a1]
-                    .into_iter()
-                    .filter(|v| *v == b0 || *v == b1)
-                    .collect();
-                let bad = match segment_segment(&sa, &sb, tol) {
-                    SegmentContact::None => false,
-                    SegmentContact::Overlap { .. } => true,
-                    SegmentContact::Point { point, .. } => !shared
-                        .iter()
-                        .any(|&v| self.position(v).is_ok_and(|p| tol.same_point(p, point))),
-                };
-                if bad {
-                    out.push(MeshViolation {
-                        invariant: 4,
-                        detail: format!("{e} and {g} intersect away from a shared vertex"),
-                    });
+            }
+            for x in lo[0]..=hi[0] {
+                for y in lo[1]..=hi[1] {
+                    for z in lo[2]..=hi[2] {
+                        entries.push(([x, y, z], i as u32));
+                    }
                 }
             }
+        }
+        entries.sort_unstable();
+        let mut bad: Vec<(u32, u32)> = Vec::new();
+        let test = |i: u32, j: u32, bad: &mut Vec<(u32, u32)>| {
+            let (i, j) = (i.min(j), i.max(j));
+            let (_, _, ba, sa, (a0, a1)) = &items[i as usize];
+            let (_, _, bb, sb, (b0, b1)) = &items[j as usize];
+            if !ba.intersects(bb) {
+                return;
+            }
+            let (a0, a1, b0, b1) = (*a0, *a1, *b0, *b1);
+            let crossing = match segment_segment(sa, sb, tol) {
+                SegmentContact::None => false,
+                SegmentContact::Overlap { .. } => true,
+                SegmentContact::Point { point, .. } => ![a0, a1]
+                    .into_iter()
+                    .filter(|v| *v == b0 || *v == b1)
+                    .any(|v| self.position(v).is_ok_and(|p| tol.same_point(p, point))),
+            };
+            if crossing {
+                bad.push((i, j));
+            }
+        };
+        let mut start = 0;
+        while start < entries.len() {
+            let key = entries[start].0;
+            let mut end = start + 1;
+            while end < entries.len() && entries[end].0 == key {
+                end += 1;
+            }
+            for a in start..end {
+                let i = entries[a].1;
+                for &(_, j) in &entries[a + 1..end] {
+                    // Only in the first cell both ranges cover.
+                    let (ri, rj) = (&ranges[i as usize], &ranges[j as usize]);
+                    let first = [0, 1, 2].map(|k| ri.0[k].max(rj.0[k]));
+                    if first == key {
+                        test(i, j, &mut bad);
+                    }
+                }
+            }
+            start = end;
+        }
+        for &a in &large {
+            for b in 0..items.len() as u32 {
+                // Pairs of two large edges once.
+                if a != b && (!large.contains(&b) || a < b) {
+                    test(a, b, &mut bad);
+                }
+            }
+        }
+        bad.sort_unstable();
+        bad.dedup();
+        for (i, j) in bad {
+            let (e, g) = (items[i as usize].1, items[j as usize].1);
+            out.push(MeshViolation {
+                invariant: 4,
+                detail: format!("{e} and {g} intersect away from a shared vertex"),
+            });
         }
     }
 

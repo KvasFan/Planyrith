@@ -25,7 +25,15 @@
   },
   "definition_order": [],
   "definitions": [],
-  "images": [],
+  "images": [
+    {
+      "bytes": 225,
+      "format": "png",
+      "hash": "5cf7d5d51d2e3adc7523de163787b1d9b08db7e6525c5e3a31266293dcf0dd71",
+      "height": 32,
+      "width": 64
+    }
+  ],
   "info": {
     "angle_precision": 1,
     "angle_snap": null,
@@ -94,6 +102,65 @@
           "opacity": 1.0,
           "texture": null
         }
+      ],
+      [
+        {
+          "idx": 3,
+          "version": 1
+        },
+        {
+          "attrs": {},
+          "color": {
+            "a": 255,
+            "b": 45,
+            "g": 82,
+            "r": 160
+          },
+          "is_default_for": null,
+          "name": "Oak",
+          "opacity": 1.0,
+          "texture": {
+            "colorize": null,
+            "image": [
+              92,
+              247,
+              213,
+              213,
+              29,
+              46,
+              58,
+              220,
+              117,
+              35,
+              222,
+              22,
+              55,
+              135,
+              177,
+              217,
+              176,
+              141,
+              183,
+              230,
+              82,
+              92,
+              94,
+              58,
+              49,
+              38,
+              98,
+              147,
+              220,
+              240,
+              221,
+              113
+            ],
+            "size_mm": [
+              1000.0,
+              500.0
+            ]
+          }
+        }
       ]
     ],
     "order": [
@@ -103,6 +170,10 @@
       },
       {
         "idx": 2,
+        "version": 1
+      },
+      {
+        "idx": 3,
         "version": 1
       }
     ]
@@ -332,7 +403,10 @@
           },
           "sides": {
             "material_back": null,
-            "material_front": null,
+            "material_front": {
+              "idx": 3,
+              "version": 1
+            },
             "uv_back": null,
             "uv_front": null
           }

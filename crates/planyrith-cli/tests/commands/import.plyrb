@@ -1,7 +1,13 @@
-# Export a box to STL, erase it, import it back as a group and as a component.
+# Export a textured box, erase it, import it back from STL, OBJ and GLB.
+material-create --name Oak --color '#A0522D' --texture textures/oak.png
 rectangle --corner-a 0,0,0 --corner-b 600,400,0
 push-pull --face '{face & last}' --distance 300
+material-apply --targets 'face & normal:z' --material Oak
 export --path exports/import-box.stl
+export --path exports/import-box.obj
+export --path exports/import-box.glb
 erase --targets all
 import --path exports/import-box.stl
 import --path exports/import-box.stl --as component:Box --at 1000,0,0 --file-units cm --scale 0.1
+import --path exports/import-box.obj --at 0,1000,0
+import --path exports/import-box.glb --at 1000,1000,0

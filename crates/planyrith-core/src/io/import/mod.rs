@@ -10,6 +10,7 @@
 //! Owner key: `later`.
 
 pub mod build;
+pub mod gltf;
 pub mod obj;
 pub mod stl;
 
@@ -112,8 +113,9 @@ pub enum ImportAs {
 /// Common import options (docs/09 §6, docs/08 §2).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct ImportOptions {
-    /// Source unit for unitless formats.
-    pub units: LengthUnit,
+    /// Source unit; `None`: the file's own (glTF: meters, DXF: its
+    /// header) or millimeters.
+    pub units: Option<LengthUnit>,
     /// Extra scale factor.
     pub scale: f64,
     /// Swap Y/Z (Y-up sources); `None` = autodetect per format.
@@ -136,7 +138,7 @@ pub struct ImportOptions {
 impl Default for ImportOptions {
     fn default() -> Self {
         ImportOptions {
-            units: LengthUnit::Millimeter,
+            units: None,
             scale: 1.0,
             swap_yz: None,
             merge_coplanar: true,
@@ -208,6 +210,7 @@ pub fn sibling(source: &str, name: &str) -> String {
 /// The importer of `format`, when this build has one.
 pub fn importer(format: ImportFormat) -> Option<Box<dyn Importer>> {
     match format {
+        ImportFormat::Gltf => Some(Box::new(gltf::GltfImporter)),
         ImportFormat::Obj => Some(Box::new(obj::ObjImporter)),
         ImportFormat::Stl => Some(Box::new(stl::StlImporter)),
         _ => None,

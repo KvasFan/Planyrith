@@ -216,4 +216,28 @@ save unless `--no-thumbnail`. `manifest.json` carries `title`, `author`, `descri
   coordinates in texture repeats and one normal per face; the MTL is written next to the OBJ
   (`<name>.mtl`) and each texture under `<name>_textures/`; names have spaces turned into `_`.
   Exporters return side files to the `export` command, which writes them through the storage.
-
+- 2026-10-26 — **glTF / GLB.** Import reads the default scene (else the first, else every
+  node), flattening the node tree into world transforms; each glTF mesh is one mesh with its
+  primitives' triangles (lists, strips and fans; points and lines skipped), a mesh several nodes
+  use becomes a component. Materials: base color factor converted from linear to sRGB, opacity
+  only when the alpha mode is blend, the base color texture (with `KHR_texture_transform`) as
+  the material's texture; glTF's texture `v` runs down the image and is flipped. Cameras are
+  skipped (`W2004`); scenes from cameras are future work. Buffers and images come from the GLB
+  chunk, base64 data URIs, or files beside the glTF read through the storage. Units are meters
+  unless `file_units`. Export writes one mesh per container (components share it) with one
+  primitive per material, positions in meters (f32 keeps them precise), one node per occurrence
+  with its world transform, double-sided materials with linear base color, blend when not
+  opaque, and textures embedded in the buffer. `.gltf` writes `<name>.bin` beside it; `.glb` is
+  one file. Output is deterministic.
+- 2026-10-26 — **Imports always validate.** A mesh whose welded triangles cross each other
+  (overlapping parts in one mesh) is split into its connected shells, each a group; a shell that
+  crosses itself is left out with a `W2004` warning naming the count. A material named like the
+  document's default material (as exporters write unpainted faces) keeps those faces unpainted,
+  and an imported material equal to an existing one of the same name (or its `#n` variants) is
+  reused instead of duplicated. The UUID of an imported definition hashes the source data instead
+  of encoding the built definition (docs/09 Decisions of 0.4 otherwise unchanged).
+- 2026-10-26 — **Import performance.** The acceptance case is a 100 MB GLB height field (3.6 M
+  triangles with normals and texture coordinates), `import_benchmark` in the core's tests
+  (ignored by default): about 11 s in a release build on the development machine while it was
+  under heavy unrelated load, under the 20 s target. Saving such a document afterwards is not
+  part of the measurement.

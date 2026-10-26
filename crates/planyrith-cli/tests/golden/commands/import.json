@@ -31,6 +31,18 @@
     {
       "idx": 2,
       "version": 1
+    },
+    {
+      "idx": 3,
+      "version": 1
+    },
+    {
+      "idx": 4,
+      "version": 1
+    },
+    {
+      "idx": 5,
+      "version": 1
     }
   ],
   "definitions": [
@@ -460,7 +472,7 @@
         "name": "Group 19",
         "thumbnail": null,
         "usage_count": 1,
-        "uuid": "2944d1d9-e233-82b2-bc1e-c9b4262d6dd9"
+        "uuid": "569ae9ef-9a9b-8ff0-a50c-e3cf75358290"
       }
     ],
     [
@@ -889,11 +901,1026 @@
         "name": "Box",
         "thumbnail": null,
         "usage_count": 1,
-        "uuid": "6e5f6bde-b223-85a8-942b-4118151f70d2"
+        "uuid": "de9c6dae-b28e-85cc-a78d-2b93f7063d67"
+      }
+    ],
+    [
+      {
+        "idx": 3,
+        "version": 1
+      },
+      {
+        "attrs": {},
+        "behavior": {
+          "always_face_camera": false,
+          "axes": [
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "cuts_opening": false,
+          "glue_to": "none",
+          "insertion_point": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "shadows_face_sun": false,
+          "snap_to": "none"
+        },
+        "description": "",
+        "entities": {
+          "attrs": [],
+          "dimensions": [],
+          "groups": [],
+          "guides": [],
+          "hidden": [],
+          "images": [],
+          "instances": [],
+          "locked": [],
+          "mesh": {
+            "curves": [],
+            "edges": [
+              {
+                "a": 0,
+                "b": 1,
+                "curve": null,
+                "flags": 0
+              },
+              {
+                "a": 0,
+                "b": 2,
+                "curve": null,
+                "flags": 0
+              },
+              {
+                "a": 0,
+                "b": 3,
+                "curve": null,
+                "flags": 0
+              },
+              {
+                "a": 1,
+                "b": 4,
+                "curve": null,
+                "flags": 0
+              },
+              {
+                "a": 1,
+                "b": 5,
+                "curve": null,
+                "flags": 0
+              },
+              {
+                "a": 4,
+                "b": 2,
+                "curve": null,
+                "flags": 0
+              },
+              {
+                "a": 4,
+                "b": 6,
+                "curve": null,
+                "flags": 0
+              },
+              {
+                "a": 2,
+                "b": 7,
+                "curve": null,
+                "flags": 0
+              },
+              {
+                "a": 7,
+                "b": 6,
+                "curve": null,
+                "flags": 0
+              },
+              {
+                "a": 7,
+                "b": 3,
+                "curve": null,
+                "flags": 0
+              },
+              {
+                "a": 6,
+                "b": 5,
+                "curve": null,
+                "flags": 0
+              },
+              {
+                "a": 5,
+                "b": 3,
+                "curve": null,
+                "flags": 0
+              }
+            ],
+            "faces": [
+              {
+                "loops": [
+                  [
+                    5,
+                    2147483649,
+                    0,
+                    3
+                  ]
+                ],
+                "plane": {
+                  "d": 0.0,
+                  "normal": [
+                    0.0,
+                    0.0,
+                    -1.0
+                  ]
+                },
+                "sides": {
+                  "material_back": null,
+                  "material_front": null,
+                  "uv_back": null,
+                  "uv_front": null
+                }
+              },
+              {
+                "loops": [
+                  [
+                    6,
+                    2147483656,
+                    2147483655,
+                    2147483653
+                  ]
+                ],
+                "plane": {
+                  "d": 0.0,
+                  "normal": [
+                    -1.0,
+                    0.0,
+                    0.0
+                  ]
+                },
+                "sides": {
+                  "material_back": null,
+                  "material_front": null,
+                  "uv_back": null,
+                  "uv_front": null
+                }
+              },
+              {
+                "loops": [
+                  [
+                    2147483651,
+                    4,
+                    2147483658,
+                    2147483654
+                  ]
+                ],
+                "plane": {
+                  "d": 0.0,
+                  "normal": [
+                    0.0,
+                    -1.0,
+                    0.0
+                  ]
+                },
+                "sides": {
+                  "material_back": null,
+                  "material_front": null,
+                  "uv_back": null,
+                  "uv_front": null
+                }
+              },
+              {
+                "loops": [
+                  [
+                    7,
+                    9,
+                    2147483650,
+                    1
+                  ]
+                ],
+                "plane": {
+                  "d": -400.0,
+                  "normal": [
+                    0.0,
+                    1.0,
+                    0.0
+                  ]
+                },
+                "sides": {
+                  "material_back": null,
+                  "material_front": null,
+                  "uv_back": null,
+                  "uv_front": null
+                }
+              },
+              {
+                "loops": [
+                  [
+                    2147483648,
+                    2,
+                    2147483659,
+                    2147483652
+                  ]
+                ],
+                "plane": {
+                  "d": -600.0,
+                  "normal": [
+                    1.0,
+                    0.0,
+                    0.0
+                  ]
+                },
+                "sides": {
+                  "material_back": null,
+                  "material_front": null,
+                  "uv_back": null,
+                  "uv_front": null
+                }
+              },
+              {
+                "loops": [
+                  [
+                    10,
+                    11,
+                    2147483657,
+                    8
+                  ]
+                ],
+                "plane": {
+                  "d": -300.0,
+                  "normal": [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                },
+                "sides": {
+                  "material_back": {
+                    "idx": 4,
+                    "version": 1
+                  },
+                  "material_front": {
+                    "idx": 4,
+                    "version": 1
+                  },
+                  "uv_back": {
+                    "Affine": [
+                      1.00000003973643,
+                      0.0,
+                      0.0,
+                      2.0000000298023224,
+                      0.0,
+                      0.0
+                    ]
+                  },
+                  "uv_front": {
+                    "Affine": [
+                      1.00000003973643,
+                      0.0,
+                      0.0,
+                      2.0000000298023224,
+                      0.0,
+                      0.0
+                    ]
+                  }
+                }
+              }
+            ],
+            "vertices": [
+              [
+                600.0,
+                400.0,
+                0.0
+              ],
+              [
+                600.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                400.0,
+                0.0
+              ],
+              [
+                600.0,
+                400.0,
+                300.0
+              ],
+              [
+                0.0,
+                0.0,
+                0.0
+              ],
+              [
+                600.0,
+                0.0,
+                300.0
+              ],
+              [
+                0.0,
+                0.0,
+                300.0
+              ],
+              [
+                0.0,
+                400.0,
+                300.0
+              ]
+            ]
+          },
+          "order": [
+            [
+              {
+                "Edge": 0
+              },
+              57
+            ],
+            [
+              {
+                "Edge": 1
+              },
+              58
+            ],
+            [
+              {
+                "Edge": 2
+              },
+              59
+            ],
+            [
+              {
+                "Edge": 3
+              },
+              60
+            ],
+            [
+              {
+                "Edge": 4
+              },
+              61
+            ],
+            [
+              {
+                "Edge": 5
+              },
+              62
+            ],
+            [
+              {
+                "Edge": 6
+              },
+              63
+            ],
+            [
+              {
+                "Edge": 7
+              },
+              64
+            ],
+            [
+              {
+                "Edge": 8
+              },
+              65
+            ],
+            [
+              {
+                "Edge": 9
+              },
+              66
+            ],
+            [
+              {
+                "Edge": 10
+              },
+              67
+            ],
+            [
+              {
+                "Edge": 11
+              },
+              68
+            ],
+            [
+              {
+                "Face": 0
+              },
+              69
+            ],
+            [
+              {
+                "Face": 1
+              },
+              70
+            ],
+            [
+              {
+                "Face": 2
+              },
+              71
+            ],
+            [
+              {
+                "Face": 3
+              },
+              72
+            ],
+            [
+              {
+                "Face": 4
+              },
+              73
+            ],
+            [
+              {
+                "Face": 5
+              },
+              74
+            ]
+          ],
+          "section_planes": [],
+          "tag_of": [],
+          "texts": []
+        },
+        "is_internal_group": true,
+        "name": "Group 57",
+        "thumbnail": null,
+        "usage_count": 1,
+        "uuid": "bbf60631-c32d-8ec7-8028-1569b4ec6864"
+      }
+    ],
+    [
+      {
+        "idx": 4,
+        "version": 1
+      },
+      {
+        "attrs": {},
+        "behavior": {
+          "always_face_camera": false,
+          "axes": [
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "cuts_opening": false,
+          "glue_to": "none",
+          "insertion_point": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "shadows_face_sun": false,
+          "snap_to": "none"
+        },
+        "description": "",
+        "entities": {
+          "attrs": [],
+          "dimensions": [],
+          "groups": [],
+          "guides": [],
+          "hidden": [],
+          "images": [],
+          "instances": [],
+          "locked": [],
+          "mesh": {
+            "curves": [],
+            "edges": [
+              {
+                "a": 0,
+                "b": 1,
+                "curve": null,
+                "flags": 0
+              },
+              {
+                "a": 0,
+                "b": 2,
+                "curve": null,
+                "flags": 0
+              },
+              {
+                "a": 0,
+                "b": 3,
+                "curve": null,
+                "flags": 0
+              },
+              {
+                "a": 1,
+                "b": 4,
+                "curve": null,
+                "flags": 0
+              },
+              {
+                "a": 1,
+                "b": 5,
+                "curve": null,
+                "flags": 0
+              },
+              {
+                "a": 4,
+                "b": 2,
+                "curve": null,
+                "flags": 0
+              },
+              {
+                "a": 4,
+                "b": 6,
+                "curve": null,
+                "flags": 0
+              },
+              {
+                "a": 2,
+                "b": 7,
+                "curve": null,
+                "flags": 0
+              },
+              {
+                "a": 3,
+                "b": 5,
+                "curve": null,
+                "flags": 0
+              },
+              {
+                "a": 3,
+                "b": 7,
+                "curve": null,
+                "flags": 0
+              },
+              {
+                "a": 5,
+                "b": 6,
+                "curve": null,
+                "flags": 0
+              },
+              {
+                "a": 7,
+                "b": 6,
+                "curve": null,
+                "flags": 0
+              }
+            ],
+            "faces": [
+              {
+                "loops": [
+                  [
+                    0,
+                    3,
+                    5,
+                    2147483649
+                  ]
+                ],
+                "plane": {
+                  "d": 0.0,
+                  "normal": [
+                    0.0,
+                    0.9999999999999999,
+                    0.0
+                  ]
+                },
+                "sides": {
+                  "material_back": null,
+                  "material_front": null,
+                  "uv_back": null,
+                  "uv_front": null
+                }
+              },
+              {
+                "loops": [
+                  [
+                    8,
+                    2147483652,
+                    2147483648,
+                    2
+                  ]
+                ],
+                "plane": {
+                  "d": 0.0,
+                  "normal": [
+                    -0.9999999999999999,
+                    0.0,
+                    0.0
+                  ]
+                },
+                "sides": {
+                  "material_back": null,
+                  "material_front": null,
+                  "uv_back": null,
+                  "uv_front": null
+                }
+              },
+              {
+                "loops": [
+                  [
+                    2147483650,
+                    1,
+                    7,
+                    2147483657
+                  ]
+                ],
+                "plane": {
+                  "d": 0.0,
+                  "normal": [
+                    0.0,
+                    0.0,
+                    -1.0
+                  ]
+                },
+                "sides": {
+                  "material_back": null,
+                  "material_front": null,
+                  "uv_back": null,
+                  "uv_front": null
+                }
+              },
+              {
+                "loops": [
+                  [
+                    10,
+                    2147483654,
+                    2147483651,
+                    4
+                  ]
+                ],
+                "plane": {
+                  "d": -400.0000059604645,
+                  "normal": [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                },
+                "sides": {
+                  "material_back": null,
+                  "material_front": null,
+                  "uv_back": null,
+                  "uv_front": null
+                }
+              },
+              {
+                "loops": [
+                  [
+                    2147483655,
+                    2147483653,
+                    6,
+                    2147483659
+                  ]
+                ],
+                "plane": {
+                  "d": -600.0000238418578,
+                  "normal": [
+                    0.9999999999999999,
+                    0.0,
+                    0.0
+                  ]
+                },
+                "sides": {
+                  "material_back": null,
+                  "material_front": null,
+                  "uv_back": null,
+                  "uv_front": null
+                }
+              },
+              {
+                "loops": [
+                  [
+                    9,
+                    11,
+                    2147483658,
+                    2147483656
+                  ]
+                ],
+                "plane": {
+                  "d": -300.0000119209289,
+                  "normal": [
+                    0.0,
+                    -0.9999999999999999,
+                    0.0
+                  ]
+                },
+                "sides": {
+                  "material_back": {
+                    "idx": 4,
+                    "version": 1
+                  },
+                  "material_front": {
+                    "idx": 4,
+                    "version": 1
+                  },
+                  "uv_back": {
+                    "Affine": [
+                      1.0,
+                      0.0,
+                      0.0,
+                      2.0000000000000004,
+                      0.0,
+                      -1.1368683772161603e-13
+                    ]
+                  },
+                  "uv_front": {
+                    "Affine": [
+                      1.0,
+                      0.0,
+                      0.0,
+                      2.0000000000000004,
+                      0.0,
+                      -1.1368683772161603e-13
+                    ]
+                  }
+                }
+              }
+            ],
+            "vertices": [
+              [
+                0.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                400.0000059604645
+              ],
+              [
+                600.0000238418579,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                -300.00001192092896,
+                0.0
+              ],
+              [
+                600.0000238418579,
+                0.0,
+                400.0000059604645
+              ],
+              [
+                0.0,
+                -300.00001192092896,
+                400.0000059604645
+              ],
+              [
+                600.0000238418579,
+                -300.00001192092896,
+                400.0000059604645
+              ],
+              [
+                600.0000238418579,
+                -300.00001192092896,
+                0.0
+              ]
+            ]
+          },
+          "order": [
+            [
+              {
+                "Edge": 0
+              },
+              76
+            ],
+            [
+              {
+                "Edge": 1
+              },
+              77
+            ],
+            [
+              {
+                "Edge": 2
+              },
+              78
+            ],
+            [
+              {
+                "Edge": 3
+              },
+              79
+            ],
+            [
+              {
+                "Edge": 4
+              },
+              80
+            ],
+            [
+              {
+                "Edge": 5
+              },
+              81
+            ],
+            [
+              {
+                "Edge": 6
+              },
+              82
+            ],
+            [
+              {
+                "Edge": 7
+              },
+              83
+            ],
+            [
+              {
+                "Edge": 8
+              },
+              84
+            ],
+            [
+              {
+                "Edge": 9
+              },
+              85
+            ],
+            [
+              {
+                "Edge": 10
+              },
+              86
+            ],
+            [
+              {
+                "Edge": 11
+              },
+              87
+            ],
+            [
+              {
+                "Face": 0
+              },
+              88
+            ],
+            [
+              {
+                "Face": 1
+              },
+              89
+            ],
+            [
+              {
+                "Face": 2
+              },
+              90
+            ],
+            [
+              {
+                "Face": 3
+              },
+              91
+            ],
+            [
+              {
+                "Face": 4
+              },
+              92
+            ],
+            [
+              {
+                "Face": 5
+              },
+              93
+            ]
+          ],
+          "section_planes": [],
+          "tag_of": [],
+          "texts": []
+        },
+        "is_internal_group": true,
+        "name": "Group 76",
+        "thumbnail": null,
+        "usage_count": 1,
+        "uuid": "c69481ae-4ac2-8b42-a368-8e90c8c27ea0"
+      }
+    ],
+    [
+      {
+        "idx": 5,
+        "version": 1
+      },
+      {
+        "attrs": {},
+        "behavior": {
+          "always_face_camera": false,
+          "axes": [
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "cuts_opening": false,
+          "glue_to": "none",
+          "insertion_point": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "shadows_face_sun": false,
+          "snap_to": "none"
+        },
+        "description": "",
+        "entities": {
+          "attrs": [],
+          "dimensions": [],
+          "groups": [
+            [
+              {
+                "idx": 1,
+                "version": 1
+              },
+              {
+                "definition": {
+                  "idx": 4,
+                  "version": 1
+                },
+                "name": "Model",
+                "transform": [
+                  1.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  -1.0,
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0
+                ]
+              }
+            ]
+          ],
+          "guides": [],
+          "hidden": [],
+          "images": [],
+          "instances": [],
+          "locked": [],
+          "mesh": {
+            "curves": [],
+            "edges": [],
+            "faces": [],
+            "vertices": []
+          },
+          "order": [
+            [
+              {
+                "Entity": {
+                  "Group": {
+                    "idx": 1,
+                    "version": 1
+                  }
+                }
+              },
+              95
+            ]
+          ],
+          "section_planes": [],
+          "tag_of": [],
+          "texts": []
+        },
+        "is_internal_group": true,
+        "name": "Group 76",
+        "thumbnail": null,
+        "usage_count": 1,
+        "uuid": "4b3158d2-384a-8abc-8b7a-e1f7b68c9ab7"
       }
     ]
   ],
-  "images": [],
+  "images": [
+    {
+      "bytes": 225,
+      "format": "png",
+      "hash": "5cf7d5d51d2e3adc7523de163787b1d9b08db7e6525c5e3a31266293dcf0dd71",
+      "height": 32,
+      "width": 64
+    }
+  ],
   "info": {
     "angle_precision": 1,
     "angle_snap": null,
@@ -904,7 +1931,7 @@
     "format_version": 1,
     "geo": null,
     "length_snap": null,
-    "next_pid": 57,
+    "next_pid": 97,
     "precision": 1,
     "title": "",
     "tolerances": {
@@ -962,6 +1989,124 @@
           "opacity": 1.0,
           "texture": null
         }
+      ],
+      [
+        {
+          "idx": 3,
+          "version": 1
+        },
+        {
+          "attrs": {},
+          "color": {
+            "a": 255,
+            "b": 45,
+            "g": 82,
+            "r": 160
+          },
+          "is_default_for": null,
+          "name": "Oak",
+          "opacity": 1.0,
+          "texture": {
+            "colorize": null,
+            "image": [
+              92,
+              247,
+              213,
+              213,
+              29,
+              46,
+              58,
+              220,
+              117,
+              35,
+              222,
+              22,
+              55,
+              135,
+              177,
+              217,
+              176,
+              141,
+              183,
+              230,
+              82,
+              92,
+              94,
+              58,
+              49,
+              38,
+              98,
+              147,
+              220,
+              240,
+              221,
+              113
+            ],
+            "size_mm": [
+              1000.0,
+              500.0
+            ]
+          }
+        }
+      ],
+      [
+        {
+          "idx": 4,
+          "version": 1
+        },
+        {
+          "attrs": {},
+          "color": {
+            "a": 255,
+            "b": 45,
+            "g": 82,
+            "r": 160
+          },
+          "is_default_for": null,
+          "name": "Oak #2",
+          "opacity": 1.0,
+          "texture": {
+            "colorize": null,
+            "image": [
+              92,
+              247,
+              213,
+              213,
+              29,
+              46,
+              58,
+              220,
+              117,
+              35,
+              222,
+              22,
+              55,
+              135,
+              177,
+              217,
+              176,
+              141,
+              183,
+              230,
+              82,
+              92,
+              94,
+              58,
+              49,
+              38,
+              98,
+              147,
+              220,
+              240,
+              221,
+              113
+            ],
+            "size_mm": [
+              1000.0,
+              1000.0
+            ]
+          }
+        }
       ]
     ],
     "order": [
@@ -971,6 +2116,14 @@
       },
       {
         "idx": 2,
+        "version": 1
+      },
+      {
+        "idx": 3,
+        "version": 1
+      },
+      {
+        "idx": 4,
         "version": 1
       }
     ]
@@ -1002,6 +2155,60 @@
             1.0,
             0.0,
             0.0,
+            0.0
+          ]
+        }
+      ],
+      [
+        {
+          "idx": 2,
+          "version": 1
+        },
+        {
+          "definition": {
+            "idx": 3,
+            "version": 1
+          },
+          "name": "import-box",
+          "transform": [
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            1000.0,
+            0.0
+          ]
+        }
+      ],
+      [
+        {
+          "idx": 3,
+          "version": 1
+        },
+        {
+          "definition": {
+            "idx": 5,
+            "version": 1
+          },
+          "name": "import-box",
+          "transform": [
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            1000.0,
+            1000.0,
             0.0
           ]
         }
@@ -1071,6 +2278,28 @@
           }
         },
         56
+      ],
+      [
+        {
+          "Entity": {
+            "Group": {
+              "idx": 2,
+              "version": 1
+            }
+          }
+        },
+        75
+      ],
+      [
+        {
+          "Entity": {
+            "Group": {
+              "idx": 3,
+              "version": 1
+            }
+          }
+        },
+        96
       ]
     ],
     "section_planes": [],

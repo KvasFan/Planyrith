@@ -55,6 +55,27 @@ pub(crate) fn cube_stl() -> String {
     text
 }
 
+/// Two 10-unit cubes overlapping by half, as one ASCII STL solid.
+fn overlapping_cubes_stl() -> String {
+    let one = cube_stl();
+    let body: String = one
+        .lines()
+        .filter(|l| !l.starts_with("solid") && !l.starts_with("endsolid"))
+        .map(|l| format!("{l}\n"))
+        .collect();
+    let shifted: String = body
+        .lines()
+        .map(|l| match l.trim().strip_prefix("vertex ") {
+            Some(rest) => {
+                let v: Vec<f64> = rest.split(' ').map(|x| x.parse().unwrap()).collect();
+                format!("  vertex {} {} {}\n", v[0] + 5.0, v[1], v[2])
+            }
+            None => format!("{l}\n"),
+        })
+        .collect();
+    format!("solid two\n{body}{shifted}endsolid two\n")
+}
+
 /// Faces and edges of the only definition, and its instance's bounds.
 fn imported(e: &Engine) -> (usize, usize, DVec3, DVec3) {
     let doc = e.document();
@@ -118,6 +139,33 @@ fn stl_cube_imports_as_a_group_of_six_faces_y_up() {
     let (_, _, lo, hi) = imported(&e);
     assert!(close(lo, DVec3::new(100.0, 0.0, 0.0)), "{lo}");
     assert!(close(hi, DVec3::new(120.0, 20.0, 20.0)), "{hi}");
+}
+
+#[test]
+fn overlapping_shells_import_as_separate_groups() {
+    let (mut e, storage) = engine();
+    storage
+        .write(
+            &StorageKey::new("two.stl"),
+            overlapping_cubes_stl().as_bytes(),
+        )
+        .unwrap();
+    let out = run(&mut e, "import", json!({ "path": "two.stl" }));
+    assert_eq!(out["faces"], 12, "{out}");
+    assert_eq!(out["warnings"], json!([]));
+    let report = crate::diagnostics::validate(e.document());
+    assert!(report.is_clean(), "{report:#?}");
+    let shells = e
+        .document()
+        .definitions
+        .iter()
+        .filter(|(id, _)| {
+            e.document()
+                .container(ContainerRef::Definition(*id))
+                .is_some_and(|c| c.mesh().faces().count() == 6)
+        })
+        .count();
+    assert_eq!(shells, 2);
 }
 
 #[test]
@@ -494,4 +542,339 @@ fn random_obj_and_stl_files_never_panic_the_importers() {
             }
         }
     }
+}
+
+/// Two instances of a textured component and a plain group.
+fn chairs_and_box(e: &mut Engine, storage: &MemoryStorage) {
+    storage
+        .write(&StorageKey::new("oak.png"), &png(8, 8, [160, 110, 60]))
+        .unwrap();
+    run(
+        e,
+        "material-create",
+        json!({ "name": "Oak", "color": "#A06E3C", "texture": "oak.png" }),
+    );
+    run(
+        e,
+        "rectangle",
+        json!({ "corner_a": [0, 0, 0], "corner_b": [400, 400, 0] }),
+    );
+    run(
+        e,
+        "push-pull",
+        json!({ "face": { "Query": "face & last" }, "distance": 450.0 }),
+    );
+    run(
+        e,
+        "material-apply",
+        json!({ "targets": "face", "material": "Oak" }),
+    );
+    run(
+        e,
+        "make-component",
+        json!({ "targets": "all", "name": "Seat" }),
+    );
+    run(
+        e,
+        "move",
+        json!({ "targets": "all", "delta": [1000, 0, 0], "copy": true }),
+    );
+    run(
+        e,
+        "rectangle",
+        json!({ "corner_a": [0, 1000, 0], "corner_b": [2000, 1600, 0] }),
+    );
+    run(
+        e,
+        "push-pull",
+        json!({ "face": { "Query": "face & last" }, "distance": 750.0 }),
+    );
+    run(e, "make-group", json!({ "targets": "face | edge" }));
+}
+
+fn bounds_of_model(e: &Engine) -> (DVec3, DVec3) {
+    let b = e.document().aabb();
+    (b.min, b.max)
+}
+
+#[test]
+fn glb_and_gltf_round_trip_components_materials_and_textures() {
+    let (mut e, storage) = engine();
+    chairs_and_box(&mut e, &storage);
+    let (lo, hi) = bounds_of_model(&e);
+    let out = run(&mut e, "export", json!({ "path": "out/scene.glb" }));
+    assert_eq!(out["format"], "glb");
+    let glb = storage.read(&StorageKey::new("out/scene.glb")).unwrap();
+    assert!(glb.starts_with(b"glTF"));
+    let parsed = gltf::Gltf::from_slice(&glb).expect("a valid GLB");
+    assert_eq!(
+        parsed.document.meshes().count(),
+        2,
+        "the seat mesh is shared"
+    );
+    assert_eq!(parsed.document.nodes().count(), 3);
+    run(&mut e, "export", json!({ "path": "out/scene.glb" }));
+    assert_eq!(
+        storage.read(&StorageKey::new("out/scene.glb")).unwrap(),
+        glb,
+        "deterministic"
+    );
+
+    for (file, extra) in [
+        ("out/scene.glb", vec![]),
+        ("out/scene.gltf", vec!["out/scene.bin"]),
+    ] {
+        if file.ends_with(".gltf") {
+            run(&mut e, "export", json!({ "path": file }));
+        }
+        let (mut back, back_storage) = engine();
+        for key in std::iter::once(file).chain(extra) {
+            back_storage
+                .write(
+                    &StorageKey::new(key),
+                    &storage.read(&StorageKey::new(key)).unwrap(),
+                )
+                .unwrap();
+        }
+        let out = run(&mut back, "import", json!({ "path": file }));
+        assert_eq!(out["format"], "gltf", "{file}");
+        assert_eq!(out["faces"], 12, "{file}: {out}");
+        let (blo, bhi) = bounds_of_model(&back);
+        // glTF stores f32 meters.
+        let near = |a: DVec3, b: DVec3| (a - b).abs().max_element() < 1e-3;
+        assert!(
+            near(blo, lo) && near(bhi, hi),
+            "{file}: {blo} {bhi} vs {lo} {hi}"
+        );
+        let doc = back.document();
+        let seat = doc
+            .definition_by_name("Seat")
+            .expect("the shared mesh is a component");
+        let model = doc.container(ContainerRef::Model).unwrap();
+        let top = model
+            .order()
+            .iter()
+            .find_map(|&id| match model.view(id) {
+                Some(EntityView::Group(g)) => Some(g.definition),
+                _ => None,
+            })
+            .unwrap();
+        let uses = doc.container(ContainerRef::Definition(top)).map(|c| {
+            c.order()
+                .iter()
+                .filter(|&&id| {
+                    matches!(c.view(id), Some(EntityView::Instance(i)) if i.definition == seat)
+                })
+                .count()
+        });
+        assert_eq!(uses, Some(2), "{file}");
+        let oak = doc
+            .materials
+            .by_name("Oak")
+            .and_then(|m| doc.materials.get(m))
+            .unwrap();
+        assert_eq!(
+            oak.color,
+            crate::document::Rgba8::rgb(160, 110, 60),
+            "{file}"
+        );
+        assert!(oak.texture.is_some(), "{file}");
+        let report = crate::diagnostics::validate(doc);
+        assert!(report.is_clean(), "{file}: {report:#?}");
+    }
+}
+
+#[test]
+fn gltf_with_data_uris_strips_and_texture_transforms_imports() {
+    // A unit quad as a triangle strip in a data URI buffer, in the XZ
+    // plane (Y-up: the ground).
+    let mut data = Vec::new();
+    for p in [
+        [0.0f32, 0.0, 0.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 0.0, -1.0],
+        [1.0, 0.0, -1.0],
+    ] {
+        for v in p {
+            data.extend_from_slice(&v.to_le_bytes());
+        }
+    }
+    let alphabet = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut b64 = String::new();
+    for chunk in data.chunks(3) {
+        let n =
+            chunk.iter().fold(0u32, |acc, b| (acc << 8) | u32::from(*b)) << (8 * (3 - chunk.len()));
+        for k in 0..=chunk.len() {
+            b64.push(alphabet[((n >> (18 - 6 * k)) & 63) as usize] as char);
+        }
+        for _ in chunk.len()..3 {
+            b64.push('=');
+        }
+    }
+    let gltf = json!({
+        "asset": { "version": "2.0" },
+        "buffers": [{ "byteLength": data.len(), "uri": format!("data:application/octet-stream;base64,{b64}") }],
+        "bufferViews": [{ "buffer": 0, "byteLength": data.len() }],
+        "accessors": [{ "bufferView": 0, "componentType": 5126, "count": 4, "type": "VEC3",
+                        "min": [0, 0, -1], "max": [1, 0, 0] }],
+        "materials": [{ "name": "Red", "pbrMetallicRoughness": { "baseColorFactor": [1, 0, 0, 1] } }],
+        "meshes": [{ "name": "Quad", "primitives": [{ "attributes": { "POSITION": 0 }, "mode": 5, "material": 0 }] }],
+        "nodes": [{ "name": "Floor", "mesh": 0, "translation": [2, 0, 0] }],
+        "scenes": [{ "nodes": [0] }],
+        "scene": 0
+    });
+    let (mut e, storage) = engine();
+    storage
+        .write(&StorageKey::new("quad.gltf"), gltf.to_string().as_bytes())
+        .unwrap();
+    let out = run(&mut e, "import", json!({ "path": "quad.gltf" }));
+    assert_eq!(out["faces"], 1, "{out}");
+    let (lo, hi) = bounds_of_model(&e);
+    assert!(close(lo, DVec3::new(2000.0, 0.0, 0.0)), "{lo}");
+    assert!(close(hi, DVec3::new(3000.0, 1000.0, 0.0)), "{hi}");
+    let doc = e.document();
+    let red = doc
+        .materials
+        .by_name("Red")
+        .and_then(|m| doc.materials.get(m))
+        .unwrap();
+    assert_eq!(red.color, crate::document::Rgba8::rgb(255, 0, 0));
+}
+
+#[test]
+fn damaged_glb_files_never_panic_the_importer() {
+    let (mut e, storage) = engine();
+    chairs_and_box(&mut e, &storage);
+    run(&mut e, "export", json!({ "path": "s.glb" }));
+    let glb = storage.read(&StorageKey::new("s.glb")).unwrap();
+    let mut state = 0x1234_5678_u32;
+    for round in 0..200 {
+        let mut bytes = glb.clone();
+        for _ in 0..(1 + round % 8) {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            let at = state as usize % bytes.len();
+            bytes[at] = (state >> 8) as u8;
+        }
+        if round % 10 == 0 {
+            bytes.truncate(state as usize % bytes.len());
+        }
+        let (mut back, back_storage) = engine();
+        back_storage
+            .write(&StorageKey::new("d.glb"), &bytes)
+            .unwrap();
+        if back
+            .execute_erased("import", json!({ "path": "d.glb" }))
+            .is_ok()
+        {
+            let report = crate::diagnostics::validate(back.document());
+            assert!(!report.has_errors(), "round {round}: {report:#?}");
+        }
+    }
+}
+
+/// A height-field GLB of `n`×`n` cells (2n² triangles, positions, normals
+/// and texture coordinates, like a scanned terrain).
+pub(crate) fn terrain_glb(n: u32) -> Vec<u8> {
+    let mut bin = Vec::new();
+    let side = n + 1;
+    for j in 0..side {
+        for i in 0..side {
+            let h = libm::sin(f64::from(i) * 0.37) * libm::cos(f64::from(j) * 0.23) * 0.5
+                + f64::from((i * 7919 + j * 104_729) % 97) / 970.0;
+            for v in [f64::from(i) * 0.1, h, -f64::from(j) * 0.1] {
+                bin.extend_from_slice(&(v as f32).to_le_bytes());
+            }
+        }
+    }
+    let positions = bin.len();
+    for _ in 0..side * side {
+        for v in [0.0f32, 1.0, 0.0] {
+            bin.extend_from_slice(&v.to_le_bytes());
+        }
+    }
+    let normals = bin.len() - positions;
+    for j in 0..side {
+        for i in 0..side {
+            for v in [i as f32 / n as f32, j as f32 / n as f32] {
+                bin.extend_from_slice(&v.to_le_bytes());
+            }
+        }
+    }
+    let uvs = bin.len() - positions - normals;
+    for j in 0..n {
+        for i in 0..n {
+            let a = j * side + i;
+            let (b, c) = (a + 1, a + side);
+            for v in [a, b, c + 1, a, c + 1, c] {
+                bin.extend_from_slice(&v.to_le_bytes());
+            }
+        }
+    }
+    let indices = bin.len() - positions - normals - uvs;
+    let count = side * side;
+    let mut text = json!({
+        "asset": { "version": "2.0" },
+        "buffers": [{ "byteLength": bin.len() }],
+        "bufferViews": [
+            { "buffer": 0, "byteOffset": 0, "byteLength": positions },
+            { "buffer": 0, "byteOffset": positions, "byteLength": normals },
+            { "buffer": 0, "byteOffset": positions + normals, "byteLength": uvs },
+            { "buffer": 0, "byteOffset": positions + normals + uvs, "byteLength": indices }
+        ],
+        "accessors": [
+            { "bufferView": 0, "componentType": 5126, "count": count, "type": "VEC3",
+              "min": [0, -1, -(f64::from(n) * 0.1)], "max": [f64::from(n) * 0.1, 1, 0] },
+            { "bufferView": 1, "componentType": 5126, "count": count, "type": "VEC3" },
+            { "bufferView": 2, "componentType": 5126, "count": count, "type": "VEC2" },
+            { "bufferView": 3, "componentType": 5125, "count": n * n * 6, "type": "SCALAR" }
+        ],
+        "meshes": [{ "primitives": [{ "attributes": { "POSITION": 0, "NORMAL": 1, "TEXCOORD_0": 2 }, "indices": 3 }] }],
+        "nodes": [{ "mesh": 0 }],
+        "scenes": [{ "nodes": [0] }],
+        "scene": 0
+    })
+    .to_string()
+    .into_bytes();
+    while !text.len().is_multiple_of(4) {
+        text.push(b' ');
+    }
+    let total = 12 + 8 + text.len() + 8 + bin.len();
+    let mut out = Vec::with_capacity(total);
+    out.extend_from_slice(b"glTF");
+    out.extend_from_slice(&2u32.to_le_bytes());
+    out.extend_from_slice(&(total as u32).to_le_bytes());
+    out.extend_from_slice(&(text.len() as u32).to_le_bytes());
+    out.extend_from_slice(b"JSON");
+    out.extend_from_slice(&text);
+    out.extend_from_slice(&(bin.len() as u32).to_le_bytes());
+    out.extend_from_slice(b"BIN\0");
+    out.extend_from_slice(&bin);
+    out
+}
+
+/// docs/13 0.5 acceptance: a 100 MB glTF imports in under 20 s. Run with
+/// `cargo test --release -p planyrith-core import_benchmark -- --ignored
+/// --nocapture` (`PLANYRITH_BENCH_CELLS` sets the grid; 1150 ≈ 100 MB).
+#[test]
+#[ignore = "benchmark"]
+fn import_benchmark() {
+    let n = std::env::var("PLANYRITH_BENCH_CELLS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1150);
+    let glb = terrain_glb(n);
+    eprintln!("{:.1} MB, {} triangles", glb.len() as f64 / 1e6, 2 * n * n);
+    let mut best = f64::MAX;
+    for _ in 0..3 {
+        let (mut e, storage) = engine();
+        storage.write(&StorageKey::new("t.glb"), &glb).unwrap();
+        let started = std::time::Instant::now();
+        let out = run(&mut e, "import", json!({ "path": "t.glb" }));
+        let secs = started.elapsed().as_secs_f64();
+        eprintln!("import: {secs:.2} s, {} faces", out["faces"]);
+        best = best.min(secs);
+    }
+    eprintln!("best: {best:.2} s");
 }

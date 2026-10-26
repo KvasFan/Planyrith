@@ -4,6 +4,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::fastmap::{FastMap, FastSet};
+
 use glam::DVec3;
 use slotmap::SecondaryMap;
 
@@ -407,7 +409,7 @@ pub(super) fn from_triangles_merged(
 ) -> Result<TriangleMergeResult, GeometryError> {
     // 1. Weld input positions by tolerance (grid of cell size `length`, the
     //    27 neighbor cells cover every point within `length`).
-    let mut grid: BTreeMap<[i64; 3], Vec<usize>> = BTreeMap::new();
+    let mut grid: FastMap<[i64; 3], Vec<usize>> = FastMap::default();
     let mut weld: Vec<usize> = Vec::with_capacity(positions.len());
     let mut reps: Vec<DVec3> = Vec::new();
     let cell = |p: DVec3| -> [i64; 3] {
@@ -449,7 +451,7 @@ pub(super) fn from_triangles_merged(
     //    flipping, drop the ones that would make an edge non-manifold.
     let mut degenerate_triangles = 0;
     let mut non_manifold_edges = 0;
-    let mut used_directed: BTreeSet<(usize, usize)> = BTreeSet::new();
+    let mut used_directed: FastSet<(usize, usize)> = FastSet::default();
     let mut tris: Vec<[usize; 3]> = Vec::with_capacity(triangles.len());
     // The input triangle of each accepted one.
     let mut source: Vec<usize> = Vec::with_capacity(triangles.len());
@@ -465,7 +467,7 @@ pub(super) fn from_triangles_merged(
             degenerate_triangles += 1;
             continue;
         }
-        let free = |tri: [usize; 3], used: &BTreeSet<(usize, usize)>| {
+        let free = |tri: [usize; 3], used: &FastSet<(usize, usize)>| {
             (0..3).all(|k| !used.contains(&(tri[k], tri[(k + 1) % 3])))
         };
         let chosen = if free(idx, &used_directed) {
@@ -492,37 +494,45 @@ pub(super) fn from_triangles_merged(
         .iter()
         .map(|t| Plane::from_points(reps[t[0]], reps[t[1]], reps[t[2]], tol))
         .collect();
-    let mut by_directed: BTreeMap<(usize, usize), usize> = BTreeMap::new();
+    let mut by_directed: FastMap<(usize, usize), usize> = FastMap::default();
+    by_directed.reserve(tris.len() * 3);
     for (i, t) in tris.iter().enumerate() {
         for k in 0..3 {
             by_directed.insert((t[k], t[(k + 1) % 3]), i);
         }
     }
+    // Representatives are the smallest index of each set, so the order of
+    // the unions does not matter.
     let mut groups = UnionFind::new(tris.len());
     if opts.merge_coplanar {
-        for (&(a, b), &i) in &by_directed {
-            let key = |t: usize| keys.and_then(|k| k.get(source[t]).copied());
-            if let Some(&j) = by_directed.get(&(b, a))
-                && key(i) == key(j)
-                && let (Some(pi), Some(pj)) = (planes[i], planes[j])
-                && tol.is_coplanar_same_side(&pi, &pj)
-            {
-                groups.union(i, j);
+        let key = |t: usize| keys.and_then(|k| k.get(source[t]).copied());
+        for (i, t) in tris.iter().enumerate() {
+            for k in 0..3 {
+                let (a, b) = (t[k], t[(k + 1) % 3]);
+                if let Some(&j) = by_directed.get(&(b, a))
+                    && j > i
+                    && key(i) == key(j)
+                    && let (Some(pi), Some(pj)) = (planes[i], planes[j])
+                    && tol.is_coplanar_same_side(&pi, &pj)
+                {
+                    groups.union(i, j);
+                }
             }
         }
     }
 
     // 4. Build each group's boundary loops; fall back to single triangles for
     //    groups whose boundary is not one planar region.
-    let mut members: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+    // By representative (the set's smallest triangle), in index order.
+    let mut members: Vec<Vec<usize>> = vec![Vec::new(); tris.len()];
     for i in 0..tris.len() {
         let r = groups.find(i);
-        members.entry(r).or_default().push(i);
+        members[r].push(i);
     }
     // Each face with the accepted triangles it covers.
     let mut faces: Vec<(Vec<Vec<usize>>, Plane, Vec<usize>)> = Vec::new();
     let mut merged_faces = 0;
-    for tri_ids in members.values() {
+    for tri_ids in members.iter().filter(|m| !m.is_empty()) {
         if tri_ids.len() > 1
             && let Some((loops, plane)) = group_face(&reps, &tris, tri_ids, tol)
         {
@@ -540,23 +550,23 @@ pub(super) fn from_triangles_merged(
     // 5. Assemble the mesh: only vertices and edges that some face uses.
     let mut mesh = HalfEdgeMesh::new();
     let d = &mut NoDeltas;
-    let mut vertex_ids: BTreeMap<usize, VertexId> = BTreeMap::new();
-    let mut edge_set: BTreeSet<(usize, usize)> = BTreeSet::new();
+    let mut vertex_ids: Vec<Option<VertexId>> = vec![None; reps.len()];
+    // Edges in sorted (lower, higher) vertex order.
+    let mut edge_set: Vec<(usize, usize)> = Vec::new();
     for (loops, _, _) in &faces {
         for lp in loops {
             for k in 0..lp.len() {
                 let (a, b) = (lp[k], lp[(k + 1) % lp.len()]);
-                edge_set.insert((a.min(b), a.max(b)));
+                edge_set.push((a.min(b), a.max(b)));
             }
         }
     }
+    edge_set.sort_unstable();
+    edge_set.dedup();
     for &(a, b) in &edge_set {
-        for v in [a, b] {
-            if let std::collections::btree_map::Entry::Vacant(slot) = vertex_ids.entry(v) {
-                slot.insert(mesh.new_vertex(reps[v], d));
-            }
-        }
-        mesh.new_edge(vertex_ids[&a], vertex_ids[&b], EdgeFlags::NONE, d)?;
+        let mut id = |v: usize| *vertex_ids[v].get_or_insert_with(|| mesh.new_vertex(reps[v], d));
+        let (va, vb) = (id(a), id(b));
+        mesh.new_edge(va, vb, EdgeFlags::NONE, d)?;
     }
     let mut triangle_faces: Vec<Option<FaceId>> = vec![None; triangles.len()];
     for (loops, plane, covered) in faces {
@@ -564,7 +574,10 @@ pub(super) fn from_triangles_merged(
         for lp in &loops {
             let mut cycle = Vec::with_capacity(lp.len());
             for k in 0..lp.len() {
-                let (a, b) = (vertex_ids[&lp[k]], vertex_ids[&lp[(k + 1) % lp.len()]]);
+                let (Some(a), Some(b)) = (vertex_ids[lp[k]], vertex_ids[lp[(k + 1) % lp.len()]])
+                else {
+                    return Err(broken("missing vertex while importing"));
+                };
                 cycle.push(
                     mesh.half_edge_from_to(a, b)
                         .ok_or_else(|| broken("missing half-edge while importing"))?,
@@ -616,16 +629,19 @@ fn group_face(
     tri_ids: &[usize],
     tol: &Tolerances,
 ) -> Option<(Vec<Vec<usize>>, Plane)> {
-    let mut directed: BTreeSet<(usize, usize)> = BTreeSet::new();
+    let mut ordered: Vec<(usize, usize)> = Vec::with_capacity(tri_ids.len() * 3);
     for &i in tri_ids {
         let t = tris[i];
         for k in 0..3 {
-            directed.insert((t[k], t[(k + 1) % 3]));
+            ordered.push((t[k], t[(k + 1) % 3]));
         }
     }
-    let boundary: Vec<(usize, usize)> = directed
-        .iter()
-        .copied()
+    ordered.sort_unstable();
+    ordered.dedup();
+    let directed: FastSet<(usize, usize)> = ordered.iter().copied().collect();
+    // In sorted order.
+    let boundary: Vec<(usize, usize)> = ordered
+        .into_iter()
         .filter(|&(a, b)| !directed.contains(&(b, a)))
         .collect();
     let first = tris[tri_ids[0]];

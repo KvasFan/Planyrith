@@ -205,3 +205,9 @@ powerful but add ~10 MB and do not run inside the web build; they are a post-1.0
 - 2026-10-25 — `egui_kittest` 0.36 is a dev-dependency of `planyrith-gui` for whole-window
   screenshots (docs/12 Decisions); it hands the app a real `egui_wgpu::RenderState`, so the
   viewport renders as in the application. `cargo deny check` passes with it.
+- 2026-10-26 — Interchange crates for milestone 0.5: `tobj` 4 (MIT) without default features
+  (they pull a randomly seeded hasher) reads OBJ/MTL, with MTL files and textures fetched through
+  the storage; `gltf` 1.4 (MIT/Apache-2.0) with only `names`, `utils` and
+  `KHR_texture_transform`: without `import` it never touches the file system, and buffers and
+  images are resolved through the storage (data URIs decoded by the core). glTF is written by the
+  core with `serde_json`; OBJ, MTL and STL writers are the core's own. `cargo deny check` passes.

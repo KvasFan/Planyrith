@@ -10,7 +10,10 @@ All notable changes to Planyrith are recorded here. Versions follow
   `planyrith export` writes the mesh formats too. STL import (ASCII and binary, triangles merged
   into faces) and export (binary or ASCII, Y-up unless `--z-up`). OBJ import (objects, MTL
   materials and textures, concave polygons) and export (with an MTL and the textures beside
-  it). The server's capabilities list
+  it). glTF/GLB import (scenes, shared meshes as components, materials, textures, texture
+  transforms) and export (shared meshes, embedded textures). Overlapping parts of one mesh import
+  as separate groups; equal materials are reused. A 100 MB glTF imports in about 11 s.
+  `validate` is much faster on large meshes. The server's capabilities list
   the formats this build reads and writes.
 
 ## 0.4.0 — Organization and materials (2026-10-26)

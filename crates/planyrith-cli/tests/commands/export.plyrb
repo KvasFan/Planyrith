@@ -1,5 +1,11 @@
-# Export a box as binary and ASCII STL (the document is unchanged).
+# Export a textured box as STL (binary and ASCII), OBJ and glTF/GLB (the
+# document is unchanged).
+material-create --name Oak --color '#A0522D' --texture textures/oak.png
 rectangle --corner-a 0,0,0 --corner-b 600,400,0
 push-pull --face '{face & last}' --distance 300
+material-apply --targets 'face & normal:z' --material Oak
 export --path exports/box.stl
 export --path exports/box-ascii.stl --ascii --file-units m --z-up
+export --path exports/box.obj
+export --path exports/box.gltf
+export --path exports/box.glb

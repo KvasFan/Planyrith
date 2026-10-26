@@ -43,7 +43,8 @@ pub struct ImportParams {
     /// `group` (default), `component:<name>` or `image`.
     #[serde(default, rename = "as")]
     pub import_as: Option<String>,
-    /// Unit of unitless formats (`mm`, `cm`, `m`, `in`, `ft`; mm).
+    /// Unit of the file (`mm`, `cm`, `m`, `in`, `ft`; the file's own, else
+    /// mm).
     #[serde(default)]
     pub file_units: Option<String>,
     /// Extra scale factor (1).
@@ -93,14 +94,15 @@ fn import_as(p: &ImportParams) -> Result<ImportAs, CommandError> {
     }
 }
 
-fn units(p: &ImportParams) -> Result<LengthUnit, CommandError> {
+fn units(p: &ImportParams) -> Result<Option<LengthUnit>, CommandError> {
     p.file_units
         .as_deref()
-        .map_or(Ok(LengthUnit::Millimeter), |u| {
+        .map(|u| {
             u.parse().map_err(|_| {
                 CommandError::invalid_param("file_units", format!("unknown unit `{u}`"))
             })
         })
+        .transpose()
 }
 
 fn extension(path: &str) -> Option<&str> {

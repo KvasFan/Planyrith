@@ -6,6 +6,7 @@
 //! Rules (docs/09 §6): exporters are deterministic (stable ordering by pid) and
 //! stream their output.
 
+pub mod gltf;
 pub mod json;
 pub mod obj;
 pub mod scene;
@@ -178,6 +179,8 @@ pub trait Exporter: Send + Sync {
 /// The exporter of `format`, when this build has one.
 pub fn exporter(format: ExportFormat) -> Option<Box<dyn Exporter>> {
     match format {
+        ExportFormat::Gltf => Some(Box::new(gltf::GltfExporter { binary: false })),
+        ExportFormat::Glb => Some(Box::new(gltf::GltfExporter { binary: true })),
         ExportFormat::Json => Some(Box::new(json::JsonExporter)),
         ExportFormat::Obj => Some(Box::new(obj::ObjExporter)),
         ExportFormat::Stl => Some(Box::new(stl::StlExporter)),

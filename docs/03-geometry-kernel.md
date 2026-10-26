@@ -539,3 +539,10 @@ within `tolerances.length`.
   a dotted guide from it. Hover memory keeps only inferences on the entity itself (endpoints,
   midpoints, intersections, centers, points on edges and faces), so an alignment never moves a
   remembered point.
+- 2026-10-26 — **Edge crossing check (invariant 4) uses a uniform grid.** Edges go into cells
+  about twice their mean length; only edges sharing a cell are compared, each pair once (in the
+  first cell both cover); edges spanning more than 64 cells are compared with all. A sweep along
+  x alone degenerated to quadratic time on height fields and grids (a 1 M-triangle terrain took
+  seconds); the grid keeps validation near linear. Violations are reported in the same order as
+  before (edges by lowest x). Hot lookups in the triangle importer use a seedless word hasher
+  (`fastmap`), queried only, never iterated where order shows.

@@ -412,8 +412,29 @@ pub(crate) fn definition_uuid(
     h.update(&doc.info.next_pid.next_raw().to_le_bytes());
     h.update(name.as_bytes());
     h.update(b"\0");
-    if let Ok(bytes) = rmp_serde::to_vec_named(entities) {
-        h.update(&bytes);
+    // Streamed into the hash: the same bytes as `to_vec_named`, without
+    // holding a large definition's encoding in memory.
+    {
+        let mut sink = std::io::BufWriter::with_capacity(1 << 16, &mut h);
+        let _ = rmp_serde::encode::write_named(&mut sink, entities);
+        let _ = std::io::Write::flush(&mut sink);
+    }
+    let mut bytes = [0u8; 16];
+    bytes.copy_from_slice(&h.finalize().as_bytes()[..16]);
+    uuid::Builder::from_custom_bytes(bytes).into_uuid()
+}
+
+/// Like [`definition_uuid`], hashing `contents` (e.g. the raw data an
+/// import read) instead of encoding a large definition.
+pub(crate) fn definition_uuid_of(doc: &Document, name: &str, contents: &[&[u8]]) -> uuid::Uuid {
+    let mut h = blake3::Hasher::new();
+    h.update(b"planyrith component definition\0");
+    h.update(&doc.info.next_pid.next_raw().to_le_bytes());
+    h.update(name.as_bytes());
+    h.update(b"\0");
+    for part in contents {
+        h.update(&(part.len() as u64).to_le_bytes());
+        h.update(part);
     }
     let mut bytes = [0u8; 16];
     bytes.copy_from_slice(&h.finalize().as_bytes()[..16]);

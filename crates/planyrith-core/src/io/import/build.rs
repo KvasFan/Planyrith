@@ -14,14 +14,16 @@ use crate::commands::params::Target;
 use crate::commands::{CommandError, Transaction};
 use crate::diagnostics::{Warning, WarningCode};
 use crate::document::{
-    ComponentDefinition, ComponentInstance, ContainerRef, Document, Entities, EntityRecord, Group,
-    Material, Rgba8, Texture, UvMap,
+    ComponentDefinition, ComponentInstance, ContainerRef, Document, Entities, EntityRecord,
+    FrontOrBack, Group, Material, Rgba8, Texture, UvMap,
 };
 use crate::geom::mesh::TriangleMergeOptions;
 use crate::geom::{FaceSides, HalfEdgeMesh};
 use crate::ids::{DefinitionId, MaterialId, Pid};
 use crate::io::IoError;
 use crate::io::import::{ImportAs, ImportOptions, ImportReport};
+use crate::tolerance::Tolerances;
+use crate::units::LengthUnit;
 
 /// A material as a file describes it.
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -75,6 +77,8 @@ pub struct ImportedScene {
     pub nodes: Vec<ImportedNode>,
     /// The source is Y-up (`swap_yz` decides when the options do not).
     pub y_up: bool,
+    /// The file's own length unit, if it declares one.
+    pub units: Option<LengthUnit>,
 }
 
 /// Size of one texture repeat for imported texture coordinates, mm. Any
@@ -140,6 +144,107 @@ fn triangle_uv_map(
     m.is_finite().then(|| DAffine2::from_mat2_translation(m, t))
 }
 
+/// Triangles grouped into connected shells (sharing a corner within
+/// tolerance), each in triangle order, shells by their first triangle.
+fn shells(positions: &[DVec3], triangles: &[[u32; 3]], tol: &Tolerances) -> Vec<Vec<usize>> {
+    fn find(parent: &mut [usize], mut i: usize) -> usize {
+        while parent[i] != i {
+            parent[i] = parent[parent[i]];
+            i = parent[i];
+        }
+        i
+    }
+    let mut parent: Vec<usize> = (0..triangles.len()).collect();
+    let mut owner: BTreeMap<[i64; 3], usize> = BTreeMap::new();
+    let cell = tol.length.max(f64::MIN_POSITIVE);
+    for (t, tri) in triangles.iter().enumerate() {
+        for &i in tri {
+            let Some(p) = positions.get(i as usize) else {
+                continue;
+            };
+            let key = [p.x, p.y, p.z].map(|c| (c / cell).round() as i64);
+            let other = *owner.entry(key).or_insert(t);
+            let (a, b) = (find(&mut parent, t), find(&mut parent, other));
+            if a != b {
+                parent[a.max(b)] = a.min(b);
+            }
+        }
+    }
+    let mut groups: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+    for t in 0..triangles.len() {
+        let root = find(&mut parent, t);
+        groups.entry(root).or_default().push(t);
+    }
+    groups.into_values().collect()
+}
+
+/// Merges the `subset` triangles of `mesh` into faces and paints them with
+/// their materials and texture mappings; also returns how many triangles
+/// were skipped (degenerate or non-manifold).
+#[allow(clippy::too_many_arguments)]
+fn build_part(
+    positions: &[DVec3],
+    mesh: &ImportedMesh,
+    subset: &[usize],
+    keys: &[u32],
+    maps: &[Option<DAffine2>],
+    materials: &[Option<MaterialId>],
+    opts: &ImportOptions,
+    tol: &Tolerances,
+) -> Result<(HalfEdgeMesh, usize), IoError> {
+    let triangles: Vec<[u32; 3]> = subset.iter().map(|&t| mesh.triangles[t]).collect();
+    let part_keys: Vec<u32> = subset.iter().map(|&t| keys[t]).collect();
+    let merged = HalfEdgeMesh::from_triangles_keyed(
+        positions,
+        &triangles,
+        &part_keys,
+        TriangleMergeOptions {
+            merge_coplanar: opts.merge_coplanar,
+            soften_angle: opts.soften_angle,
+        },
+        tol,
+    )
+    .map_err(|e| IoError::Corrupt {
+        part: mesh.name.clone(),
+        reason: e.to_string(),
+    })?;
+    let skipped = merged.degenerate_triangles + merged.non_manifold_edges;
+    let mut built = merged.mesh;
+    // Materials and texture mappings, from each face's first triangle.
+    let mut done = std::collections::BTreeSet::new();
+    for (local, face) in merged.triangle_faces.iter().enumerate() {
+        let Some(f) = face else { continue };
+        if !done.insert(*f) {
+            continue;
+        }
+        let t = subset[local];
+        let Some(material) = mesh.materials.get(t).copied().flatten() else {
+            continue;
+        };
+        let Some(&Some(id)) = materials.get(material) else {
+            continue;
+        };
+        let Some(current) = built.face(*f) else {
+            continue;
+        };
+        // A face's map is in its own frame; recompute for its plane.
+        let uv = maps[t].and_then(|_| {
+            let tri = mesh.triangles[t];
+            let p = tri.map(|i| positions[i as usize]);
+            let uv = tri.map(|i| mesh.uvs[i as usize]);
+            triangle_uv_map(p, uv, &current.plane.frame())
+        });
+        let sides = FaceSides {
+            material_front: Some(id),
+            material_back: Some(id),
+            uv_front: uv.map(UvMap::Affine),
+            uv_back: uv.map(UvMap::Affine),
+        };
+        let _ = built.set_face_sides(*f, sides, &mut Vec::new());
+    }
+    Ok((built, skipped))
+}
+
 /// Brings `scene` into the target container; returns the report.
 pub fn build_scene(
     tx: &mut Transaction<'_>,
@@ -150,7 +255,8 @@ pub fn build_scene(
     let mut report = ImportReport::default();
     let tol = *tx.tolerances();
     // Source → document: units, scale and, for Y-up sources, Y-up → Z-up.
-    let factor = opts.units.millimeters() * opts.scale;
+    let unit = opts.units.or(scene.units).unwrap_or(LengthUnit::Millimeter);
+    let factor = unit.millimeters() * opts.scale;
     let swap = opts.swap_yz.unwrap_or(scene.y_up);
     let axes = if swap {
         DMat3::from_cols(DVec3::X, DVec3::Z, -DVec3::Y)
@@ -160,12 +266,23 @@ pub fn build_scene(
     let convert = DAffine3::from_mat3(axes * factor);
     let to_document = |t: DAffine3| convert * t * convert.inverse();
 
-    // Materials.
-    let mut materials: Vec<MaterialId> = Vec::with_capacity(scene.materials.len());
+    // Materials; one named like the document's default material (as
+    // exporters write unpainted faces) stays the default.
+    let default_name = {
+        let doc = tx.document();
+        doc.materials
+            .get(doc.materials.default_for(FrontOrBack::Front))
+            .map(|m| m.name.clone())
+    };
+    let mut materials: Vec<Option<MaterialId>> = Vec::with_capacity(scene.materials.len());
     let mut textured: Vec<bool> = Vec::with_capacity(scene.materials.len());
     for m in &scene.materials {
-        let name = unique_material_name(tx.document(), &m.name);
-        let mut material = Material::solid(name, m.color);
+        if m.texture.is_none() && default_name.as_deref() == Some(m.name.trim()) {
+            materials.push(None);
+            textured.push(false);
+            continue;
+        }
+        let mut material = Material::solid(m.name.trim().to_string(), m.color);
         material.opacity = m.opacity.clamp(0.0, 1.0);
         material.color.a = (material.opacity * 255.0).round() as u8;
         if let Some(bytes) = &m.texture {
@@ -184,7 +301,25 @@ pub fn build_scene(
             }
         }
         textured.push(material.texture.is_some());
-        materials.push(tx.insert_material(material).map_err(io)?);
+        // The same material imported before is reused.
+        let doc = tx.document();
+        let same = std::iter::once(material.name.clone())
+            .chain((2..).map(|n| format!("{} #{n}", material.name)))
+            .map_while(|name| doc.materials.by_name(&name))
+            .find(|&id| {
+                doc.materials.get(id).is_some_and(|old| {
+                    old.color == material.color
+                        && (old.opacity - material.opacity).abs() <= f32::EPSILON
+                        && old.texture == material.texture
+                        && old.is_default_for.is_none()
+                })
+            });
+        if let Some(id) = same {
+            materials.push(Some(id));
+            continue;
+        }
+        material.name = unique_material_name(doc, &material.name);
+        materials.push(Some(tx.insert_material(material).map_err(io)?));
     }
 
     // Placements: given nodes, or each mesh once.
@@ -254,63 +389,56 @@ pub fn build_scene(
             let next = key_ids.len() as u32;
             keys.push(*key_ids.entry((material, quantized)).or_insert(next));
         }
-        let merged = HalfEdgeMesh::from_triangles_keyed(
-            &positions,
-            &mesh.triangles,
-            &keys,
-            TriangleMergeOptions {
-                merge_coplanar: opts.merge_coplanar,
-                soften_angle: opts.soften_angle,
-            },
-            &tol,
-        )
-        .map_err(|e| IoError::Corrupt {
-            part: mesh.name.clone(),
-            reason: e.to_string(),
-        })?;
-        if merged.degenerate_triangles + merged.non_manifold_edges > 0 {
+        let ids: Vec<Option<MaterialId>> = materials.clone();
+        let part =
+            |subset: &[usize]| build_part(&positions, mesh, subset, &keys, &maps, &ids, opts, &tol);
+        let all: Vec<usize> = (0..mesh.triangles.len()).collect();
+        let (whole, mut skipped) = part(&all)?;
+        // Overlapping shells in one mesh cross each other: then each
+        // connected shell becomes a group, and a shell that crosses itself
+        // is left out.
+        let pieces: Vec<HalfEdgeMesh> = if whole.edge_crossings(&tol).is_empty() {
+            vec![whole]
+        } else {
+            skipped = 0;
+            let mut pieces = Vec::new();
+            let mut crossing = 0usize;
+            for shell in shells(&positions, &mesh.triangles, &tol) {
+                let (piece, bad) = part(&shell)?;
+                if piece.edge_crossings(&tol).is_empty() {
+                    skipped += bad;
+                    if piece.face_count() > 0 {
+                        pieces.push(piece);
+                    }
+                } else {
+                    crossing += shell.len();
+                }
+            }
+            if crossing > 0 {
+                report.warnings.push(Warning::new(
+                    WarningCode::W2004,
+                    format!(
+                        "`{}`: {crossing} self-intersecting triangles skipped",
+                        mesh.name
+                    ),
+                ));
+                report.skipped += crossing;
+            }
+            pieces
+        };
+        if skipped > 0 {
             report.warnings.push(Warning::new(
                 WarningCode::W2004,
                 format!(
-                    "`{}`: {} degenerate and {} non-manifold triangles skipped",
-                    mesh.name, merged.degenerate_triangles, merged.non_manifold_edges
+                    "`{}`: {skipped} degenerate or non-manifold triangles skipped",
+                    mesh.name
                 ),
             ));
         }
-        let mut built = merged.mesh;
-        // Materials and texture mappings, from each face's first triangle.
-        let mut done = std::collections::BTreeSet::new();
-        for (t, face) in merged.triangle_faces.iter().enumerate() {
-            let Some(f) = face else { continue };
-            if !done.insert(*f) {
-                continue;
-            }
-            let Some(material) = mesh.materials.get(t).copied().flatten() else {
-                continue;
-            };
-            let Some(&id) = materials.get(material) else {
-                continue;
-            };
-            let Some(current) = built.face(*f) else {
-                continue;
-            };
-            // A face's map is in its own frame; recompute for its plane.
-            let uv = maps[t].and_then(|_| {
-                let tri = mesh.triangles[t];
-                let p = tri.map(|i| positions[i as usize]);
-                let uv = tri.map(|i| mesh.uvs[i as usize]);
-                triangle_uv_map(p, uv, &current.plane.frame())
-            });
-            let sides = FaceSides {
-                material_front: Some(id),
-                material_back: Some(id),
-                uv_front: uv.map(UvMap::Affine),
-                uv_back: uv.map(UvMap::Affine),
-            };
-            let _ = built.set_face_sides(*f, sides, &mut Vec::new());
+        for piece in &pieces {
+            report.faces += piece.face_count();
+            report.edges += piece.edge_count();
         }
-        report.faces += built.face_count();
-        report.edges += built.edge_count();
         let shared = count > 1;
         let (name, internal) = if single {
             (top_name.clone(), !as_component)
@@ -325,8 +453,62 @@ pub fn build_scene(
                 true,
             )
         };
-        let entities = Entities::from_mesh(built, || tx.allocate_pid());
-        let uuid = crate::commands::common::definition_uuid(tx.document(), &name, &entities);
+        let mut pieces = pieces.into_iter();
+        let entities = match (pieces.len(), pieces.next()) {
+            (1, Some(only)) => Entities::from_mesh(only, || tx.allocate_pid()),
+            (_, first) => {
+                // One group per shell.
+                let mut groups = Vec::new();
+                for piece in first.into_iter().chain(pieces) {
+                    let group_name = format!(
+                        "Group {}",
+                        crate::commands::common::group_number(tx.document())
+                    );
+                    let entities = Entities::from_mesh(piece, || tx.allocate_pid());
+                    let uuid = crate::commands::common::definition_uuid_of(
+                        tx.document(),
+                        &group_name,
+                        &[
+                            bytemuck::cast_slice(&positions),
+                            bytemuck::cast_slice(&mesh.triangles),
+                            &entities.order().len().to_le_bytes(),
+                        ],
+                    );
+                    let mut def = ComponentDefinition::new(uuid, group_name.clone());
+                    def.is_internal_group = true;
+                    def.entities = entities;
+                    groups.push((tx.insert_definition(def).map_err(io)?, group_name));
+                }
+                let mut entities = Entities::new();
+                for (definition, name) in groups {
+                    let pid = tx.allocate_pid();
+                    entities
+                        .insert(
+                            EntityRecord::Group(Group {
+                                definition,
+                                transform: DAffine3::IDENTITY,
+                                name,
+                            }),
+                            pid,
+                        )
+                        .map_err(|e| IoError::Corrupt {
+                            part: mesh.name.clone(),
+                            reason: e.to_string(),
+                        })?;
+                }
+                entities
+            }
+        };
+        // The source data names the contents (cheaper than encoding them).
+        let uuid = crate::commands::common::definition_uuid_of(
+            tx.document(),
+            &name,
+            &[
+                bytemuck::cast_slice(&positions),
+                bytemuck::cast_slice(&mesh.triangles),
+                &entities.order().len().to_le_bytes(),
+            ],
+        );
         let mut def = ComponentDefinition::new(uuid, name);
         def.is_internal_group = internal;
         def.entities = entities;
