@@ -144,6 +144,12 @@ fn golden_dir() -> PathBuf {
 /// missing or when updating, and leaves the actual image next to the
 /// target directory on failure.
 fn check(name: &str, image: &image::RgbaImage) {
+    check_within(name, image, 2, 1000);
+}
+
+/// [`check`] with a per-channel tolerance and an allowed share of differing
+/// pixels (`1 / per`).
+fn check_within(name: &str, image: &image::RgbaImage, channel: u8, per: usize) {
     let path = golden_dir().join(format!("{name}.png"));
     let update = std::env::var_os("PLANYRITH_UPDATE_GOLDEN").is_some();
     if update || !path.exists() {
@@ -156,9 +162,9 @@ fn check(name: &str, image: &image::RgbaImage) {
     let differing = golden
         .pixels()
         .zip(image.pixels())
-        .filter(|(a, b)| a.0.iter().zip(b.0.iter()).any(|(x, y)| x.abs_diff(*y) > 2))
+        .filter(|(a, b)| a.0.iter().zip(b.0.iter()).any(|(x, y)| x.abs_diff(*y) > channel))
         .count();
-    let allowed = (golden.width() * golden.height()) as usize / 1000;
+    let allowed = (golden.width() * golden.height()) as usize / per;
     if differing > allowed {
         let actual = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("{name}.actual.png"));
         image.save(&actual).unwrap();
@@ -477,5 +483,7 @@ fn sections_shadows_and_overlays() {
         .count();
     assert!(capped > 200, "{capped} cap pixels");
     planyrith_render::draw_labels(&mut image, &overlay, &doc.camera);
-    check("room-section-shadows", &image);
+    // Shadow-map edges fall on different pixels with each adapter's depth
+    // precision (docs/12 Decisions): 1 % of the pixels may differ.
+    check_within("room-section-shadows", &image, 24, 100);
 }

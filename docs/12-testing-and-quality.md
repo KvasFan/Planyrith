@@ -110,3 +110,9 @@ humans or GUI automation before releases, with expected screenshots.
   PDF read by `pdfinfo`. In CI, every format has round-trip tests in the core
   (`commands::file::tests`), robustness tests on random and damaged files, and the
   `import_benchmark` (ignored) measures the 100 MB glTF case.
+- 2026-10-26 — The snapshot with sun shadows (`room-section-shadows`) allows 1 % of its pixels to
+  differ by more than 24/255: where a shadow-map edge falls depends on each adapter's depth
+  precision (hardware on the development machine, lavapipe, Metal and WARP in CI differed on
+  0.2–0.5 % of the pixels). Its caps are checked separately by counting section-fill pixels.
+  The other snapshots keep the 2/255, 0.1 % tolerance of docs/06 §11.
+
