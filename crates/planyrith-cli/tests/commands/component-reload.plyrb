@@ -1,0 +1,11 @@
+# A stool saved small, rebuilt bigger under another name and saved; the
+# small one reloads the big contents and keeps its name and instances.
+rectangle --corner-a 0,0,0 --corner-b 400,400,0
+push-pull --face '{face & last}' --distance 400
+make-component --targets all --name Stool
+move --targets instance --delta 600,0,0 --copy
+rectangle --corner-a 0,2000,0 --corner-b 800,2800,0
+push-pull --face '{face & last}' --distance 800
+make-component --targets 'face | edge' --name Big
+component-save-as --definition Big --path parts/big-reload.plyrc
+component-reload --definition Stool --path parts/big-reload.plyrc

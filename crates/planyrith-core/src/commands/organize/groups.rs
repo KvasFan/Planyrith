@@ -20,8 +20,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::commands::common::{
-    SideRows, definition_uuid, mesh_piece, place_geometry, refuse_locked, remove_container_entity,
-    targets_in,
+    SideRows, definition_uuid, group_number, mesh_piece, place_geometry, refuse_locked,
+    remove_container_entity, targets_in,
 };
 use crate::commands::params::{Target, target_container};
 use crate::commands::{
@@ -299,10 +299,12 @@ impl Command for MakeGroup {
             )));
         }
         refuse_locked(tx, target.container, &ids)?;
-        let uuid = definition_uuid(tx.document());
+        let number = group_number(tx.document());
         let mut captured = capture(tx, &target, &ids)?;
         let name = p.name.unwrap_or_default();
-        let mut def = ComponentDefinition::new(uuid, format!("Group {}", uuid.as_u64_pair().1));
+        let definition_name = format!("Group {number}");
+        let uuid = definition_uuid(tx.document(), &definition_name, &captured.entities);
+        let mut def = ComponentDefinition::new(uuid, definition_name);
         def.is_internal_group = true;
         def.entities = std::mem::take(&mut captured.entities);
         let d = tx.insert_definition(def)?;
@@ -434,8 +436,8 @@ impl Command for MakeComponent {
             )));
         }
         refuse_locked(tx, target.container, &ids)?;
-        let uuid = definition_uuid(tx.document());
         let mut captured = capture(tx, &target, &ids)?;
+        let uuid = definition_uuid(tx.document(), &p.name, &captured.entities);
         let mut def = ComponentDefinition::new(uuid, p.name.clone());
         def.description = p.description.clone();
         def.behavior = behavior_of(&p)?;

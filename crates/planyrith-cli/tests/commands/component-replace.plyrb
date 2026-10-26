@@ -1,0 +1,9 @@
+# Two stools become tables, keeping their placement.
+rectangle --corner-a 0,0,0 --corner-b 400,400,0
+push-pull --face '{face & last}' --distance 400
+make-component --targets all --name Stool
+move --targets instance --delta 600,0,0 --copy
+rectangle --corner-a 0,2000,0 --corner-b 1200,2800,0
+push-pull --face '{face & last}' --distance 700
+make-component --targets 'face | edge' --name Table
+component-replace --instances 'definition:Stool' --with Table

@@ -9,12 +9,19 @@
 
 #![warn(unused_variables, dead_code)]
 
+mod components;
 mod groups;
 mod libraries;
 mod materials;
 mod scenes;
 mod tags;
 
+pub use components::{
+    ComponentInsert, ComponentInsertOutput, ComponentInsertParams, ComponentOutput,
+    ComponentReload, ComponentReloadParams, ComponentReplace, ComponentReplaceOutput,
+    ComponentReplaceParams, ComponentSaveAs, ComponentSaveAsParams, MakeUnique, MakeUniqueOutput,
+    MakeUniqueParams,
+};
 pub use groups::{
     Explode, ExplodeOutput, ExplodeParams, MakeComponent, MakeComponentOutput, MakeComponentParams,
     MakeGroup, MakeGroupOutput, MakeGroupParams,
@@ -49,6 +56,11 @@ pub fn register(registry: &mut CommandRegistry) {
     registry.register(MakeGroup);
     registry.register(MakeComponent);
     registry.register(Explode);
+    registry.register(MakeUnique);
+    registry.register(ComponentInsert);
+    registry.register(ComponentSaveAs);
+    registry.register(ComponentReload);
+    registry.register(ComponentReplace);
     registry.register(TagCreate);
     registry.register(TagRename);
     registry.register(TagSetVisible);

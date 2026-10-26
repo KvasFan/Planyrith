@@ -178,3 +178,12 @@ save unless `--no-thumbnail`. `manifest.json` carries `title`, `author`, `descri
   library's materials and their images and nothing else (an empty model, the two default
   materials ignored by readers). Library files are written with deterministic metadata (the core
   has no clock) and without a journal, so saving the same materials gives the same bytes.
+- 2026-10-26 — A `.plyrc` component file is the native container whose model holds exactly one
+  instance of the component at the origin (identity transform); its definitions are the
+  component and those it nests, with the materials, images and tags they use. Copying a
+  definition into another document keeps its UUID; a document that already has a definition with
+  that UUID reuses it. Materials and tags are matched by name (a missing one is added; tags go
+  to the top level); the default materials map onto the document's defaults; pids are assigned
+  anew. Definition UUIDs are a hash (blake3, as a version-8 UUID) of the name, the contents and
+  the document's pid counter: deterministic, yet distinct for components made in different
+  documents. (Before 0.4 they were the pid counter alone, which collided across documents.)

@@ -170,6 +170,17 @@ pub struct Entities {
     locked: BTreeSet<EntityId>,
 }
 
+/// What a container's contents refer to outside themselves.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct EntityReferences {
+    /// Definitions of groups and instances.
+    pub definitions: BTreeSet<DefinitionId>,
+    /// Face, override and image materials.
+    pub materials: BTreeSet<crate::ids::MaterialId>,
+    /// Tags of entities.
+    pub tags: BTreeSet<TagId>,
+}
+
 /// A reference to an entity in the file form: mesh elements by their index
 /// in [`EntitiesSer::mesh`], everything else by its (stable) id.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -634,6 +645,63 @@ impl Entities {
                 self.by_pid.remove(&old);
             }
             self.by_pid.insert(pid, id);
+        }
+    }
+
+    /// The definitions, materials and tags the contents refer to (cross-
+    /// document copies, docs/09 Decisions), each sorted and deduplicated.
+    pub(crate) fn references(&self) -> EntityReferences {
+        let mut out = EntityReferences::default();
+        out.definitions
+            .extend(self.groups.values().map(|g| g.definition));
+        out.definitions
+            .extend(self.instances.values().map(|i| i.definition));
+        out.materials
+            .extend(self.instances.values().filter_map(|i| i.material_override));
+        out.materials
+            .extend(self.images.values().map(|i| i.material));
+        for (_, face) in self.mesh.faces() {
+            out.materials.extend(face.sides.material_front);
+            out.materials.extend(face.sides.material_back);
+        }
+        out.tags.extend(self.tag_of.values().copied());
+        out
+    }
+
+    /// Rewrites the references to definitions, materials and tags through
+    /// the maps (ids missing from a map are kept) and forgets gluing, whose
+    /// face paths do not survive a copy into another document.
+    pub(crate) fn remap_refs(
+        &mut self,
+        definitions: &BTreeMap<DefinitionId, DefinitionId>,
+        materials: &BTreeMap<crate::ids::MaterialId, crate::ids::MaterialId>,
+        tags: &BTreeMap<TagId, TagId>,
+    ) {
+        let def = |d: DefinitionId| definitions.get(&d).copied().unwrap_or(d);
+        let mat = |m: crate::ids::MaterialId| materials.get(&m).copied().unwrap_or(m);
+        for g in self.groups.values_mut() {
+            g.definition = def(g.definition);
+        }
+        for i in self.instances.values_mut() {
+            i.definition = def(i.definition);
+            i.material_override = i.material_override.map(mat);
+            i.glued_to = None;
+        }
+        for i in self.images.values_mut() {
+            i.material = mat(i.material);
+        }
+        let faces: Vec<FaceId> = self.mesh.faces().map(|(f, _)| f).collect();
+        for f in faces {
+            let Some(mut sides) = self.mesh.face(f).map(|face| face.sides.clone()) else {
+                continue;
+            };
+            sides.material_front = sides.material_front.map(mat);
+            sides.material_back = sides.material_back.map(mat);
+            // Whole definitions are copied; their mesh deltas are not needed.
+            let _ = self.mesh.set_face_sides(f, sides, &mut Vec::new());
+        }
+        for t in self.tag_of.values_mut() {
+            *t = tags.get(t).copied().unwrap_or(*t);
         }
     }
 

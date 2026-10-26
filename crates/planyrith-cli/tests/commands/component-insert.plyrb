@@ -1,0 +1,13 @@
+# Save a component, delete it from the model, insert it twice from the file
+# (one definition, found again by its UUID) and glue a window to a wall.
+rectangle --corner-a 0,0,0 --corner-b 400,400,0
+push-pull --face '{face & last}' --distance 400
+make-component --targets all --name Stool
+component-save-as --definition Stool --path parts/stool-insert.plyrc
+delete --targets instance
+component-insert --path parts/stool-insert.plyrc --position 2000,0,0
+component-insert --path parts/stool-insert.plyrc --position 3000,0,0 --rotation 45
+rectangle --corner-a 0,2000,0 --corner-b 900,3000,0
+make-component --targets last --name Window --behavior '{"glue_to": "vertical"}' --no-replace-selection
+rectangle --corner-a 5000,0,0 --corner-b 8000,0,2500 --plane 'xz'
+component-insert --definition Window --position 6000,0,800 --on-face '{face & last}'

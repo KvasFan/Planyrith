@@ -1,0 +1,7 @@
+# Save a textured component to a file (the document is unchanged).
+material-create --name Oak --color '#A0522D' --texture textures/oak.png
+rectangle --corner-a 0,0,0 --corner-b 400,400,0
+push-pull --face '{face & last}' --distance 400
+material-apply --targets 'face & normal:z' --material Oak
+make-component --targets all --name Stool
+component-save-as --definition Stool --path parts/stool-save.plyrc

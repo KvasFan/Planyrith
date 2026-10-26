@@ -543,3 +543,253 @@ fn material_libraries_round_trip_with_textures() {
     );
     assert_valid(&other);
 }
+
+/// A 400 mm box component "Chair" with an Oak top, and three copies.
+fn chairs(e: &mut Engine) -> Vec<u64> {
+    run(
+        e,
+        "material-create",
+        json!({ "name": "Oak", "color": "#A0522D", "texture": "textures/oak.png" }),
+    );
+    boxed(e, 0.0, 0.0, 400.0);
+    run(
+        e,
+        "material-apply",
+        json!({ "targets": "face & normal:z", "material": "Oak" }),
+    );
+    let first = run(
+        e,
+        "make-component",
+        json!({ "targets": "all", "name": "Chair" }),
+    )["instance"]
+        .as_u64()
+        .unwrap();
+    let copies = run(
+        e,
+        "move",
+        json!({ "targets": "instance", "delta": [600, 0, 0], "copy": true, "copies": 2 }),
+    );
+    let mut pids = vec![first];
+    pids.extend(
+        copies["copies"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap()),
+    );
+    pids
+}
+
+fn definition_of_instance(e: &Engine, pid: u64) -> String {
+    let doc = e.document();
+    let (c, id) = doc
+        .locate_pid(crate::ids::Pid(pid))
+        .unwrap_or_else(|| panic!("@{pid} is gone"));
+    let d = doc.container(c).unwrap().definition_of(id).unwrap();
+    doc.definition(d).unwrap().name.clone()
+}
+
+#[test]
+fn make_unique_forks_only_the_chosen_instances() {
+    let (mut e, _storage) = engine_with_storage();
+    let pids = chairs(&mut e);
+    let out = run(
+        &mut e,
+        "make-unique",
+        json!({ "targets": format!("@{}", pids[1]) }),
+    );
+    assert_eq!(out["definitions"].as_array().unwrap().len(), 1);
+    assert_eq!(e.document().definitions.len(), 2);
+    assert_eq!(definition_of_instance(&e, pids[0]), "Chair");
+    assert_eq!(definition_of_instance(&e, pids[1]), "Chair #2");
+    assert_eq!(definition_of_instance(&e, pids[2]), "Chair");
+    // The copy shares the material (by name) and has its own pids.
+    assert_eq!(e.document().materials.iter().count(), 3);
+    assert_valid(&e);
+    // The only user of a definition stays as it is.
+    let out = run(
+        &mut e,
+        "make-unique",
+        json!({ "targets": format!("@{}", pids[1]) }),
+    );
+    assert_eq!(out["definitions"], json!([]));
+    // That changed nothing, so one undo takes back the first make-unique.
+    e.undo().unwrap();
+    assert_eq!(e.document().definitions.len(), 1);
+    assert_eq!(definition_of_instance(&e, pids[1]), "Chair");
+}
+
+#[test]
+fn components_save_insert_reload_and_replace_across_documents() {
+    let (mut source, storage) = engine_with_storage();
+    chairs(&mut source);
+    let saved = run(
+        &mut source,
+        "component-save-as",
+        json!({ "definition": "Chair", "path": "lib/chair.plyrc" }),
+    );
+    let uuid = saved["uuid"].as_str().unwrap().to_string();
+
+    // Another document inserts it twice: one definition, two instances,
+    // the textured material and its image come along.
+    let mut target = engine();
+    target.set_storage(storage.clone());
+    let a = run(
+        &mut target,
+        "component-insert",
+        json!({ "path": "lib/chair.plyrc", "position": [1000, 0, 0] }),
+    );
+    assert_eq!(a["definition"], "Chair");
+    run(
+        &mut target,
+        "component-insert",
+        json!({ "path": "lib/chair.plyrc", "position": [2000, 0, 0], "rotation": 90.0 }),
+    );
+    let doc = target.document();
+    assert_eq!(doc.definitions.len(), 1);
+    assert_eq!(doc.model.counts().instances, 2);
+    assert_eq!(
+        doc.definition(doc.definition_by_name("Chair").unwrap())
+            .unwrap()
+            .uuid
+            .to_string(),
+        uuid
+    );
+    let oak = doc
+        .materials
+        .get(doc.materials.by_name("Oak").unwrap())
+        .unwrap();
+    assert!(doc.images.contains(oak.texture.as_ref().unwrap().image));
+    let b = doc.aabb();
+    assert!(
+        (b.min.x - 1000.0).abs() < 1e-9 && (b.max.x - 2000.0).abs() < 1e-9,
+        "{b:?}"
+    );
+    assert_valid(&target);
+
+    // A bigger chair saved over the file; reloading changes every instance
+    // but keeps the name and UUID.
+    let mut bigger = engine();
+    bigger.set_storage(storage.clone());
+    boxed(&mut bigger, 0.0, 0.0, 800.0);
+    run(
+        &mut bigger,
+        "make-component",
+        json!({ "targets": "all", "name": "Big" }),
+    );
+    run(
+        &mut bigger,
+        "component-save-as",
+        json!({ "definition": "Big", "path": "lib/big.plyrc" }),
+    );
+    run(
+        &mut target,
+        "component-reload",
+        json!({ "definition": "Chair", "path": "lib/big.plyrc" }),
+    );
+    let doc = target.document();
+    assert_eq!(doc.definitions.len(), 1);
+    let chair = doc
+        .definition(doc.definition_by_name("Chair").unwrap())
+        .unwrap();
+    assert_eq!(chair.uuid.to_string(), uuid);
+    assert!((chair.entities.mesh().aabb().max.x - 800.0).abs() < 1e-9);
+    assert_valid(&target);
+
+    // Replacing an instance with another component file.
+    let r = run(
+        &mut target,
+        "component-replace",
+        json!({ "instances": format!("@{}", a["instance"]), "with": "lib/chair.plyrc" }),
+    );
+    assert_eq!(r["replaced"], 1);
+    assert_eq!(
+        target.document().definitions.len(),
+        1,
+        "same UUID: the chair is reused"
+    );
+    run(
+        &mut target,
+        "component-replace",
+        json!({ "instances": "instance", "with": "lib/big.plyrc" }),
+    );
+    assert_eq!(target.document().definitions.len(), 2);
+    assert_valid(&target);
+    while target.history().can_undo() {
+        target.undo().unwrap();
+    }
+    assert_eq!(target.document().definitions.len(), 0);
+    assert_eq!(target.document().images.len(), 0);
+}
+
+#[test]
+fn gluing_components_lie_on_matching_faces() {
+    let mut e = engine();
+    // A vertical wall face in the XZ plane and a floor.
+    run(
+        &mut e,
+        "rectangle",
+        json!({ "corner_a": [0, 0, 0], "corner_b": [3000, 0, 2500], "plane": { "normal": [0, -1, 0], "d": 0 } }),
+    );
+    let wall = e.last_created().to_vec();
+    run(
+        &mut e,
+        "rectangle",
+        json!({ "corner_a": [0, 500, 1000], "corner_b": [900, 1500, 1000] }),
+    );
+    let window = run(
+        &mut e,
+        "make-component",
+        json!({ "targets": "last", "name": "Window", "behavior": { "glue_to": "vertical", "cuts_opening": true }, "replace_selection": false }),
+    );
+    let _ = window;
+    let wall_face = wall
+        .iter()
+        .find_map(|p| {
+            let (_, id) = e.document().locate_pid(*p)?;
+            matches!(id, crate::ids::EntityId::Face(_)).then_some(p.0)
+        })
+        .unwrap();
+    let out = run(
+        &mut e,
+        "component-insert",
+        json!({ "definition": "Window", "position": [1000, 0, 800], "on_face": { "Pid": wall_face } }),
+    );
+    assert_eq!(out["glued"], true);
+    let doc = e.document();
+    let (c, id) = doc
+        .locate_pid(crate::ids::Pid(out["instance"].as_u64().unwrap()))
+        .unwrap();
+    let t = doc.container(c).unwrap().transform_of(id).unwrap();
+    // Blue along the wall's normal, red horizontal.
+    let (wc, wf) = doc.locate_pid(crate::ids::Pid(wall_face)).unwrap();
+    let crate::ids::EntityId::Face(wf) = wf else {
+        panic!()
+    };
+    let normal = doc
+        .container(wc)
+        .unwrap()
+        .mesh()
+        .face(wf)
+        .unwrap()
+        .plane
+        .normal;
+    assert!(normal.y.abs() > 0.999);
+    assert!(t.matrix3.z_axis.distance(normal) < 1e-9, "{t:?}");
+    assert!(t.matrix3.x_axis.z.abs() < 1e-9);
+    assert!(t.translation.distance(glam::DVec3::new(1000.0, 0.0, 800.0)) < 1e-9);
+    // Not on a horizontal face.
+    let floor = run(
+        &mut e,
+        "rectangle",
+        json!({ "corner_a": [5000, 0, 0], "corner_b": [6000, 1000, 0] }),
+    );
+    let err = e
+        .execute_erased(
+            "component-insert",
+            json!({ "definition": "Window", "on_face": { "Pid": floor["face"] } }),
+        )
+        .unwrap_err();
+    assert!(err.to_string().contains("does not glue"), "{err}");
+    assert_valid(&e);
+}

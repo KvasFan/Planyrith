@@ -1,0 +1,6 @@
+# Three chairs share one component; the two copies move to their own.
+rectangle --corner-a 0,0,0 --corner-b 400,400,0
+push-pull --face '{face & last}' --distance 400
+make-component --targets all --name Chair
+move --targets instance --delta 600,0,0 --copy --copies 2
+make-unique --targets last

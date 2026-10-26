@@ -397,10 +397,33 @@ pub(crate) fn targets_of(
     Ok(out)
 }
 
-/// A deterministic definition UUID: commands may not use randomness, so the
-/// UUID is derived from the document's pid counter (unique and monotonic).
-pub(crate) fn definition_uuid(doc: &Document) -> uuid::Uuid {
-    uuid::Uuid::from_u64_pair(0x706c_7972_6974_6800, doc.info.next_pid.next_raw())
+/// A deterministic definition UUID (docs/09 Decisions): commands may not
+/// use randomness, yet UUIDs identify components across documents, so the
+/// UUID is a hash of the name, the contents and the document's pid counter
+/// (unique within the document) — two documents give the same UUID only to
+/// identical components made at the same point of their history.
+pub(crate) fn definition_uuid(
+    doc: &Document,
+    name: &str,
+    entities: &crate::document::Entities,
+) -> uuid::Uuid {
+    let mut h = blake3::Hasher::new();
+    h.update(b"planyrith component definition\0");
+    h.update(&doc.info.next_pid.next_raw().to_le_bytes());
+    h.update(name.as_bytes());
+    h.update(b"\0");
+    if let Ok(bytes) = rmp_serde::to_vec_named(entities) {
+        h.update(&bytes);
+    }
+    let mut bytes = [0u8; 16];
+    bytes.copy_from_slice(&h.finalize().as_bytes()[..16]);
+    uuid::Builder::from_custom_bytes(bytes).into_uuid()
+}
+
+/// The number in the default name of a new group (`Group <n>`): the pid
+/// counter, unique within the document.
+pub(crate) fn group_number(doc: &Document) -> u64 {
+    doc.info.next_pid.next_raw()
 }
 
 /// Copy-on-edit of groups (docs/04 §3.1): before group `id` (in `container`)
@@ -434,8 +457,8 @@ pub(crate) fn make_group_private(
     if others.is_empty() {
         return Ok(());
     }
-    copy.uuid = definition_uuid(doc);
-    copy.name = format!("Group {}", copy.uuid.as_u64_pair().1);
+    copy.name = format!("Group {}", group_number(doc));
+    copy.uuid = definition_uuid(doc, &copy.name, &copy.entities);
     let pids: Vec<Pid> = (0..copy.entities.len())
         .map(|_| tx.allocate_pid())
         .collect();

@@ -543,3 +543,16 @@ UI hints are generated from one source.
   when empty) with their images; it is a view command (the document is unchanged).
   `material-library-load { path, replace }` adds a library's materials, skipping names the
   document already has unless `replace`; libraries never carry the two default materials.
+- 2026-10-26 — **Components (0.4).** `make-unique { targets }` moves the selected instances of
+  each definition to one new copy of it (named `Name #2`, `#3`…); instances that are the only
+  users of their definition stay. `component-insert { definition | path, position, on_face,
+  rotation }` places an instance of a model component or of a component file so that its
+  insertion point lands on `position`; with `on_face`, a gluing component (its `glue_to`
+  accepts the face's slope: horizontal, vertical, sloped, any) lies on the face — blue axis along
+  the face normal, red axis horizontal (world red on horizontal faces), then `rotation` degrees
+  about blue — and records `glued_to`. `component-save-as { definition, path }` writes a
+  `.plyrc` (view command). `component-reload { definition, path }` replaces the component's
+  contents and behavior with the file's, keeping its name, UUID and instances; definitions the
+  file nests are matched by UUID, so nested components already in the model are not updated.
+  `component-replace { instances, with }` takes a model component (name or UUID) or a component
+  file. Moving glued instances with their face and cutting openings come later in 0.4.

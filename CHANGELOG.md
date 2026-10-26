@@ -10,6 +10,9 @@ All notable changes to Planyrith are recorded here. Versions follow
   `--texture-width`, `--texture-height`, `--colorize`); `material-sample` reads a face's
   material; `material-library-save`/`material-library-load` write and read `.plyrm` libraries
   with their images. File commands go through the engine's storage (undoable image loads).
+- **Components**: `make-unique`, `component-insert` (from the model or a `.plyrc` file, glued to
+  a face), `component-save-as`, `component-reload`, `component-replace`. Definition UUIDs are
+  now content hashes, so components from different documents no longer collide.
 
 - **Look of the GUI**: light and dark themes (View › Theme), an icon toolbar (file, undo/redo,
   tools, standard views, face styles), tool cursors, a right-click context menu, scene tabs
