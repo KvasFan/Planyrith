@@ -5,11 +5,13 @@ architecture, interiors, landscape, woodworking and product mock-ups. It is writ
 entirely in Rust, runs on Linux, macOS, Windows and in the browser (WebAssembly), and is
 built *CLI-first*: every modeling tool exists as a command before it gets a button.
 
-> **Status: version 0.3.0 — interactive modeling with inference.**
+> **Status: version 0.4.0 — organization and materials.**
 > The geometry kernel, the document model, the modeling commands, the native file format, the
 > `planyrith` command line (headless rendering, a JSON-RPC server, a shell) and the GUI work:
-> a 3D viewport with drawing and editing tools that snap through the inference engine, a value
-> field for exact input, previews, panels and open/save. The GUI's look is still basic. See [`CHANGELOG.md`](CHANGELOG.md) and the milestones in
+> drawing and editing tools that snap through the inference engine, exact input, previews,
+> textured materials (bundled and your own images), components and component files, scenes
+> with animated transitions, styles with fog and watermarks, and material, component and style
+> libraries. See [`CHANGELOG.md`](CHANGELOG.md) and the milestones in
 > [`docs/13-roadmap.md`](docs/13-roadmap.md).
 
 ## What Planyrith will be

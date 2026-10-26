@@ -11,7 +11,7 @@
 //!
 //! The module tree follows `docs/01-architecture.md` §2 exactly; every module
 //! starts with a `//!` comment naming the specification section it implements.
-//! The crate implements milestones 0.1–0.3 of `docs/13-roadmap.md`: the
+//! The crate implements milestones 0.1–0.4 of `docs/13-roadmap.md`: the
 //! kernel, the document model, the commands with undo/redo, native `.plyr`
 //! read/write, the JSON export, validation/repair, the camera math, the
 //! GPU-agnostic render extraction (`io::render_mesh`) and the inference

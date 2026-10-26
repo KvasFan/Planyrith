@@ -72,7 +72,8 @@ Frontends:
    Decisions "Look (after 0.3)"); review it with `PLANYRITH_SCREENSHOTS` (docs/12 Decisions).
    Still open from docs/07: semi-transparent previews, Preferences, layout presets.
    **Milestone 0.4** (organization and materials) is implemented on `main` (docs/13 Decisions
-   "0.4 scope"; acceptance `textured_cabinet_acceptance`); release 0.4.0 after the user tries it.
+   "0.4 scope"; acceptance `textured_cabinet_acceptance`); released as 0.4.0 after the user
+   confirmed textures apply (bundled materials, visible-side painting).
    Next: milestone 0.5 (interchange).
 2. **Journal and undo.** The journal (`history.msgpack`, docs/09 §3) is append-only and every
    frontend journals executed commands but not undo/redo, so after an undo it lists a command
@@ -117,7 +118,7 @@ Frontends:
 
 ## 4. Repository state
 
-- Branch `main`; releases `v0.1.0`, `v0.2.0` and `v0.3.0` tagged and pushed (2026-10-25). The user wants finished work
+- Branch `main`; releases `v0.1.0`, `v0.2.0`, `v0.3.0` (2026-10-25) and `v0.4.0` (2026-10-26) tagged and pushed. The user wants finished work
   pushed, in batches: run the full local check once per batch, then push once (each push to
   `main` runs the CI matrix; tags do not).
 - The 0.1 review fixes were made on a temporary branch and worktree, fast-forwarded into `main`

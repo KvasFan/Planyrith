@@ -4,7 +4,7 @@ All notable changes to Planyrith are recorded here. Versions follow
 [Semantic Versioning](https://semver.org/); before 1.0, minor versions are milestones of
 [`docs/13-roadmap.md`](docs/13-roadmap.md).
 
-## Unreleased
+## 0.4.0 — Organization and materials (2026-10-26)
 
 - **Textures**: `material-create`/`material-edit` load a texture image (`--texture`,
   `--texture-width`, `--texture-height`, `--colorize`); `material-sample` reads a face's
