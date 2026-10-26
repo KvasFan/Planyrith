@@ -3,6 +3,7 @@
 //! field, and hand the command to the application to run. Tools never change
 //! the document themselves.
 
+mod annotate;
 mod component;
 mod draw;
 mod edit;
@@ -16,6 +17,10 @@ use planyrith_core::math::{Axis, Plane};
 use planyrith_core::units::{LengthUnit, ValueFieldInput, parse_value_field};
 use serde_json::{Value, json};
 
+pub use annotate::{
+    AxesTool, DimensionTool, ProtractorTool, SectionPlaneTool, TapeMeasureTool, Text3dTool,
+    TextTool,
+};
 pub use component::ComponentTool;
 pub use draw::{ArcKind, ArcTool, LineTool, RectangleTool, RoundTool};
 pub use edit::{EraserTool, MoveTool, OffsetTool, PaintTool, PushPullTool, RotateTool, ScaleTool};
@@ -244,6 +249,13 @@ pub fn catalogue() -> Vec<(Box<dyn Tool>, Option<egui::Key>)> {
         (Box::new(ScaleTool::default()), Some(Key::S)),
         (Box::new(EraserTool::default()), Some(Key::E)),
         (Box::new(PaintTool::default()), Some(Key::B)),
+        (Box::new(TapeMeasureTool::default()), Some(Key::T)),
+        (Box::new(ProtractorTool::default()), None),
+        (Box::new(DimensionTool::default()), None),
+        (Box::new(TextTool::default()), None),
+        (Box::new(Text3dTool::default()), None),
+        (Box::new(SectionPlaneTool::default()), None),
+        (Box::new(AxesTool::default()), None),
         // Activated from the Components panel with a component to place.
         (Box::new(ComponentTool::default()), None),
     ]

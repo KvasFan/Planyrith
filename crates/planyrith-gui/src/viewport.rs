@@ -99,9 +99,40 @@ pub struct Viewport {
     cycle: (usize, Option<egui::Pos2>),
     /// The inference whose label is pending, and since when it is shown.
     label: Option<(InferenceKind, Option<EntityPath>, f64)>,
+    /// A camera of its own (an extra viewport, View › Viewports): navigation
+    /// moves it instead of the document's camera.
+    pub own_camera: Option<Camera>,
+    /// The name shown in the corner of an extra viewport.
+    pub caption: Option<String>,
+    /// Fit the model at the first frame (the viewport's proportions are
+    /// known only then).
+    fit_on_show: bool,
 }
 
 impl Viewport {
+    /// An extra viewport looking through `camera`, labeled `caption`.
+    pub fn with_camera(camera: Camera, caption: &str) -> Self {
+        Viewport {
+            own_camera: Some(camera),
+            caption: Some(caption.to_string()),
+            fit_on_show: true,
+            ..Viewport::default()
+        }
+    }
+
+    /// Updates the GPU caches for document changes another viewport took
+    /// from the session.
+    pub fn apply_deltas(&mut self, deltas: &[planyrith_core::commands::Delta]) {
+        if let Some(renderer) = &mut self.renderer {
+            renderer.apply_deltas(deltas);
+        }
+    }
+
+    /// The camera this viewport shows (its own, or the document's).
+    pub fn camera(&self, session: &Session) -> Camera {
+        self.own_camera.unwrap_or(session.doc().camera)
+    }
+
     /// Locks the inference (an arrow key or `↓`, docs/05 §2); the same lock
     /// again releases it.
     pub fn lock(&mut self, lock: Lock) {
@@ -192,7 +223,7 @@ impl Viewport {
         });
         let camera = Camera {
             aspect: f64::from(rect.width().max(1.0)) / f64::from(rect.height().max(1.0)),
-            ..session.doc().camera
+            ..self.camera(session)
         };
         let depth = camera.fit_depth(&session.doc().aabb());
         cx_for(
@@ -215,17 +246,31 @@ impl Viewport {
         preview: Option<&Preview>,
     ) -> Vec<Flow> {
         let mut flows = Vec::new();
-        self.scene_tabs(ui, session, &mut flows);
+        if self.own_camera.is_none() {
+            self.scene_tabs(ui, session, &mut flows);
+        }
         let (rect, response) = ui.allocate_exact_size(ui.available_size(), Sense::click_and_drag());
         self.rect = Some(rect);
         let ppp = ui.ctx().pixels_per_point();
         let width = (rect.width() * ppp).round().max(1.0) as u32;
         let height = (rect.height() * ppp).round().max(1.0) as u32;
         let aspect = f64::from(width) / f64::from(height);
+        if self.fit_on_show
+            && let Some(own) = &mut self.own_camera
+        {
+            self.fit_on_show = false;
+            own.aspect = aspect;
+            let bounds = session.doc().aabb();
+            if !bounds.is_empty() {
+                own.zoom_extents(&bounds, 0.1);
+            }
+        }
         // A scene transition shows cameras between the old and the new one
         // (the document already has the new one).
         let now = ui.input(|i| i.time);
-        if let Some((from, to, seconds)) = session.take_transition() {
+        if self.own_camera.is_none()
+            && let Some((from, to, seconds)) = session.take_transition()
+        {
             self.transition = Some((from, to, now, seconds));
         }
         let shown = match self.transition {
@@ -235,7 +280,7 @@ impl Viewport {
             }
             _ => {
                 self.transition = None;
-                session.doc().camera
+                self.camera(session)
             }
         };
         self.showing = self.transition.map(|_| shown);
@@ -301,10 +346,13 @@ impl Viewport {
         }
         if moved {
             self.transition = None;
-            session.engine.set_camera(Camera {
-                aspect: session.doc().camera.aspect,
-                ..camera
-            });
+            match &mut self.own_camera {
+                Some(own) => *own = camera,
+                None => session.engine.set_camera(Camera {
+                    aspect: session.doc().camera.aspect,
+                    ..camera
+                }),
+            }
             ui.ctx().request_repaint();
         }
 
@@ -573,6 +621,20 @@ impl Viewport {
         let cx = cx_for(session, camera, depth, rect, unit);
         let painter = ui.painter_at(rect);
         paint_overlay(&painter, &cx, &overlay);
+        if let Some(caption) = &self.caption {
+            let at = rect.left_top() + Vec2::new(8.0, 6.0);
+            let galley = painter.layout_no_wrap(
+                caption.clone(),
+                egui::FontId::proportional(12.0),
+                Color32::from_gray(40),
+            );
+            painter.rect_filled(
+                egui::Rect::from_min_size(at, galley.size()).expand(3.0),
+                3.0,
+                Color32::from_white_alpha(200),
+            );
+            painter.galley(at, galley, Color32::from_gray(40));
+        }
         let mut shapes = Vec::new();
         tool.shapes(&mut shapes);
         for shape in &shapes {

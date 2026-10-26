@@ -560,6 +560,42 @@ fn active_section(doc: &Document, entities: &Entities) -> Option<SectionCut> {
         })
 }
 
+/// The active section plane that cuts an occurrence (the outermost one on
+/// its path, docs/04 §3.8), in the coordinates of the container it opens
+/// (`world`: container to world).
+pub fn occurrence_section(
+    doc: &Document,
+    path: &InstancePath,
+    world: &DAffine3,
+) -> Option<SectionCut> {
+    let mut container = ContainerRef::Model;
+    let mut level_world = DAffine3::IDENTITY;
+    let mut section = doc
+        .container(ContainerRef::Model)
+        .and_then(|e| active_section(doc, e));
+    for &step in &path.steps {
+        if section.is_some() {
+            break;
+        }
+        let entities = doc.container(container)?;
+        let id = entities.key_to_id(step)?;
+        level_world *= entities.transform_of(id).unwrap_or(DAffine3::IDENTITY);
+        container = ContainerRef::Definition(entities.definition_of(id)?);
+        section = doc
+            .container(container)
+            .and_then(|e| active_section(doc, e))
+            .map(|cut| SectionCut {
+                plane: cut.plane.transformed(&level_world),
+                ..cut
+            });
+    }
+    let cut = section?;
+    (world.matrix3.determinant().abs() > 1e-12).then(|| SectionCut {
+        plane: cut.plane.transformed(&world.inverse()),
+        ..cut
+    })
+}
+
 /// The cap of a section cut (docs/06 §3.1 step 4): the cut outlines of
 /// `entities`' faces on `plane`, as filled triangles (both windings) and
 /// as line segments, in container coordinates.
@@ -625,11 +661,6 @@ pub fn draw_list(
         let mut container = ContainerRef::Model;
         let mut steps = Vec::with_capacity(occ.path.depth());
         let mut material_override = None;
-        // The outermost active section plane on the path, in world space.
-        let mut level_world = DAffine3::IDENTITY;
-        let mut section: Option<SectionCut> = doc
-            .container(ContainerRef::Model)
-            .and_then(|e| active_section(doc, e));
         for &step in &occ.path.steps {
             let Some(entities) = doc.container(container) else {
                 break;
@@ -637,7 +668,6 @@ pub fn draw_list(
             let Some(id) = entities.key_to_id(step) else {
                 break;
             };
-            level_world *= entities.transform_of(id).unwrap_or(DAffine3::IDENTITY);
             if let Some(EntityView::Instance(i)) = entities.view(id)
                 && i.material_override.is_some()
             {
@@ -652,24 +682,8 @@ pub fn draw_list(
                 break;
             };
             container = ContainerRef::Definition(def);
-            if section.is_none()
-                && let Some(cut) = doc
-                    .container(container)
-                    .and_then(|e| active_section(doc, e))
-            {
-                section = Some(SectionCut {
-                    plane: cut.plane.transformed(&level_world),
-                    ..cut
-                });
-            }
         }
-        // World plane → this occurrence's coordinates.
-        let section = section.and_then(|cut| {
-            (occ.world.matrix3.determinant().abs() > 1e-12).then(|| SectionCut {
-                plane: cut.plane.transformed(&occ.world.inverse()),
-                ..cut
-            })
-        });
+        let section = occurrence_section(doc, &occ.path, &occ.world);
         items.push(DrawItem {
             path: InstancePath { steps },
             container: occ.container,

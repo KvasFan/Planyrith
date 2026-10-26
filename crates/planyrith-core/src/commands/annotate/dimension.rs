@@ -274,7 +274,11 @@ impl Command for DimensionCommand {
             category: CommandCategory::Annotate,
             label: "Dimension".into(),
             view_only: false,
-            steps: Vec::new(),
+            steps: crate::commands::common::tool_steps(&[
+                ("Pick the first point, or an arc or circle", ""),
+                ("Pick the second point (radius: place the leader)", ""),
+                ("Place the dimension line", ""),
+            ]),
         }
     }
 }

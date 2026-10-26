@@ -59,10 +59,16 @@ pub trait InstanceProvider {
         false
     }
 
-    /// Active section planes of a container in the container's local frame;
+    /// Active section planes cutting an occurrence (`path`, opening
+    /// `container`, placed by `world`), in the container's local frame;
     /// geometry on the `+normal` side is cut away and ignored by picking when
     /// [`super::HitFilter::respect_sections`] is set (docs/06 §8, docs/04 §3.8).
-    fn active_section_planes(&self, _container: ContainerRef) -> Vec<Plane> {
+    fn active_section_planes(
+        &self,
+        _path: &InstancePath,
+        _container: ContainerRef,
+        _world: &glam::DAffine3,
+    ) -> Vec<Plane> {
         Vec::new()
     }
 }
@@ -185,18 +191,14 @@ impl InstanceProvider for Document {
             .is_some_and(|entities| entity_hidden_in(self, entities, entity))
     }
 
-    fn active_section_planes(&self, container: ContainerRef) -> Vec<Plane> {
-        if !self.rendering.section.cuts_visible {
-            return Vec::new();
-        }
-        self.container(container)
-            .map(|entities| {
-                entities
-                    .section_planes()
-                    .filter(|(_, s)| s.active)
-                    .map(|(_, s)| s.plane)
-                    .collect()
-            })
+    fn active_section_planes(
+        &self,
+        path: &InstancePath,
+        _container: ContainerRef,
+        world: &glam::DAffine3,
+    ) -> Vec<Plane> {
+        crate::io::render_mesh::occurrence_section(self, path, world)
+            .map(|cut| vec![cut.plane])
             .unwrap_or_default()
     }
 }
@@ -222,6 +224,14 @@ mod tests {
         assert_eq!(occ[0].world, DAffine3::IDENTITY);
         assert!(!occ[0].hidden);
         assert!(InstanceProvider::mesh(&doc, ContainerRef::Model).is_some());
-        assert!(InstanceProvider::active_section_planes(&doc, ContainerRef::Model).is_empty());
+        assert!(
+            InstanceProvider::active_section_planes(
+                &doc,
+                &InstancePath::root(),
+                ContainerRef::Model,
+                &DAffine3::IDENTITY
+            )
+            .is_empty()
+        );
     }
 }

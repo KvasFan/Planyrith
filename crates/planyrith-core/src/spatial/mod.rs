@@ -904,7 +904,7 @@ impl DocumentIndex {
                 continue;
             }
             let sections = if filter.respect_sections {
-                provider.active_section_planes(leaf.container)
+                provider.active_section_planes(&leaf.path, leaf.container, &leaf.world)
             } else {
                 Vec::new()
             };

@@ -451,7 +451,7 @@ impl Command for Text3d {
             category: CommandCategory::Draw,
             label: "3D Text".into(),
             view_only: false,
-            steps: Vec::new(),
+            steps: crate::commands::common::tool_steps(&[("Pick where the text starts", "")]),
         }
     }
 }

@@ -417,3 +417,5 @@ On failure: `{"ok": false, "error": {"code": "E1002", "message": "...", "param":
   through the reference point; `--tolerance` is the snapping distance at the cursor (10 mm by
   default, standing for the 8-pixel tolerance of the GUI); `--all` lists every candidate, best
   first. JSON output: `{kind, label, point, on, axis, from, locked}`.
+- 2026-10-26 — In queries, a dimension's `length` is what it measures (`query dimension --fields
+  length`), absent when it is detached.

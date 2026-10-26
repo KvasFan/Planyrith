@@ -591,3 +591,16 @@ pub(crate) fn purge_private_definition(
     }
     Ok(())
 }
+
+/// Interactive steps from `(prompt, value field)` pairs, every inference
+/// kind listened to (docs/01 §3.3).
+pub(crate) fn tool_steps(prompts: &[(&str, &str)]) -> Vec<crate::commands::ToolStep> {
+    prompts
+        .iter()
+        .map(|(prompt, value)| crate::commands::ToolStep {
+            prompt: (*prompt).into(),
+            value_field: (*value).into(),
+            inference: crate::inference::InferenceKind::ALL.to_vec(),
+        })
+        .collect()
+}

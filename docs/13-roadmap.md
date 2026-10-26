@@ -109,3 +109,11 @@ parametric/dynamic components, GPU path-traced preview, mobile UI.
   and a user library (the Components panel shows the model's components and inserts files);
   picking image entities by clicking; edge depth cue, extensions, endpoints and jitter in the
   renderer (the style stores them).
+- 2026-10-26 — **0.6 as built.** Acceptance: `house_section_acceptance` (CLI: dimensions
+  re-measure after the model is resized, the sun's position, validation), the renderer snapshot
+  `sections_shadows_and_overlays` (caps in the section fill, shadows, overlays) and the sun's test
+  against the published SPA example (within 0.05°). Section caps are CPU-built (docs/06
+  Decisions); one section plane cuts each occurrence (the outermost active one on its path), for
+  drawing and picking alike. Not in 0.6: leader styles for texts (`leader: View|Pushpin`),
+  `label-style` editing, two shadow cascades, edges casting shadows (`from_edges` is stored, not
+  drawn) and scenes from glTF cameras.

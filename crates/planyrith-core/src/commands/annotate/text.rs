@@ -192,7 +192,13 @@ impl Command for TextCommand {
             category: CommandCategory::Annotate,
             label: "Text".into(),
             view_only: false,
-            steps: Vec::new(),
+            steps: crate::commands::common::tool_steps(&[
+                (
+                    "Pick what the text points to, or empty space for screen text",
+                    "",
+                ),
+                ("Place the text", ""),
+            ]),
         }
     }
 }

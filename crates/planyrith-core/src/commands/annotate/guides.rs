@@ -29,13 +29,13 @@ fn z_axis() -> DVec3 {
     DVec3::Z
 }
 
-fn meta(name: &str, label: &str) -> CommandMeta {
+fn meta(name: &str, label: &str, steps: &[(&str, &str)]) -> CommandMeta {
     CommandMeta {
         name: name.into(),
         category: CommandCategory::Guide,
         label: label.into(),
         view_only: false,
-        steps: Vec::new(),
+        steps: crate::commands::common::tool_steps(steps),
     }
 }
 
@@ -147,7 +147,17 @@ impl Command for TapeMeasure {
     }
 
     fn meta(&self) -> CommandMeta {
-        meta("tape-measure", "Tape Measure")
+        meta(
+            "tape-measure",
+            "Tape Measure",
+            &[
+                ("Pick the start point", ""),
+                (
+                    "Pick the end point; type a length to resize the model",
+                    "length",
+                ),
+            ],
+        )
     }
 }
 
@@ -266,7 +276,15 @@ impl Command for Protractor {
     }
 
     fn meta(&self) -> CommandMeta {
-        meta("protractor", "Protractor")
+        meta(
+            "protractor",
+            "Protractor",
+            &[
+                ("Pick the center", ""),
+                ("Pick a point on the first leg", ""),
+                ("Pick the angle", "angle"),
+            ],
+        )
     }
 }
 
@@ -334,7 +352,7 @@ impl Command for GuideDeleteAll {
     }
 
     fn meta(&self) -> CommandMeta {
-        meta("guide-delete-all", "Delete Guides")
+        meta("guide-delete-all", "Delete Guides", &[])
     }
 }
 
@@ -421,6 +439,6 @@ impl Command for ResizeModel {
     }
 
     fn meta(&self) -> CommandMeta {
-        meta("resize-model", "Resize Model")
+        meta("resize-model", "Resize Model", &[])
     }
 }

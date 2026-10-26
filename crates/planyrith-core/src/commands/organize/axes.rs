@@ -151,7 +151,11 @@ impl Command for AxesSet {
             category: CommandCategory::Organize,
             label: "Axes".into(),
             view_only: false,
-            steps: Vec::new(),
+            steps: crate::commands::common::tool_steps(&[
+                ("Pick the new origin", ""),
+                ("Pick the red axis direction", ""),
+                ("Pick the green axis direction", ""),
+            ]),
         }
     }
 }

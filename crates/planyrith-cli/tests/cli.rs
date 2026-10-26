@@ -390,6 +390,73 @@ fn furnished_room_acceptance() {
 /// docs/13 milestone 0.4 acceptance: a cabinet built from components with a
 /// textured veneer, saved as a component file and a material library; a
 /// kitchen loads the library and places the cabinet twice (one definition,
+/// docs/13 0.6 acceptance (CLI side): a room cut by a section plane, with
+/// dimensions and the sun. Resizing the model re-measures the dimensions;
+/// the sun's position comes back from `shadows-set`; the file validates.
+/// (Caps and shadows are checked in the renderer's snapshots.)
+#[test]
+fn house_section_acceptance() {
+    let dir = scratch("house06");
+    let doc = dir.join("house.plyr");
+    let d = doc.to_str().unwrap();
+    let batch = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/batches/house-section.plyrb");
+    planyrith()
+        .args(["batch", batch.to_str().unwrap(), "-f", d, "--deterministic"])
+        .assert()
+        .success();
+    let lengths = |doc: &str| -> Vec<f64> {
+        let v = json_of(
+            &planyrith()
+                .args([
+                    "query",
+                    "-f",
+                    doc,
+                    "dimension",
+                    "--fields",
+                    "length",
+                    "--json",
+                ])
+                .assert()
+                .success()
+                .get_output()
+                .stdout,
+        );
+        v["output"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r["length"].as_f64().unwrap())
+            .collect()
+    };
+    assert_eq!(lengths(d), vec![6000.0, 4000.0]);
+    planyrith()
+        .args([
+            "tool",
+            "resize-model",
+            "-f",
+            d,
+            "--measured",
+            "6000",
+            "--target",
+            "9000",
+        ])
+        .assert()
+        .success();
+    assert_eq!(lengths(d), vec![9000.0, 6000.0]);
+    let sun = json_of(
+        &planyrith()
+            .args(["tool", "shadows-set", "-f", d, "--time", "13:30", "--json"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout,
+    );
+    let altitude = sun["output"]["sun_altitude_deg"].as_f64().unwrap();
+    // Milan, 21 June, 13:30 local summer time: near the year's highest sun.
+    assert!((60.0..70.0).contains(&altitude), "{altitude}");
+    planyrith().args(["validate", "-f", d]).assert().success();
+}
+
 /// found by its UUID); both validate clean and re-save identically.
 #[test]
 fn textured_cabinet_acceptance() {

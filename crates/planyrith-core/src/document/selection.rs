@@ -2269,6 +2269,15 @@ impl<'a> Evaluator<'a> {
                 Some(def_mesh.volume().ok()?.abs() * t.matrix3.determinant().abs() * scale)
             }
             (Measure::Id, _) => entities.pid_of(cand.id).map(|pid| pid.raw() as f64),
+            // A dimension's length is what it measures (docs/04 §3.5).
+            (Measure::Length, EntityId::Dimension(_)) => match entities.view(cand.id)? {
+                crate::document::EntityView::Dimension(dim) => {
+                    let v =
+                        crate::document::annotations::dimension_view(self.doc, cand.container, dim);
+                    (!v.detached).then_some(v.value)
+                }
+                _ => None,
+            },
             _ => None,
         }
     }

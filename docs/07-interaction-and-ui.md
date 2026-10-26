@@ -331,3 +331,15 @@ collected by clicks: e.g. segments for Circle, array count, copy toggle).
   exports). Further Export entries arrive with their exporters.
 - 2026-10-26 — File › Export ► 2D Graphic… writes the current view as PDF, SVG or DXF (`export`
   with `two_d`), hidden lines removed (docs/09 Decisions).
+- 2026-10-26 — **0.6 tools and views.** Tape Measure (T), Protractor, Dimension, Text, 3D Text,
+  Section Plane and Axes are toolbar tools (a group after the editing tools) and in Tools. The
+  Dimension tool takes two points then the line's place; an arc or circle edge gives a radius
+  dimension (Ctrl: diameter). Text takes the point it points to and the label's place (empty
+  space: screen text); its text and 3D Text's text, height and extrusion are in Tool Options.
+  Typing a length right after a Tape Measure measurement resizes the model (one undoable
+  command; the confirmation of docs/05 §6.4 is the undo). View has Shadows, Shadow Settings…
+  (a window with date, time, place, north, light and dark), Section Planes / Cuts / Fill, and
+  Viewports ► One / Two / Four: extra viewports show the top, front and right in parallel
+  projection with cameras of their own (not stored in the document), fitted to the model when
+  they open; tools work in any of them; the value field follows the main one. Labels of
+  dimensions, texts and section planes are drawn over the model, not hidden by faces.

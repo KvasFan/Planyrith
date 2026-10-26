@@ -5,7 +5,7 @@ implementation stands, what is done, what remains, and how to resume. Update it 
 every working session. Ground truth for *what to build* stays in `docs/00`–`docs/15`; this file
 is only *progress state*.
 
-_Last updated: 2026-10-26 (0.5 implemented: import/export of STL, OBJ, glTF/GLB, DXF, images, CSV, `.plyr`; 2D view export; released as 0.5.0)._
+_Last updated: 2026-10-26 (0.6 implemented: dimensions, texts, guides, sections with caps, sun shadows, 3D text, axes, multiple viewports)._
 
 ## 1. Where we are
 
@@ -81,7 +81,9 @@ Frontends:
    (docs/12 Decisions); a 100 MB glTF imports in about 11 s. Released as 0.5.0 after the user
    tried it. Known limits (docs/09 Decisions): glTF cameras are skipped; DXF text and
    dimensions are skipped; the 2D export does not split edges where they pierce faces.
-   Next: milestone 0.6 (sections, annotations, shadows).
+   **Milestone 0.6** (sections, annotations, shadows) is implemented on `main` (docs/13
+   Decisions "0.6 as built"); release 0.6.0 after the user tries it. Next: milestone 0.7 (web
+   build).
 2. **Journal and undo.** The journal (`history.msgpack`, docs/09 §3) is append-only and every
    frontend journals executed commands but not undo/redo, so after an undo it lists a command
    that is no longer in the document. Decide whether undo/redo are journaled (entries) or the

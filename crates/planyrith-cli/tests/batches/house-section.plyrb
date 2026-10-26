@@ -1,0 +1,15 @@
+# Milestone 0.6 acceptance: a room with walls 200 mm thick, a table, two
+# dimensions, a guide, a note, a section plane at 1.2 m and the sun.
+rectangle --corner-a 0,0,0 --corner-b 6000,4000,0
+offset --face '{face}' --distance -200
+push-pull --face '{face & area<5000000}' --distance 2700
+make-group --targets all
+rectangle --corner-a 2000,1500,0 --corner-b 3500,2500,0
+push-pull --face '{face & last}' --distance 750
+make-group --targets 'face | edge'
+dimension --start 0,0,0 --end 6000,0,0 --offset 0,-600,0
+dimension --kind linear --start 0,0,0 --end 0,4000,0 --offset -600,0,0
+tape-measure --from 3000,0,0 --to 3000,1000,0
+text --at 6000,4000,2700 --text 'North-east corner'
+section-plane-add --plane '0,0,1200;0,0,1'
+shadows-set --enabled --date 2026-06-21 --time 15:00 --latitude 45.46 --longitude 9.19 --utc-offset 2

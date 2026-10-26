@@ -39,6 +39,20 @@ pub enum Icon {
     Rotate,
     /// Scale tool.
     Scale,
+    /// Tape Measure tool.
+    TapeMeasure,
+    /// Protractor tool.
+    Protractor,
+    /// Dimension tool.
+    Dimension,
+    /// Text tool.
+    Text,
+    /// 3D Text tool.
+    Text3d,
+    /// Section Plane tool.
+    SectionPlane,
+    /// Axes tool.
+    Axes,
     /// Three-quarter view.
     ViewIso,
     /// Top view.
@@ -91,6 +105,13 @@ impl Icon {
             "move" => Icon::Move,
             "rotate" => Icon::Rotate,
             "scale" => Icon::Scale,
+            "tape-measure" => Icon::TapeMeasure,
+            "protractor" => Icon::Protractor,
+            "dimension" => Icon::Dimension,
+            "text" => Icon::Text,
+            "text-3d" => Icon::Text3d,
+            "section-plane-add" => Icon::SectionPlane,
+            "axes-set" => Icon::Axes,
             _ => return None,
         })
     }
@@ -349,6 +370,67 @@ pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
                 0.35,
             );
             pen.arrow((0.40, 0.60), (0.80, 0.20));
+        }
+        Icon::TapeMeasure => {
+            pen.filled(
+                &[(0.08, 0.40), (0.52, 0.40), (0.52, 0.84), (0.08, 0.84)],
+                0.35,
+            );
+            pen.circle(0.30, 0.62, 0.10);
+            pen.line(&[(0.52, 0.78), (0.94, 0.78)]);
+            for x in [0.62f32, 0.72, 0.82, 0.92] {
+                pen.line(&[(x, 0.78), (x, 0.68)]);
+            }
+        }
+        Icon::Protractor => {
+            let arc = pen.arc(
+                (0.50, 0.82),
+                0.40,
+                std::f32::consts::PI,
+                2.0 * std::f32::consts::PI,
+            );
+            pen.line(&arc);
+            pen.line(&[(0.10, 0.82), (0.90, 0.82)]);
+            pen.line(&[(0.50, 0.82), (0.78, 0.30)]);
+        }
+        Icon::Dimension => {
+            pen.line(&[(0.10, 0.20), (0.10, 0.80)]);
+            pen.line(&[(0.90, 0.20), (0.90, 0.80)]);
+            pen.arrow((0.50, 0.50), (0.12, 0.50));
+            pen.arrow((0.50, 0.50), (0.88, 0.50));
+        }
+        Icon::Text => {
+            pen.line(&[(0.15, 0.20), (0.85, 0.20)]);
+            pen.line(&[(0.50, 0.20), (0.50, 0.85)]);
+            pen.line(&[(0.15, 0.20), (0.15, 0.30)]);
+            pen.line(&[(0.85, 0.20), (0.85, 0.30)]);
+        }
+        Icon::Text3d => {
+            pen.filled(
+                &[(0.10, 0.20), (0.70, 0.20), (0.70, 0.36), (0.10, 0.36)],
+                0.35,
+            );
+            pen.filled(
+                &[(0.32, 0.36), (0.48, 0.36), (0.48, 0.88), (0.32, 0.88)],
+                0.35,
+            );
+            pen.line(&[(0.70, 0.20), (0.86, 0.10), (0.86, 0.26), (0.70, 0.36)]);
+            pen.line(&[(0.48, 0.88), (0.64, 0.78), (0.64, 0.36)]);
+        }
+        Icon::SectionPlane => {
+            pen.closed(&[(0.10, 0.30), (0.62, 0.10), (0.90, 0.70), (0.38, 0.90)]);
+            pen.dot(0.50, 0.50);
+            pen.arrow((0.50, 0.50), (0.78, 0.36));
+        }
+        Icon::Axes => {
+            let red = Stroke::new(pen.stroke.width, Color32::from_rgb(200, 40, 40));
+            let green = Stroke::new(pen.stroke.width, Color32::from_rgb(40, 150, 40));
+            let blue = Stroke::new(pen.stroke.width, Color32::from_rgb(40, 70, 220));
+            let o = pen.p(0.32, 0.72);
+            pen.painter.line_segment([o, pen.p(0.92, 0.72)], red);
+            pen.painter.line_segment([o, pen.p(0.62, 0.40)], green);
+            pen.painter.line_segment([o, pen.p(0.32, 0.08)], blue);
+            pen.dot(0.32, 0.72);
         }
         Icon::ViewIso => pen.cube(0, false, false),
         Icon::ViewTop => pen.cube(1, false, false),

@@ -180,7 +180,13 @@ impl Command for SectionPlaneAdd {
     }
 
     fn meta(&self) -> CommandMeta {
-        meta("section-plane-add", "Section Plane", false)
+        CommandMeta {
+            steps: crate::commands::common::tool_steps(&[(
+                "Pick a face or point for the plane (arrow keys lock an axis)",
+                "",
+            )]),
+            ..meta("section-plane-add", "Section Plane", false)
+        }
     }
 }
 

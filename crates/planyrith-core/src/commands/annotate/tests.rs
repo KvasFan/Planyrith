@@ -528,3 +528,35 @@ fn shadows_follow_the_sun_settings() {
             .is_err()
     );
 }
+
+#[test]
+fn picking_skips_what_a_section_plane_cuts_inside_groups() {
+    let mut e = engine();
+    run(
+        &mut e,
+        "rectangle",
+        json!({ "corner_a": [0, 0, 0], "corner_b": [1000, 1000, 0] }),
+    );
+    run(
+        &mut e,
+        "push-pull",
+        json!({ "face": { "Query": "face" }, "distance": 1000.0 }),
+    );
+    run(&mut e, "make-group", json!({ "targets": "all" }));
+    let ray = crate::math::Ray::new(DVec3::new(500.0, 500.0, 5000.0), -DVec3::Z);
+    let first_z = |e: &Engine| {
+        let index = crate::spatial::DocumentIndex::build(e.document());
+        let hits = index.ray_cast(e.document(), &ray, &crate::spatial::HitFilter::default());
+        hits.first().map(|h| h.point.z)
+    };
+    assert!((first_z(&e).unwrap() - 1000.0).abs() < 1e-6, "the lid");
+    run(
+        &mut e,
+        "section-plane-add",
+        json!({ "plane": { "normal": [0, 0, 1], "d": -500.0 } }),
+    );
+    assert!(
+        first_z(&e).unwrap().abs() < 1e-6,
+        "through the cut lid to the floor"
+    );
+}

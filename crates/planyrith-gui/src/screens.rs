@@ -42,6 +42,15 @@ fn screenshots() {
         save(&mut harness, &dir, &format!("line-tool-{name}"));
     }
 
+    // Four viewports: the document's camera, top, front and right.
+    let mut harness = Harness::builder()
+        .with_size(egui::vec2(1400.0, 900.0))
+        .wgpu()
+        .build_eframe(|cc| App::new(cc, doc.clone()));
+    theme::apply(&harness.ctx, ThemeChoice::Light);
+    harness.state_mut().set_viewports(3);
+    save(&mut harness, &dir, "viewports-four");
+
     // The context menu over a wall, and Push/Pull's options.
     let mut harness = Harness::builder()
         .with_size(egui::vec2(1400.0, 900.0))
@@ -72,11 +81,16 @@ fn screenshots() {
     for tab in ["Materials", "Components", "Styles"] {
         harness.get_by_label(tab).click();
         harness.run_steps(2);
-        if tab == "Materials" {
-            harness.get_by_label("Oak").click();
+        // The documents used for review screenshots may lack these.
+        if tab == "Materials"
+            && let Some(oak) = harness.query_by_label("Oak")
+        {
+            oak.click();
         }
-        if tab == "Components" {
-            harness.get_by_label_contains("in model").click();
+        if tab == "Components"
+            && let Some(component) = harness.query_by_label_contains("in model")
+        {
+            component.click();
         }
         save(&mut harness, &dir, &format!("panel-{}", tab.to_lowercase()));
     }

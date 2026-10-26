@@ -500,7 +500,12 @@ impl InstanceProvider for Scene {
         self.hidden_entities.contains(&entity)
     }
 
-    fn active_section_planes(&self, _container: ContainerRef) -> Vec<Plane> {
+    fn active_section_planes(
+        &self,
+        _path: &InstancePath,
+        _container: ContainerRef,
+        _world: &DAffine3,
+    ) -> Vec<Plane> {
         self.sections.clone()
     }
 }

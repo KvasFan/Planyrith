@@ -162,6 +162,8 @@ struct PreviewState {
 pub struct App {
     session: Session,
     viewport: Viewport,
+    /// Extra viewports with cameras of their own (View › Viewports).
+    extra_viewports: Vec<Viewport>,
     tree: Tree<Pane>,
     panels: PanelState,
     dialog: FileDialog,
@@ -190,6 +192,8 @@ pub struct App {
     resources: ResourceState,
     /// The texture placement window: the face and the fields.
     texture: Option<(planyrith_core::document::EntityPath, TextureFields)>,
+    /// The Shadows window is open (docs/07 §6).
+    shadows_open: bool,
 }
 
 /// The fields of the texture placement window (docs/05 §5.9).
@@ -240,6 +244,7 @@ impl App {
         App {
             session: Session::new(),
             viewport: Viewport::default(),
+            extra_viewports: Vec::new(),
             tree,
             panels: PanelState::default(),
             dialog: FileDialog::new()
@@ -261,6 +266,7 @@ impl App {
             animation: None,
             resources: ResourceState::default(),
             texture: None,
+            shadows_open: false,
         }
     }
 
@@ -273,6 +279,29 @@ impl App {
     }
 
     /// Runs a command, reporting failures in the status bar.
+    /// Splits the viewport (docs/07 §1 "multiple viewports"): extra views
+    /// from the top, the front and the right, parallel and fitted to the
+    /// model; their cameras are theirs, not the document's.
+    pub(crate) fn set_viewports(&mut self, extra: usize) {
+        use planyrith_core::document::{Projection, StandardView};
+        let doc = self.session.doc();
+        let views = [
+            (StandardView::Top, "Top"),
+            (StandardView::Front, "Front"),
+            (StandardView::Right, "Right"),
+        ];
+        self.extra_viewports = views
+            .iter()
+            .take(extra)
+            .map(|(view, caption)| {
+                let mut camera = doc.camera;
+                camera.projection = Projection::Parallel { height_mm: 5000.0 };
+                camera.standard_view(*view);
+                Viewport::with_camera(camera, caption)
+            })
+            .collect();
+    }
+
     fn run(&mut self, name: &str, params: Value) {
         if let Err(e) = self.session.execute(name, params) {
             self.error(e);
@@ -934,6 +963,40 @@ impl App {
                 }
                 ui.checkbox(&mut self.viewport.show_hidden, "Hidden Geometry");
                 ui.checkbox(&mut self.settings.show_axes, "Axes");
+                ui.menu_button("Viewports", |ui| {
+                    for (label, count) in [("One", 0usize), ("Two", 1), ("Four", 3)] {
+                        if ui
+                            .radio(self.extra_viewports.len() == count, label)
+                            .clicked()
+                        {
+                            self.set_viewports(count);
+                            ui.close();
+                        }
+                    }
+                });
+                ui.separator();
+                let rendering = self.session.doc().rendering.clone();
+                let mut shadows = rendering.shadows.enabled;
+                if ui.checkbox(&mut shadows, "Shadows").changed() {
+                    self.run("shadows-set", json!({ "enabled": shadows }));
+                }
+                if ui.button("Shadow Settings…").clicked() {
+                    self.shadows_open = true;
+                    ui.close();
+                }
+                let section = rendering.section;
+                let mut planes = section.planes_visible;
+                if ui.checkbox(&mut planes, "Section Planes").changed() {
+                    self.run("section-display-set", json!({ "planes": planes }));
+                }
+                let mut cuts = section.cuts_visible;
+                if ui.checkbox(&mut cuts, "Section Cuts").changed() {
+                    self.run("section-display-set", json!({ "cuts": cuts }));
+                }
+                let mut fills = section.fills_visible;
+                if ui.checkbox(&mut fills, "Section Fill").changed() {
+                    self.run("section-display-set", json!({ "fills": fills }));
+                }
                 ui.separator();
                 ui.menu_button("Theme", |ui| {
                     for choice in [ThemeChoice::System, ThemeChoice::Light, ThemeChoice::Dark] {
@@ -1013,6 +1076,18 @@ impl App {
                     "Scale",
                     "Push/Pull",
                     "Offset",
+                ] {
+                    self.tool_button(ui, label);
+                }
+                ui.separator();
+                for label in [
+                    "Tape Measure",
+                    "Protractor",
+                    "Dimension",
+                    "Text",
+                    "3D Text",
+                    "Section Plane",
+                    "Axes",
                 ] {
                     self.tool_button(ui, label);
                 }
@@ -1102,6 +1177,15 @@ impl App {
                     "polygon",
                 ],
                 &["push-pull", "offset", "move", "rotate", "scale"],
+                &[
+                    "tape-measure",
+                    "protractor",
+                    "dimension",
+                    "text",
+                    "text-3d",
+                    "section-plane-add",
+                    "axes-set",
+                ],
             ] {
                 group_gap(ui);
                 for command in group {
@@ -1290,6 +1374,125 @@ impl App {
             };
             ui.add(egui::Label::new(text).truncate());
         }
+    }
+
+    /// The Shadows window (docs/04 §7, docs/07 §6): on/off, the date and
+    /// time of day, the place, and the light and dark intensities, each
+    /// change one `shadows-set` (a view command).
+    fn shadows_window(&mut self, ctx: &egui::Context) {
+        use planyrith_core::document::SunModel;
+        if !self.shadows_open {
+            return;
+        }
+        let shadows = self.session.doc().rendering.shadows;
+        let (date, time, lat, lon, utc, north) = match shadows.sun {
+            SunModel::Geo {
+                date,
+                time,
+                lat,
+                lon,
+                utc_offset,
+                north_angle,
+            } => (date, time, lat, lon, utc_offset, north_angle.to_degrees()),
+            SunModel::Manual { .. } => (
+                planyrith_core::document::Date {
+                    year: 2026,
+                    month: 6,
+                    day: 21,
+                },
+                planyrith_core::document::TimeOfDay {
+                    hour: 12,
+                    minute: 0,
+                },
+                45.0,
+                9.0,
+                1.0,
+                0.0,
+            ),
+        };
+        let mut open = true;
+        let mut change: Option<Value> = None;
+        egui::Window::new("Shadows")
+            .open(&mut open)
+            .resizable(false)
+            .collapsible(false)
+            .show(ctx, |ui| {
+                let mut enabled = shadows.enabled;
+                if ui.checkbox(&mut enabled, "Show shadows").changed() {
+                    change = Some(json!({ "enabled": enabled }));
+                }
+                egui::Grid::new("shadow fields").num_columns(2).show(ui, |ui| {
+                    let mut month = date.month;
+                    let mut day = date.day;
+                    ui.label("Date");
+                    ui.horizontal(|ui| {
+                        let m = ui.add(egui::DragValue::new(&mut month).range(1..=12).prefix("month "));
+                        let d = ui.add(egui::DragValue::new(&mut day).range(1..=31).prefix("day "));
+                        if m.changed() || d.changed() {
+                            let day = match month {
+                                2 => day.min(29),
+                                4 | 6 | 9 | 11 => day.min(30),
+                                _ => day,
+                            };
+                            change = Some(json!({ "date": format!("{:04}-{:02}-{:02}", date.year, month, day) }));
+                        }
+                    });
+                    ui.end_row();
+                    let mut minutes = i32::from(time.hour) * 60 + i32::from(time.minute);
+                    ui.label("Time");
+                    if ui
+                        .add(egui::Slider::new(&mut minutes, 0..=1439).custom_formatter(|m, _| {
+                            format!("{:02}:{:02}", m as i32 / 60, m as i32 % 60)
+                        }))
+                        .changed()
+                    {
+                        change = Some(json!({ "time": format!("{:02}:{:02}", minutes / 60, minutes % 60) }));
+                    }
+                    ui.end_row();
+                    for (label, value, key, range) in [
+                        ("Latitude", lat, "latitude", -90.0..=90.0),
+                        ("Longitude", lon, "longitude", -180.0..=180.0),
+                        ("UTC offset", utc, "utc_offset", -14.0..=14.0),
+                    ] {
+                        let mut v = value;
+                        ui.label(label);
+                        if ui.add(egui::DragValue::new(&mut v).range(range).speed(0.1)).changed() {
+                            change = Some(json!({ key: v }));
+                        }
+                        ui.end_row();
+                    }
+                    let mut n = north;
+                    ui.label("North angle");
+                    if ui.add(egui::DragValue::new(&mut n).range(0.0..=360.0).suffix("°")).changed() {
+                        change = Some(json!({ "north_angle": n.to_radians() }));
+                    }
+                    ui.end_row();
+                    let mut light = shadows.light;
+                    ui.label("Light");
+                    if ui.add(egui::Slider::new(&mut light, 0..=100)).changed() {
+                        change = Some(json!({ "light": light }));
+                    }
+                    ui.end_row();
+                    let mut dark = shadows.dark;
+                    ui.label("Dark");
+                    if ui.add(egui::Slider::new(&mut dark, 0..=100)).changed() {
+                        change = Some(json!({ "dark": dark }));
+                    }
+                    ui.end_row();
+                });
+                let mut ground = shadows.on_ground;
+                if ui.checkbox(&mut ground, "On the ground").changed() {
+                    change = Some(json!({ "on_ground": ground }));
+                }
+                let mut faces = shadows.on_faces;
+                if ui.checkbox(&mut faces, "On faces").changed() {
+                    change = Some(json!({ "on_faces": faces }));
+                }
+            });
+        if let Some(params) = change {
+            self.run("shadows-set", params);
+        }
+        self.shadows_open = open;
     }
 
     /// The texture placement window (docs/05 §5.9): offset, rotation and
@@ -1525,6 +1728,7 @@ fn file_name(path: &std::path::Path) -> String {
 struct Docks<'a> {
     session: &'a mut Session,
     viewport: &'a mut Viewport,
+    extra: &'a mut Vec<Viewport>,
     panels: &'a mut PanelState,
     resources: &'a mut ResourceState,
     render_state: Option<&'a egui_wgpu::RenderState>,
@@ -1538,10 +1742,72 @@ impl egui_tiles::Behavior<Pane> for Docks<'_> {
     fn pane_ui(&mut self, ui: &mut egui::Ui, _tile: TileId, pane: &mut Pane) -> UiResponse {
         match pane {
             Pane::Viewport => {
-                let flows =
-                    self.viewport
-                        .ui(ui, self.render_state, self.session, self.tool, self.preview);
-                self.flows.extend(flows);
+                if self.extra.is_empty() {
+                    let flows = self.viewport.ui(
+                        ui,
+                        self.render_state,
+                        self.session,
+                        self.tool,
+                        self.preview,
+                    );
+                    self.flows.extend(flows);
+                } else {
+                    // Two side by side, or four in a grid; the main one
+                    // (the document's camera) first (docs/07 §1).
+                    let deltas = self.session.take_deltas();
+                    self.viewport.apply_deltas(&deltas);
+                    for v in self.extra.iter_mut() {
+                        v.apply_deltas(&deltas);
+                        v.show_hidden = self.viewport.show_hidden;
+                        v.show_axes = self.viewport.show_axes;
+                    }
+                    let full = ui.available_rect_before_wrap();
+                    let gap = 2.0;
+                    let rects: Vec<egui::Rect> = if self.extra.len() == 1 {
+                        let w = (full.width() - gap) / 2.0;
+                        vec![
+                            egui::Rect::from_min_size(full.min, egui::vec2(w, full.height())),
+                            egui::Rect::from_min_size(
+                                full.min + egui::vec2(w + gap, 0.0),
+                                egui::vec2(w, full.height()),
+                            ),
+                        ]
+                    } else {
+                        let (w, h) = ((full.width() - gap) / 2.0, (full.height() - gap) / 2.0);
+                        [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0)]
+                            .iter()
+                            .map(|(x, y)| {
+                                egui::Rect::from_min_size(
+                                    full.min + egui::vec2(x * (w + gap), y * (h + gap)),
+                                    egui::vec2(w, h),
+                                )
+                            })
+                            .collect()
+                    };
+                    for (i, r) in rects.into_iter().enumerate() {
+                        let viewport = if i == 0 {
+                            &mut *self.viewport
+                        } else {
+                            match self.extra.get_mut(i - 1) {
+                                Some(v) => v,
+                                None => continue,
+                            }
+                        };
+                        let flows = ui
+                            .scope_builder(egui::UiBuilder::new().max_rect(r), |ui| {
+                                viewport.ui(
+                                    ui,
+                                    self.render_state,
+                                    self.session,
+                                    self.tool,
+                                    self.preview,
+                                )
+                            })
+                            .inner;
+                        self.flows.extend(flows);
+                    }
+                    ui.allocate_rect(full, egui::Sense::hover());
+                }
             }
             other => {
                 ui.painter()
@@ -1648,6 +1914,7 @@ impl App {
                 let mut docks = Docks {
                     session: &mut self.session,
                     viewport: &mut self.viewport,
+                    extra: &mut self.extra_viewports,
                     panels: &mut self.panels,
                     resources: &mut self.resources,
                     render_state,
@@ -1673,6 +1940,7 @@ impl App {
             self.error(e);
         }
         self.texture_window(&ctx);
+        self.shadows_window(&ctx);
         self.file_dialog(&ctx);
         self.discard_prompt(&ctx);
 
@@ -2327,6 +2595,91 @@ mod tests {
                 .save(Some(std::path::Path::new(&path)))
                 .unwrap();
         }
+    }
+
+    #[test]
+    fn annotation_tools_measure_dimension_and_cut() {
+        use planyrith_core::document::EntityView;
+        let mut shell = Shell::new();
+        let session = &mut shell.app.session;
+        session
+            .execute(
+                "position-camera",
+                json!({ "eye": [-4000, -9000, 9000], "target": [2000, 1500, 0] }),
+            )
+            .unwrap();
+        session
+            .execute(
+                "rectangle",
+                json!({ "corner_a": [0, 0, 0], "corner_b": [4000, 3000, 0] }),
+            )
+            .unwrap();
+        shell.frame(Vec::new());
+        let activate = |shell: &mut Shell, command: &str| {
+            let i = shell
+                .app
+                .tools
+                .iter()
+                .position(|(t, _)| t.command() == command)
+                .expect("the tool");
+            shell.app.activate(i);
+            shell.frame(Vec::new());
+        };
+        let count = |shell: &Shell, f: fn(&EntityView<'_>) -> bool| {
+            let model = &shell.app.session.doc().model;
+            model
+                .order()
+                .iter()
+                .filter(|&&id| model.view(id).as_ref().is_some_and(f))
+                .count()
+        };
+
+        // Tape Measure (T): from the bottom edge, a parallel guide line.
+        shell.type_text("t", false);
+        assert_eq!(shell.app.tool().command(), "tape-measure");
+        shell.click(DVec3::new(2000.0, 0.0, 0.0));
+        shell.click(DVec3::new(2000.0, 500.0, 0.0));
+        shell.ok("tape measure");
+        assert_eq!(count(&shell, |v| matches!(v, EntityView::Guide(_))), 1);
+
+        // Dimension: two corners, then the line's place.
+        activate(&mut shell, "dimension");
+        shell.click(DVec3::ZERO);
+        shell.click(DVec3::new(4000.0, 0.0, 0.0));
+        shell.click(DVec3::new(2000.0, -600.0, 0.0));
+        shell.ok("dimension");
+        let doc = shell.app.session.doc();
+        let (_, dim) = doc.model.dimensions().next().expect("a dimension");
+        let view = planyrith_core::document::annotations::dimension_view(
+            doc,
+            planyrith_core::document::ContainerRef::Model,
+            dim,
+        );
+        assert!((view.value - 4000.0).abs() < 1e-6, "{}", view.value);
+
+        // Section Plane: on the face, in its plane.
+        activate(&mut shell, "section-plane-add");
+        shell.click(DVec3::new(2000.0, 1500.0, 0.0));
+        shell.ok("section plane");
+        let doc = shell.app.session.doc();
+        let plane = doc
+            .model
+            .order()
+            .iter()
+            .find_map(|&id| match doc.model.view(id) {
+                Some(EntityView::SectionPlane(s)) => Some(s.plane),
+                _ => None,
+            })
+            .expect("a section plane");
+        assert!(plane.normal.z.abs() > 0.999, "{plane:?}");
+
+        // Text on a corner: its coordinates.
+        activate(&mut shell, "text");
+        shell.click(DVec3::new(4000.0, 3000.0, 0.0));
+        shell.click(DVec3::new(4500.0, 3500.0, 0.0));
+        shell.ok("text");
+        assert_eq!(count(&shell, |v| matches!(v, EntityView::Text(_))), 1);
+        shell.frame(Vec::new());
     }
 
     #[test]
