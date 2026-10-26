@@ -305,3 +305,15 @@ collected by clicks: e.g. segments for Circle, array count, copy toggle).
   Scenes panel edits the selected scene's transition, "Include in animation" and description,
   and "Play animation" activates the included scenes in turn — each transition, then a
   one-second pause — looping until Stop or `Esc`.
+- 2026-10-26 — **Materials, Components and Styles panels (0.4).** Tabs of the right dock next to
+  Entity Info. Materials: the document's materials with swatches (a checker marks a texture),
+  create, and for the selected one color (hex), opacity, texture load/replace/remove, tile size,
+  colorize, "Paint with it" (double-click too: activates Paint with that material), delete,
+  purge unused, and `.plyrm` load/save. Components: the model's components with their instance
+  count; "Place" (or double-click) activates a placement tool — each click inserts an instance at
+  the inferred point, and a gluing component over a face it accepts lies on it; save as, reload
+  from a file, insert from a file (at the origin, selected), select instances, make unique.
+  Styles: the list (click activates), create (a copy of the active one), `.plyrs` load/save, and
+  the active style's editor — edges, faces, background with sky and ground, watermarks, fog,
+  modeling colors — where colors are hex codes and numbers apply when a drag or an edit ends, so
+  each change is one command. Files come from the file dialog with the matching filter.

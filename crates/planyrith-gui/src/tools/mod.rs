@@ -3,6 +3,7 @@
 //! field, and hand the command to the application to run. Tools never change
 //! the document themselves.
 
+mod component;
 mod draw;
 mod edit;
 mod select;
@@ -15,6 +16,7 @@ use planyrith_core::math::{Axis, Plane};
 use planyrith_core::units::{LengthUnit, ValueFieldInput, parse_value_field};
 use serde_json::{Value, json};
 
+pub use component::ComponentTool;
 pub use draw::{ArcKind, ArcTool, LineTool, RectangleTool, RoundTool};
 pub use edit::{EraserTool, MoveTool, OffsetTool, PaintTool, PushPullTool, RotateTool, ScaleTool};
 pub use select::SelectTool;
@@ -240,6 +242,8 @@ pub fn catalogue() -> Vec<(Box<dyn Tool>, Option<egui::Key>)> {
         (Box::new(ScaleTool::default()), Some(Key::S)),
         (Box::new(EraserTool::default()), Some(Key::E)),
         (Box::new(PaintTool::default()), Some(Key::B)),
+        // Activated from the Components panel with a component to place.
+        (Box::new(ComponentTool::default()), None),
     ]
 }
 

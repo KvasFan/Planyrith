@@ -9,6 +9,7 @@
 use std::path::PathBuf;
 
 use egui_kittest::Harness;
+use egui_kittest::kittest::Queryable;
 
 use crate::app::App;
 use crate::theme::{self, ThemeChoice};
@@ -60,4 +61,23 @@ fn screenshots() {
         harness.step();
     }
     save(&mut harness, &dir, "context-menu-light");
+
+    // The 0.4 panels.
+    let mut harness = Harness::builder()
+        .with_size(egui::vec2(1400.0, 900.0))
+        .wgpu()
+        .build_eframe(|cc| App::new(cc, doc.clone()));
+    theme::apply(&harness.ctx, ThemeChoice::Light);
+    harness.run_steps(2);
+    for tab in ["Materials", "Components", "Styles"] {
+        harness.get_by_label(tab).click();
+        harness.run_steps(2);
+        if tab == "Materials" {
+            harness.get_by_label("Oak").click();
+        }
+        if tab == "Components" {
+            harness.get_by_label_contains("in model").click();
+        }
+        save(&mut harness, &dir, &format!("panel-{}", tab.to_lowercase()));
+    }
 }

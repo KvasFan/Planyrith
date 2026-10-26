@@ -18,6 +18,7 @@ use serde_json::{Value, json};
 
 use crate::icons::{self, Icon};
 use crate::panels::{self, PanelState};
+use crate::resources::{self, FileRequest, ResourceState, ToolRequest};
 use crate::session::Session;
 use crate::theme::{self, ThemeChoice};
 use crate::tools::{self, Flow, Tool};
@@ -46,6 +47,12 @@ pub enum Pane {
     ToolOptions,
     /// Tool Help.
     ToolHelp,
+    /// Materials.
+    Materials,
+    /// Components.
+    Components,
+    /// Styles.
+    Styles,
 }
 
 impl Pane {
@@ -58,12 +65,15 @@ impl Pane {
             Pane::Outliner => "Outliner",
             Pane::ToolOptions => "Tool Options",
             Pane::ToolHelp => "Tool Help",
+            Pane::Materials => "Materials",
+            Pane::Components => "Components",
+            Pane::Styles => "Styles",
         }
     }
 }
 
-/// The default layout: tool options | viewport | info, tags, tool help,
-/// scenes, outliner.
+/// The default layout: tool options | viewport | info, materials,
+/// components, styles, tags, tool help | outliner, scenes.
 fn default_layout() -> Tree<Pane> {
     let mut tiles = Tiles::default();
     let tools = tiles.insert_pane(Pane::ToolOptions);
@@ -73,9 +83,16 @@ fn default_layout() -> Tree<Pane> {
     let scenes = tiles.insert_pane(Pane::Scenes);
     let outliner = tiles.insert_pane(Pane::Outliner);
     let help = tiles.insert_pane(Pane::ToolHelp);
-    let upper = tiles.insert_tab_tile(vec![info, tags, help]);
+    let materials = tiles.insert_pane(Pane::Materials);
+    let components = tiles.insert_pane(Pane::Components);
+    let styles = tiles.insert_pane(Pane::Styles);
+    let upper = tiles.insert_tab_tile(vec![info, materials, components, styles, tags, help]);
     let lower = tiles.insert_tab_tile(vec![outliner, scenes]);
     let right = tiles.insert_vertical_tile(vec![upper, lower]);
+    if let Some(Tile::Container(Container::Linear(linear))) = tiles.get_mut(right) {
+        linear.shares.set_share(upper, 0.65);
+        linear.shares.set_share(lower, 0.35);
+    }
     let root = tiles.insert_horizontal_tile(vec![tools, view, right]);
     if let Some(Tile::Container(Container::Linear(linear))) = tiles.get_mut(root) {
         linear.shares.set_share(tools, 0.18);
@@ -94,10 +111,12 @@ enum Pending {
 }
 
 /// What the open file dialog is for.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum DialogPurpose {
     Open,
     SaveAs,
+    /// A panel's file (texture, library, component).
+    Resource(FileRequest),
 }
 
 /// Persisted per user (docs/07 §1: layouts are not stored in documents).
@@ -121,7 +140,7 @@ impl Default for Settings {
     }
 }
 
-const LAYOUT_KEY: &str = "planyrith.layout.v2";
+const LAYOUT_KEY: &str = "planyrith.layout.v3";
 const SETTINGS_KEY: &str = "planyrith.settings";
 
 /// A tool's preview (docs/07 §3): recomputed when the tool's request or
@@ -167,6 +186,8 @@ pub struct App {
     tabs: usize,
     /// The scene animation: scenes to play, the next one, when.
     animation: Option<(Vec<String>, usize, f64)>,
+    /// Materials, Components and Styles panels.
+    resources: ResourceState,
 }
 
 impl App {
@@ -212,6 +233,7 @@ impl App {
             preview: PreviewState::default(),
             tabs: 0,
             animation: None,
+            resources: ResourceState::default(),
         }
     }
 
@@ -251,6 +273,7 @@ impl App {
 
     fn save(&mut self, path: Option<PathBuf>) {
         if path.is_none() && self.session.path.is_none() {
+            self.dialog = Self::document_dialog();
             self.dialog_purpose = Some(DialogPurpose::SaveAs);
             self.dialog.save_file();
             return;
@@ -282,6 +305,7 @@ impl App {
             }
             Pending::Open(Some(path)) => self.open(&path),
             Pending::Open(None) => {
+                self.dialog = Self::document_dialog();
                 self.dialog_purpose = Some(DialogPurpose::Open);
                 self.dialog.pick_file();
             }
@@ -656,6 +680,7 @@ impl App {
             self.undo();
         }
         if pressed(Modifiers::COMMAND | Modifiers::SHIFT, Key::S) {
+            self.dialog = Self::document_dialog();
             self.dialog_purpose = Some(DialogPurpose::SaveAs);
             self.dialog.save_file();
         }
@@ -709,6 +734,7 @@ impl App {
                     ui.close();
                 }
                 if ui.button("Save As…").clicked() {
+                    self.dialog = Self::document_dialog();
                     self.dialog_purpose = Some(DialogPurpose::SaveAs);
                     self.dialog.save_file();
                     ui.close();
@@ -1205,10 +1231,60 @@ impl App {
         }
     }
 
+    /// Opens the file dialog for a panel's request.
+    fn open_resource_dialog(&mut self, request: FileRequest) {
+        let (title, kind, extensions, saves) = request.dialog();
+        self.dialog = FileDialog::new()
+            .title(title)
+            .add_file_filter_extensions(kind, extensions.to_vec())
+            .default_file_filter(kind);
+        if saves {
+            self.dialog.save_file();
+        } else {
+            self.dialog.pick_file();
+        }
+        self.dialog_purpose = Some(DialogPurpose::Resource(request));
+    }
+
+    /// The document dialog (open/save) again after a panel's dialog.
+    fn document_dialog() -> FileDialog {
+        FileDialog::new()
+            .add_file_filter_extensions("Planyrith documents", vec!["plyr"])
+            .default_file_filter("Planyrith documents")
+    }
+
+    /// Activates the tool a panel asked for.
+    fn activate_request(&mut self, request: ToolRequest) {
+        let (command, tool): (&str, Box<dyn Tool>) = match request {
+            ToolRequest::Paint(m) => (
+                "material-apply",
+                Box::new(tools::PaintTool::with_material(m)),
+            ),
+            ToolRequest::Place(d) => ("component-insert", Box::new(tools::ComponentTool::new(d))),
+        };
+        if let Some(i) = self.tools.iter().position(|(t, _)| t.command() == command) {
+            self.activate(i);
+            self.tools[i].0 = tool;
+        }
+    }
+
     fn file_dialog(&mut self, ctx: &egui::Context) {
         self.dialog.update(ctx);
         if let Some(path) = self.dialog.take_picked() {
             match self.dialog_purpose.take() {
+                Some(DialogPurpose::Resource(request)) => {
+                    let (_, _, extensions, saves) = request.dialog();
+                    let path = if saves && path.extension().is_none() {
+                        path.with_extension(extensions.first().copied().unwrap_or("plyr"))
+                    } else {
+                        path
+                    };
+                    let (name, params) = request.command(&path.to_string_lossy());
+                    match self.session.execute(name, params) {
+                        Ok(_) => self.info(format!("{} {}", request.dialog().0, file_name(&path))),
+                        Err(e) => self.error(e),
+                    }
+                }
                 Some(DialogPurpose::Open) => self.open(&path),
                 Some(DialogPurpose::SaveAs) => {
                     let path = if path.extension().is_none() {
@@ -1305,6 +1381,7 @@ struct Docks<'a> {
     session: &'a mut Session,
     viewport: &'a mut Viewport,
     panels: &'a mut PanelState,
+    resources: &'a mut ResourceState,
     render_state: Option<&'a egui_wgpu::RenderState>,
     tool: &'a mut dyn Tool,
     preview: Option<&'a Preview>,
@@ -1346,6 +1423,15 @@ impl egui_tiles::Behavior<Pane> for Docks<'_> {
                             panels::tool_options(ui, self.tool, &cx, &prompt);
                         }
                         Pane::ToolHelp => panels::tool_help(ui, self.session, self.tool),
+                        Pane::Materials => {
+                            resources::materials(ui, self.session, self.resources, &mut self.error)
+                        }
+                        Pane::Components => {
+                            resources::components(ui, self.session, self.resources, &mut self.error)
+                        }
+                        Pane::Styles => {
+                            resources::styles(ui, self.session, self.resources, &mut self.error)
+                        }
                         Pane::Viewport => {}
                     });
             }
@@ -1418,6 +1504,7 @@ impl App {
                     session: &mut self.session,
                     viewport: &mut self.viewport,
                     panels: &mut self.panels,
+                    resources: &mut self.resources,
                     render_state,
                     tool: self.tools[self.active].0.as_mut(),
                     preview: self.preview.shown.as_ref(),
@@ -1431,6 +1518,12 @@ impl App {
                 }
                 self.apply_flows(flows);
             });
+        if let Some(request) = self.resources.activate.take() {
+            self.activate_request(request);
+        }
+        if let Some(request) = self.resources.file.take() {
+            self.open_resource_dialog(request);
+        }
         if let Some(e) = self.viewport.error.take() {
             self.error(e);
         }
@@ -1787,6 +1880,63 @@ mod tests {
         assert_eq!(shell.app.viewport.active_scene.as_deref(), Some("Iso"));
         shell.app.key(Key::Escape);
         assert!(shell.app.animation.is_none());
+    }
+
+    #[test]
+    fn panels_place_components_and_paint_with_materials() {
+        let mut shell = Shell::new();
+        let session = &mut shell.app.session;
+        for (name, params) in [
+            (
+                "rectangle",
+                json!({ "corner_a": [0, 0, 0], "corner_b": [500, 500, 0] }),
+            ),
+            (
+                "push-pull",
+                json!({ "face": { "Query": "face & last" }, "distance": 500.0 }),
+            ),
+            (
+                "make-component",
+                json!({ "targets": "all", "name": "Crate" }),
+            ),
+            (
+                "rectangle",
+                json!({ "corner_a": [2000, 0, 0], "corner_b": [3000, 1000, 0] }),
+            ),
+            (
+                "material-create",
+                json!({ "name": "Red", "color": "#CC2222" }),
+            ),
+            ("camera-standard", json!({ "view": "top", "extents": true })),
+            ("zoom", json!({ "factor": 0.5 })),
+        ] {
+            session.execute(name, params).unwrap();
+        }
+        shell.frame(Vec::new());
+
+        // Place two more crates by clicking.
+        shell
+            .app
+            .activate_request(ToolRequest::Place("Crate".into()));
+        assert_eq!(shell.app.tool().command(), "component-insert");
+        shell.click(DVec3::new(-1500.0, 0.0, 0.0));
+        shell.click(DVec3::new(-1500.0, 1500.0, 0.0));
+        let doc = shell.app.session.doc();
+        assert_eq!(doc.model.counts().instances, 3);
+        assert_eq!(doc.definitions.len(), 1);
+
+        // Paint the loose face red.
+        shell.app.activate_request(ToolRequest::Paint("Red".into()));
+        assert_eq!(shell.app.tool().command(), "material-apply");
+        shell.click(DVec3::new(2500.0, 500.0, 0.0));
+        let doc = shell.app.session.doc();
+        let red = doc.materials.by_name("Red").unwrap();
+        let painted = doc
+            .model
+            .mesh()
+            .faces()
+            .any(|(_, f)| f.sides.material_front == Some(red));
+        assert!(painted, "{:?}", shell.app.message);
     }
 
     /// docs/qa/model-a-room.md, automated: the same ten steps with synthetic

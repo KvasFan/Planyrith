@@ -935,6 +935,15 @@ pub struct PaintTool {
     material: Option<String>,
 }
 
+impl PaintTool {
+    /// Paints with `material`.
+    pub fn with_material(material: impl Into<String>) -> Self {
+        PaintTool {
+            material: Some(material.into()),
+        }
+    }
+}
+
 impl Tool for PaintTool {
     fn takes_points(&self) -> bool {
         false

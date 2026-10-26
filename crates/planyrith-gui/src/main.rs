@@ -12,6 +12,7 @@
 mod app;
 mod icons;
 mod panels;
+mod resources;
 mod session;
 mod theme;
 mod tools;
