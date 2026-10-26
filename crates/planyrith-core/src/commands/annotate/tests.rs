@@ -560,3 +560,42 @@ fn picking_skips_what_a_section_plane_cuts_inside_groups() {
         "through the cut lid to the floor"
     );
 }
+
+#[test]
+fn caps_fill_the_walls_of_an_open_room_but_not_the_room() {
+    let mut e = engine();
+    run(
+        &mut e,
+        "rectangle",
+        json!({ "corner_a": [0, 0, 0], "corner_b": [6000, 4000, 0] }),
+    );
+    run(
+        &mut e,
+        "offset",
+        json!({ "face": { "Query": "face" }, "distance": -200.0 }),
+    );
+    run(
+        &mut e,
+        "push-pull",
+        json!({ "face": { "Query": "face & area<5000000" }, "distance": 2700.0 }),
+    );
+    let doc = e.document();
+    let plane = crate::math::Plane::from_point_normal(DVec3::new(0.0, 0.0, 1200.0), DVec3::Z);
+    let cap = crate::io::render_mesh::section_cap(&doc.model, &plane, true, doc.tolerances());
+    // Both windings of every triangle: half the corners give the area.
+    let area: f64 = cap
+        .triangles
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .step_by(2)
+        .map(|t| {
+            let [a, b, c] =
+                t.map(|p| DVec3::new(f64::from(p[0]), f64::from(p[1]), f64::from(p[2])));
+            (b - a).cross(c - a).length() / 2.0
+        })
+        .sum();
+    let ring = 6000.0 * 4000.0 - 5600.0 * 3600.0;
+    assert!((area - ring).abs() < 1.0, "{area} vs {ring}");
+    assert_eq!(cap.outline.len(), 16);
+}

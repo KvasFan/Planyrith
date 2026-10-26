@@ -607,8 +607,46 @@ pub struct SectionCap {
     pub outline: Vec<[f32; 3]>,
 }
 
-/// The cap of `entities` cut by `plane`; filled only when its mesh is a
-/// solid and `fill` (docs/06 §3.1: open cuts stay open).
+/// `true` when `p` (on `plane`) lies inside the material of `mesh`: a ray
+/// from it along the plane crosses its faces an odd number of times. Works
+/// for open shells too (walls standing on a floor face), unlike a solid
+/// test (docs/06 Decisions).
+fn inside_material(
+    mesh: &crate::geom::HalfEdgeMesh,
+    plane: &crate::math::Plane,
+    p: DVec3,
+    tol: &crate::tolerance::Tolerances,
+) -> bool {
+    let frame = plane.frame();
+    // An odd direction in the plane, so the ray misses edges and vertices.
+    let dir = (frame.from_2d(DVec2::new(0.8281, 0.5606)) - frame.from_2d(DVec2::ZERO))
+        .normalize_or_zero();
+    let mut crossings = 0usize;
+    for (f, face) in mesh.faces() {
+        let n = face.plane.normal;
+        let along = n.dot(dir);
+        if along.abs() < 1e-9 {
+            continue;
+        }
+        let t = -face.plane.signed_distance(p) / along;
+        if t <= tol.length {
+            continue;
+        }
+        let q = p + dir * t;
+        let face_frame = face.plane.frame();
+        let Ok((outer, holes)) = crate::geom::planar::face_polygon(mesh, f, &face_frame) else {
+            continue;
+        };
+        if crate::geom::planar::inside_or_on(face_frame.to_2d(q), &outer, &holes, tol) {
+            crossings += 1;
+        }
+    }
+    crossings % 2 == 1
+}
+
+/// The cap of `entities` cut by `plane`: the cut outlines, and when `fill`
+/// the regions they enclose that lie inside the material (docs/06 §3.1
+/// step 4, Decisions).
 pub fn section_cap(
     entities: &Entities,
     plane: &crate::math::Plane,
@@ -622,7 +660,7 @@ pub fn section_cap(
         cap.outline.push(a.as_vec3().to_array());
         cap.outline.push(b.as_vec3().to_array());
     }
-    if !fill || segments.is_empty() || !mesh.is_solid() {
+    if !fill || segments.is_empty() {
         return cap;
     }
     let mut outline = crate::geom::HalfEdgeMesh::new();
@@ -634,6 +672,22 @@ pub fn section_cap(
         let Ok(t) = tessellate_face(&outline, f, tol) else {
             continue;
         };
+        // A point surely inside the region: its largest triangle's center.
+        let Some(sample) = t
+            .triangles
+            .iter()
+            .map(|tri| tri.map(|i| t.positions[i as usize]))
+            .max_by(|a, b| {
+                let area = |p: &[DVec3; 3]| (p[1] - p[0]).cross(p[2] - p[0]).length();
+                area(a).total_cmp(&area(b))
+            })
+            .map(|p| (p[0] + p[1] + p[2]) / 3.0)
+        else {
+            continue;
+        };
+        if !inside_material(mesh, plane, sample, tol) {
+            continue;
+        }
         for tri in &t.triangles {
             let p = tri.map(|i| t.positions[i as usize].as_vec3().to_array());
             cap.triangles.extend([p[0], p[1], p[2]]);

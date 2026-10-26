@@ -15,7 +15,8 @@ All notable changes to Planyrith are recorded here. Versions follow
   published reference).
 - **Axes**: `axes-set`, `axes-reset`; inference uses the moved axes.
 - **3D text**: `text-3d` with a bundled open font, flat, extruded or as outlines.
-- **Rendering**: section cuts with filled caps on solids and cut lines; sun shadows on faces and
+- **Rendering**: section cuts with filled caps wherever the cut is inside material (walls on a
+  floor included) and cut lines; sun shadows on faces and
   the ground; guides, dimensions, texts and section plane widgets drawn in the viewport and in
   headless renders (with labels).
 - **GUI**: Tape Measure (T), Protractor, Dimension, Text, 3D Text, Section Plane and Axes tools;

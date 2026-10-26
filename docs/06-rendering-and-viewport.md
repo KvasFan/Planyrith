@@ -293,9 +293,12 @@ exposes a frame-time overlay (`F11` panel).
 - 2026-10-26 — **Sections, caps, shadows and overlays as built.** Each draw item carries the
   outermost active section plane on its path (in its own coordinates); faces, edges and picking
   discard fragments on the plane's `+normal` side. Caps are computed on the CPU, not with the
-  stencil: the plane's cut segments of a solid container are joined into faces by the kernel and
-  drawn in the style's section fill, with the cut lines in the section line color and width
-  (open cuts of non-solids get lines only); they are cached per container and plane. The sun's
+  stencil: the plane's cut segments are joined into faces by the kernel, and the faces whose
+  inside lies in the material (a ray along the plane crosses the container's faces an odd number
+  of times) are drawn in the style's section fill, with the cut lines in the section line color
+  and width; they are cached per container and plane. The parity test, not a solid test, decides,
+  so open shells such as walls standing on a floor face are filled too (user feedback,
+  2026-10-26: their cuts looked open); a cut through a lone face draws lines only. The sun's
   shadow map is one 2048² orthographic map fitted to the model's bounds (one cascade, 3×3 PCF);
   lit and shadowed intensities are the settings' `light` and `dark`; with `on_ground` a plane at
   the model's lowest Z shows only its shadow; when the sun is below the horizon everything takes
