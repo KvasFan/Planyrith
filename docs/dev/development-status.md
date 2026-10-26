@@ -5,7 +5,7 @@ implementation stands, what is done, what remains, and how to resume. Update it 
 every working session. Ground truth for *what to build* stays in `docs/00`–`docs/15`; this file
 is only *progress state*.
 
-_Last updated: 2026-10-25 (release 0.3.0: inference engine, `infer`, interactive GUI tools)._
+_Last updated: 2026-10-26 (0.4 implemented: textures, libraries, components, scenes, styles, panels)._
 
 ## 1. Where we are
 
@@ -70,8 +70,10 @@ Frontends:
    2026-10-25: the engine works very well, the GUI looks basic. A first polish pass followed
    (themes, icon toolbar, axes and sky, cursors, context menu, scene tabs, status bar; docs/07
    Decisions "Look (after 0.3)"); review it with `PLANYRITH_SCREENSHOTS` (docs/12 Decisions).
-   Still open from docs/07: semi-transparent previews, Preferences, layout presets, panels for
-   materials/components/styles (0.4). Next: milestone 0.4 (organization and materials).
+   Still open from docs/07: semi-transparent previews, Preferences, layout presets.
+   **Milestone 0.4** (organization and materials) is implemented on `main` (docs/13 Decisions
+   "0.4 scope"; acceptance `textured_cabinet_acceptance`); release 0.4.0 after the user tries it.
+   Next: milestone 0.5 (interchange).
 2. **Journal and undo.** The journal (`history.msgpack`, docs/09 §3) is append-only and every
    frontend journals executed commands but not undo/redo, so after an undo it lists a command
    that is no longer in the document. Decide whether undo/redo are journaled (entries) or the

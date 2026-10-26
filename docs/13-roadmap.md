@@ -98,3 +98,14 @@ parametric/dynamic components, GPU path-traced preview, mobile UI.
   `batch`. `import` arrives with the first importers (0.5) and `script` with scripting (0.6).
   `serve` over standard input/output ships in 0.1 so every command is reachable through JSON-RPC
   (AGENTS.md §2); its socket transport and `repl` follow in 0.2.
+- 2026-10-26 — **0.4 scope.** Delivered: textured materials, `material-sample`, `.plyrm`,
+  `.plyrc` component files (save, insert, reload, replace), make unique, gluing with follow,
+  cut openings (display), billboards, full scene capture with animated transitions and the
+  scene animation, tag folders, the style commands and editor with watermarks and fog, `.plyrs`,
+  image entities and `texture-position` (offset, rotation, scale), and the Materials,
+  Components and Styles panels. The acceptance is `textured_cabinet_acceptance` (CLI),
+  `scenes_animate_their_transitions_and_play_in_turn` (GUI) and the `.plyrm` round-trip tests.
+  Deferred: texture pins (fixed/free), `project_from` and `copy_to`; browsing component folders
+  and a user library (the Components panel shows the model's components and inserts files);
+  picking image entities by clicking; edge depth cue, extensions, endpoints and jitter in the
+  renderer (the style stores them).

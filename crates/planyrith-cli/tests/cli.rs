@@ -354,6 +354,140 @@ fn furnished_room_acceptance() {
     );
 }
 
+/// docs/13 milestone 0.4 acceptance: a cabinet built from components with a
+/// textured veneer, saved as a component file and a material library; a
+/// kitchen loads the library and places the cabinet twice (one definition,
+/// found by its UUID); both validate clean and re-save identically.
+#[test]
+fn textured_cabinet_acceptance() {
+    let dir = scratch("cabinet");
+    std::fs::create_dir_all(dir.join("textures")).unwrap();
+    // A striped veneer: 16 stripes across 64 × 32 pixels.
+    image::RgbImage::from_fn(64, 32, |x, _| {
+        if (x / 4) % 2 == 0 {
+            image::Rgb([170, 110, 60])
+        } else {
+            image::Rgb([140, 85, 40])
+        }
+    })
+    .save(dir.join("textures/oak.png"))
+    .unwrap();
+    let batches = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/batches");
+    let run_batch = |name: &str, doc: &str| {
+        planyrith()
+            .current_dir(&dir)
+            .args([
+                "batch",
+                batches.join(name).to_str().unwrap(),
+                "-f",
+                doc,
+                "--deterministic",
+            ])
+            .assert()
+            .success();
+        planyrith()
+            .current_dir(&dir)
+            .args(["validate", "-f", doc])
+            .assert()
+            .success();
+    };
+    let info = |doc: &str| {
+        json_of(
+            &planyrith()
+                .current_dir(&dir)
+                .args(["info", "-f", doc, "--json"])
+                .assert()
+                .success()
+                .get_output()
+                .stdout,
+        )["output"]
+            .clone()
+    };
+    let count = |doc: &str, query: &str| {
+        json_of(
+            &planyrith()
+                .current_dir(&dir)
+                .args(["query", "-f", doc, query, "--count", "--json"])
+                .assert()
+                .success()
+                .get_output()
+                .stdout,
+        )["output"]
+            .as_u64()
+            .unwrap()
+    };
+
+    run_batch("cabinet.plyrb", "cabinet.plyr");
+    let cabinet = info("cabinet.plyr");
+    // Side, Shelf, Back, Handle, Door, Door #2 and Cabinet.
+    assert_eq!(cabinet["counts"]["definitions"], 7);
+    assert_eq!(cabinet["counts"]["images"], 1);
+    assert_eq!(
+        cabinet["bounds"]["max"],
+        serde_json::json!([600.0, 566.0, 720.0])
+    );
+    assert_eq!(
+        cabinet["bounds"]["min"],
+        serde_json::json!([0.0, -30.0, 0.0])
+    );
+    assert_eq!(count("cabinet.plyr", "definition:Cabinet"), 1);
+    assert!(dir.join("parts/cabinet.plyrc").exists());
+    assert!(dir.join("libs/cabinet.plyrm").exists());
+
+    run_batch("kitchen.plyrb", "kitchen.plyr");
+    let kitchen = info("kitchen.plyr");
+    assert_eq!(
+        kitchen["counts"]["definitions"], 7,
+        "the second insert reuses the first"
+    );
+    assert_eq!(kitchen["counts"]["images"], 1, "one veneer image");
+    assert_eq!(count("kitchen.plyr", "definition:Cabinet"), 2);
+    assert_eq!(kitchen["bounds"]["max"][2], 720.0);
+
+    // The library brought the materials over unchanged.
+    let materials = |doc: &str| {
+        let out = dir.join(format!("{doc}.json"));
+        planyrith()
+            .current_dir(&dir)
+            .args(["export", "-f", doc, out.to_str().unwrap(), "--canonical"])
+            .assert()
+            .success();
+        let v: Value = serde_json::from_slice(&std::fs::read(&out).unwrap()).unwrap();
+        let mut list: Vec<Value> = v["materials"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|pair| pair[1].clone())
+            .filter(|m| m["is_default_for"].is_null())
+            .collect();
+        list.sort_by_key(|m| m["name"].as_str().unwrap_or_default().to_string());
+        list
+    };
+    assert_eq!(materials("cabinet.plyr"), materials("kitchen.plyr"));
+
+    // Reopened and re-saved without changes: identical bytes.
+    for doc in ["cabinet.plyr", "kitchen.plyr"] {
+        let again = dir.join(format!("again-{doc}"));
+        planyrith()
+            .current_dir(&dir)
+            .args([
+                "repair",
+                "-f",
+                doc,
+                "-o",
+                again.to_str().unwrap(),
+                "--deterministic",
+            ])
+            .assert()
+            .success();
+        assert_eq!(
+            std::fs::read(dir.join(doc)).unwrap(),
+            std::fs::read(&again).unwrap(),
+            "{doc}"
+        );
+    }
+}
+
 /// AGENTS.md §4 step 4: every registered command has a batch under
 /// `tests/commands/<name>.plyrb` whose result validates clean and whose
 /// canonical export matches `tests/golden/commands/<name>.json`

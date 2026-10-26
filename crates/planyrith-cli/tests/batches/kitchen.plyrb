@@ -1,0 +1,8 @@
+# Milestone 0.4 acceptance, part 2: a kitchen takes the cabinet's material
+# library and places the cabinet file twice (one definition, found again
+# by its UUID).
+material-library-load --path libs/cabinet.plyrm
+component-insert --path parts/cabinet.plyrc --position 0,0,0
+component-insert --path parts/cabinet.plyrc --position 600,0,0
+rectangle --corner-a -500,-1000,0 --corner-b 2500,1500,0
+material-apply --targets 'face & last' --material Oak --side both

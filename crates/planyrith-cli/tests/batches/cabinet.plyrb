@@ -1,0 +1,49 @@
+# Milestone 0.4 acceptance (docs/13): a base cabinet built from components
+# with a textured veneer. Units: millimeters; the cabinet spans 600 × 560 ×
+# 720 with its doors in front (y < 0). Textures live in `textures/`.
+
+material-create --name Oak --color '#B5835A' --texture textures/oak.png --texture-width 600mm
+material-create --name Steel --color '#9DA3A8'
+
+# --- Sides: 18 × 560 × 720, left and right ----------------------------------
+rectangle --corner-a 0,0,0 --corner-b 18,560,0
+push-pull --face '{face & last}' --distance 720
+material-apply --targets face --material Oak --side both
+make-component --targets 'face | edge' --name Side
+move --targets 'definition:Side' --delta 582,0,0 --copy
+
+# --- Shelves between the sides: bottom, middle, top ------------------------
+rectangle --corner-a 18,0,0 --corner-b 582,560,0
+push-pull --face '{face & last}' --distance 18
+material-apply --targets face --material Oak --side both
+make-component --targets 'face | edge' --name Shelf
+move --targets 'definition:Shelf' --delta 0,0,351 --copy --copies 2
+
+# --- Back panel: 600 × 6 × 720 behind ----------------------------------------
+rectangle --corner-a 0,560,0 --corner-b 600,566,0
+push-pull --face '{face & last}' --distance 720
+make-component --targets 'face | edge' --name Back
+
+# --- Doors with a steel handle each -------------------------------------------
+# The handle is built away from the cabinet, then moved onto the door front.
+rectangle --corner-a 2000,0,0 --corner-b 2020,12,0
+push-pull --face '{face & last}' --distance 120
+material-apply --targets face --material Steel --side both
+make-component --targets 'face | edge' --name Handle
+move --targets 'definition:Handle' --delta -1750,-30,300
+rectangle --corner-a 2,0,2 --corner-b 298,0,718 --plane xz
+push-pull --face '{face & last}' --distance -18
+material-apply --targets face --material Oak --side both
+make-component --targets 'face | edge | definition:Handle' --name Door
+move --targets 'definition:Door' --delta 300,0,0 --copy
+# The right door gets its own definition (its handle moves later).
+make-unique --targets last
+
+# --- The cabinet as one component, saved with its materials ------------------
+make-component --targets all --name Cabinet
+component-save-as --definition Cabinet --path parts/cabinet.plyrc
+material-library-save --path libs/cabinet.plyrm
+camera-standard --view front --extents
+scene-add --name Front --transition-s 1.5
+camera-standard --view iso --extents
+scene-add --name Iso
