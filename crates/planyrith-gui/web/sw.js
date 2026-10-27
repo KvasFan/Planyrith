@@ -25,11 +25,24 @@ self.addEventListener("activate", (event) => {
   );
 });
 
-// The application's own files from the cache, everything else from the
-// network.
+// Network first, revalidating with the server, so a new build is used as
+// soon as it is published; the cache serves only when the network fails
+// (offline). Cache-first kept running the previous build until a second
+// reload.
 self.addEventListener("fetch", (event) => {
-  if (event.request.method !== "GET") {
+  const request = event.request;
+  if (request.method !== "GET" || new URL(request.url).origin !== self.location.origin) {
     return;
   }
-  event.respondWith(caches.match(event.request).then((hit) => hit || fetch(event.request)));
+  event.respondWith(
+    fetch(request, { cache: "no-cache" })
+      .then((response) => {
+        if (response.ok) {
+          const copy = response.clone();
+          caches.open(CACHE).then((cache) => cache.put(request, copy));
+        }
+        return response;
+      })
+      .catch(() => caches.match(request).then((hit) => hit || Response.error())),
+  );
 });

@@ -5,7 +5,7 @@ implementation stands, what is done, what remains, and how to resume. Update it 
 every working session. Ground truth for *what to build* stays in `docs/00`–`docs/15`; this file
 is only *progress state*.
 
-_Last updated: 2026-10-26 (0.7 implemented, untagged: the user still reports a web failure; work paused by the user; 0.6.0 released)._
+_Last updated: 2026-10-28 (0.7 implemented, untagged, awaiting the user's retry of the web build; 0.6.0 released)._
 
 ## 1. Where we are
 
@@ -92,9 +92,11 @@ Frontends:
    black page (WebGL2 lacks texture view formats: fixed with a display pass, docs/06 Decisions)
    and a recovery that lost a deletion (selection not journaled: fixed, docs/11 Decisions);
    both verified in headless Firefox through WebDriver BiDi (Node's built-in WebSocket, no
-   installs). **The user still reports a failure in their browser** (details not yet given);
-   work is paused at the user's request. Resume by asking for the browser, its version and the
-   console error (F12), reproduce, fix; only then tag 0.7.0 and move to milestone 0.8.
+   installs). The user still reported a failure (no details); on 2026-10-28 the build also ran
+   on Firefox's WebGPU, and the likely cause — the first service worker served the old, broken
+   build from its cache — was fixed (network-first worker, docs/11 Decisions); the page now
+   shows any crash in an error box. Next: the user tries again (after one hard reload); tag
+   0.7.0 when it works for them, then milestone 0.8.
 2. **Journal and undo.** The journal (`history.msgpack`, docs/09 §3) is append-only and every
    frontend journals executed commands but not undo/redo, so after an undo it lists a command
    that is no longer in the document. Decide whether undo/redo are journaled (entries) or the

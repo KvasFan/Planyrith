@@ -150,3 +150,10 @@ The core never calls `std::fs` directly outside `NativeFs`. Open/save commands t
   brotli (4.5 MB on 2026-10-26 without `wasm-opt`, budget 12 MB). WebGL2 is enabled next to
   WebGPU; the renderer already keeps to downlevel limits. Reading the id buffer back (hover) does
   not block in the browser: it is started in one frame and read in a later one.
+- 2026-10-28 — **Service worker: network first.** The service worker fetches the application's
+  files from the server first (revalidating, `cache: "no-cache"`) and keeps a copy; the cache
+  answers only when the network fails. The first, cache-first worker kept a browser on the
+  previous build until a second reload, which hid fixes (the page stayed black after the WebGL2
+  fix). Pages that installed it get the new worker on their next load; a hard reload
+  (Ctrl+Shift+R) bypasses any worker. The page and the worker carry the build id, and the page
+  logs it with the graphics API in use.

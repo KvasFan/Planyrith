@@ -12,18 +12,44 @@
     html, body { margin: 0; height: 100%; overflow: hidden; background: #f4f3f0; }
     canvas#planyrith { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; outline: none; }
     #status { position: absolute; top: 45%; left: 16px; right: 16px; text-align: center; font: 16px system-ui, sans-serif; color: #555; pointer-events: none; }
+    #failure { display: none; position: absolute; left: 16px; right: 16px; bottom: 16px; max-height: 40%; overflow: auto; padding: 12px 14px; border-radius: 8px; background: #fff3f0; color: #6b1d10; border: 1px solid #e8a698; font: 13px/1.4 ui-monospace, monospace; white-space: pre-wrap; z-index: 1; }
+    #failure strong { font: 600 15px system-ui, sans-serif; display: block; margin-bottom: 6px; }
     @media (prefers-color-scheme: dark) { html, body { background: #1e1f22; } #status { color: #aaa; } }
   </style>
 </head>
 <body>
   <canvas id="planyrith"></canvas>
   <div id="status">Loading Planyrith…</div>
+  <div id="failure"><strong>Planyrith stopped with an error</strong><span></span></div>
   <noscript>Planyrith needs JavaScript and WebAssembly.</noscript>
+  <script>
+    // A crash would otherwise leave a blank page: show what the browser
+    // reported (the Rust panic message reaches console.error).
+    (function () {
+      const show = (text) => {
+        const box = document.getElementById("failure");
+        if (!box || !text) return;
+        box.style.display = "block";
+        const span = box.querySelector("span");
+        span.textContent = (span.textContent ? span.textContent + "\n\n" : "") + String(text).slice(0, 4000);
+      };
+      const error = console.error.bind(console);
+      console.error = (...args) => {
+        error(...args);
+        const text = args.map(String).join(" ");
+        if (/panicked at|RuntimeError|wgpu error/.test(text)) show(text);
+      };
+      window.addEventListener("error", (e) => show(e.message || e.error));
+      window.addEventListener("unhandledrejection", (e) => show(e.reason));
+    })();
+  </script>
   <script type="module">
     import init from "./planyrith-gui.js";
     init().catch((e) => {
       document.getElementById("status").textContent = "Planyrith could not start: " + e;
     });
+    // `navigator.gpu` tells WebGPU from WebGL2, for error reports.
+    console.info("Planyrith web build @BUILD@, " + (navigator.gpu ? "WebGPU available" : "WebGL2"));
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("sw.js").catch(() => {});
     }

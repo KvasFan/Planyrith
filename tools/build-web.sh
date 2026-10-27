@@ -5,8 +5,8 @@
 #   2. wasm-bindgen (the CLI matching the `wasm-bindgen` crate in Cargo.lock)
 #      writes the JavaScript glue;
 #   3. wasm-opt shrinks the module when it is installed (optional);
-#   4. the page, the service worker (stamped with the build) and the
-#      manifest are copied next to them.
+#   4. the page and the service worker (both stamped with the build) and
+#      the manifest are copied next to them.
 # Serve the folder with any static file server, e.g.
 # `python3 -m http.server -d dist/web`.
 # Usage: tools/build-web.sh [out-dir]   (default: dist/web)
@@ -33,9 +33,10 @@ if command -v wasm-opt >/dev/null; then
     -o "$out/planyrith-gui_bg.wasm" "$out/planyrith-gui_bg.wasm"
 fi
 web="$root/crates/planyrith-gui/web"
-cp "$web/index.html" "$web/manifest.webmanifest" "$web/icon.svg" "$out/"
+cp "$web/manifest.webmanifest" "$web/icon.svg" "$out/"
 build="$(sha256sum "$out/planyrith-gui_bg.wasm" | cut -c1-16)"
 sed "s/@BUILD@/$build/" "$web/sw.js" >"$out/sw.js"
+sed "s/@BUILD@/$build/" "$web/index.html" >"$out/index.html"
 
 # The size budget, compressed as a server would send it.
 total=0

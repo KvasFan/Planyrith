@@ -352,3 +352,6 @@ collected by clicks: e.g. segments for Circle, array count, copy toggle).
   pinch to zoom toward their center, move to pan and twist to orbit; one finger works the tools.
   Not in 0.7: remapping the shortcuts browsers reserve (`Ctrl+N`, `Ctrl+W`, `Ctrl+T`), and the
   overwrite confirmation of the browser's Save As (the dialog checks the computer's disk).
+- 2026-10-28 — **Web error box.** When the web application stops (a Rust panic, a WebAssembly
+  trap, an unhandled error), the page shows the message in a box at the bottom instead of
+  leaving a blank page, so a user can report it without the browser's console.
