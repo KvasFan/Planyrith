@@ -413,8 +413,10 @@ pub fn file_dialog() -> FileDialog {
 pub type Uploads = Rc<RefCell<Vec<(String, Vec<u8>)>>>;
 
 /// Asks the browser for files from the computer (`accept`: extensions like
-/// `.plyr,.obj`); each one read lands in `into`.
-pub fn upload(accept: &str, into: Uploads) {
+/// `.plyr,.obj`; `multiple`: several at once); each one read lands in
+/// `into`. The input element is attached to the page while the picker is
+/// open (some browsers ignore a detached one).
+pub fn upload(accept: &str, multiple: bool, into: Uploads) {
     let Some(document) = web_sys::window().and_then(|w| w.document()) else {
         return;
     };
@@ -425,27 +427,36 @@ pub fn upload(accept: &str, into: Uploads) {
         return;
     };
     input.set_type("file");
-    input.set_multiple(true);
+    input.set_multiple(multiple);
     input.set_accept(accept);
+    let _ = input.set_attribute("style", "display: none");
+    let _ = input.set_attribute("data-planyrith", "upload");
+    if let Some(body) = document.body() {
+        let _ = body.append_child(&input);
+    }
     let picked = input.clone();
     let on_change = wasm_bindgen::closure::Closure::once_into_js(move || {
-        let Some(files) = picked.files() else {
-            return;
-        };
-        for i in 0..files.length() {
-            let Some(file) = files.get(i) else { continue };
-            let into = Rc::clone(&into);
-            wasm_bindgen_futures::spawn_local(async move {
-                let name = file.name();
-                if let Ok(buffer) = wasm_bindgen_futures::JsFuture::from(file.array_buffer()).await
-                {
-                    let bytes = js_sys::Uint8Array::new(&buffer).to_vec();
-                    into.borrow_mut().push((name, bytes));
-                }
-            });
+        if let Some(files) = picked.files() {
+            for i in 0..files.length() {
+                let Some(file) = files.get(i) else { continue };
+                let into = Rc::clone(&into);
+                wasm_bindgen_futures::spawn_local(async move {
+                    let name = file.name();
+                    if let Ok(buffer) =
+                        wasm_bindgen_futures::JsFuture::from(file.array_buffer()).await
+                    {
+                        let bytes = js_sys::Uint8Array::new(&buffer).to_vec();
+                        into.borrow_mut().push((name, bytes));
+                    }
+                });
+            }
         }
+        picked.remove();
     });
     input.set_onchange(Some(on_change.unchecked_ref()));
+    let cancelled = input.clone();
+    let on_cancel = wasm_bindgen::closure::Closure::once_into_js(move || cancelled.remove());
+    let _ = input.add_event_listener_with_callback("cancel", on_cancel.unchecked_ref());
     input.click();
 }
 

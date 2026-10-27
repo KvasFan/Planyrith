@@ -157,3 +157,10 @@ The core never calls `std::fs` directly outside `NativeFs`. Open/save commands t
   fix). Pages that installed it get the new worker on their next load; a hard reload
   (Ctrl+Shift+R) bypasses any worker. The page and the worker carry the build id, and the page
   logs it with the graphics API in use.
+- 2026-10-28 — **Files from the computer by default.** Trying the build, a user could not open
+  local files: Open… and Import… browsed the browser's storage, which starts empty. In the
+  browser, File › Open…, Import…, Insert Image… and the panels' files (textures, libraries,
+  components, watermarks) now ask for a file from the computer (`<input type=file>`, attached to
+  the page while the picker is open), store it in the browser's storage and use it from there;
+  File › Open Stored in Browser… opens documents saved there before. Exports and other files
+  written go to the browser's storage through the file dialog and are then downloaded.

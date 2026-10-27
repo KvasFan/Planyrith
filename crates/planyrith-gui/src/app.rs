@@ -127,6 +127,18 @@ enum DialogPurpose {
     Download,
 }
 
+/// What files picked on the computer are for (web).
+#[cfg(target_arch = "wasm32")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum UploadPurpose {
+    /// Open the document (the unsaved-changes guard already passed).
+    Open,
+    /// Only store them in the browser.
+    Store,
+    /// A panel's file (import, texture, library, component).
+    Resource(FileRequest),
+}
+
 /// Persisted per user (docs/07 §1: layouts are not stored in documents).
 #[derive(Serialize, Deserialize)]
 #[serde(default)]
@@ -209,6 +221,9 @@ pub struct App {
     /// Files uploaded from the computer, not yet stored.
     #[cfg(target_arch = "wasm32")]
     uploads: platform::web::Uploads,
+    /// What the files being uploaded are for.
+    #[cfg(target_arch = "wasm32")]
+    upload_purpose: Option<UploadPurpose>,
 }
 
 /// The fields of the texture placement window (docs/05 §5.9).
@@ -295,6 +310,8 @@ impl App {
             recovery: None,
             #[cfg(target_arch = "wasm32")]
             uploads: Default::default(),
+            #[cfg(target_arch = "wasm32")]
+            upload_purpose: None,
         }
     }
 
@@ -413,6 +430,10 @@ impl App {
                 self.info(format!("Opened the example {}", sample.name));
             }
             Pending::Open(Some(path)) => self.open(&path),
+            // In the browser, documents come from the computer.
+            #[cfg(target_arch = "wasm32")]
+            Pending::Open(None) => self.pick_from_computer(UploadPurpose::Open),
+            #[cfg(not(target_arch = "wasm32"))]
             Pending::Open(None) => {
                 self.dialog = Self::document_dialog();
                 self.dialog_purpose = Some(DialogPurpose::Open);
@@ -1652,6 +1673,13 @@ impl App {
     /// Opens the file dialog for a panel's request.
     fn open_resource_dialog(&mut self, request: FileRequest) {
         let (title, kind, extensions, saves) = request.dialog();
+        // In the browser, files to read come from the computer; files
+        // written go to the browser's storage, then download.
+        #[cfg(target_arch = "wasm32")]
+        if !saves {
+            self.pick_from_computer(UploadPurpose::Resource(request));
+            return;
+        }
         self.dialog = platform::file_dialog()
             .title(title)
             .add_file_filter_extensions(kind, extensions.to_vec())
@@ -1699,7 +1727,13 @@ impl App {
                     };
                     let (name, params) = request.command(&path.to_string_lossy());
                     match self.session.execute(name, params) {
-                        Ok(_) => self.info(format!("{} {}", request.dialog().0, file_name(&path))),
+                        Ok(_) => {
+                            self.info(format!("{} {}", request.dialog().0, file_name(&path)));
+                            #[cfg(target_arch = "wasm32")]
+                            if saves {
+                                self.download(&path);
+                            }
+                        }
                         Err(e) => self.error(e),
                     }
                 }
@@ -1809,6 +1843,8 @@ impl App {
             self.take_file(file.path().to_path_buf());
             #[cfg(target_arch = "wasm32")]
             {
+                // Dropped files open or import (not a picker's purpose).
+                self.upload_purpose = None;
                 let uploads = std::rc::Rc::clone(&self.uploads);
                 wasm_bindgen_futures::spawn_local(async move {
                     let name = file_name(file.path());
@@ -1843,8 +1879,14 @@ impl App {
     #[cfg(target_arch = "wasm32")]
     fn web_file_menu(&mut self, ui: &mut egui::Ui) {
         ui.separator();
+        if ui.button("Open Stored in Browser…").clicked() {
+            self.dialog = Self::document_dialog();
+            self.dialog_purpose = Some(DialogPurpose::Open);
+            self.dialog.pick_file();
+            ui.close();
+        }
         if ui.button("Upload from Computer…").clicked() {
-            platform::web::upload("", std::rc::Rc::clone(&self.uploads));
+            self.pick_from_computer(UploadPurpose::Store);
             ui.close();
         }
         if ui.button("Download This Document").clicked() {
@@ -1871,20 +1913,53 @@ impl App {
         }
     }
 
-    /// Stores the uploads that finished reading in the browser's files.
+    /// Asks the browser for files from the computer, for `purpose`.
+    #[cfg(target_arch = "wasm32")]
+    fn pick_from_computer(&mut self, purpose: UploadPurpose) {
+        let accept = match &purpose {
+            UploadPurpose::Open => ".plyr".to_string(),
+            UploadPurpose::Store => String::new(),
+            UploadPurpose::Resource(request) => request
+                .dialog()
+                .2
+                .iter()
+                .map(|e| format!(".{e}"))
+                .collect::<Vec<_>>()
+                .join(","),
+        };
+        let multiple = purpose == UploadPurpose::Store;
+        self.upload_purpose = Some(purpose);
+        platform::web::upload(&accept, multiple, std::rc::Rc::clone(&self.uploads));
+    }
+
+    /// Stores the uploads that finished reading in the browser's files and
+    /// does what they were picked for.
     #[cfg(target_arch = "wasm32")]
     fn stored_uploads(&mut self) {
         let done: Vec<(String, Vec<u8>)> = self.uploads.borrow_mut().drain(..).collect();
-        let several = done.len() > 1;
         for (name, bytes) in done {
             let path = PathBuf::from(format!("/{name}"));
             let key = path.to_string_lossy().to_string();
             if let Err(e) = platform::storage().write(&key.as_str().into(), &bytes) {
                 self.error(format!("Could not store {name}: {e}"));
-            } else if several {
-                self.info(format!("Stored {name} in this browser"));
-            } else {
-                self.take_file(path);
+                continue;
+            }
+            match self.upload_purpose.clone() {
+                Some(UploadPurpose::Open) => {
+                    self.upload_purpose = None;
+                    self.open(&path);
+                }
+                Some(UploadPurpose::Resource(request)) => {
+                    self.upload_purpose = None;
+                    let (command, params) = request.command(&key);
+                    match self.session.execute(command, params) {
+                        Ok(_) => self.info(format!("{} {name}", request.dialog().0)),
+                        Err(e) => self.error(e),
+                    }
+                }
+                Some(UploadPurpose::Store) => self.info(format!("Stored {name} in this browser")),
+                // Dropped on the page.
+                None => self.take_file(path),
             }
         }
     }
