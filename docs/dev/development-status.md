@@ -95,8 +95,14 @@ Frontends:
    installs). The user still reported a failure (no details); on 2026-10-28 the build also ran
    on Firefox's WebGPU, and the likely cause — the first service worker served the old, broken
    build from its cache — was fixed (network-first worker, docs/11 Decisions); the page now
-   shows any crash in an error box. Next: the user tries again (after one hard reload); tag
-   0.7.0 when it works for them, then milestone 0.8.
+   shows any crash in an error box. The user confirmed it runs, but could not open local files
+   (Open… browsed the empty browser storage): Open…, Import…, Insert Image… and the panels'
+   files now use the computer's file picker, and exports are downloaded (docs/11 Decisions
+   2026-10-28). Verified on the CI artifact (build `1b43ae87`) in headless Firefox with
+   WebDriver BiDi `input.setFiles`: a `.plyr` from disk opens (6 faces), an `.obj` imports as a
+   group, the picker is requested within the click (user activation) from the menu, the toolbar
+   and Ctrl+O, and Export › 3D Model starts a blob download. Next: the user retries opening and
+   importing local files; tag 0.7.0 when it works for them, then milestone 0.8.
 2. **Journal and undo.** The journal (`history.msgpack`, docs/09 §3) is append-only and every
    frontend journals executed commands but not undo/redo, so after an undo it lists a command
    that is no longer in the document. Decide whether undo/redo are journaled (entries) or the
