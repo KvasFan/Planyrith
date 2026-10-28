@@ -4,14 +4,18 @@ All notable changes to Planyrith are recorded here. Versions follow
 [Semantic Versioning](https://semver.org/); before 1.0, minor versions are milestones of
 [`docs/13-roadmap.md`](docs/13-roadmap.md).
 
-## 0.7.0 — Web build (2026-10-26)
+## 0.7.0 — Web build (2026-10-28)
 
 - **Web**: the GUI runs in the browser (WebGPU, or WebGL2), built by `tools/build-web.sh` into
-  static files (4.5 MB with brotli) with a service worker for offline use. Documents live in the
-  browser's storage (IndexedDB); the file dialogs browse it; File › Upload from Computer… and
-  dropping files bring files in, Download This Document / Download a File… take them out. The
-  page asks before closing with unsaved changes. Touch: pinch to zoom, two fingers to pan,
-  twist to orbit.
+  static files (4.3 MB with brotli) with a service worker for offline use (network first, so a
+  new build is used at once). Open…, Import…, Insert Image… and the panels' files use the
+  computer's file picker; exports and Download This Document / Download a File… save to the
+  computer. Documents also live in the browser's storage (IndexedDB, File › Open Stored in
+  Browser…); dropping files on the page opens or imports them. The page asks before closing with
+  unsaved changes and shows an error box if the application stops. Touch: pinch to zoom, two
+  fingers to pan, twist to orbit.
+- **Rendering**: the viewport's frame is produced by a display pass that works on WebGL2 and GL
+  drivers without texture view formats.
 - **Autosave and recovery** on the desktop and the web: a journal of every command and periodic
   snapshots beside the document (never over it); after a session ends without saving, the GUI
   offers Recover or Discard. `planyrith recover <doc>` does it from the command line.
