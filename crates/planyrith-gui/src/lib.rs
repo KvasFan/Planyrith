@@ -12,9 +12,12 @@
 
 mod app;
 mod bundled;
+mod extensions;
 mod icons;
 mod panels;
 pub mod platform;
+#[cfg(not(target_arch = "wasm32"))]
+mod remote;
 mod resources;
 pub mod samples;
 pub mod session;

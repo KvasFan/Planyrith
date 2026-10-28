@@ -8,6 +8,7 @@ mod component;
 mod draw;
 mod edit;
 mod select;
+mod solid;
 
 use egui::Color32;
 use glam::DVec3;
@@ -258,6 +259,31 @@ pub fn catalogue() -> Vec<(Box<dyn Tool>, Option<egui::Key>)> {
         (Box::new(AxesTool::default()), None),
         // Activated from the Components panel with a component to place.
         (Box::new(ComponentTool::default()), None),
+        (Box::new(solid::SweepTool::default()), None),
+        (
+            Box::new(solid::SolidTool::new("solid-union", "Solid Union")),
+            None,
+        ),
+        (
+            Box::new(solid::SolidTool::new("solid-subtract", "Solid Subtract")),
+            None,
+        ),
+        (
+            Box::new(solid::SolidTool::new("solid-intersect", "Solid Intersect")),
+            None,
+        ),
+        (
+            Box::new(solid::SolidTool::new("solid-trim", "Solid Trim")),
+            None,
+        ),
+        (
+            Box::new(solid::SolidTool::new("solid-split", "Solid Split")),
+            None,
+        ),
+        (
+            Box::new(solid::SolidTool::new("outer-shell", "Outer Shell")),
+            None,
+        ),
     ]
 }
 

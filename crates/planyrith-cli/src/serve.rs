@@ -83,7 +83,7 @@ pub fn serve(
     let mut server = Server {
         global: global.clone(),
         readonly,
-        registry: Arc::new(CommandRegistry::with_builtins()),
+        registry: Arc::new(crate::extensions::registry()?),
         docs: BTreeMap::new(),
         next_doc: 1,
         kinds: BTreeSet::new(),
@@ -410,10 +410,35 @@ impl Server {
             "command.list" => Ok(serde_json::to_value(self.registry.list()).unwrap_or(Value::Null)),
             "command.schema" => self.command_schema(p),
             "command.execute" => self.command_execute(p),
+            "script.eval" => {
+                let mut command = p.clone();
+                command.insert("name".into(), json!("script-eval"));
+                command.insert("params".into(),json!({"source":required_str(p,"source")?,"args":p.get("args").cloned().unwrap_or(json!({}))}));
+                self.command_execute(&command)
+            }
             "history.undo" | "history.redo" => self.history_step(p, method == "history.undo"),
             "history.list" => self.history_list(p),
             "document.query" => self.document_query(p),
             "document.get" => self.document_get(p),
+            "document.snapshot" => {
+                let doc = self.doc(p)?;
+                let engine = &doc.session.engine;
+                let options = planyrith_core::io::native::WriteOptions {
+                    deterministic: true,
+                    include_history: false,
+                    ..Default::default()
+                };
+                let bytes = planyrith_core::io::native::write_document(
+                    engine.document(),
+                    &[],
+                    &options,
+                    &planyrith_core::io::NoProgress,
+                )
+                .map_err(|e| RpcError::from_cli(CliError::io(e)))?;
+                Ok(
+                    json!({"bytes":bytes,"generation":engine.generation(),"selection":engine.selection().normalized(engine.document()),"context":EditContext {path:engine.context().path.canonical(engine.document())},"last":engine.last_created(),"path":doc.session.path,"undo":engine.history().undo_label(),"redo":engine.history().redo_label()}),
+                )
+            }
             "selection.get" => {
                 let doc = self.doc(p)?;
                 Ok(selection_json(&doc.session))
@@ -547,7 +572,7 @@ impl Server {
                     "history.undo", "history.redo", "history.list", "document.query",
                     "document.get", "selection.get", "selection.set", "context.get",
                     "context.set", "events.subscribe", "command.preview",
-                    "document.render_mesh", "server.auth",
+                    "document.render_mesh", "document.snapshot", "script.eval", "server.auth",
                 ],
             },
         })
@@ -585,7 +610,7 @@ impl Server {
 
     fn session_new(&mut self, p: &Map<String, Value>) -> Result<Value, RpcError> {
         let path = optional_str(p, "path")?.map(PathBuf::from);
-        Ok(self.opened(Session::create(Document::new(), path)))
+        Ok(self.opened(Session::create(Document::new(), path).map_err(RpcError::from_cli)?))
     }
 
     fn session_open(&mut self, p: &Map<String, Value>) -> Result<Value, RpcError> {
@@ -612,6 +637,9 @@ impl Server {
         let doc = self.doc_mut(p)?;
         close_group(doc)?;
         let saved = doc.session.save(&global).map_err(RpcError::from_cli)?;
+        if let Some(path) = &saved {
+            doc.session.path = Some(PathBuf::from(path));
+        }
         Ok(json!({ "path": saved }))
     }
 
@@ -669,8 +697,7 @@ impl Server {
         let before = doc.session.engine.generation();
         let output = doc
             .session
-            .engine
-            .execute_erased(&name, params.clone())
+            .execute(&name, params.clone())
             .map_err(RpcError::from_command)?;
         if !view_only {
             doc.session

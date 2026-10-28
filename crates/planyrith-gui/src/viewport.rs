@@ -61,6 +61,7 @@ pub struct Preview {
 /// Viewport state.
 #[derive(Default)]
 pub struct Viewport {
+    remote_generation: u64,
     renderer: Option<Renderer>,
     texture: Option<egui::TextureId>,
     /// Size of the texture registered with egui (it is recreated on resize).
@@ -551,6 +552,12 @@ impl Viewport {
         });
         renderer.set_pixels_per_point(ppp);
         renderer.apply_deltas(&session.take_deltas());
+        if session.is_attached() && self.remote_generation != session.engine.generation() {
+            for container in session.doc().containers() {
+                renderer.invalidate(container);
+            }
+            self.remote_generation = session.engine.generation();
+        }
         // Containers drawn from another version than last frame's.
         let serial = preview.map(|p| p.serial);
         if serial != self.preview_drawn {
@@ -1046,6 +1053,15 @@ fn context_menu(ui: &mut egui::Ui, session: &Session, flows: &mut Vec<Flow>) {
         run("delete", selection.clone()),
     );
     item(ui, has_selection, "Hide", run("hide", selection.clone()));
+    item(
+        ui,
+        has_selection,
+        "Intersect Faces",
+        run(
+            "intersect-faces",
+            serde_json::json!({"targets":"selection","scope":"context"}),
+        ),
+    );
     item(
         ui,
         has_selection,

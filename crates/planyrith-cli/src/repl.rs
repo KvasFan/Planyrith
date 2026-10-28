@@ -24,7 +24,7 @@ Each line runs commands like a batch line: `rectangle --corner-a 0,0,0 --corner-
 /// Runs the shell until `:q` or the end of input.
 pub fn repl(global: &Global) -> Result<(), CliError> {
     let mut session = Session::open(global, true)?;
-    let registry = CommandRegistry::with_builtins();
+    let registry = crate::extensions::registry()?;
     let stdin = std::io::stdin();
     let interactive = stdin.is_terminal();
     let mut json_mode = global.json;
@@ -109,8 +109,7 @@ fn run_line(
             let inv = parse_tool_args(registry, name, rest, false)?;
             let params = inv.params(session, global)?;
             let output = session
-                .engine
-                .execute_erased(name, params.clone())
+                .execute(name, params.clone())
                 .map_err(CliError::from_command)?;
             session.journal(name, &params, None, global);
             Ok(output)

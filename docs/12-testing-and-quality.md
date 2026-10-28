@@ -123,3 +123,8 @@ humans or GUI automation before releases, with expected screenshots.
   docs/11 §7 runs on both platforms: `session::tests::unsaved_work_is_recovered_after_a_crash`
   (desktop), the classroom scenario (web, the reload is a fresh storage read from IndexedDB) and
   the CLI's `recover_replays_the_autosave_journal`.
+- 2026-10-28 — **Web test memory (0.8).** Browser tests set
+  `CARGO_PROFILE_TEST_DEBUG=0`: the unstripped test module's debug sections made
+  wasm-bindgen peak above 11 GiB locally. Assertions remain enabled. The release
+  build is unchanged; its complete static bundle measures 5,160,320 bytes with
+  brotli, below the 12 MiB budget.

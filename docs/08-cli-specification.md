@@ -268,6 +268,36 @@ On failure: `{"ok": false, "error": {"code": "E1002", "message": "...", "param":
 
 ## Decisions
 
+- 2026-10-28 — **Automation and solids (0.8).** Solid tool options are `--a` /
+  `--b` (cutter then target for Subtract/Trim), or `--targets` for Union/Outer
+  Shell, plus `--keep-component`. Sweep takes `--profile` and either `--path`
+  or `--path-face`. Intersect Faces takes `--targets` and
+  `--scope model|selection|context`. Soften/Smooth takes `--targets`, `--angle`
+  (degrees), `--smooth`/`--no-smooth` and `--soften-coplanar`. Every command
+  exposes a schema, help and interactive step metadata.
+- 2026-10-28 — `planyrith -f model.plyr script file.rhai --arg width=1200`
+  runs an atomic script; argument values are JSON when valid and strings
+  otherwise. Bare script lengths are millimeters and angles radians. Batch
+  lines beginning `script:` pass the rest of that line directly to Rhai, so
+  semicolons belong to the script. `tool script-eval --source … --args …`
+  is the journaling/recovery form. RPC `script.eval {doc_id,source,args?}`
+  returns the usual command envelope with the value, captured output and count.
+- 2026-10-28 — `ext check <folder|archive.plyrx>`, `ext install <archive.plyrx>`
+  and `ext list` manage extensions. Tools appear as `ext:<id>/<name>` with
+  `source: plugin` in command listings. An installed id replaces its bundled
+  version. `PLANYRITH_PLUGIN_DIR` overrides the desktop user-data location.
+  A plugin's parameter called `steps` uses `--steps <count>`; interactive help
+  is then `--tool-steps` instead of `--steps`. Semantic form lengths/angles
+  enrich the schema, so their CLI options accept units.
+- 2026-10-28 — Native GUI attachment uses the existing framed local socket/TCP
+  protocol and token authentication (TCP). Extension Manager › Attach accepts
+  a port or Unix socket and a document id (`d1` for `serve -f`, empty creates
+  one). Commands, scripts, save and undo/redo run on the server. The authenticated
+  `document.snapshot {doc_id}` method returns deterministic native bytes as a
+  JSON byte array, generation, canonical selection/context, last pids, path and
+  history labels. Snapshots retain the 64 MiB frame limit. Browser attachment
+  is unavailable because the browser cannot open a local socket.
+
 - 2026-10-20 — `tool <name>` options are generated from `Params` schemas; no hand-written option parsing per tool.
 - 2026-10-20 — JSON-RPC 2.0 over stdio/local socket is the GUI-attach protocol; no HTTP server in 1.0.
 - 2026-10-20 — Selection query grammar in §5 is shared by CLI, RPC and scripting.

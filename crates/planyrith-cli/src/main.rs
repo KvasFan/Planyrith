@@ -13,6 +13,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
 mod args;
+mod extensions;
 mod infer;
 mod out;
 #[cfg(feature = "render")]
@@ -178,6 +179,20 @@ enum Verb {
     Batch {
         /// Batch file (`-` or absent = standard input).
         script: Option<PathBuf>,
+    },
+    /// Run a sandboxed Rhai script (lengths in mm, angles in radians).
+    Script {
+        /// Rhai source file.
+        script: PathBuf,
+        /// Argument key=value; values are JSON when valid, strings otherwise.
+        #[arg(long = "arg", value_name = "KEY=VALUE")]
+        args: Vec<String>,
+    },
+    /// Install, check or list extensions.
+    Ext {
+        /// Extension operation.
+        #[command(subcommand)]
+        action: extensions::ExtensionAction,
     },
     /// Render images of the document without a window (docs/06 §11).
     #[cfg(feature = "render")]

@@ -1,0 +1,3 @@
+circle --center 0,0,0 --normal x --radius 100 --segments 12
+line --points '0,0,0;1000,0,0'
+sweep --profile '{face}' --path 'edge & last'

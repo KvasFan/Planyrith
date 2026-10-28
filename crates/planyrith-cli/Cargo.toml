@@ -16,7 +16,7 @@ path = "src/main.rs"
 # must never depend on egui, or on wgpu directly (it goes through
 # planyrith-render).
 [dependencies]
-planyrith-core = { workspace = true }
+planyrith-core = { workspace = true, features = ["scripting", "brep"] }
 # The headless `render` verb (docs/06 §11). Default since 0.2; build with
 # `--no-default-features` for a CLI without the GPU stack.
 planyrith-render = { workspace = true, optional = true }
@@ -34,6 +34,7 @@ default = ["render"]
 render = ["dep:planyrith-render", "dep:image"]
 
 [dev-dependencies]
+zip = { workspace = true }
 assert_cmd = { workspace = true }
 image = { workspace = true }
 predicates = { workspace = true }

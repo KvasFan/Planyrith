@@ -1,0 +1,7 @@
+rectangle --corner-a 0,0,0 --corner-b 1000,1000,0
+push-pull --face '{face & last}' --distance 1000
+make-group --targets all --name A
+rectangle --corner-a 500,500,500 --corner-b 1500,1500,500
+push-pull --face '{face & last}' --distance 1000
+make-group --targets 'edge | face' --name B
+solid-split --a name:A --b name:B

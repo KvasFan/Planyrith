@@ -1,0 +1,3 @@
+rectangle --corner-a 0,0,0 --corner-b 1000,1000,0
+push-pull --face '{face}' --distance 1000
+soften-smooth --targets edge --angle 100 --smooth

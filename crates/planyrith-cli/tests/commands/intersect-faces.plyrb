@@ -1,0 +1,3 @@
+rectangle --corner-a 0,0,0 --corner-b 1000,1000,0
+rectangle --corner-a 500,200,-500 --corner-b 500,800,500
+intersect-faces --targets face --scope selection

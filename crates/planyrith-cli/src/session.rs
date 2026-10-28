@@ -41,7 +41,7 @@ impl Session {
     /// Opens `global.file`; a missing file gives a new document when
     /// `create` is set (else `E1403`).
     pub fn open(global: &Global, create: bool) -> Result<Session, CliError> {
-        let registry = Arc::new(CommandRegistry::with_builtins());
+        let registry = Arc::new(crate::extensions::registry()?);
         let (doc, loaded, path, file_size) = match &global.file {
             None if create => (Document::new(), None, None, None),
             None => return Err(CliError::usage("this verb needs a document: -f <path>")),
@@ -81,16 +81,16 @@ impl Session {
 
     /// A session on a document that exists only in memory so far (`new`);
     /// `save` writes it to `path` (or `-o`).
-    pub fn create(doc: Document, path: Option<PathBuf>) -> Session {
-        let registry = Arc::new(CommandRegistry::with_builtins());
-        Session::build(registry, doc, None, path, None)
+    pub fn create(doc: Document, path: Option<PathBuf>) -> Result<Session, CliError> {
+        let registry = Arc::new(crate::extensions::registry()?);
+        Ok(Session::build(registry, doc, None, path, None))
     }
 
     /// A session on a recovered document (docs/11 §2) that saves to `path`.
-    pub fn recovered(recovered: Recovered, path: Option<PathBuf>) -> Session {
+    pub fn recovered(recovered: Recovered, path: Option<PathBuf>) -> Result<Session, CliError> {
         let doc = recovered.engine.document().clone();
         let mut session = Session::build(
-            Arc::new(CommandRegistry::with_builtins()),
+            Arc::new(crate::extensions::registry()?),
             doc,
             recovered.loaded,
             path,
@@ -100,7 +100,7 @@ impl Session {
         if let Some(last) = session.history.last() {
             session.engine.set_last_created(last.created.clone());
         }
-        session
+        Ok(session)
     }
 
     fn build(
@@ -166,6 +166,35 @@ impl Session {
                 .map_err(|e| CliError::usage(format!("--units: {e}"))),
             None => Ok(self.engine.document().info.display_units),
         }
+    }
+
+    /// Dispatches a command, enforcing the script's host-side time budget.
+    pub fn execute(
+        &mut self,
+        name: &str,
+        params: serde_json::Value,
+    ) -> Result<serde_json::Value, planyrith_core::commands::CommandError> {
+        if name != "script-eval" {
+            return self.engine.execute_erased(name, params);
+        }
+        let p: planyrith_core::scripting::ScriptParams =
+            serde_json::from_value(params).map_err(|e| {
+                planyrith_core::commands::CommandError::invalid_param("params", e.to_string())
+            })?;
+        let start = std::time::Instant::now();
+        let control = planyrith_core::scripting::ScriptControl {
+            interrupted: Some(Arc::new(move || start.elapsed().as_secs() >= 60)),
+            ..Default::default()
+        };
+        let output = planyrith_core::scripting::eval(
+            &mut self.engine,
+            &p.source,
+            &p.args,
+            Default::default(),
+            control,
+        )?;
+        serde_json::to_value(output)
+            .map_err(|e| planyrith_core::commands::CommandError::Internal(e.to_string()))
     }
 
     /// Records a journal row for an executed command.

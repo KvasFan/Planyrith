@@ -47,6 +47,12 @@ pub fn dispatch(global: Global, verb: Verb) -> Result<(), CliError> {
         Verb::Repair { fix } => repair_verb(&global, &fix),
         Verb::Recover { document } => recover_verb(&global, &document),
         Verb::Batch { script } => batch(&global, script.as_deref()),
+        Verb::Script { script, args } => script_verb(&global, &script, &args),
+        Verb::Ext { action } => {
+            let started = Instant::now();
+            let output = crate::extensions::manage(action)?;
+            emit(&global, "ext", output, None, None, started, None)
+        }
         #[cfg(feature = "render")]
         Verb::Render(args) => crate::render::render(&global, &args),
         Verb::Repl => crate::repl::repl(&global),
@@ -187,7 +193,7 @@ fn new(global: &Global, template: &str, title: Option<String>) -> Result<(), Cli
         doc.info.title = t;
     }
     // The usual session rules apply: `--no-save`/`--dry-run` write nothing.
-    let session = Session::create(doc, Some(path));
+    let session = Session::create(doc, Some(path))?;
     let saved = session.save(global)?;
     emit(
         global,
@@ -268,8 +274,12 @@ pub(crate) fn parse_tool_args(
                 .help("Print the JSON schemas of params and output"),
         )
         .arg(
-            clap::Arg::new("steps")
-                .long("steps")
+            clap::Arg::new("tool_steps")
+                .long(if specs.iter().any(|spec| spec.flag == "steps") {
+                    "tool-steps"
+                } else {
+                    "steps"
+                })
                 .action(clap::ArgAction::SetTrue)
                 .help("Print the interactive step sequence"),
         )
@@ -324,7 +334,7 @@ pub(crate) fn parse_tool_args(
             "output": serde_json::to_value(command.output_schema()).unwrap_or(Value::Null),
             "meta": meta,
         }))
-    } else if matches.get_flag("steps") {
+    } else if matches.get_flag("tool_steps") {
         Some(serde_json::to_value(&meta.steps).unwrap_or(Value::Null))
     } else if matches.get_flag("example") {
         Some(args::example(&specs))
@@ -371,7 +381,7 @@ fn parse_object(text: &str) -> Result<Map<String, Value>, CliError> {
 
 fn tool(global: &Global, name: Option<String>, raw: Vec<String>) -> Result<(), CliError> {
     let started = Instant::now();
-    let registry = CommandRegistry::with_builtins();
+    let registry = crate::extensions::registry()?;
     let name = name.filter(|n| n != "--help" && n != "-h");
     let Some(name) = name else {
         let list = registry.list();
@@ -411,8 +421,7 @@ fn tool(global: &Global, name: Option<String>, raw: Vec<String>) -> Result<(), C
         let mut session = Session::open(&global, true)?;
         let params = invocation.params(&session, &global)?;
         let output = session
-            .engine
-            .execute_erased(&invocation.name, params.clone())
+            .execute(&invocation.name, params.clone())
             .map_err(CliError::from_command)?;
         let (output, saved) = if global.dry_run {
             (
@@ -847,7 +856,7 @@ fn recover_verb(global: &Global, document: &std::path::Path) -> Result<(), CliEr
     )
     .map_err(CliError::io)?;
     let report = json!({ "replayed": recovered.replayed, "skipped": recovered.skipped });
-    let session = Session::recovered(recovered, Some(document.to_path_buf()));
+    let session = Session::recovered(recovered, Some(document.to_path_buf()))?;
     let saved = session.save(global)?;
     if saved.is_some() {
         autosave::discard(storage.as_ref(), &key).map_err(CliError::io)?;
@@ -865,6 +874,40 @@ fn recover_verb(global: &Global, document: &std::path::Path) -> Result<(), CliEr
 
 // ----- batch -------------------------------------------------------------------------------
 
+fn script_verb(global: &Global, path: &Path, arguments: &[String]) -> Result<(), CliError> {
+    let started = Instant::now();
+    let source = read_input(path)?;
+    let mut args = Map::new();
+    for argument in arguments {
+        let (key, value) = argument
+            .split_once('=')
+            .filter(|(k, _)| !k.is_empty())
+            .ok_or_else(|| CliError::usage("--arg expects KEY=VALUE"))?;
+        args.insert(
+            key.into(),
+            serde_json::from_str(value).unwrap_or_else(|_| json!(value)),
+        );
+    }
+    let mut session = Session::open(global, true)?;
+    let params = json!({"source":source,"args":args});
+    let output = session
+        .execute("script-eval", params.clone())
+        .map_err(CliError::from_command)?;
+    if !global.dry_run {
+        session.journal("script-eval", &params, None, global);
+    }
+    let saved = session.save(global)?;
+    emit(
+        global,
+        "script",
+        output,
+        Some(&session),
+        saved,
+        started,
+        None,
+    )
+}
+
 fn batch(global: &Global, script: Option<&Path>) -> Result<(), CliError> {
     let started = Instant::now();
     let text = match script {
@@ -881,11 +924,28 @@ fn batch(global: &Global, script: Option<&Path>) -> Result<(), CliError> {
         }
     };
     let mut session = Session::open(global, true)?;
-    let registry = CommandRegistry::with_builtins();
+    let registry = crate::extensions::registry()?;
     let token = session.engine.begin_group("Batch");
     let mut results = Vec::new();
     for (line_no, line) in text.lines().enumerate() {
         let line_no = line_no + 1;
+        if let Some(source) = line.trim_start().strip_prefix("script:") {
+            let params = json!({"source":source,"args":{}});
+            let output = session
+                .execute("script-eval", params.clone())
+                .map_err(CliError::from_command)
+                .map_err(|e| stream_error(global, line_no, Some("script-eval"), e))?;
+            if !global.dry_run {
+                session.journal("script-eval", &params, Some("Batch"), global);
+            }
+            if global.jsonl {
+                out::line(
+                    json!({"ok":true,"line":line_no,"command":"script-eval","output":output}),
+                )?;
+            }
+            results.push(json!({"line":line_no,"command":"script-eval","output":output}));
+            continue;
+        }
         let commands = shell::split_line(line)
             .map_err(|e| CliError::usage(format!("line {line_no}: {e}")))
             .map_err(|e| stream_error(global, line_no, None, e))?;
@@ -901,14 +961,11 @@ fn batch(global: &Global, script: Option<&Path>) -> Result<(), CliError> {
                     e
                 })?;
                 let params = inv.params(session, global)?;
-                let output = session
-                    .engine
-                    .execute_erased(name, params.clone())
-                    .map_err(|e| {
-                        let mut err = CliError::from_command(e);
-                        err.message = format!("line {line_no} ({name}): {}", err.message);
-                        err
-                    })?;
+                let output = session.execute(name, params.clone()).map_err(|e| {
+                    let mut err = CliError::from_command(e);
+                    err.message = format!("line {line_no} ({name}): {}", err.message);
+                    err
+                })?;
                 if !global.dry_run {
                     session.journal(name, &params, Some("Batch"), global);
                 }

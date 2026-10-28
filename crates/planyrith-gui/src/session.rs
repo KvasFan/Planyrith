@@ -26,6 +26,8 @@ use crate::platform::{self, now_rfc3339};
 
 /// An open document.
 pub struct Session {
+    #[cfg(not(target_arch = "wasm32"))]
+    remote: Option<crate::remote::Remote>,
     /// The engine owning the document.
     pub engine: Engine,
     /// Where it was read from or last saved to.
@@ -84,8 +86,11 @@ impl Session {
             .as_ref()
             .map(|l| l.history.clone())
             .unwrap_or_default();
-        let registry = Arc::new(CommandRegistry::with_builtins());
         let storage = platform::storage();
+        let registry = Arc::new(
+            crate::extensions::registry(storage.as_ref())
+                .unwrap_or_else(|_| CommandRegistry::with_builtins()),
+        );
         let mut engine = Engine::new(doc, Arc::clone(&registry));
         engine.set_storage(Arc::clone(&storage));
         if let Some(last) = history.last() {
@@ -104,6 +109,8 @@ impl Session {
                 _ => {}
             }));
         Session {
+            #[cfg(not(target_arch = "wasm32"))]
+            remote: None,
             engine,
             path,
             loaded,
@@ -130,6 +137,9 @@ impl Session {
     /// Journals commands and snapshots the document from now on (docs/11
     /// §2); the GUI turns it on, tests leave it off.
     pub fn enable_autosave(&mut self) {
+        if self.is_attached() {
+            return;
+        }
         let key = Session::autosave_key(self.path.as_deref());
         self.autosave = Some(Autosave::new(key, 0.0));
     }
@@ -264,6 +274,32 @@ impl Session {
 
     /// Runs a command and records it in the journal (docs/09 §3).
     pub fn execute(&mut self, name: &str, params: Value) -> Result<Value, String> {
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.remote.is_some() {
+            let selection = self
+                .engine
+                .selection()
+                .iter()
+                .map(|p| p.to_string())
+                .collect::<Vec<_>>();
+            let context = self.engine.context().path.to_string();
+            let remote = self
+                .remote
+                .as_mut()
+                .ok_or("Remote connection disappeared")?;
+            remote.call("context.set", serde_json::json!({"path":context}))?;
+            remote.call("selection.set",serde_json::json!({"query":if selection.is_empty() {"!all".into()} else {selection.join(" | ")}}))?;
+            let output = remote.call(
+                "command.execute",
+                serde_json::json!({"name":name,"params":params}),
+            )?;
+            self.refresh_remote(
+                !name.starts_with("camera-")
+                    && !name.starts_with("zoom-")
+                    && name != "scene-activate",
+            )?;
+            return Ok(output["output"].clone());
+        }
         let view_only = self
             .engine
             .registry()
@@ -276,10 +312,30 @@ impl Session {
             .autosave
             .is_some()
             .then(|| RowState::capture(&self.engine));
-        let output = self
-            .engine
-            .execute_erased(name, params.clone())
-            .map_err(|e| format!("{name}: {e} [{}]", e.code()))?;
+        let output = if name == "script-eval" {
+            let p: planyrith_core::scripting::ScriptParams =
+                serde_json::from_value(params.clone()).map_err(|e| e.to_string())?;
+            let start = web_time::Instant::now();
+            let control = planyrith_core::scripting::ScriptControl {
+                interrupted: Some(Arc::new(move || start.elapsed().as_secs() >= 60)),
+                ..Default::default()
+            };
+            serde_json::to_value(
+                planyrith_core::scripting::eval(
+                    &mut self.engine,
+                    &p.source,
+                    &p.args,
+                    Default::default(),
+                    control,
+                )
+                .map_err(|e| e.to_string())?,
+            )
+            .map_err(|e| e.to_string())?
+        } else {
+            self.engine
+                .execute_erased(name, params.clone())
+                .map_err(|e| format!("{name}: {e} [{}]", e.code()))?
+        };
         // Scenes animate the camera unless asked not to.
         if name == "scene-activate"
             && params.get("no_transition").and_then(Value::as_bool) != Some(true)
@@ -317,6 +373,11 @@ impl Session {
 
     /// Undoes the last step.
     pub fn undo(&mut self) -> Result<(), String> {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(remote) = self.remote.as_mut() {
+            remote.call("history.undo", serde_json::json!({}))?;
+            return self.refresh_remote(true);
+        }
         self.engine.undo().map_err(|e| e.to_string())?;
         self.snapshot_now = true;
         Ok(())
@@ -324,6 +385,11 @@ impl Session {
 
     /// Redoes the last undone step.
     pub fn redo(&mut self) -> Result<(), String> {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(remote) = self.remote.as_mut() {
+            remote.call("history.redo", serde_json::json!({}))?;
+            return self.refresh_remote(true);
+        }
         self.engine.redo().map_err(|e| e.to_string())?;
         self.snapshot_now = true;
         Ok(())
@@ -331,6 +397,19 @@ impl Session {
 
     /// Saves to `path` (or where it came from).
     pub fn save(&mut self, path: Option<&Path>) -> Result<PathBuf, String> {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(remote) = self.remote.as_mut() {
+            remote.call(
+                "session.save",
+                serde_json::json!({"path":path.map(|p|p.to_string_lossy().to_string())}),
+            )?;
+            self.refresh_remote(true)?;
+            self.mark_saved();
+            return self
+                .path
+                .clone()
+                .ok_or_else(|| "Remote save did not return a path".into());
+        }
         let target = path
             .map(Path::to_path_buf)
             .or_else(|| self.path.clone())
@@ -391,6 +470,79 @@ impl Session {
             touched.extend(doc.containers());
         }
         Ok((doc, touched))
+    }
+
+    /// Refreshes tools after installing or enabling an extension.
+    pub fn reload_extensions(&mut self) -> Result<(), String> {
+        let registry = Arc::new(
+            crate::extensions::registry(self.storage.as_ref()).map_err(|e| e.to_string())?,
+        );
+        self.engine.set_registry(registry.clone());
+        self.registry = registry;
+        Ok(())
+    }
+
+    /// Whether this session dispatches to a native local server.
+    pub fn is_attached(&self) -> bool {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.remote.is_some()
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            false
+        }
+    }
+    /// Undo label from the authoritative history.
+    pub fn undo_label(&self) -> Option<&str> {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(remote) = &self.remote {
+            return remote.undo.as_deref();
+        }
+        self.engine.history().undo_label()
+    }
+    /// Redo label from the authoritative history.
+    pub fn redo_label(&self) -> Option<&str> {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(remote) = &self.remote {
+            return remote.redo.as_deref();
+        }
+        self.engine.history().redo_label()
+    }
+    /// Attaches to a local TCP port or Unix socket. Empty `doc_id` creates a
+    /// server document; `d1` chooses the document opened with `serve -f`.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn attach(address: &str, token: &str, doc_id: &str) -> Result<Self, String> {
+        let mut session = Self::new();
+        session.remote = Some(crate::remote::Remote::connect(address, token, doc_id)?);
+        session.refresh_remote(false)?;
+        session.mark_saved();
+        Ok(session)
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    fn refresh_remote(&mut self, preserve_camera: bool) -> Result<(), String> {
+        let remote = self.remote.as_mut().ok_or("No remote connection")?;
+        let snapshot = remote.snapshot()?;
+        let camera = self.engine.document().camera;
+        if remote.generation != snapshot.generation {
+            let loaded = read_document(&snapshot.bytes, &NoProgress).map_err(|e| e.to_string())?;
+            self.engine.replace_document(loaded.document);
+            remote.generation = snapshot.generation;
+            self.index = None;
+        } else if !preserve_camera {
+            let loaded = read_document(&snapshot.bytes, &NoProgress).map_err(|e| e.to_string())?;
+            self.engine.set_camera(loaded.document.camera);
+        }
+        if preserve_camera {
+            self.engine.set_camera(camera);
+        }
+        self.engine
+            .set_context(snapshot.context)
+            .map_err(|e| e.to_string())?;
+        self.engine.set_selection(snapshot.selection);
+        self.engine.set_last_created(snapshot.last);
+        self.path = snapshot.path;
+        Ok(())
     }
 
     /// Takes the camera transition to animate, if any.

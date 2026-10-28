@@ -17,7 +17,7 @@ path = "src/main.rs"
 
 # Allowed dependencies are listed in docs/01-architecture.md §1.1.
 [dependencies]
-planyrith-core = { workspace = true }
+planyrith-core = { workspace = true, features = ["scripting", "brep"] }
 planyrith-render = { workspace = true }
 egui = { workspace = true }
 eframe = { workspace = true }

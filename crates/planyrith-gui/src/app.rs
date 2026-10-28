@@ -214,6 +214,7 @@ pub struct App {
     texture: Option<(planyrith_core::document::EntityPath, TextureFields)>,
     /// The Shadows window is open (docs/07 §6).
     shadows_open: bool,
+    extensions: crate::extensions::Extensions,
     /// Journal and snapshot the documents (off in tests).
     autosave: bool,
     /// The document (`None`: untitled) whose unsaved work can be recovered.
@@ -306,6 +307,7 @@ impl App {
             resources: ResourceState::default(),
             texture: None,
             shadows_open: false,
+            extensions: Default::default(),
             autosave: false,
             recovery: None,
             #[cfg(target_arch = "wasm32")]
@@ -927,19 +929,21 @@ impl App {
                 }
             });
             ui.menu_button("Edit", |ui| {
-                let history = self.session.engine.history();
-                let undo = history.undo_label().map(str::to_string);
-                let redo = history.redo_label().map(str::to_string);
+                let undo = self.session.undo_label().map(str::to_string);
+                let redo = self.session.redo_label().map(str::to_string);
                 let undo_text = undo.map_or_else(|| "Undo".into(), |l| format!("Undo {l}"));
                 if ui
-                    .add_enabled(history.can_undo(), egui::Button::new(undo_text))
+                    .add_enabled(
+                        self.session.undo_label().is_some(),
+                        egui::Button::new(undo_text),
+                    )
                     .clicked()
                 {
                     self.undo();
                     ui.close();
                 }
                 let redo_text = redo.map_or_else(|| "Redo".into(), |l| format!("Redo {l}"));
-                let can_redo = self.session.engine.history().can_redo();
+                let can_redo = self.session.redo_label().is_some();
                 if ui
                     .add_enabled(can_redo, egui::Button::new(redo_text))
                     .clicked()
@@ -1171,6 +1175,24 @@ impl App {
                     self.tool_button(ui, label);
                 }
                 ui.separator();
+                ui.menu_button("Solids", |ui| {
+                    for label in [
+                        "Solid Union",
+                        "Solid Subtract",
+                        "Solid Intersect",
+                        "Solid Trim",
+                        "Solid Split",
+                        "Outer Shell",
+                    ] {
+                        self.tool_button(ui, label);
+                    }
+                });
+                self.tool_button(ui, "Sweep");
+                if ui.button("Soften / Smooth…").clicked() {
+                    self.extensions.soften_open = true;
+                    ui.close();
+                }
+                ui.separator();
                 for label in [
                     "Tape Measure",
                     "Protractor",
@@ -1184,11 +1206,16 @@ impl App {
                 }
             });
             ui.menu_button("Window", |ui| {
+                if ui.button("Console").clicked() {
+                    self.extensions.console_open = true;
+                    ui.close();
+                }
                 if ui.button("Reset Layout").clicked() {
                     self.tree = default_layout();
                     ui.close();
                 }
             });
+            ui.menu_button("Extensions", |ui| self.extensions.menu(ui));
             ui.menu_button("Help", |ui| {
                 ui.label(format!("Planyrith {}", env!("CARGO_PKG_VERSION")));
                 ui.weak("Every tool is also a command: see `planyrith tool`.");
@@ -1231,16 +1258,18 @@ impl App {
                 self.save(None);
             }
             group_gap(ui);
-            let history = self.session.engine.history();
-            let undo = history.undo_label().map_or_else(
+            let undo = self.session.undo_label().map_or_else(
                 || "Undo (Ctrl+Z)".to_string(),
                 |l| format!("Undo {l} (Ctrl+Z)"),
             );
-            let redo = history.redo_label().map_or_else(
+            let redo = self.session.redo_label().map_or_else(
                 || "Redo (Ctrl+Y)".to_string(),
                 |l| format!("Redo {l} (Ctrl+Y)"),
             );
-            let (can_undo, can_redo) = (history.can_undo(), history.can_redo());
+            let (can_undo, can_redo) = (
+                self.session.undo_label().is_some(),
+                self.session.redo_label().is_some(),
+            );
             if ui
                 .add_enabled_ui(can_undo, |ui| icons::button(ui, Icon::Undo, false, &undo))
                 .inner
@@ -2234,6 +2263,7 @@ impl App {
         }
         self.texture_window(&ctx);
         self.shadows_window(&ctx);
+        self.extensions.ui(&ctx, &mut self.session);
         self.file_dialog(&ctx);
         self.discard_prompt(&ctx);
         self.recovery_prompt(&ctx);

@@ -1,0 +1,2 @@
+rectangle --corner-a 0,0,0 --corner-b 100,100,0
+attribute-set --targets face --dictionary ext.example --key kind --value '"panel"'

@@ -118,6 +118,8 @@ jobs:
         run: CHROMEDRIVER="$CHROMEWEBDRIVER/chromedriver" cargo test -p planyrith-gui --target wasm32-unknown-unknown --test web
         env:
           CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
+          # Debug sections substantially increase wasm-bindgen's peak memory.
+          CARGO_PROFILE_TEST_DEBUG: "0"
       - uses: actions/upload-artifact@v4
         with:
           name: planyrith-web

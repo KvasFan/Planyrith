@@ -607,6 +607,7 @@ fn every_command_matches_its_golden_file() {
         .as_array()
         .unwrap()
         .iter()
+        .filter(|c| c["source"] != "plugin")
         .map(|c| c["name"].as_str().unwrap().to_string())
         .collect();
     let mut batches: Vec<String> = std::fs::read_dir(root.join("commands"))
