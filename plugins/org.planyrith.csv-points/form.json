@@ -1,0 +1,17 @@
+{
+  "fields": [
+    {
+      "key": "csv",
+      "type": "text",
+      "label": "Csv",
+      "default": "0,0,0\n100,200,300"
+    },
+    {
+      "key": "scale",
+      "type": "number",
+      "label": "Scale",
+      "default": 1,
+      "min": 0.000001
+    }
+  ]
+}

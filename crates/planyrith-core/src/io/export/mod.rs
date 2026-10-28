@@ -196,6 +196,8 @@ pub trait Exporter: Send + Sync {
 /// The exporter of `format`, when this build has one.
 pub fn exporter(format: ExportFormat) -> Option<Box<dyn Exporter>> {
     match format {
+        #[cfg(feature = "brep")]
+        ExportFormat::Step => Some(Box::new(crate::io::step::StepExporter)),
         ExportFormat::Csv => Some(Box::new(csv::CsvExporter)),
         ExportFormat::Dxf => Some(Box::new(dxf::DxfExporter)),
         ExportFormat::Gltf => Some(Box::new(gltf::GltfExporter { binary: false })),
@@ -206,7 +208,8 @@ pub fn exporter(format: ExportFormat) -> Option<Box<dyn Exporter>> {
         ExportFormat::Stl => Some(Box::new(stl::StlExporter)),
         ExportFormat::Svg => Some(Box::new(view2d::SvgExporter)),
         ExportFormat::Pdf => Some(Box::new(view2d::PdfExporter)),
-        _ => None,
+        #[cfg(not(feature = "brep"))]
+        ExportFormat::Step => None,
     }
 }
 

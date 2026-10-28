@@ -1,0 +1,485 @@
+{
+  "vertices": [
+    [
+      0.0,
+      0.0,
+      0.0
+    ],
+    [
+      0.0,
+      100.0,
+      0.0
+    ],
+    [
+      100.0,
+      100.0,
+      0.0
+    ],
+    [
+      100.0,
+      0.0,
+      0.0
+    ],
+    [
+      25.0,
+      25.0,
+      0.0
+    ],
+    [
+      75.0,
+      25.0,
+      0.0
+    ],
+    [
+      75.0,
+      75.0,
+      0.0
+    ],
+    [
+      25.0,
+      75.0,
+      0.0
+    ],
+    [
+      0.0,
+      0.0,
+      100.0
+    ],
+    [
+      0.0,
+      100.0,
+      100.0
+    ],
+    [
+      100.0,
+      0.0,
+      100.0
+    ],
+    [
+      100.0,
+      100.0,
+      100.0
+    ],
+    [
+      25.0,
+      25.0,
+      100.0
+    ],
+    [
+      25.0,
+      75.0,
+      100.0
+    ],
+    [
+      75.0,
+      75.0,
+      100.0
+    ],
+    [
+      75.0,
+      25.0,
+      100.0
+    ]
+  ],
+  "edges": [
+    {
+      "a": 0,
+      "b": 1,
+      "flags": 0,
+      "curve": null
+    },
+    {
+      "a": 1,
+      "b": 2,
+      "flags": 0,
+      "curve": null
+    },
+    {
+      "a": 2,
+      "b": 3,
+      "flags": 0,
+      "curve": null
+    },
+    {
+      "a": 0,
+      "b": 3,
+      "flags": 0,
+      "curve": null
+    },
+    {
+      "a": 4,
+      "b": 5,
+      "flags": 0,
+      "curve": null
+    },
+    {
+      "a": 5,
+      "b": 6,
+      "flags": 0,
+      "curve": null
+    },
+    {
+      "a": 6,
+      "b": 7,
+      "flags": 0,
+      "curve": null
+    },
+    {
+      "a": 4,
+      "b": 7,
+      "flags": 0,
+      "curve": null
+    },
+    {
+      "a": 0,
+      "b": 8,
+      "flags": 0,
+      "curve": null
+    },
+    {
+      "a": 8,
+      "b": 9,
+      "flags": 0,
+      "curve": null
+    },
+    {
+      "a": 1,
+      "b": 9,
+      "flags": 0,
+      "curve": null
+    },
+    {
+      "a": 3,
+      "b": 10,
+      "flags": 0,
+      "curve": null
+    },
+    {
+      "a": 8,
+      "b": 10,
+      "flags": 0,
+      "curve": null
+    },
+    {
+      "a": 9,
+      "b": 11,
+      "flags": 0,
+      "curve": null
+    },
+    {
+      "a": 2,
+      "b": 11,
+      "flags": 0,
+      "curve": null
+    },
+    {
+      "a": 10,
+      "b": 11,
+      "flags": 0,
+      "curve": null
+    },
+    {
+      "a": 12,
+      "b": 13,
+      "flags": 0,
+      "curve": null
+    },
+    {
+      "a": 13,
+      "b": 14,
+      "flags": 0,
+      "curve": null
+    },
+    {
+      "a": 14,
+      "b": 15,
+      "flags": 0,
+      "curve": null
+    },
+    {
+      "a": 12,
+      "b": 15,
+      "flags": 0,
+      "curve": null
+    },
+    {
+      "a": 7,
+      "b": 13,
+      "flags": 0,
+      "curve": null
+    },
+    {
+      "a": 4,
+      "b": 12,
+      "flags": 0,
+      "curve": null
+    },
+    {
+      "a": 5,
+      "b": 15,
+      "flags": 0,
+      "curve": null
+    },
+    {
+      "a": 6,
+      "b": 14,
+      "flags": 0,
+      "curve": null
+    }
+  ],
+  "faces": [
+    {
+      "loops": [
+        [
+          0,
+          1,
+          2,
+          2147483651
+        ],
+        [
+          4,
+          5,
+          6,
+          2147483655
+        ]
+      ],
+      "plane": {
+        "normal": [
+          0.0,
+          0.0,
+          -1.0
+        ],
+        "d": -0.0
+      },
+      "sides": {
+        "material_front": null,
+        "material_back": null,
+        "uv_front": null,
+        "uv_back": null
+      }
+    },
+    {
+      "loops": [
+        [
+          8,
+          9,
+          2147483658,
+          2147483648
+        ]
+      ],
+      "plane": {
+        "normal": [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        "d": -0.0
+      },
+      "sides": {
+        "material_front": null,
+        "material_back": null,
+        "uv_front": null,
+        "uv_back": null
+      }
+    },
+    {
+      "loops": [
+        [
+          3,
+          11,
+          2147483660,
+          2147483656
+        ]
+      ],
+      "plane": {
+        "normal": [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "d": -0.0
+      },
+      "sides": {
+        "material_front": null,
+        "material_back": null,
+        "uv_front": null,
+        "uv_back": null
+      }
+    },
+    {
+      "loops": [
+        [
+          10,
+          13,
+          2147483662,
+          2147483649
+        ]
+      ],
+      "plane": {
+        "normal": [
+          0.0,
+          1.0,
+          0.0
+        ],
+        "d": -100.0
+      },
+      "sides": {
+        "material_front": null,
+        "material_back": null,
+        "uv_front": null,
+        "uv_back": null
+      }
+    },
+    {
+      "loops": [
+        [
+          2147483650,
+          14,
+          2147483663,
+          2147483659
+        ]
+      ],
+      "plane": {
+        "normal": [
+          1.0,
+          0.0,
+          0.0
+        ],
+        "d": -100.0
+      },
+      "sides": {
+        "material_front": null,
+        "material_back": null,
+        "uv_front": null,
+        "uv_back": null
+      }
+    },
+    {
+      "loops": [
+        [
+          12,
+          15,
+          2147483661,
+          2147483657
+        ],
+        [
+          16,
+          17,
+          18,
+          2147483667
+        ]
+      ],
+      "plane": {
+        "normal": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "d": -100.0
+      },
+      "sides": {
+        "material_front": null,
+        "material_back": null,
+        "uv_front": null,
+        "uv_back": null
+      }
+    },
+    {
+      "loops": [
+        [
+          7,
+          20,
+          2147483664,
+          2147483669
+        ]
+      ],
+      "plane": {
+        "normal": [
+          1.0,
+          0.0,
+          0.0
+        ],
+        "d": -25.0
+      },
+      "sides": {
+        "material_front": null,
+        "material_back": null,
+        "uv_front": null,
+        "uv_back": null
+      }
+    },
+    {
+      "loops": [
+        [
+          21,
+          19,
+          2147483670,
+          2147483652
+        ]
+      ],
+      "plane": {
+        "normal": [
+          0.0,
+          1.0,
+          0.0
+        ],
+        "d": -25.0
+      },
+      "sides": {
+        "material_front": null,
+        "material_back": null,
+        "uv_front": null,
+        "uv_back": null
+      }
+    },
+    {
+      "loops": [
+        [
+          2147483654,
+          23,
+          2147483665,
+          2147483668
+        ]
+      ],
+      "plane": {
+        "normal": [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "d": 75.0
+      },
+      "sides": {
+        "material_front": null,
+        "material_back": null,
+        "uv_front": null,
+        "uv_back": null
+      }
+    },
+    {
+      "loops": [
+        [
+          22,
+          2147483666,
+          2147483671,
+          2147483653
+        ]
+      ],
+      "plane": {
+        "normal": [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        "d": 75.0
+      },
+      "sides": {
+        "material_front": null,
+        "material_back": null,
+        "uv_front": null,
+        "uv_back": null
+      }
+    }
+  ],
+  "curves": []
+}

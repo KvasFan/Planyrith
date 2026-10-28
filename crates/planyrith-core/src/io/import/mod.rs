@@ -216,6 +216,8 @@ pub fn sibling(source: &str, name: &str) -> String {
 /// The importer of `format`, when this build has one.
 pub fn importer(format: ImportFormat) -> Option<Box<dyn Importer>> {
     match format {
+        #[cfg(feature = "brep")]
+        ImportFormat::Step => Some(Box::new(crate::io::step::StepImporter)),
         ImportFormat::Csv => Some(Box::new(csv::CsvImporter)),
         ImportFormat::Dxf => Some(Box::new(dxf::DxfImporter)),
         ImportFormat::Gltf => Some(Box::new(gltf::GltfImporter)),
@@ -223,7 +225,8 @@ pub fn importer(format: ImportFormat) -> Option<Box<dyn Importer>> {
         ImportFormat::Plyr => Some(Box::new(plyr::PlyrImporter)),
         ImportFormat::Obj => Some(Box::new(obj::ObjImporter)),
         ImportFormat::Stl => Some(Box::new(stl::StlImporter)),
-        _ => None,
+        #[cfg(not(feature = "brep"))]
+        ImportFormat::Step => None,
     }
 }
 

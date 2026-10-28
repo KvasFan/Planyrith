@@ -11,6 +11,11 @@ authors.workspace = true
 [lib]
 path = "src/lib.rs"
 
+[[example]]
+name = "generate-solids"
+path = "../../tools/generate-solids.rs"
+required-features = ["brep"]
+
 # Allowed dependencies are listed in docs/01-architecture.md §1.1. This crate
 # must never depend on a GUI toolkit, a GPU API or a windowing library.
 [dependencies]
@@ -37,6 +42,13 @@ gltf = { workspace = true }
 pdf-writer = { workspace = true }
 ttf-parser = { workspace = true }
 rayon = { workspace = true, optional = true }
+rhai = { workspace = true, optional = true }
+toml = { workspace = true, optional = true }
+truck-modeling = { workspace = true, optional = true }
+truck-stepio = { workspace = true, optional = true }
+truck-topology = { workspace = true, optional = true }
+truck-meshalgo = { workspace = true, optional = true }
+truck-shapeops = { workspace = true, optional = true }
 
 # Random UUIDs in the browser go through the JavaScript crypto API.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -47,12 +59,10 @@ proptest = { workspace = true }
 
 [features]
 default = []
-# Exact B-rep kernel integration (truck family). No-op until the milestone that
-# introduces it (docs/13-roadmap.md); the truck crates are not pinned yet.
-brep = []
-# Embedded scripting runtime (rhai). No-op until milestone 0.6; rhai is not
-# pinned yet.
-scripting = []
+# B-rep conversion, STEP and numerical boolean fallback (docs/13 0.8).
+brep = ["dep:truck-modeling", "dep:truck-stepio", "dep:truck-topology", "dep:truck-meshalgo", "dep:truck-shapeops"]
+# Sandboxed Rhai scripting and declarative plugin manifests (docs/10).
+scripting = ["dep:rhai", "dep:toml"]
 # rayon-based data parallelism on desktop targets (docs/01 §6).
 parallel = ["dep:rayon"]
 

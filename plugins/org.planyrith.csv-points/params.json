@@ -1,0 +1,15 @@
+{
+  "type": "object",
+  "properties": {
+    "csv": {
+      "type": "string",
+      "default": "0,0,0\n100,200,300"
+    },
+    "scale": {
+      "type": "number",
+      "default": 1,
+      "minimum": 0.000001
+    }
+  },
+  "additionalProperties": false
+}

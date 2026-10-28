@@ -1,0 +1,27 @@
+{
+  "type": "object",
+  "properties": {
+    "width": {
+      "type": "number",
+      "default": 900,
+      "minimum": 100
+    },
+    "height": {
+      "type": "number",
+      "default": 1800,
+      "minimum": 100
+    },
+    "depth": {
+      "type": "number",
+      "default": 450,
+      "minimum": 100
+    },
+    "thickness": {
+      "type": "number",
+      "default": 18,
+      "minimum": 1,
+      "maximum": 49
+    }
+  },
+  "additionalProperties": false
+}

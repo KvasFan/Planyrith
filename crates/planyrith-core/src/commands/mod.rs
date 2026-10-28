@@ -22,6 +22,7 @@ pub mod file;
 mod fuzz_tests;
 pub mod organize;
 pub mod params;
+pub mod solid;
 pub mod transaction;
 #[cfg(test)]
 mod undo_tests;
@@ -240,7 +241,7 @@ pub trait Command: Send + Sync + 'static {
 /// stores and what RPC/CLI dispatch through (docs/01 §3.2).
 pub trait ErasedCommand: Send + Sync {
     /// Stable name.
-    fn name(&self) -> &'static str;
+    fn name(&self) -> &str;
     /// Metadata.
     fn meta(&self) -> CommandMeta;
     /// JSON schema of `Params`.
@@ -259,7 +260,7 @@ pub trait ErasedCommand: Send + Sync {
 }
 
 impl<C: Command> ErasedCommand for C {
-    fn name(&self) -> &'static str {
+    fn name(&self) -> &str {
         Command::name(self)
     }
 
@@ -300,6 +301,8 @@ impl<C: Command> ErasedCommand for C {
 /// Summary row for `command.list` (docs/08 §3).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct CommandInfo {
+    /// `builtin` or `plugin` (docs/10 §3).
+    pub source: String,
     /// Name.
     pub name: String,
     /// Category.
@@ -313,7 +316,7 @@ pub struct CommandInfo {
 /// Name → command, sorted by name for deterministic listing (docs/01 §3.2).
 #[derive(Default)]
 pub struct CommandRegistry {
-    commands: BTreeMap<&'static str, Box<dyn ErasedCommand>>,
+    commands: BTreeMap<String, Box<dyn ErasedCommand>>,
 }
 
 impl fmt::Debug for CommandRegistry {
@@ -334,7 +337,16 @@ impl CommandRegistry {
     /// name, if any.
     pub fn register<C: Command>(&mut self, command: C) -> Option<Box<dyn ErasedCommand>> {
         let name = Command::name(&command);
-        self.commands.insert(name, Box::new(command))
+        self.commands.insert(name.to_string(), Box::new(command))
+    }
+
+    /// Registers a dynamically named plugin command.
+    #[cfg(feature = "scripting")]
+    pub fn register_plugin(
+        &mut self,
+        command: Box<dyn ErasedCommand>,
+    ) -> Option<Box<dyn ErasedCommand>> {
+        self.commands.insert(command.name().to_string(), command)
     }
 
     /// Looks a command up by name.
@@ -348,8 +360,8 @@ impl CommandRegistry {
     }
 
     /// Registered names in sorted order.
-    pub fn names(&self) -> impl Iterator<Item = &'static str> + '_ {
-        self.commands.keys().copied()
+    pub fn names(&self) -> impl Iterator<Item = &str> + '_ {
+        self.commands.keys().map(String::as_str)
     }
 
     /// Number of commands.
@@ -369,6 +381,12 @@ impl CommandRegistry {
             .map(|c| {
                 let meta = c.meta();
                 CommandInfo {
+                    source: if meta.name.starts_with("ext:") {
+                        "plugin"
+                    } else {
+                        "builtin"
+                    }
+                    .into(),
                     name: meta.name,
                     category: meta.category,
                     label: meta.label,
@@ -388,6 +406,11 @@ impl CommandRegistry {
         annotate::register(&mut registry);
         view::register(&mut registry);
         file::register(&mut registry);
+        solid::register(&mut registry);
+        #[cfg(feature = "scripting")]
+        registry.register(crate::scripting::ScriptEval);
+        #[cfg(feature = "scripting")]
+        registry.register(crate::scripting::AttributeSet);
         registry
     }
 }
@@ -576,6 +599,17 @@ impl Engine {
         &self.registry
     }
 
+    /// Replaces available commands after Extension Manager changes (docs/10 §3).
+    /// Document, selection and undo history remain valid.
+    pub fn set_registry(&mut self, registry: Arc<CommandRegistry>) {
+        self.registry = registry;
+    }
+
+    #[cfg(feature = "scripting")]
+    pub(crate) fn registry_handle(&self) -> Arc<CommandRegistry> {
+        Arc::clone(&self.registry)
+    }
+
     /// The undo history.
     pub fn history(&self) -> &UndoStack {
         &self.history
@@ -692,7 +726,7 @@ impl Engine {
     }
 
     /// Transaction → apply → commit (or rollback) → history → events.
-    fn run<R>(
+    pub(crate) fn run<R>(
         &mut self,
         meta: &CommandMeta,
         apply: impl FnOnce(&mut Transaction<'_>) -> Result<R, CommandError>,

@@ -37,6 +37,7 @@ deny = [
     { crate = "libz-ng-sys", reason = "C library; use miniz_oxide" },
     { crate = "zstd-sys", reason = "C library; not needed" },
     { crate = "bzip2-sys", reason = "C library; not needed" },
+    { crate = "lzma-sys", reason = "C library; disable mesh interchange backends" },
     { crate = "libsqlite3-sys", reason = "C library; not needed" },
     { crate = "freetype-sys", reason = "C library; egui uses pure-Rust text" },
     { crate = "sdl2-sys", reason = "C library; winit is used" },
@@ -55,6 +56,9 @@ allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 # for 0.1, where the GUI is not implemented; review with the 0.2 GUI work
 # (docs/02-technology-stack.md Decisions).
 ignore = [
+    { id = "RUSTSEC-2026-0196", reason = "cgmath unmaintained, no known vulnerability; optional truck B-rep dependency; review when truck migrates its math backend" },
+    { id = "RUSTSEC-2024-0370", reason = "proc-macro-error unmaintained, no known vulnerability; truck/ruststep compile-time derives only; review with their next release" },
+    { id = "RUSTSEC-2026-0249", reason = "smartstring unmaintained, no known vulnerability; mandatory Rhai dependency; sandbox operation and data limits apply; review on Rhai upgrades" },
     { id = "RUSTSEC-2026-0192", reason = "ttf-parser unmaintained; GUI window decorations only (winit/sctk-adwaita); review in 0.2" },
     { id = "RUSTSEC-2026-0370", reason = "zvariant unmaintained; GUI accessibility on Linux only (accesskit_unix); review in 0.2" },
     { id = "RUSTSEC-2026-0371", reason = "zbus_names unmaintained; GUI accessibility on Linux only (accesskit_unix); review in 0.2" },

@@ -215,7 +215,7 @@ perpendicular to hovered edge); `Esc` = cancel current step (second `Esc` = canc
 - **Tests:** `docs/03 §10`; sweep along an arc produces `SOFT|SMOOTH` seams.
 
 ### 4.9 `intersect-faces`
-- **Params:** `targets: Sel`, `scope: WithModel|WithSelection|WithContext`.
+- **Params:** `targets: Sel`, `scope: model|selection|context` (required).
 - **Behavior:** `docs/03 §4.12`.
 - **Output:** `{ edges_added: usize }`.
 
@@ -444,6 +444,27 @@ UI hints are generated from one source.
 - [ ] Documented in `docs/08` command table.
 
 ## Decisions
+
+- 2026-10-28 — **0.8 tools.** `sweep`, `intersect-faces`, `soften-smooth` and
+  all six solid tools are registry commands, CLI subcommands and RPC commands.
+  `sweep` requires exactly one of `path` and `path_face`; outputs `{faces, closed}`.
+  The GUI supports preselected edges plus profile, or profile then path face.
+  Closed path guide consumption is defined in docs/03 Decisions. Intersection
+  writes only into the current edit context; model/context scope also considers
+  transformed descendant occurrences. Coplanar face intersection adds no line.
+  Softening sets or clears soft/smooth flags while preserving other edge flags;
+  boundaries with one face are untouched. Its output is `{changed}`.
+- 2026-10-28 — Solid commands accept `a`/`b` selecting exactly one distinct
+  group or instance each; Subtract and Trim cut **B by A**, preserving A only
+  for Trim. Union/Outer Shell alternatively accept `targets` with at least two
+  solids. Nested instances and wire/open geometry are refused. Results are
+  groups unless `keep_component` applies to instances sharing a definition.
+  The whole operation is one undo step. CLI golden batches, byte-exact undo
+  tests, cube inclusion–exclusion and cylindrical through-hole tests cover them.
+- 2026-10-28 — `attribute-set` supports the scripting API (docs/10): parameters
+  `targets: Sel`, `dictionary: String`, `key: String`, `value: JSON`; JSON null
+  removes the attribute. Output is the affected entity count. It is a normal
+  transactional registry command with CLI golden and undo tests.
 
 - 2026-10-20 — Eraser never erases faces; `delete` does (§4.2/§4.14).
 - 2026-10-20 — `make-group` duplicates shared boundary edges rather than stealing them (§5.1).

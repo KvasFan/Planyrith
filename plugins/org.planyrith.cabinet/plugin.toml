@@ -1,0 +1,35 @@
+[plugin]
+id = "org.planyrith.cabinet"
+name = "Parametric Cabinet"
+version = "0.1.0"
+authors = ["Planyrith contributors"]
+license = "MIT OR Apache-2.0"
+min_planyrith = "0.8.0"
+description = "Build a cabinet with sides, top, bottom, back and a shelf."
+
+[entry]
+script = "main.rhai"
+
+[capabilities]
+ui_forms = true
+
+[[tools]]
+name = "cabinet"
+label = "Build cabinet"
+category = "draw"
+params_schema = "params.json"
+form = "form.json"
+on_execute = "build"
+
+[[menus]]
+path = "Extensions/Parametric Cabinet"
+on_click = "build"
+
+[[toolbars]]
+name = "Parametric Cabinet"
+items = ["tools:cabinet"]
+
+[[panels]]
+name = "Parametric Cabinet options"
+form = "form.json"
+on_change = "build"

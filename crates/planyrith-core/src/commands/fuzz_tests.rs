@@ -46,6 +46,10 @@ enum Cmd {
     UnhideAll,
     Tag(usize),
     Paint(usize, u8),
+    Solids(u8, usize, usize),
+    Intersect,
+    Soften(u8),
+    Sweep(usize),
 }
 
 /// What a transform applies to.
@@ -89,6 +93,10 @@ fn cmd() -> impl Strategy<Value = Cmd> {
         1 => Just(Cmd::UnhideAll),
         1 => (0usize..64).prop_map(Cmd::Tag),
         1 => (0usize..64, 0u8..3).prop_map(|(f, s)| Cmd::Paint(f, s)),
+        1 => (0u8..6,0usize..64,0usize..64).prop_map(|(op,a,b)|Cmd::Solids(op,a,b)),
+        1 => Just(Cmd::Intersect),
+        1 => (0u8..180).prop_map(Cmd::Soften),
+        1 => (0usize..64).prop_map(Cmd::Sweep),
     ]
 }
 
@@ -243,6 +251,31 @@ fn resolve(e: &Engine, c: &Cmd) -> Option<(&'static str, Value)> {
                 )
             }
         }
+        Cmd::Solids(op, a, b) => {
+            let objects = objects(e);
+            let a = nth(&objects, a)?;
+            let b = nth(&objects, b)?;
+            (
+                [
+                    "solid-union",
+                    "solid-subtract",
+                    "solid-intersect",
+                    "solid-trim",
+                    "solid-split",
+                    "outer-shell",
+                ][op as usize],
+                json!({"a":a.to_string(),"b":b.to_string()}),
+            )
+        }
+        Cmd::Intersect => (
+            "intersect-faces",
+            json!({"targets":"face","scope":"selection"}),
+        ),
+        Cmd::Soften(degrees) => (
+            "soften-smooth",
+            json!({"targets":"edge","angle":f64::from(degrees)*std::f64::consts::PI/180.0,"smooth":true}),
+        ),
+        Cmd::Sweep(i) => ("sweep", json!({"profile":face_ref(i)?,"path":"edge"})),
         Cmd::Paint(i, side) => {
             let pid = nth(&faces(e), i)?;
             if e.document().materials.by_name("M").is_none() {

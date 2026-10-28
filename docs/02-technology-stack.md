@@ -172,6 +172,22 @@ powerful but add ~10 MB and do not run inside the web build; they are a post-1.0
 
 ## Decisions
 
+- 2026-10-28 — **0.8 automation and B-rep dependencies.** Rhai 1.27 (MIT/Apache-2.0)
+  and TOML 1.1 (MIT/Apache-2.0) are optional under `scripting`; truck modeling/topology
+  0.6, stepio 0.3, meshalgo/shapeops 0.4 (Apache-2.0) are optional under `brep`.
+  CLI/GUI enable both. Meshalgo disables its default VTK backend. Shapeops is a
+  published-source copy under `vendor/truck-shapeops`, with that same feature fix
+  and an allowance for an unused experimental module; see its provenance README.
+  This avoids the C compression dependency; `lzma-sys` is explicitly banned.
+  B-rep fallback is numerical and validated against mesh tolerances, not exact
+  arithmetic. Planar STEP geometry retains its boundary coordinates and topology.
+- 2026-10-28 — Three informational unmaintained notices are accepted, with narrow
+  entries in `deny.toml`: cgmath (`RUSTSEC-2026-0196`, truck's math boundary),
+  proc-macro-error (`RUSTSEC-2024-0370`, build-time derives) and smartstring
+  (`RUSTSEC-2026-0249`, a mandatory Rhai dependency). None reports a known
+  vulnerability. Revisit on upstream upgrades. License, bans, source and advisory
+  checks pass with these entries; no C library was added.
+
 - 2026-10-20 — egui + eframe chosen over Dioxus for the application UI (§2.1).
 - 2026-10-20 — glam for all math; nalgebra only behind a feature if needed (§2.2).
 - 2026-10-20 — Custom half-edge mesh is the primary kernel; truck behind `brep` (§2.3).

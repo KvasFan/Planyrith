@@ -1,5 +1,6 @@
 [workspace]
 resolver = "2"
+exclude = ["vendor/truck-shapeops"]
 members = [
     "crates/planyrith-core",
     "crates/planyrith-render",
@@ -8,7 +9,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.7.0"
+version = "0.8.0"
 edition = "2024"
 # MSRV follows the egui/eframe/egui-wgpu release line in use (0.36 requires 1.95).
 # See docs/02-technology-stack.md §4 and its Decisions list.
@@ -29,9 +30,7 @@ categories = ["graphics", "rendering", "command-line-utilities"]
 #   * glam is held at the line parry3d-f64 uses (via glamx) so the core and the
 #     picking kernel share one set of vector types
 #
-# Not added yet on purpose: the `truck-*` family (feature `brep`) and `rhai`
-# (feature `scripting`). Both features stay declared but are no-ops until the
-# milestone that needs them (docs/13-roadmap.md).
+# Optional B-rep and scripting dependencies are enabled by their core features.
 [workspace.dependencies]
 # ---- core: math, geometry, spatial queries --------------------------------
 # `libm`: glam's own trigonometry goes through the pure-Rust libm instead of the
@@ -70,6 +69,14 @@ gltf = { version = "1.4", default-features = false, features = ["names", "utils"
 pdf-writer = "0.15"
 # Glyph outlines for 3D text (docs/05 §3.8).
 ttf-parser = { version = "0.25", default-features = false, features = ["std"] }
+# Automation and optional B-rep bridge (docs/13 0.8).
+rhai = { version = "1.27", default-features = false, features = ["std", "serde", "no_time", "no_module"] }
+toml = { version = "1.1", default-features = false, features = ["parse", "serde"] }
+truck-modeling = "0.6"
+truck-stepio = "0.3"
+truck-topology = "0.6"
+truck-shapeops = { version = "0.4", default-features = false }
+truck-meshalgo = { version = "0.4", default-features = false, features = ["tessellation"] }
 
 # ---- cli -------------------------------------------------------------------
 clap = { version = "4.6", features = ["derive", "env", "string"] }
@@ -95,8 +102,8 @@ predicates = "3.1"
 criterion = "0.8"
 
 # ---- internal --------------------------------------------------------------------
-planyrith-core = { path = "crates/planyrith-core", version = "0.7.0" }
-planyrith-render = { path = "crates/planyrith-render", version = "0.7.0" }
+planyrith-core = { path = "crates/planyrith-core", version = "0.8.0" }
+planyrith-render = { path = "crates/planyrith-render", version = "0.8.0" }
 
 [workspace.lints.rust]
 unsafe_code = "deny"
@@ -117,3 +124,8 @@ opt-level = 3
 
 [profile.dev.package."*"]
 opt-level = 2
+
+# Disable truck-shapeops' unconditional VTK/C compression dependency path.
+# The Rust algorithms are unchanged; see vendor/truck-shapeops/README.md.
+[patch.crates-io]
+truck-shapeops = { path = "vendor/truck-shapeops" }

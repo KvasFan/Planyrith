@@ -1,0 +1,33 @@
+{
+  "fields": [
+    {
+      "key": "width",
+      "type": "length",
+      "label": "Width",
+      "default": 1000,
+      "min": 1
+    },
+    {
+      "key": "rise",
+      "type": "length",
+      "label": "Rise",
+      "default": 2800,
+      "min": 1
+    },
+    {
+      "key": "run",
+      "type": "length",
+      "label": "Run",
+      "default": 4200,
+      "min": 1
+    },
+    {
+      "key": "steps",
+      "type": "int",
+      "label": "Steps",
+      "default": 14,
+      "min": 2,
+      "max": 60
+    }
+  ]
+}

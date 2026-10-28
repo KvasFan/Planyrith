@@ -174,6 +174,43 @@ A `wasmtime`-hosted component model with the same host API as §5; the manifest 
 
 ## Decisions
 
+- 2026-10-28 — **0.8 invocation semantics.** A script plans registry calls on
+  an isolated document, then replays them in one transaction. Errors commit
+  nothing; the invocation (including nested `group` callbacks) is one undo step.
+  Queries observe earlier planned calls. Registry functions use snake_case and
+  parameter maps; `command(name,params)` also calls extension tools.
+  `script-eval` cannot recursively evaluate scripts. `sel`, unit/point/vector/
+  plane helpers, query/select/context/enter/exit, read-only document/entity views,
+  `bbox(query)`, namespaced `set_attr`/`get_attr`, print/log and cancellation are
+  provided. Console executes one source buffer per invocation, capturing output.
+- 2026-10-28 — **Limits.** Default interpreter budget is 50 million operations,
+  32 call levels, 256 variables/functions, 1 MiB strings, 65,536 array entries and
+  4,096 map entries. Source is capped at 4 MiB; source/argument/output/command
+  data share a 256 MiB accounting budget. These are data/interpreter limits,
+  not a process heap allocator quota. CLI/GUI script hosts additionally impose
+  a 60-second deadline checked between interpreter operations; native geometry
+  calls complete before the next interruption check. Progress reports are
+  captured with the invocation output. Plugin tools also enforce interpreter
+  limits. Raising budgets and asynchronous progress/cancel UI remain future work.
+- 2026-10-28 — **0.8 plugin boundary.** Only `ui_forms` is accepted; filesystem,
+  network, clock/random capabilities and external module imports are refused.
+  No document executes code on open. Archives are validated before writing:
+  safe relative paths, no symlinks/duplicates, at most 256 resources, 16 MiB per
+  resource and 32 MiB expanded. Installed archives are stored by id; disabled
+  markers persist through Extension Manager. The manager refreshes the local
+  registry without changing the document or history. Restart a server after
+  changing its extensions. Bundled examples are stairs, cabinet and CSV guide
+  points; CSV data is a tool parameter, requiring no filesystem grant.
+- 2026-10-28 — Forms cover the types in §4; entity fields can take the current
+  selection. Menus, optional toolbars and property panels are manifest-driven;
+  panel Apply invokes its callback once as an atomic script. Callbacks must be
+  declared functions taking one map. Tool schemas support local references,
+  primitive/object/array types, required/default values, enums, numeric/size
+  bounds and alternatives; unsupported schema keywords are refused on load.
+  Persistent event callbacks, startup scripts, scripted format registration,
+  dynamic `ask_*`/`form()` dialogs and additional host capabilities are reserved
+  beyond 0.8. Declarative forms are the supported UI extension boundary.
+
 - 2026-10-20 — rhai is the single scripting language for 1.0; WASM plugins reserved post-1.0.
 - 2026-10-20 — Plugins contribute UI declaratively only; no arbitrary widget drawing in 1.0.
 - 2026-10-20 — Documents never execute embedded code.

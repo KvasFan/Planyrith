@@ -10,7 +10,12 @@
 #![warn(unused_variables, dead_code)]
 
 mod erase;
+mod modeling;
 mod offset;
+pub use modeling::{
+    IntersectFaces, IntersectFacesOutput, IntersectFacesParams, SoftenSmooth, SoftenSmoothOutput,
+    SoftenSmoothParams, Sweep, SweepOutput, SweepParams,
+};
 mod push_pull;
 mod select;
 pub(crate) mod transform;
@@ -32,6 +37,9 @@ use crate::commands::CommandRegistry;
 /// Registers this category's commands (called by
 /// [`CommandRegistry::with_builtins`]).
 pub fn register(registry: &mut CommandRegistry) {
+    registry.register(Sweep);
+    registry.register(IntersectFaces);
+    registry.register(SoftenSmooth);
     registry.register(Erase);
     registry.register(Delete);
     registry.register(Hide);

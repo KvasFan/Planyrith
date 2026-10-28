@@ -143,6 +143,16 @@ save unless `--no-thumbnail`. `manifest.json` carries `title`, `author`, `descri
 
 ## Decisions
 
+- 2026-10-28 — **STEP in 0.8 (`brep`).** Export writes visible whole solid
+  bodies in world-space millimeters with a fixed header timestamp. Import
+  preserves planar line-edge loops exactly, including through-holes and inward
+  cavity shells; curved shells use tolerance-based tessellation. Unsupported
+  assembly placements are refused explicitly; provide placed solid bodies.
+  Input is limited to 64 MiB. Explicit import units override automatic
+  millimeter/meter detection. Golden fixtures for a decimal-coordinate box,
+  through-hole and hollow solid live under `tests/fixtures/step`; regenerate
+  with `cargo run -p planyrith-core --features brep --example generate-solids`.
+
 - 2026-10-20 — ZIP container with `mimetype` first entry; MessagePack named-field mode.
 - 2026-10-20 — Faces serialized as edge-index loops; half-edge rebuilt on load.
 - 2026-10-20 — History journal is optional and never required for loading.

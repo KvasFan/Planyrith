@@ -17,6 +17,8 @@ pub mod import;
 pub mod native;
 pub mod overlay;
 pub mod render_mesh;
+#[cfg(feature = "brep")]
+pub mod step;
 pub mod storage;
 
 pub use storage::{MemoryStorage, Storage, StorageCaps, StorageEntry, StorageKey};

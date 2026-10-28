@@ -96,6 +96,92 @@ fn drawing_and_push_pull() {
 }
 
 #[test]
+fn solid_tools_restore_exact_bytes() {
+    for name in [
+        "solid-union",
+        "solid-subtract",
+        "solid-intersect",
+        "solid-trim",
+        "solid-split",
+        "outer-shell",
+    ] {
+        check(&[
+            (
+                "rectangle",
+                json!({"corner_a":[0,0,0],"corner_b":[1000,1000,0]}),
+            ),
+            (
+                "push-pull",
+                json!({"face":{"Query":"face"},"distance":1000}),
+            ),
+            ("make-group", json!({"targets":"all","name":"A"})),
+            (
+                "rectangle",
+                json!({"corner_a":[500,500,500],"corner_b":[1500,1500,500]}),
+            ),
+            (
+                "push-pull",
+                json!({"face":{"Query":"face"},"distance":1000}),
+            ),
+            ("make-group", json!({"targets":"edge | face","name":"B"})),
+            (name, json!({"a":"name:A","b":"name:B"})),
+        ]);
+    }
+}
+
+#[test]
+fn sweep_intersection_and_softening_restore_exact_bytes() {
+    check(&[
+        (
+            "circle",
+            json!({"center":[0,0,0],"normal":[1,0,0],"radius":100,"segments":12}),
+        ),
+        ("line", json!({"points":[[0,0,0],[1000,0,0]]})),
+        (
+            "sweep",
+            json!({"profile":{"Query":"face"},"path":"edge & last"}),
+        ),
+        (
+            "soften-smooth",
+            json!({"targets":"edge","angle":2.0,"smooth":true}),
+        ),
+    ]);
+    check(&[
+        (
+            "rectangle",
+            json!({"corner_a":[0,0,0],"corner_b":[1000,1000,0]}),
+        ),
+        (
+            "rectangle",
+            json!({"corner_a":[500,200,-500],"corner_b":[500,800,500]}),
+        ),
+        (
+            "intersect-faces",
+            json!({"targets":"face","scope":"selection"}),
+        ),
+    ]);
+}
+
+#[cfg(feature = "scripting")]
+#[test]
+fn scripts_and_attributes_restore_exact_bytes() {
+    check(&[
+        (
+            "script-eval",
+            json!({"source":"rectangle(#{corner_a:pt(0,0,0),corner_b:pt(100,100,0)});push_pull(#{face:sel(\"face & last\"),distance:50});"}),
+        ),
+        (
+            "attribute-set",
+            json!({"targets":"face","dictionary":"ext.test","key":"kind","value":"panel"}),
+        ),
+        (
+            "attribute-set",
+            json!({"targets":"face","dictionary":"ext.test","key":"kind","value":null}),
+        ),
+    ]);
+}
+
+#[test]
 fn editing() {
     check(&[
         (

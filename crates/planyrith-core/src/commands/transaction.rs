@@ -1051,6 +1051,20 @@ fn write_attribute(
     key: &str,
     value: Option<Value>,
 ) -> Result<Option<Value>, CommandError> {
+    if let AttrTarget::Entity { container, id } = target {
+        let entities = doc
+            .container_mut(container)
+            .ok_or_else(|| CommandError::Internal("attribute container is missing".into()))?;
+        let mut attrs = entities.attrs(id).cloned().unwrap_or_default();
+        let previous = match value {
+            Some(v) => attrs.set(dict, key, v),
+            None => attrs.remove(dict, key),
+        };
+        entities
+            .set_attrs(id, (!attrs.is_empty()).then_some(attrs))
+            .map_err(internal)?;
+        return Ok(previous);
+    }
     if let AttrTarget::Material(m) = target {
         let mut material = doc
             .materials
@@ -1247,6 +1261,49 @@ impl<'a> Transaction<'a> {
     /// The edit context the command runs in.
     pub fn context(&self) -> &EditContext {
         &self.view.context
+    }
+
+    /// Executes a nested registry command inside this transaction (docs/10 §2).
+    /// Its new entities and view changes become the next nested command's input.
+    #[cfg(feature = "scripting")]
+    pub(crate) fn execute_nested(
+        &mut self,
+        registry: &crate::commands::CommandRegistry,
+        name: &str,
+        params: serde_json::Value,
+    ) -> Result<serde_json::Value, CommandError> {
+        let command = registry.get(name).ok_or_else(|| {
+            CommandError::invalid_param("command", format!("unknown command `{name}`"))
+        })?;
+        command.validate_json(self.doc, &params)?;
+        let before = self.created.len();
+        let value = command.apply_json(self, params)?;
+        if !command.meta().view_only {
+            self.view.last = self.created[before..].to_vec();
+        }
+        if let Some(selection) = &self.view.selection_out {
+            self.view.selection = selection.clone();
+        }
+        if let Some(context) = &self.view.context_out {
+            self.view.context = context.clone();
+        }
+        Ok(value)
+    }
+
+    #[cfg(feature = "scripting")]
+    pub(crate) fn enter_script_context(
+        &mut self,
+        context: EditContext,
+    ) -> Result<(), CommandError> {
+        self.doc
+            .resolve_container(&context.path)
+            .map_err(|e| CommandError::NotApplicable(e.to_string()))?;
+        if self.doc.locked_step(&context.path).is_some() {
+            return Err(CommandError::NotApplicable("context is locked".into()));
+        }
+        self.view.context = context.clone();
+        self.view.context_out = Some(context);
+        Ok(())
     }
 
     /// Asks the engine to replace the selection after commit (not undoable).

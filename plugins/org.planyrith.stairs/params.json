@@ -1,0 +1,27 @@
+{
+  "type": "object",
+  "properties": {
+    "width": {
+      "type": "number",
+      "default": 1000,
+      "minimum": 1
+    },
+    "rise": {
+      "type": "number",
+      "default": 2800,
+      "minimum": 1
+    },
+    "run": {
+      "type": "number",
+      "default": 4200,
+      "minimum": 1
+    },
+    "steps": {
+      "type": "integer",
+      "default": 14,
+      "minimum": 2,
+      "maximum": 60
+    }
+  },
+  "additionalProperties": false
+}

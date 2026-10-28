@@ -316,6 +316,23 @@ within `tolerances.length`.
 
 ## Decisions
 
+- 2026-10-28 — **0.8 solid boundaries.** Boolean operations split copies of both
+  operands, including clipped coplanar boundaries, classify strictly interior
+  face samples with fixed ray directions, stitch shared boundaries and merge
+  coplanar faces with matching appearance. Coincident surfaces are retained once
+  with operation-specific orientation. Empty intersections/subtractions return
+  no solids. A B-rep retry handles `NonRobust` when enabled; failure still returns
+  an error without changing the document. Outer Shell removes inward-oriented
+  cavity shells. Source appearance and edge flags follow retained mesh pieces.
+- 2026-10-28 — **Sweep path guides.** Path order is inferred from connectivity;
+  branches, disconnected chains and reversals are refused. The start meets the
+  profile plane, with its direction closest to the profile normal. Profiles may
+  deviate less than 45 degrees from perpendicular. Closed paths consume the face
+  formed by the path itself; that face is a guide, not part of the resulting
+  volume. Wire path edges and the profile are consumed. Corners are mitered;
+  twisted side quads fold into triangles with hidden soft/smooth seams. Existing
+  geometry touching the result is refused atomically; sweep in a separate group.
+
 - 2026-10-20 — Z-up, millimeters, `f64`, tolerances in §2.
 - 2026-10-20 — Within one container the mesh is a 2-manifold-with-boundary plus wire edges;
   non-manifold edges are not permitted (§3.1 inv. 5).
