@@ -50,11 +50,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     ] {
         let root = format!("{}/tests/fixtures/step/{name}", env!("CARGO_MANIFEST_DIR"));
         let step = planyrith_core::io::step::write_solids(std::slice::from_ref(&mesh))?;
-        let step = step.lines().map(str::trim_end).collect::<Vec<_>>().join("\n") + "\n";
-        storage.write(
-            &StorageKey::new(format!("{root}.step")),
-            step.as_bytes(),
-        )?;
+        let step = step
+            .lines()
+            .map(str::trim_end)
+            .collect::<Vec<_>>()
+            .join("\n")
+            + "\n";
+        storage.write(&StorageKey::new(format!("{root}.step")), step.as_bytes())?;
         storage.write(
             &StorageKey::new(format!("{root}.mesh.json")),
             &serde_json::to_vec_pretty(&mesh.to_indexed().0)?,

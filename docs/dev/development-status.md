@@ -5,7 +5,19 @@ implementation stands, what is done, what remains, and how to resume. Update it 
 every working session. Ground truth for *what to build* stays in `docs/00`–`docs/15`; this file
 is only *progress state*.
 
-_Last updated: 2026-10-28 (0.7 implemented, untagged, awaiting the user's retry of the web build; 0.6.0 released)._
+_Last updated: 2026-10-28 (0.8.0 implementation and local acceptance complete)._
+
+**Current release:** 0.8.0 implements Boolean/Sweep/STEP, scripting and plugins,
+GUI forms/Console/Extension Manager and authenticated native server attachment.
+Principal acceptances pass: solid geometry/property/undo tests, planar STEP
+fixtures, CLI plugin/script/install/RPC tests, GUI canonical stairs parity and
+real server attachment. The full workspace, native/wasm clippy, documentation,
+formatting and dependency checks pass locally. The browser storage/classroom
+tests pass; the web bundle is 5,160,320 bytes with brotli (12 MiB budget).
+The release procedure requires checking the final push in GitHub Actions before
+stopping. Next: user trial; do not create `v0.8.0` until explicitly requested
+after that trial. See [0.8-handoff.md](0.8-handoff.md) for scope and limits.
+The older progress below predates this milestone.
 
 ## 1. Where we are
 

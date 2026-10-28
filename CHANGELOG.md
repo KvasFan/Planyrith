@@ -4,6 +4,29 @@ All notable changes to Planyrith are recorded here. Versions follow
 [Semantic Versioning](https://semver.org/); before 1.0, minor versions are milestones of
 [`docs/13-roadmap.md`](docs/13-roadmap.md).
 
+## 0.8.0 — Automation and solids (2026-10-28)
+
+- **Solids**: Union, Subtract, Intersect, Trim, Split and Outer Shell, with
+  coplanar handling and a B-rep fallback. Sweep follows open or closed edge
+  chains with minimum-rotation frames and mitered corners. Intersect Faces
+  splits faces; Soften/Smooth edits edge flags from their dihedral angles.
+  All operations use registry commands with CLI goldens and exact undo tests.
+- **STEP**: import/export of solid bodies; planar boundaries and holes
+  round-trip exactly within tolerance, including interior cavities. Fixtures
+  are reproducible with the Rust generator in `tools/`.
+- **Automation**: sandboxed Rhai, generated command bindings, units, queries,
+  context, attributes, grouped undo, print/log/progress capture and limits.
+  Entry points: `script`, batch `script:` lines, `tool script-eval`, RPC
+  `script.eval` and the GUI Console. Failed scripts commit no document changes.
+- **Extensions**: validated manifests, declarative forms, menus, optional toolbars
+  and panels, Extension Manager, `ext install/check/list`, and three bundled
+  examples: stairs, parametric cabinet and CSV guide points. CLI and GUI stairs
+  produce identical canonical exports. Filesystem/network/time/random grants
+  are refused; declarative forms are the supported UI capability.
+- **GUI attach**: connect to `serve` over authenticated local TCP or a Unix socket;
+  commands, scripts, undo/redo and saving run on the server. Native document
+  snapshots keep geometry and persistent identities synchronized.
+
 ## 0.7.0 — Web build (2026-10-28)
 
 - **Web**: the GUI runs in the browser (WebGPU, or WebGL2), built by `tools/build-web.sh` into

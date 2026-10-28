@@ -5,7 +5,7 @@ architecture, interiors, landscape, woodworking and product mock-ups. It is writ
 entirely in Rust, runs on Linux, macOS, Windows and in the browser (WebAssembly), and is
 built *CLI-first*: every modeling tool exists as a command before it gets a button.
 
-> **Status: version 0.7.0 — web build.**
+> **Status: version 0.8.0 — automation and solids.**
 > The geometry kernel, the document model, the modeling commands, the native file format, the
 > `planyrith` command line (headless rendering, a JSON-RPC server, a shell) and the GUI work:
 > drawing and editing tools that snap through the inference engine, exact input, previews,
@@ -13,8 +13,10 @@ built *CLI-first*: every modeling tool exists as a command before it gets a butt
 > with animated transitions, styles with fog and watermarks, material, component and style
 > libraries, import and export of glTF/GLB, OBJ, STL, DXF, images and CSV, 2D drawings of a
 > view as SVG, PDF or DXF, dimensions, texts, guides, section cuts, sun shadows, 3D text and
-> multiple viewports. The same application runs in the browser, and both autosave and recover
-> unsaved work. See [`CHANGELOG.md`](CHANGELOG.md) and the milestones in
+> multiple viewports. Solid booleans, Sweep, Intersect Faces, Soften/Smooth, STEP,
+> sandboxed Rhai scripts, a Console and declarative plugins are available. The desktop GUI
+> can attach to a local command server. The same application runs in the browser, and both
+> autosave and recover unsaved work. See [`CHANGELOG.md`](CHANGELOG.md) and the milestones in
 > [`docs/13-roadmap.md`](docs/13-roadmap.md).
 
 ## What Planyrith will be
@@ -31,6 +33,23 @@ built *CLI-first*: every modeling tool exists as a command before it gets a butt
   and image import/export, and 2D documentation sheets.
 - **Automation**: everything scriptable from the command line, a JSON-RPC server, an
   embedded scripting language, and a plugin API.
+
+## Automation
+
+Automation examples (script lengths are millimeters; angles are radians):
+
+```sh
+planyrith -f stairs.plyr tool ext:org.planyrith.stairs/stairs --steps 14 --rise 2.8m --run 4.2m
+planyrith -f model.plyr script build.rhai --arg width=1200
+planyrith ext list
+planyrith ext check plugins/org.planyrith.stairs
+planyrith -f model.plyr serve --socket 4500 --token local-secret
+```
+
+Use Extensions › Extension Manager in the GUI to install `.plyrx` archives or attach
+to the server (port `4500`, its token, document `d1`). Window › Console runs scripts;
+Extensions opens plugin forms. Solid tools and Sweep are in Tools. STEP exchanges
+placed solid bodies; unsupported assembly placements are reported explicitly.
 
 ## Repository layout
 

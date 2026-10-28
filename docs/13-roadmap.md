@@ -89,6 +89,17 @@ parametric/dynamic components, GPU path-traced preview, mobile UI.
 
 ## Decisions
 
+- 2026-10-28 — **0.8 as built.** Solid booleans with B-rep retry, Sweep,
+  Intersect Faces, Soften/Smooth, planar STEP, Rhai, Console, plugin manifests,
+  Extension Manager and local native GUI attach are implemented. Acceptance:
+  core boolean/cylinder/ring/property and undo tests, STEP box/through-hole/
+  cavity fixtures, CLI tests for all three bundled plugins and scripting/RPC/
+  installation, and GUI `tests/automation.rs` (canonical stairs parity and a
+  real authenticated server with script/history/save). Additional host
+  capabilities, event subscriptions inside Rhai, startup scripts, dynamic UI
+  prompts and scripted format registration remain reserved (docs/10 Decisions).
+  STEP assembly placements are refused; the exchange unit is a placed solid.
+
 - 2026-10-20 — Viewport (0.2) precedes interactive tools (0.3) so inference can be developed against
   real picking.
 - 2026-10-20 — Web build is a milestone (0.7), not a continuous constraint before it; but all

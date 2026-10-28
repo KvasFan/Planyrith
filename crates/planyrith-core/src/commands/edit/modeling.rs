@@ -239,7 +239,10 @@ impl Command for IntersectFaces {
             for &fa in &faces {
                 for &(other, world) in &others {
                     for (fb, _) in other.faces() {
-                        if std::ptr::eq(mesh, other) && world == target.world && fa == fb {
+                        if std::ptr::eq(mesh, other)
+                            && world.abs_diff_eq(target.world, tx.tolerances().length)
+                            && fa == fb
+                        {
                             continue;
                         }
                         for s in crate::geom::intersect::face_face(
