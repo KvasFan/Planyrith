@@ -1,0 +1,3 @@
+sheet-add-page --page A101
+sheet-add-dimension --page A101
+sheet-refresh

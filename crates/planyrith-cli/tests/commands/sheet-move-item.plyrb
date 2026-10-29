@@ -1,0 +1,3 @@
+sheet-add-page --page A101
+sheet-add-text --page A101 --id note --text 'Note'
+sheet-move-item --page A101 --id note --params-json '{"delta":[10,20]}'

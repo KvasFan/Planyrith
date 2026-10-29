@@ -208,6 +208,12 @@ collected by clicks: e.g. segments for Circle, array count, copy toggle).
 
 ## Decisions
 
+- 2026-10-29 — **Sheets workspace (0.9).** Model/Sheets tabs share the central
+  area; File › Send to Sheets places the current model view. Sheets has page
+  controls, paper tools, grid snapping, zoom/pan, a properties/layers column and
+  export controls. All edits use the docs/15 commands. Model tool key handling
+  is suspended while paper is active, preserving paper Delete/Escape behavior.
+
 - 2026-10-20 — egui_tiles docks; layouts stored per user, not in documents.
 - 2026-10-20 — value field remains editable after an action to re-execute the last command with a new value.
 - 2026-10-20 — Click-move-click is the default drawing style (drag style is a preference).

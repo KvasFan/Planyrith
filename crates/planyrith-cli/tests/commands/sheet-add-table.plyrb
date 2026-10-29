@@ -1,0 +1,2 @@
+sheet-add-page --page A101
+sheet-add-table --page A101 --params-json '{"rows": [["Component", "Count"], ["Chair", "4"]]}'

@@ -1,0 +1,4 @@
+sheet-add-page --page A101
+sheet-add-text --page A101 --id first --text First
+sheet-add-text --page A101 --id second --text Second
+sheet-order-item --page A101 --id second --index 0

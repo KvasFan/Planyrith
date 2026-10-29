@@ -1,0 +1,2 @@
+sheet-add-page --page A101
+sheet-add-view --page A101 --id plan --scale 1:20

@@ -1,0 +1,2 @@
+sheet-add-page --page A101
+sheet-layer-set --page A101 --layer Notes --no-visible

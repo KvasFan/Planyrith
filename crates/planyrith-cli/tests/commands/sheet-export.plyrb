@@ -1,0 +1,4 @@
+sheet-add-page --page A101
+sheet-add-view --page A101 --id plan --scale 1:20
+sheet-add-text --page A101 --id note --text 'Scale 1:20'
+sheet-export --path exports/sheet.pdf

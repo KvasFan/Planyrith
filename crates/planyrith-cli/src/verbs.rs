@@ -48,6 +48,34 @@ pub fn dispatch(global: Global, verb: Verb) -> Result<(), CliError> {
         Verb::Recover { document } => recover_verb(&global, &document),
         Verb::Batch { script } => batch(&global, script.as_deref()),
         Verb::Script { script, args } => script_verb(&global, &script, &args),
+        Verb::Sheet { action, args } => {
+            let action = action.unwrap_or_else(|| "list".into());
+            if action == "--help" || action == "-h" {
+                out::line(
+                    "Usage: planyrith sheet <list|add-page|add-view|export|...> [OPTIONS]\nUse planyrith sheet <operation> --help for parameters (paper lengths in mm).",
+                )?;
+                return Ok(());
+            }
+            let mut scoped = global.clone();
+            let mut raw = Vec::new();
+            if action == "export"
+                && let Some(out) = scoped.out.take()
+            {
+                raw.push("--path".into());
+                raw.push(out.to_string_lossy().into_owned());
+            }
+            for arg in args {
+                match arg.as_str() {
+                    "--out" if action == "export" => raw.push("--path".into()),
+                    "--vector" | "--raster" | "--hybrid" => {
+                        raw.push("--render".into());
+                        raw.push(arg.trim_start_matches("--").into());
+                    }
+                    _ => raw.push(arg),
+                }
+            }
+            tool(&scoped, Some(format!("sheet-{action}")), raw)
+        }
         Verb::Ext { action } => {
             let started = Instant::now();
             let output = crate::extensions::manage(action)?;
@@ -365,7 +393,11 @@ impl ToolInvocation {
     /// in-memory session only (nothing is saved or journaled), so a dry run
     /// reports the errors the real run would (docs/08 Decisions).
     pub(crate) fn params(&self, session: &Session, global: &Global) -> Result<Value, CliError> {
-        let unit = session.unit(global)?;
+        let unit = if self.name.starts_with("sheet-") {
+            LengthUnit::Millimeter
+        } else {
+            session.unit(global)?
+        };
         let map = args::collect(&self.matches, &self.specs, unit, self.base.clone())?;
         Ok(Value::Object(map))
     }

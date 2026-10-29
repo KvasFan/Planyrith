@@ -1,0 +1,2 @@
+sheet-add-page --page A101
+sheet-set-paper --page A101 --paper A3

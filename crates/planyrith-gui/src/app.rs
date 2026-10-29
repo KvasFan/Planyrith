@@ -215,6 +215,7 @@ pub struct App {
     /// The Shadows window is open (docs/07 §6).
     shadows_open: bool,
     extensions: crate::extensions::Extensions,
+    sheets: crate::sheets::Sheets,
     /// Journal and snapshot the documents (off in tests).
     autosave: bool,
     /// The document (`None`: untitled) whose unsaved work can be recovered.
@@ -308,6 +309,7 @@ impl App {
             texture: None,
             shadows_open: false,
             extensions: Default::default(),
+            sheets: Default::default(),
             autosave: false,
             recovery: None,
             #[cfg(target_arch = "wasm32")]
@@ -326,6 +328,7 @@ impl App {
         }
         self.session = session;
         self.viewport = Viewport::default();
+        self.sheets = Default::default();
         self.activate(0);
     }
 
@@ -452,14 +455,28 @@ impl App {
     /// tool starts over.
     fn undo(&mut self) {
         match self.session.undo() {
-            Ok(()) => self.activate(self.active),
+            Ok(()) => {
+                let paper = self.sheets.open;
+                self.activate(self.active);
+                self.sheets.open = paper;
+                if paper {
+                    self.sheets.cancel_placement();
+                }
+            }
             Err(e) => self.error(e),
         }
     }
 
     fn redo(&mut self) {
         match self.session.redo() {
-            Ok(()) => self.activate(self.active),
+            Ok(()) => {
+                let paper = self.sheets.open;
+                self.activate(self.active);
+                self.sheets.open = paper;
+                if paper {
+                    self.sheets.cancel_placement();
+                }
+            }
             Err(e) => self.error(e),
         }
     }
@@ -480,6 +497,7 @@ impl App {
 
     /// Makes a tool active, in its initial state.
     fn activate(&mut self, index: usize) {
+        self.sheets.open = false;
         let mut fresh = tools::catalogue();
         if index < fresh.len() {
             self.tools[index].0 = fresh.swap_remove(index).0;
@@ -615,7 +633,7 @@ impl App {
     /// unit keys go to the value field without focusing it; letters are tool
     /// shortcuts while it is empty.
     fn tool_keys(&mut self, ctx: &egui::Context) {
-        if ctx.memory(|m| m.focused().is_some()) {
+        if self.sheets.open || ctx.memory(|m| m.focused().is_some()) {
             return;
         }
         let events = ctx.input(|i| i.events.clone());
@@ -854,6 +872,11 @@ impl App {
     fn menu_bar(&mut self, ui: &mut egui::Ui) {
         egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("File", |ui| {
+                if ui.button("Send to Sheets").clicked() {
+                    self.sheets.send_to_sheets(&mut self.session);
+                    ui.close();
+                }
+                ui.separator();
                 if ui.button("New").clicked() {
                     self.guarded(Pending::New);
                     ui.close();
@@ -1206,6 +1229,10 @@ impl App {
                 }
             });
             ui.menu_button("Window", |ui| {
+                if ui.button("Sheets").clicked() {
+                    self.sheets.open = true;
+                    ui.close();
+                }
                 if ui.button("Console").clicked() {
                     self.extensions.console_open = true;
                     ui.close();
@@ -2205,7 +2232,9 @@ impl App {
             self.revalue_open = false;
         }
         self.shortcuts(&ctx);
-        self.tool_keys(&ctx);
+        if !self.sheets.open {
+            self.tool_keys(&ctx);
+        }
         for _ in 0..std::mem::take(&mut self.tabs) {
             self.viewport.cycle();
         }
@@ -2233,6 +2262,11 @@ impl App {
         egui::CentralPanel::default()
             .frame(egui::Frame::new())
             .show(ui, |ui| {
+                self.sheets.tabs(ui, &mut self.session);
+                if self.sheets.open {
+                    self.sheets.ui(ui, &mut self.session);
+                    return;
+                }
                 let mut docks = Docks {
                     session: &mut self.session,
                     viewport: &mut self.viewport,
@@ -2302,6 +2336,9 @@ impl eframe::App for App {
     /// `Tab` cycles inference candidates while no text field has focus
     /// (docs/07 §5), so it is taken before egui's focus traversal sees it.
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        if self.sheets.open {
+            return;
+        }
         if ctx.memory(|m| m.focused().is_some()) {
             return;
         }

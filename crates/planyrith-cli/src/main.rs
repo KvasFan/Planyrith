@@ -188,6 +188,16 @@ enum Verb {
         #[arg(long = "arg", value_name = "KEY=VALUE")]
         args: Vec<String>,
     },
+    /// Paper-space documentation commands (all lengths in paper mm).
+    #[command(disable_help_flag = true)]
+    Sheet {
+        /// list, add-page, add-view, export, or any sheet command suffix.
+        #[arg(allow_hyphen_values = true)]
+        action: Option<String>,
+        /// The corresponding sheet tool options. Export accepts --out and --vector/--raster/--hybrid.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
     /// Install, check or list extensions.
     Ext {
         /// Extension operation.

@@ -121,3 +121,64 @@ async fn classroom_scenario() {
     let after = BrowserStorage::load().await.unwrap();
     assert!(!autosave::pending(&after, &key));
 }
+
+/// Sheets share the browser Storage contract, including their optional native
+/// part, frozen assets, font subsets and multi-page PDF output.
+#[wasm_bindgen_test]
+async fn sheets_persist_and_export_in_the_browser() {
+    use planyrith_core::commands::Engine;
+    let storage: Arc<dyn Storage + Send + Sync> = Arc::new(BrowserStorage::load().await.unwrap());
+    let mut engine = Engine::new(Document::new(), Arc::new(CommandRegistry::with_builtins()));
+    engine.set_storage(Arc::clone(&storage));
+    for (name, params) in [
+        (
+            "rectangle",
+            json!({"corner_a":[0,0,0],"corner_b":[1000,1000,0]}),
+        ),
+        (
+            "push-pull",
+            json!({"face":{"Query":"face"},"distance":1000}),
+        ),
+        (
+            "camera-set",
+            json!({"eye":[500,500,5000],"target":[500,500,0],"up":[0,1,0],"height":2000}),
+        ),
+        ("sheet-add-page", json!({"page":"A101"})),
+        (
+            "sheet-add-view",
+            json!({"page":"A101","id":"plan","scale":"1:20"}),
+        ),
+        (
+            "sheet-add-dimension",
+            json!({"page":"A101","view":"plan","model_start":[0,0,0],"model_end":[1000,0,0]}),
+        ),
+        (
+            "sheet-add-text",
+            json!({"page":"A101","text":"Plan — Ø 25 mm"}),
+        ),
+        (
+            "sheet-freeze-view",
+            json!({"page":"A101","id":"plan","dpi":36}),
+        ),
+        ("sheet-add-page", json!({"page":"A201"})),
+        ("sheet-export", json!({"path":"/sheets/house.pdf","dpi":36})),
+    ] {
+        engine.execute_erased(name, params).unwrap();
+    }
+    let expected = canonical(engine.document());
+    storage
+        .write(&StorageKey::new("/sheets/house.plyr"), &expected)
+        .unwrap();
+    web::flush().await;
+    let fresh = BrowserStorage::load().await.unwrap();
+    let loaded = read_document(
+        &fresh.read(&StorageKey::new("/sheets/house.plyr")).unwrap(),
+        &NoProgress,
+    )
+    .unwrap();
+    assert_eq!(canonical(&loaded.document), expected);
+    let pdf = fresh.read(&StorageKey::new("/sheets/house.pdf")).unwrap();
+    assert!(pdf.starts_with(b"%PDF"));
+    assert!(String::from_utf8_lossy(&pdf).contains("/Count 2"));
+    assert_eq!(loaded.document.sheets.pages.len(), 2);
+}

@@ -268,6 +268,15 @@ On failure: `{"ok": false, "error": {"code": "E1002", "message": "...", "param":
 
 ## Decisions
 
+- 2026-10-29 — **Sheets (0.9).** `planyrith sheet <operation>` forwards to the
+  schema-driven `sheet-<operation>` command; no separate mutation path exists.
+  See docs/15 §5.1 for commands and parameters. `sheet export --out` is the sheet
+  file, `--pages all` prints every page, and `--vector|--raster|--hybrid` override
+  viewport modes. Bare sheet lengths use paper millimeters independently of model
+  display units. The same registry commands are available over RPC and Rhai;
+  `sheet-list`/`sheet-refresh` are read-only. Native model `-f` is preserved by
+  export, including when `--out` appears after the verb.
+
 - 2026-10-28 — **Automation and solids (0.8).** Solid tool options are `--a` /
   `--b` (cutter then target for Subtract/Trim), or `--targets` for Union/Outer
   Shell, plus `--keep-component`. Sweep takes `--profile` and either `--path`
