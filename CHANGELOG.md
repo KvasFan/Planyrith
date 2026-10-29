@@ -4,6 +4,29 @@ All notable changes to Planyrith are recorded here. Versions follow
 [Semantic Versioning](https://semver.org/); before 1.0, minor versions are milestones of
 [`docs/13-roadmap.md`](docs/13-roadmap.md).
 
+## 0.9.0 — Sheets (2026-10-30)
+
+- **Paper-space documentation**: pages inside the native document, A0–A4/Letter/
+  Tabloid/custom paper, rational model-view scales, scene/style links, convex crop
+  boundaries, tag visibility and section overrides, print order and stable item ids.
+- **Annotations**: live model or paper dimensions, rich text and leaders, literal
+  and query-bound tables, images, polylines/rectangles/ellipses, reusable title
+  blocks and attribute/scene labels. Freezing a view stores its raster and linked
+  dimension measurements; Follow Model resumes live updates.
+- **Export**: multi-page PDF with subset Unicode fonts, paper layers, page labels
+  and exact mm-to-point scaling; standalone SVG pages with embedded assets; DXF
+  pages with sheet/tag layers, fills, pen patterns and PNG side files. Raster and
+  hybrid use a bounded deterministic software renderer; its scope is in docs/15.
+- **CLI and automation**: the `sheet` verb, typed `sheet-*` registry commands,
+  RPC and generated Rhai functions. Item, page, settings and layer changes undo
+  without whole-document snapshots. New CLI goldens and randomized command coverage.
+- **GUI**: Model/Sheets tabs, Send to Sheets, paper tools, properties, layers,
+  snapping, zoom/pan, paper alignment and stacking, camera editing in the 3D view,
+  freeze/unfreeze, and export/download on desktop and web.
+- **Acceptance**: house plan/section/elevation fixtures and a reproducible Rust
+  generator; actual PDF strokes measure a 1 m cube at 1:20 as 50 mm; live dimension
+  re-measurement, native round-trips, byte-exact undo and frontend/browser tests.
+
 ## 0.8.0 — Automation and solids (2026-10-28)
 
 - **Solids**: Union, Subtract, Intersect, Trim, Split and Outer Shell, with

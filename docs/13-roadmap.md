@@ -89,6 +89,15 @@ parametric/dynamic components, GPU path-traced preview, mobile UI.
 
 ## Decisions
 
+- 2026-10-29 — **0.9 as built.** Persistent paper-space pages, linked scaled
+  model views, live/frozen dimensions, rich text, bound tables/labels, images,
+  shapes, title blocks, layers/pen tables and print order have typed commands and
+  CLI goldens. PDF is multi-page with subset Unicode fonts; SVG/DXF are per page.
+  Model/Sheets GUI tabs and Send to Sheets dispatch the shared commands. Acceptance
+  combines the house plan/section/elevation fixture, independently measured PDF
+  scale, re-measure/save/undo tests and CLI/RPC/Rhai/GUI tests. Paper raster modes
+  use the deterministic software renderer and limits documented in docs/15.
+
 - 2026-10-28 — **0.8 as built.** Solid booleans with B-rep retry, Sweep,
   Intersect Faces, Soften/Smooth, planar STEP, Rhai, Console, plugin manifests,
   Extension Manager and local native GUI attach are implemented. Acceptance:

@@ -5,7 +5,7 @@ architecture, interiors, landscape, woodworking and product mock-ups. It is writ
 entirely in Rust, runs on Linux, macOS, Windows and in the browser (WebAssembly), and is
 built *CLI-first*: every modeling tool exists as a command before it gets a button.
 
-> **Status: version 0.8.0 — automation and solids.**
+> **Status: version 0.9.0 — Sheets.**
 > The geometry kernel, the document model, the modeling commands, the native file format, the
 > `planyrith` command line (headless rendering, a JSON-RPC server, a shell) and the GUI work:
 > drawing and editing tools that snap through the inference engine, exact input, previews,
@@ -15,7 +15,9 @@ built *CLI-first*: every modeling tool exists as a command before it gets a butt
 > view as SVG, PDF or DXF, dimensions, texts, guides, section cuts, sun shadows, 3D text and
 > multiple viewports. Solid booleans, Sweep, Intersect Faces, Soften/Smooth, STEP,
 > sandboxed Rhai scripts, a Console and declarative plugins are available. The desktop GUI
-> can attach to a local command server. The same application runs in the browser, and both
+> can attach to a local command server. Paper-space Sheets add scaled model views,
+> dimensions, notes, tables and title blocks, with multi-page PDF and per-page SVG/DXF.
+> The same application runs in the browser, and both
 > autosave and recover unsaved work. See [`CHANGELOG.md`](CHANGELOG.md) and the milestones in
 > [`docs/13-roadmap.md`](docs/13-roadmap.md).
 
@@ -50,6 +52,24 @@ Use Extensions › Extension Manager in the GUI to install `.plyrx` archives or 
 to the server (port `4500`, its token, document `d1`). Window › Console runs scripts;
 Extensions opens plugin forms. Solid tools and Sweep are in Tools. STEP exchanges
 placed solid bodies; unsupported assembly placements are reported explicitly.
+
+## Sheets
+
+Use File › Send to Sheets or the Sheets tab to lay out model views on paper.
+Pick a scene and a rational scale, add dimensions and notes, then export all pages
+as PDF. `Edit Camera in Model` adjusts a viewport using the ordinary 3D controls.
+
+```sh
+planyrith -f house.plyr sheet add-page --page A101 --paper A4
+planyrith -f house.plyr sheet add-view --page A101 --scene Plan --scale 1:50
+planyrith -f house.plyr sheet export --pages all --out house.pdf
+```
+
+A scene named `Plan` must exist for the linked example; omit `--scene` to capture
+the current camera. Paper coordinates are millimeters. See
+[the Sheets command catalogue](docs/15-sheets-2d-documentation.md#51-command-surface-09).
+`cargo run -p planyrith-core --example generate-sheets` reproduces the house
+fixture and printable examples in `target/tmp/sheets/`.
 
 ## Repository layout
 

@@ -5,19 +5,27 @@ implementation stands, what is done, what remains, and how to resume. Update it 
 every working session. Ground truth for *what to build* stays in `docs/00`–`docs/15`; this file
 is only *progress state*.
 
-_Last updated: 2026-10-28 (0.8.0 implementation and local acceptance complete)._
+_Last updated: 2026-10-30 (0.9 complete; local release checks passed)._
 
-**Current release:** 0.8.0 implements Boolean/Sweep/STEP, scripting and plugins,
-GUI forms/Console/Extension Manager and authenticated native server attachment.
-Principal acceptances pass: solid geometry/property/undo tests, planar STEP
-fixtures, CLI plugin/script/install/RPC tests, GUI canonical stairs parity and
-real server attachment. The full workspace, native/wasm clippy, documentation,
-formatting and dependency checks pass locally. The browser storage/classroom
-tests pass; the web bundle is 5,160,320 bytes with brotli (12 MiB budget).
-The release procedure requires checking the final push in GitHub Actions before
-stopping. Next: user trial; do not create `v0.8.0` until explicitly requested
-after that trial. See [0.8-handoff.md](0.8-handoff.md) for scope and limits.
-The older progress below predates this milestone.
+**Current work:** the user explicitly requested milestone 0.9 (Sheets), after 0.8
+was completed and pushed with green CI. The core data/commands, optional native
+part, layout/HLR, PDF/SVG/DXF exporters and paper GUI are implemented. Local checks
+pass: 485 workspace tests, 14 focused Sheets tests, three headless Chrome tests,
+five GPU-required snapshots, fmt, native/wasm clippy, rustdoc and cargo-deny.
+PDF scale, Unicode text extraction, house plan/section/elevation, CLI/RPC/Rhai,
+mouse placement, persistence and undo are covered. External DXF validation
+reports zero errors and zero fixes. `tools/generate-sheets.rs` reproduces the
+fixtures and writes example exports under `target/tmp/sheets`.
+The release web build is 5,450,507 bytes with brotli (budget: 12 MiB).
+
+Implementation commits are `8eedfb7` (core/export/persistence) and `cb2ac3c`
+(CLI/GUI/browser). A release-doc commit follows them; push these together once,
+wait for the CI run for the final head to succeed, then stop. Use
+`gh run list --commit <head>` to find that run. Do not start 1.0 or create release
+tags before the user's trial. Paper raster omits viewport shadow maps, fog and
+watermarks; its supported scope and bounds are in docs/15 Decisions.
+The older progress below predates this milestone; 0.8 scope remains in
+[0.8-handoff.md](0.8-handoff.md).
 
 ## 1. Where we are
 

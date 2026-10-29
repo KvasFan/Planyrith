@@ -70,6 +70,20 @@ humans or GUI automation before releases, with expected screenshots.
 
 ## Decisions
 
+- 2026-10-30 — **Sheets acceptance (0.9).** The reproducible house fixture in
+  `tests/fixtures/sheets` has plan, section and elevation layout goldens and a
+  three-page A4 PDF. An independent parser measures PDF stroke operands for a
+  1 m cube at 1:20: 50 mm within 0.01 mm. Tests cover live dimension updates,
+  custom cameras retaining scene appearance, nested section overrides, frozen
+  dimensions/image lifetimes, native round-trips and byte-exact undo. All 23
+  commands have CLI goldens; CLI/RPC/Rhai, synthetic GUI input and browser
+  persistence/export are exercised. Local checks pass: 485 workspace tests,
+  14 focused Sheets tests, three headless Chrome tests, five GPU-required
+  snapshots, native/wasm clippy, rustdoc and cargo-deny. `pdfinfo` reads the three
+  A4 pages and `pdftotext` extracts Unicode; external DXF audits report zero
+  errors and fixes for vector and raster exports. Reproduce the drawing outputs
+  with `cargo run -p planyrith-core --example generate-sheets`. The release web
+  build totals 5,450,507 bytes with brotli, below the 12 MiB budget.
 - 2026-10-20 — Undo/redo byte-equality is a required test for every command.
 - 2026-10-20 — Render snapshots are blocking on real-GPU runners, advisory on software adapters.
 - 2026-10-20 — The first CI workflow implements the lint, test and wasm jobs. The wasm job checks
