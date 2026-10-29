@@ -15,7 +15,7 @@ use crate::commands::{
 };
 use crate::document::{Camera, Document, Projection, Query, StandardView};
 use crate::math::Aabb;
-use crate::units::Angle;
+use crate::units::{Angle, Length};
 
 fn meta(name: &str, label: &str) -> CommandMeta {
     CommandMeta {
@@ -76,6 +76,24 @@ pub struct CameraSetParams {
     /// Vertical field of view of perspective and two-point views.
     #[serde(default)]
     pub fov: Option<Angle>,
+    /// Optional complete camera eye, mm (Sheets view editing).
+    #[serde(default)]
+    #[schemars(with = "Option<PointSchema>")]
+    pub eye: Option<DVec3>,
+    /// Optional camera target, mm.
+    #[serde(default)]
+    #[schemars(with = "Option<PointSchema>")]
+    pub target: Option<DVec3>,
+    /// Optional camera up vector.
+    #[serde(default)]
+    #[schemars(with = "Option<VectorSchema>")]
+    pub up: Option<DVec3>,
+    /// Visible parallel projection height, mm.
+    #[serde(default)]
+    pub height: Option<Length>,
+    /// Viewport width/height ratio.
+    #[serde(default)]
+    pub aspect: Option<f64>,
 }
 
 /// The `camera-set` command.
@@ -90,8 +108,45 @@ impl Command for CameraSet {
         "camera-set"
     }
 
-    fn validate(&self, _doc: &Document, p: &CameraSetParams) -> Result<(), CommandError> {
-        check_fov(p.fov)
+    fn validate(&self, doc: &Document, p: &CameraSetParams) -> Result<(), CommandError> {
+        check_fov(p.fov)?;
+        if let Some(point) = p.eye {
+            check_point("eye", point)?;
+        }
+        if let Some(point) = p.target {
+            check_point("target", point)?;
+        }
+        let eye = p.eye.unwrap_or(doc.camera.eye);
+        let target = p.target.unwrap_or(doc.camera.target);
+        if (eye - target).length() < doc.tolerances().length {
+            return Err(CommandError::invalid_param(
+                "target",
+                "must differ from the eye",
+            ));
+        }
+        if p.up
+            .is_some_and(|u| !u.is_finite() || u.length() < doc.tolerances().angle)
+        {
+            return Err(CommandError::invalid_param(
+                "up",
+                "must be a finite nonzero vector",
+            ));
+        }
+        if p.height
+            .is_some_and(|h| !h.as_mm().is_finite() || h.as_mm() <= 0.0)
+        {
+            return Err(CommandError::invalid_param(
+                "height",
+                "must be positive and finite",
+            ));
+        }
+        if p.aspect.is_some_and(|a| !a.is_finite() || a <= 0.0) {
+            return Err(CommandError::invalid_param(
+                "aspect",
+                "must be positive and finite",
+            ));
+        }
+        Ok(())
     }
 
     fn apply(
@@ -100,6 +155,18 @@ impl Command for CameraSet {
         p: CameraSetParams,
     ) -> Result<CameraOutput, CommandError> {
         let mut camera = tx.camera();
+        if let Some(eye) = p.eye {
+            camera.eye = eye;
+        }
+        if let Some(target) = p.target {
+            camera.target = target;
+        }
+        if let Some(up) = p.up {
+            camera.up = up.normalize_or(DVec3::Z);
+        }
+        if let Some(aspect) = p.aspect {
+            camera.aspect = aspect;
+        }
         let distance = camera.distance().max(1.0);
         let current_fov = match camera.projection {
             Projection::Perspective { fov_y_deg } | Projection::TwoPoint { fov_y_deg } => fov_y_deg,
@@ -135,6 +202,11 @@ impl Command for CameraSet {
             (_, ProjectionKind::Perspective) => Projection::Perspective { fov_y_deg: fov },
             (_, ProjectionKind::TwoPoint) => Projection::TwoPoint { fov_y_deg: fov },
         };
+        if let Some(height) = p.height {
+            camera.projection = Projection::Parallel {
+                height_mm: height.as_mm(),
+            };
+        }
         tx.set_camera(camera);
         Ok(CameraOutput { camera })
     }

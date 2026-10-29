@@ -59,6 +59,8 @@ pub mod parts {
     pub const MANIFEST: &str = "manifest.json";
     /// Document body.
     pub const DOCUMENT: &str = "document.msgpack";
+    /// Optional paper-space drawing set (docs/15 §6).
+    pub const SHEETS: &str = "sheets.msgpack";
     /// Image directory prefix (`images/<blake3-hex>.<ext>`).
     pub const IMAGES_DIR: &str = "images/";
     /// Optional preview.
@@ -261,7 +263,9 @@ fn image_part_name(hash: ImageRef, format: ImageFormat) -> String {
 /// Inverse of [`image_part_name`]; `None` for anything that is not a
 /// well-formed image part name.
 fn parse_image_part_name(name: &str) -> Option<(ImageRef, ImageFormat)> {
-    let rest = name.strip_prefix(parts::IMAGES_DIR)?;
+    let rest = name
+        .strip_prefix(parts::IMAGES_DIR)
+        .or_else(|| name.strip_prefix("sheets/frozen/"))?;
     let (hex, ext) = rest.rsplit_once('.')?;
     let format = match ext {
         "png" => ImageFormat::Png,
@@ -288,7 +292,7 @@ fn decode_hex_32(hex: &str) -> Option<[u8; 32]> {
 /// Rejects extra-part names that are reserved, unsafe or not plain relative
 /// paths.
 fn validate_extra_part_name(name: &str) -> Result<(), IoError> {
-    let reserved = !matches!(classify(name), PartKind::Other);
+    let reserved = name == parts::SHEETS || !matches!(classify(name), PartKind::Other);
     let malformed = name.is_empty()
         || name.contains('\\')
         || name.contains('\0')
@@ -386,13 +390,31 @@ pub fn write_document(
     let document_bytes = rmp_serde::to_vec_named(doc)
         .map_err(|e| IoError::corrupt(parts::DOCUMENT, format!("serialization failed: {e}")))?;
     entries.push((parts::DOCUMENT.to_string(), document_bytes, payload_method));
+    if !doc.sheets.is_empty() {
+        let bytes = rmp_serde::to_vec_named(&doc.sheets)
+            .map_err(|e| IoError::corrupt(parts::SHEETS, e.to_string()))?;
+        check_part_size(parts::SHEETS, bytes.len() as u64, 64 * 1024 * 1024)?;
+        entries.push((parts::SHEETS.into(), bytes, payload_method));
+    }
 
     for (hash, image) in doc.images.iter() {
-        entries.push((
-            image_part_name(hash, image.format),
-            image.bytes.clone(),
-            CompressionMethod::Stored,
-        ));
+        let frozen = doc.sheets.pages.iter().flat_map(|p| &p.items).any(|entry| {
+            matches!(
+                &entry.item,
+                crate::sheets::SheetItem::ModelView { frozen: Some(image), .. }
+                    if *image == hash
+            )
+        });
+        let name = if frozen {
+            format!(
+                "sheets/frozen/{}.{}",
+                hash.to_hex(),
+                image.format.extension()
+            )
+        } else {
+            image_part_name(hash, image.format)
+        };
+        entries.push((name, image.bytes.clone(), CompressionMethod::Stored));
     }
 
     if let Some(thumbnail) = &opts.thumbnail {
@@ -726,6 +748,14 @@ pub fn read_document(bytes: &[u8], progress: &dyn Progress) -> Result<LoadedDocu
                 }
             }
             PartKind::Other => {
+                if name == parts::SHEETS {
+                    let bytes = read_checked_part(&mut archive, &manifest, name, 64 * 1024 * 1024)?;
+                    document.sheets = rmp_serde::from_slice(&bytes)
+                        .map_err(|e| IoError::corrupt(name, e.to_string()))?;
+                    crate::sheets::layout::validate_set(&document.sheets)
+                        .map_err(|e| IoError::corrupt(name, e.to_string()))?;
+                    continue;
+                }
                 if validate_extra_part_name(name).is_err() {
                     warnings.push(dropped(format!(
                         "part `{name}` dropped: its name cannot be written back"

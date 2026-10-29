@@ -172,6 +172,11 @@ powerful but add ~10 MB and do not run inside the web build; they are a post-1.0
 
 ## Decisions
 
+- 2026-10-29 — **Sheets font subsets.** `subsetter` 0.2.6 (MIT/Apache-2.0,
+  defaults disabled) reduces the bundled static Inter font for PDF embedding.
+  Its only enabled dependency is the already-used `rustc-hash`; no C backend or
+  variable-font dependency path is enabled. `cargo deny check` passes.
+
 - 2026-10-28 — **0.8 automation and B-rep dependencies.** Rhai 1.27 (MIT/Apache-2.0)
   and TOML 1.1 (MIT/Apache-2.0) are optional under `scripting`; truck modeling/topology
   0.6, stepio 0.3, meshalgo/shapeops 0.4 (Apache-2.0) are optional under `brep`.

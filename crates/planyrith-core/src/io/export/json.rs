@@ -52,6 +52,13 @@ pub fn document_to_json(doc: &Document) -> Result<Value, IoError> {
     match &mut value {
         Value::Object(map) => {
             map.insert("images".to_string(), Value::Array(images));
+            if !doc.sheets.is_empty() {
+                map.insert(
+                    "sheets".into(),
+                    serde_json::to_value(&doc.sheets)
+                        .map_err(|e| IoError::corrupt("sheets", e.to_string()))?,
+                );
+            }
         }
         other => {
             return Err(IoError::corrupt(

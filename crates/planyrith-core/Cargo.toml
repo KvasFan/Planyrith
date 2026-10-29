@@ -12,6 +12,10 @@ authors.workspace = true
 path = "src/lib.rs"
 
 [[example]]
+name = "generate-sheets"
+path = "../../tools/generate-sheets.rs"
+
+[[example]]
 name = "generate-solids"
 path = "../../tools/generate-solids.rs"
 required-features = ["brep"]
@@ -40,6 +44,7 @@ tracing = { workspace = true }
 tobj = { workspace = true }
 gltf = { workspace = true }
 pdf-writer = { workspace = true }
+subsetter = { workspace = true }
 ttf-parser = { workspace = true }
 rayon = { workspace = true, optional = true }
 rhai = { workspace = true, optional = true }

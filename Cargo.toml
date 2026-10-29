@@ -9,7 +9,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.8.0"
+version = "0.9.0"
 edition = "2024"
 # MSRV follows the egui/eframe/egui-wgpu release line in use (0.36 requires 1.95).
 # See docs/02-technology-stack.md §4 and its Decisions list.
@@ -67,6 +67,7 @@ tobj = { version = "4.0", default-features = false }
 # Without `import`: buffers and images are resolved through the storage.
 gltf = { version = "1.4", default-features = false, features = ["names", "utils", "KHR_texture_transform"] }
 pdf-writer = "0.15"
+subsetter = { version = "0.2.6", default-features = false }
 # Glyph outlines for 3D text (docs/05 §3.8).
 ttf-parser = { version = "0.25", default-features = false, features = ["std"] }
 # Automation and optional B-rep bridge (docs/13 0.8).
@@ -102,8 +103,8 @@ predicates = "3.1"
 criterion = "0.8"
 
 # ---- internal --------------------------------------------------------------------
-planyrith-core = { path = "crates/planyrith-core", version = "0.8.0" }
-planyrith-render = { path = "crates/planyrith-render", version = "0.8.0" }
+planyrith-core = { path = "crates/planyrith-core", version = "0.9.0" }
+planyrith-render = { path = "crates/planyrith-render", version = "0.9.0" }
 
 [workspace.lints.rust]
 unsafe_code = "deny"

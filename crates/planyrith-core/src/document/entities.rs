@@ -177,7 +177,7 @@ pub enum Guide {
 /// an end or the middle of the edge `Anchor::path` names (by pid, so the
 /// anchor survives saving and follows the edge when it moves), or a fixed
 /// point.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub enum AnchorKind {
     /// The edge's first vertex.
     Start,
@@ -187,13 +187,13 @@ pub enum AnchorKind {
     Mid,
     /// A fixed point in the coordinates of the container `path.instances`
     /// reaches (`path.target` is unused).
-    Point(DVec3),
+    Point(#[schemars(with = "[f64; 3]")] DVec3),
 }
 
 /// A re-resolvable reference from a dimension or text (docs/04 §3.5).
 /// `path` is relative to the container holding the dimension or text: its
 /// steps start in that container.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Anchor {
     /// Occurrence the anchor lives in, and the edge it follows.
     pub path: EntityPath,

@@ -143,6 +143,13 @@ save unless `--no-thumbnail`. `manifest.json` carries `title`, `author`, `descri
 
 ## Decisions
 
+- 2026-10-29 — **Sheets part (0.9).** `sheets.msgpack` follows the document
+  body, is checksummed, and is omitted for an untouched empty set. It holds the
+  typed data of docs/15, outside `document.msgpack`; older readers preserve it as
+  an unknown part. Frozen images are content-addressed PNGs under `sheets/frozen/`.
+  Live sheet images count as image references for validation, removal and undo.
+  New readers load files without the part as empty Sheets. Format version stays 1.
+
 - 2026-10-28 — **STEP in 0.8 (`brep`).** Export writes visible whole solid
   bodies in world-space millimeters with a fixed header timestamp. Import
   preserves planar line-edge loops exactly, including through-holes and inward

@@ -445,6 +445,17 @@ UI hints are generated from one source.
 
 ## Decisions
 
+- 2026-10-29 — **Sheets (0.9, category `sheet`).** The complete command and
+  parameter catalogue is docs/15 §5.1. Every paper item operation is a command,
+  with a CLI golden and inverse-delta coverage. In the GUI choose its item tool,
+  pick two paper corners or drag a frame, then edit typed properties. Dimensions
+  snap to model vertices/edges through their viewport; ordinary paper points are
+  also supported. Select moves items; Delete removes them; properties align or
+  reorder them. Escape cancels placement. Page, item, layer and settings edits
+  undo independently; freeze and its associated dimension snapshots undo together.
+  Acceptance is docs/15 §8. `camera-set` also accepts eye/target/up, parallel
+  height and aspect so Sheets camera editing uses the same view command.
+
 - 2026-10-28 — **0.8 tools.** `sweep`, `intersect-faces`, `soften-smooth` and
   all six solid tools are registry commands, CLI subcommands and RPC commands.
   `sweep` requires exactly one of `path` and `path_face`; outputs `{faces, closed}`.

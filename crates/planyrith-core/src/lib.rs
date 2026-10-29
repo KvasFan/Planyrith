@@ -41,6 +41,7 @@ pub mod io;
 pub mod math;
 #[cfg(feature = "scripting")]
 pub mod scripting;
+pub mod sheets;
 pub mod spatial;
 pub mod tolerance;
 pub mod units;

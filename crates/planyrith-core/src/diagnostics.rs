@@ -88,6 +88,8 @@ pub enum Severity {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "kebab-case")]
 pub enum ProblemKind {
+    /// Invalid paper-space drawing state.
+    SheetState,
     /// A mesh invariant of docs/03 §3.1 is violated.
     MeshInvariant,
     /// Two vertices closer than `tolerances.length`.
@@ -461,6 +463,31 @@ pub fn validate(doc: &Document) -> Report {
             ),
         );
     }
+    if let Err(e) = crate::sheets::layout::validate_set(&doc.sheets) {
+        doc_problem(ProblemKind::SheetState, Severity::Error, e.to_string());
+    }
+    for page in &doc.sheets.pages {
+        for entry in &page.items {
+            if matches!(entry.item, crate::sheets::SheetItem::Dimension { .. })
+                && let Err(e) = crate::sheets::layout::dimension(doc, page, &entry.item)
+            {
+                doc_problem(
+                    ProblemKind::DanglingAnchor,
+                    Severity::Warning,
+                    format!("sheet {} / {}: {e}", page.name, entry.id.as_str()),
+                );
+            }
+        }
+    }
+    for image in doc.sheets.image_refs() {
+        if !doc.images.contains(image) {
+            doc_problem(
+                ProblemKind::DanglingReference,
+                Severity::Error,
+                format!("sheet image {} is missing", image.to_hex()),
+            );
+        }
+    }
     Report { problems }
 }
 
@@ -468,9 +495,11 @@ pub fn validate(doc: &Document) -> Report {
 /// `true` when a material texture, a watermark or a definition thumbnail
 /// uses the image.
 pub(crate) fn image_used(doc: &Document, image: ImageRef) -> bool {
-    doc.materials
-        .iter()
-        .any(|(_, m)| m.texture.as_ref().is_some_and(|t| t.image == image))
+    doc.sheets.image_refs().any(|i| i == image)
+        || doc
+            .materials
+            .iter()
+            .any(|(_, m)| m.texture.as_ref().is_some_and(|t| t.image == image))
         || doc
             .styles
             .iter()

@@ -48,6 +48,8 @@ pub struct Drawing {
     pub model_per_paper: f64,
     /// Visible line pieces.
     pub lines: Vec<(DVec2, DVec2, LineKind)>,
+    /// Effective model tag for each visible line (Sheets pen tables).
+    pub line_tags: Vec<Option<crate::ids::TagId>>,
 }
 
 /// Paper placement of a view.
@@ -286,29 +288,76 @@ fn clip_rect(a: DVec2, b: DVec2, lo: DVec2, hi: DVec2) -> Option<(DVec2, DVec2)>
     (t0 < t1).then(|| (a + d * t0, a + d * t1))
 }
 
+/// Clips a polygon to the retained side of a section plane.
+pub(crate) fn clip_section_polygon(points: &[DVec3], plane: crate::math::Plane) -> Vec<DVec3> {
+    let mut out = Vec::new();
+    for (a, b) in points
+        .iter()
+        .zip(points.iter().cycle().skip(1))
+        .take(points.len())
+    {
+        let (da, db) = (plane.signed_distance(*a), plane.signed_distance(*b));
+        if da <= 0.0 {
+            out.push(*a);
+        }
+        if (da < 0.0 && db > 0.0) || (da > 0.0 && db < 0.0) {
+            out.push(*a + (*b - *a) * (da / (da - db)));
+        }
+    }
+    out
+}
+
 /// The visible lines of `camera`'s view, on paper.
 pub fn draw_view(doc: &Document, scope: &ExportScope, camera: &Camera, paper: Paper) -> Drawing {
     let view = View::new(camera);
     let scene = collect(doc, scope);
 
-    // Occluders: every visible face's triangles, in world coordinates.
+    // Clip each occurrence before HLR so removed section geometry cannot hide
+    // retained edges. Section caps occlude like ordinary faces (docs/15 §3).
     let mut tris: Vec<Tri> = Vec::new();
     for occ in &scene.occurrences {
         let Some(mesh) = scene.mesh(occ.container) else {
             continue;
         };
+        let section = crate::io::render_mesh::occurrence_section(doc, &occ.path, &occ.world);
+        let mut push = |p: [DVec3; 3]| {
+            if view.focal.is_some() && p.iter().any(|q| view.depth(*q) < view.near) {
+                return;
+            }
+            let s = p.map(|q| view.screen(q));
+            tris.push(Tri {
+                p,
+                lo: s[0].min(s[1]).min(s[2]),
+                hi: s[0].max(s[1]).max(s[2]),
+            });
+        };
         for face in &mesh.faces {
             for t in &face.triangles {
-                let p = t.map(|i| occ.world.transform_point3(face.positions[i as usize]));
-                if view.focal.is_some() && p.iter().any(|q| view.depth(*q) < view.near) {
-                    continue;
+                let p = t.map(|i| face.positions[i as usize]);
+                let polygon = match section {
+                    Some(cut) => clip_section_polygon(&p, cut.plane),
+                    None => p.to_vec(),
+                };
+                for i in 1..polygon.len().saturating_sub(1) {
+                    push(
+                        [polygon[0], polygon[i], polygon[i + 1]]
+                            .map(|q| occ.world.transform_point3(q)),
+                    );
                 }
-                let s = p.map(|q| view.screen(q));
-                tris.push(Tri {
-                    p,
-                    lo: s[0].min(s[1]).min(s[2]),
-                    hi: s[0].max(s[1]).max(s[2]),
-                });
+            }
+        }
+        if let (Some(cut), Some(entities)) = (section, doc.container(occ.container)) {
+            let cap = crate::io::render_mesh::section_cap(
+                entities,
+                &cut.plane,
+                cut.fill,
+                doc.tolerances(),
+            );
+            for p in cap.triangles.as_chunks::<3>().0.iter() {
+                push([p[0], p[1], p[2]].map(|q| {
+                    occ.world
+                        .transform_point3(glam::Vec3::from_array(q).as_dvec3())
+                }));
             }
         }
     }
@@ -320,6 +369,7 @@ pub fn draw_view(doc: &Document, scope: &ExportScope, camera: &Camera, paper: Pa
         sa: DVec2,
         sb: DVec2,
         kind: Option<LineKind>,
+        tag: Option<crate::ids::TagId>,
     }
     let mut lines: Vec<Line> = Vec::new();
     for occ in &scene.occurrences {
@@ -339,10 +389,23 @@ pub fn draw_view(doc: &Document, scope: &ExportScope, camera: &Camera, paper: Pa
             let Ok(seg) = mesh.edge_segment(e) else {
                 continue;
             };
-            let (a, b) = (
-                occ.world.transform_point3(seg.a),
-                occ.world.transform_point3(seg.b),
-            );
+            let mut a = seg.a;
+            let mut b = seg.b;
+            if let Some(cut) =
+                crate::io::render_mesh::occurrence_section(doc, &occ.path, &occ.world)
+            {
+                let da = cut.plane.signed_distance(a);
+                let db = cut.plane.signed_distance(b);
+                if da > doc.tolerances().length && db > doc.tolerances().length {
+                    continue;
+                }
+                if da > 0.0 {
+                    a = a + (b - a) * (da / (da - db));
+                } else if db > 0.0 {
+                    b = a + (b - a) * (da / (da - db));
+                }
+            }
+            let (a, b) = (occ.world.transform_point3(a), occ.world.transform_point3(b));
             let faces = mesh.edge_faces(e).unwrap_or([None, None]);
             let toward = view.to_eye((a + b) / 2.0);
             let facing: Vec<bool> = faces
@@ -365,13 +428,57 @@ pub fn draw_view(doc: &Document, scope: &ExportScope, camera: &Camera, paper: Pa
             let Some((a, b)) = view.clip_near(a, b) else {
                 continue;
             };
+            let mut inherited = None;
+            let mut parent = crate::document::ContainerRef::Model;
+            for step in &occ.path.steps {
+                if let Some(entities) = doc.container(parent)
+                    && let Some(id) = entities.key_to_id(*step)
+                {
+                    if let Some(tag) = entities.tag_of(id)
+                        && tag != doc.tags.untagged()
+                    {
+                        inherited = Some(tag);
+                    }
+                    if let Some(def) = entities.definition_of(id) {
+                        parent = crate::document::ContainerRef::Definition(def);
+                    }
+                }
+            }
+            let own = entities.tag_of(id).filter(|t| *t != doc.tags.untagged());
+            let tag = own.or(inherited);
+            if !scope.include_hidden && tag.is_some_and(|t| !doc.tags.is_visible(t)) {
+                continue;
+            }
             lines.push(Line {
                 a,
                 b,
                 sa: view.screen(a),
                 sb: view.screen(b),
                 kind,
+                tag,
             });
+        }
+    }
+
+    for occ in &scene.occurrences {
+        if let (Some(cut), Some(entities)) = (
+            crate::io::render_mesh::occurrence_section(doc, &occ.path, &occ.world),
+            doc.container(occ.container),
+        ) {
+            for (a, b) in crate::geom::section::slice(entities.mesh(), &cut.plane, doc.tolerances())
+            {
+                let (a, b) = (occ.world.transform_point3(a), occ.world.transform_point3(b));
+                if let Some((a, b)) = view.clip_near(a, b) {
+                    lines.push(Line {
+                        a,
+                        b,
+                        sa: view.screen(a),
+                        sb: view.screen(b),
+                        kind: Some(LineKind::Profile),
+                        tag: None,
+                    });
+                }
+            }
         }
     }
 
@@ -386,7 +493,7 @@ pub fn draw_view(doc: &Document, scope: &ExportScope, camera: &Camera, paper: Pa
         lo = lo.min(t.lo);
         hi = hi.max(t.hi);
     }
-    let mut pieces: Vec<(DVec2, DVec2, LineKind)> = Vec::new();
+    let mut pieces: Vec<(DVec2, DVec2, LineKind, Option<crate::ids::TagId>)> = Vec::new();
     if !lines.is_empty() {
         let mut tri_grid = Grid::new(lo, hi, tris.len().max(1));
         for (i, t) in tris.iter().enumerate() {
@@ -440,14 +547,14 @@ pub fn draw_view(doc: &Document, scope: &ExportScope, camera: &Camera, paper: Pa
                 let p0 = l.sa + (l.sb - l.sa) * s0;
                 if occluded(mid) {
                     if let Some(start) = open.take() {
-                        pieces.push((start, p0, kind));
+                        pieces.push((start, p0, kind, l.tag));
                     }
                 } else if open.is_none() {
                     open = Some(p0);
                 }
             }
             if let Some(start) = open {
-                pieces.push((start, l.sb, kind));
+                pieces.push((start, l.sb, kind, l.tag));
             }
         }
     }
@@ -475,11 +582,13 @@ pub fn draw_view(doc: &Document, scope: &ExportScope, camera: &Camera, paper: Pa
         height_mm: height,
         model_per_paper,
         lines: Vec::new(),
+        line_tags: Vec::new(),
     };
-    for (a, b, kind) in pieces {
+    for (a, b, kind, tag) in pieces {
         if let Some((a, b)) = clip_rect(a, b, -frame, frame) {
             let map = |p: DVec2| (p + frame) * to_paper;
             drawing.lines.push((map(a), map(b), kind));
+            drawing.line_tags.push(tag);
         }
     }
     drawing

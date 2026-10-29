@@ -50,6 +50,7 @@ enum Cmd {
     Intersect,
     Soften(u8),
     Sweep(usize),
+    Sheets(u8, usize),
 }
 
 /// What a transform applies to.
@@ -97,6 +98,7 @@ fn cmd() -> impl Strategy<Value = Cmd> {
         1 => Just(Cmd::Intersect),
         1 => (0u8..180).prop_map(Cmd::Soften),
         1 => (0usize..64).prop_map(Cmd::Sweep),
+        1 => (0u8..6,0usize..8).prop_map(|(op,i)|Cmd::Sheets(op,i)),
     ]
 }
 
@@ -275,6 +277,20 @@ fn resolve(e: &Engine, c: &Cmd) -> Option<(&'static str, Value)> {
             "soften-smooth",
             json!({"targets":"edge","angle":f64::from(degrees)*std::f64::consts::PI/180.0,"smooth":true}),
         ),
+        Cmd::Sheets(op, i) => {
+            let name = format!("S{}", i % 3);
+            match op {
+                0 => ("sheet-add-page", json!({"page":name})),
+                1 => ("sheet-remove-page", json!({"page":name})),
+                2 => ("sheet-add-text", json!({"page":name,"text":"Fuzz note"})),
+                3 => ("sheet-add-view", json!({"page":name,"scale":"1:20"})),
+                4 => (
+                    "sheet-layer-set",
+                    json!({"page":name,"layer":"Notes","visible":i%2==0}),
+                ),
+                _ => ("sheet-add-dimension", json!({"page":name})),
+            }
+        }
         Cmd::Sweep(i) => ("sweep", json!({"profile":face_ref(i)?,"path":"edge"})),
         Cmd::Paint(i, side) => {
             let pid = nth(&faces(e), i)?;

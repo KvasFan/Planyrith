@@ -70,6 +70,65 @@ pub enum AttrTarget {
 /// whole document (docs/01 Decisions: undo via inverse deltas).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Delta {
+    /// A sheet page renamed without copying its items.
+    SheetPageName {
+        /// Previous name.
+        from: String,
+        /// Result name.
+        to: String,
+    },
+    /// Sheet-wide metadata changed; page content is not copied.
+    SheetSettings {
+        /// Before.
+        from: Box<crate::sheets::SheetSettings>,
+        /// After.
+        to: Box<crate::sheets::SheetSettings>,
+    },
+    /// Page print order changed.
+    SheetPageOrder {
+        /// Previous index.
+        from: usize,
+        /// New index.
+        to: usize,
+    },
+    /// Paper dimensions changed without copying sheet items.
+    SheetPaper {
+        /// Page name.
+        page: String,
+        /// Previous paper.
+        from: crate::sheets::Paper,
+        /// New paper.
+        to: crate::sheets::Paper,
+    },
+    /// An insertion, removal or metadata edit of a paper page.
+    SheetPage {
+        /// Position in print order.
+        index: usize,
+        /// Previous page, absent for insertion.
+        from: Option<Box<crate::sheets::Page>>,
+        /// Result page, absent for removal.
+        to: Option<Box<crate::sheets::Page>>,
+    },
+    /// A page-local item edit, without copying unrelated paper items.
+    SheetItem {
+        /// Page name.
+        page: String,
+        /// Item stacking position.
+        index: usize,
+        /// Previous item.
+        from: Option<Box<crate::sheets::Entry>>,
+        /// Result item.
+        to: Option<Box<crate::sheets::Entry>>,
+    },
+    /// Paper layer settings changed.
+    SheetLayers {
+        /// Page name.
+        page: String,
+        /// Previous settings.
+        from: Vec<crate::sheets::Layer>,
+        /// New settings.
+        to: Vec<crate::sheets::Layer>,
+    },
     /// A kernel change in one container's mesh.
     Mesh {
         /// Container.
@@ -415,6 +474,35 @@ impl Delta {
     /// The inverse delta (swaps before/after, inserted/removed, bound/unbound).
     pub fn inverse(&self) -> Delta {
         match self.clone() {
+            Delta::SheetPageName { from, to } => Delta::SheetPageName { from: to, to: from },
+            Delta::SheetSettings { from, to } => Delta::SheetSettings { from: to, to: from },
+            Delta::SheetPageOrder { from, to } => Delta::SheetPageOrder { from: to, to: from },
+            Delta::SheetPaper { page, from, to } => Delta::SheetPaper {
+                page,
+                from: to,
+                to: from,
+            },
+            Delta::SheetPage { index, from, to } => Delta::SheetPage {
+                index,
+                from: to,
+                to: from,
+            },
+            Delta::SheetItem {
+                page,
+                index,
+                from,
+                to,
+            } => Delta::SheetItem {
+                page,
+                index,
+                from: to,
+                to: from,
+            },
+            Delta::SheetLayers { page, from, to } => Delta::SheetLayers {
+                page,
+                from: to,
+                to: from,
+            },
             Delta::Mesh { container, delta } => Delta::Mesh {
                 container,
                 delta: delta.inverse(),
@@ -1014,6 +1102,78 @@ pub(crate) fn apply_delta(
             doc.info.next_pid = next_pid;
         }
         Delta::RenderingChanged { to, .. } => doc.rendering = (**to).clone(),
+        Delta::SheetPageName { from, to } => {
+            doc.sheets
+                .pages
+                .iter_mut()
+                .find(|p| p.name == *from)
+                .ok_or_else(|| internal("sheet rename replay"))?
+                .name = to.clone()
+        }
+        Delta::SheetSettings { to, .. } => {
+            doc.sheets.paper_defaults = to.paper_defaults.clone();
+            doc.sheets.title_block = to.title_block.clone();
+            doc.sheets.styles = to.styles.clone();
+        }
+        Delta::SheetPageOrder { from, to } => {
+            if *from >= doc.sheets.pages.len() || *to >= doc.sheets.pages.len() {
+                return Err(internal("sheet print order replay"));
+            }
+            let page = doc.sheets.pages.remove(*from);
+            doc.sheets.pages.insert(*to, page);
+        }
+        Delta::SheetPaper { page, to, .. } => {
+            doc.sheets
+                .pages
+                .iter_mut()
+                .find(|p| p.name == *page)
+                .ok_or_else(|| internal("sheet paper replay"))?
+                .paper = to.clone()
+        }
+        Delta::SheetPage { index, from, to } => {
+            if from.is_some() {
+                if *index >= doc.sheets.pages.len() {
+                    return Err(internal("sheet page replay index"));
+                }
+                doc.sheets.pages.remove(*index);
+            }
+            if let Some(page) = to {
+                doc.sheets
+                    .pages
+                    .insert((*index).min(doc.sheets.pages.len()), (**page).clone());
+            }
+        }
+        Delta::SheetItem {
+            page,
+            index,
+            from,
+            to,
+        } => {
+            let page = doc
+                .sheets
+                .pages
+                .iter_mut()
+                .find(|p| p.name == *page)
+                .ok_or_else(|| internal("sheet page replay"))?;
+            if from.is_some() {
+                if *index >= page.items.len() {
+                    return Err(internal("sheet item replay index"));
+                }
+                page.items.remove(*index);
+            }
+            if let Some(item) = to {
+                page.items
+                    .insert((*index).min(page.items.len()), (**item).clone());
+            }
+        }
+        Delta::SheetLayers { page, to, .. } => {
+            doc.sheets
+                .pages
+                .iter_mut()
+                .find(|p| p.name == *page)
+                .ok_or_else(|| internal("sheet layers replay"))?
+                .layers = to.clone()
+        }
     }
     Ok(live)
 }
@@ -1261,6 +1421,14 @@ impl<'a> Transaction<'a> {
     /// The edit context the command runs in.
     pub fn context(&self) -> &EditContext {
         &self.view.context
+    }
+
+    /// Applies one validated Sheets delta (docs/15 §4).
+    pub(crate) fn sheet_delta(&mut self, delta: Delta) -> Result<(), CommandError> {
+        let mut aliases = MeshAliases::default();
+        apply_delta(self.doc, &delta, &mut aliases)?;
+        self.deltas.push(delta);
+        Ok(())
     }
 
     /// Executes a nested registry command inside this transaction (docs/10 §2).

@@ -308,6 +308,9 @@ pub struct Document {
     pub camera: Camera,
     /// Document attributes.
     pub attrs: AttributeDictionaries,
+    /// Paper-space sheets, stored in their own native container part.
+    #[serde(skip)]
+    pub sheets: crate::sheets::SheetSet,
     /// Image bytes; stored as separate container parts, not in the body.
     #[serde(skip)]
     pub images: ImageStore,
@@ -328,6 +331,7 @@ impl Default for Document {
             camera: Camera::default(),
             attrs: AttributeDictionaries::default(),
             images: ImageStore::default(),
+            sheets: crate::sheets::SheetSet::default(),
         }
     }
 }

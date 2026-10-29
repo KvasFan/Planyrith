@@ -22,6 +22,7 @@ pub mod file;
 mod fuzz_tests;
 pub mod organize;
 pub mod params;
+pub mod sheets;
 pub mod solid;
 pub mod transaction;
 #[cfg(test)]
@@ -164,6 +165,8 @@ pub enum CommandCategory {
     Guide,
     /// Solid tools.
     Solid,
+    /// Paper-space documentation tools.
+    Sheet,
     /// View-only commands (not undoable).
     View,
     /// File commands (`save`, `purge-unused`, …).
@@ -407,6 +410,7 @@ impl CommandRegistry {
         view::register(&mut registry);
         file::register(&mut registry);
         solid::register(&mut registry);
+        sheets::register(&mut registry);
         #[cfg(feature = "scripting")]
         registry.register(crate::scripting::ScriptEval);
         #[cfg(feature = "scripting")]
