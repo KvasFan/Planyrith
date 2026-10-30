@@ -50,6 +50,10 @@ jobs:
               echo "planyrith-cli must not depend on ${forbidden}"; fail=1
             fi
           done
+          cargo tree -p planyrith-core -p planyrith-cli -p planyrith-render -p planyrith-gui --edges normal --prefix none --format '{p}' > /tmp/application-dependencies.txt
+          if grep -Eq '^(openskp|planyrith-skp) v' /tmp/application-dependencies.txt; then
+            echo "optional GPL converters must never be linked into the applications"; fail=1
+          fi
           exit "$fail"
       - name: cargo deny (licenses, bans, sources)
         uses: EmbarkStudios/cargo-deny-action@v2
@@ -72,10 +76,14 @@ jobs:
       - name: software Vulkan (Linux)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers
-      - name: cargo test
+      - name: build optional SKP converter
+        # Optional GPL converter stays a separate process; test it on each OS.
+        run: cargo build -p planyrith-skp
+      - name: cargo test with optional SKP converter
         run: cargo test --workspace
         env:
           PLANYRITH_REQUIRE_GPU: "1"
+          PLANYRITH_REQUIRE_SKP: "1"
       - name: snapshot images on failure
         if: failure()
         uses: actions/upload-artifact@v4

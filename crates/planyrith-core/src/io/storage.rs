@@ -110,6 +110,15 @@ pub trait Storage {
     fn exists(&self, key: &StorageKey) -> Result<bool, IoError>;
     /// Backend capabilities.
     fn capabilities(&self) -> StorageCaps;
+    /// Invokes the optional SKP converter through this backend's I/O boundary.
+    /// `operation` is `decode`, `encode-2017` or `encode-2026`.
+    fn convert_skp(
+        &self,
+        _operation: &str,
+        _bytes: &[u8],
+    ) -> Result<super::adapter::Converted, IoError> {
+        Err(super::adapter::unavailable())
+    }
 }
 
 /// In-memory storage for tests and the clipboard (docs/11 §1).
@@ -200,6 +209,8 @@ impl Storage for MemoryStorage {
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug, Clone, Default)]
 pub struct NativeFs {
+    /// Optional absolute path to the separately installed SKP converter.
+    pub skp_adapter: Option<std::path::PathBuf>,
     /// Base directory for relative keys (`None` = process working directory).
     pub root: Option<std::path::PathBuf>,
     /// Number of `name.plyr~N` backups to keep on overwrite (docs/11 §6).
@@ -311,6 +322,85 @@ impl NativeFs {
 
 #[cfg(not(target_arch = "wasm32"))]
 impl Storage for NativeFs {
+    fn convert_skp(
+        &self,
+        operation: &str,
+        bytes: &[u8],
+    ) -> Result<super::adapter::Converted, IoError> {
+        use super::adapter;
+        use std::io::Write;
+        use std::process::{Command, Stdio};
+        if !matches!(operation, "decode" | "encode-2017" | "encode-2026") {
+            return Err(IoError::UnsupportedFormat(
+                "unknown SKP converter operation".into(),
+            ));
+        }
+        if bytes.len() > adapter::MAX_BYTES {
+            return Err(IoError::LimitExceeded("SKP converter input".into()));
+        }
+        let executable = if let Some(path) = self
+            .skp_adapter
+            .clone()
+            .map(std::path::PathBuf::into_os_string)
+            .or_else(|| std::env::var_os("PLANYRITH_SKP_ADAPTER"))
+        {
+            let path = std::path::PathBuf::from(path);
+            if !path.is_absolute() {
+                return Err(IoError::storage(
+                    "SKP adapter",
+                    "PLANYRITH_SKP_ADAPTER must be an absolute path",
+                ));
+            }
+            path
+        } else {
+            let current = std::env::current_exe().map_err(|_| adapter::unavailable())?;
+            let parent = current.parent().ok_or_else(adapter::unavailable)?;
+            // Cargo integration-test executables live under target/.../deps.
+            let parent = if parent.file_name().is_some_and(|p| p == "deps") {
+                parent.parent().unwrap_or(parent)
+            } else {
+                parent
+            };
+            parent.join(format!("planyrith-skp{}", std::env::consts::EXE_SUFFIX))
+        };
+        let mut child = Command::new(&executable)
+            .arg(operation)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| {
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    adapter::unavailable()
+                } else {
+                    IoError::storage("SKP adapter", e.to_string())
+                }
+            })?;
+        // The converter reads its complete input before producing output.
+        // Close stdin even after a write error, then reap the process.
+        let written = child
+            .stdin
+            .take()
+            .ok_or_else(adapter::unavailable)
+            .and_then(|mut input| {
+                input
+                    .write_all(bytes)
+                    .map_err(|e| IoError::storage("SKP adapter input", e.to_string()))
+            });
+        let output = child
+            .wait_with_output()
+            .map_err(|e| IoError::storage("SKP adapter", e.to_string()))?;
+        if !output.status.success() {
+            let message = String::from_utf8_lossy(&output.stderr);
+            return Err(IoError::corrupt(
+                "SKP",
+                message.chars().take(4096).collect::<String>(),
+            ));
+        }
+        written?;
+        adapter::decode(&output.stdout)
+    }
+
     fn read(&self, key: &StorageKey) -> Result<Vec<u8>, IoError> {
         std::fs::read(self.path_for(key)).map_err(|e| Self::map_io(key, &e))
     }

@@ -13,9 +13,7 @@ use planyrith_core::diagnostics::Warning;
 use planyrith_core::document::{Document, EditContext, EntityPath};
 use planyrith_core::io::NoProgress;
 use planyrith_core::io::autosave::Recovered;
-use planyrith_core::io::native::{
-    HistoryEntry, LoadedDocument, WriteOptions, read_document, write_document,
-};
+use planyrith_core::io::native::{HistoryEntry, LoadedDocument, WriteOptions, write_document};
 use planyrith_core::io::storage::{NativeFs, Storage, StorageKey};
 use planyrith_core::units::LengthUnit;
 
@@ -54,7 +52,9 @@ impl Session {
                     ))
                 })?;
                 let size = bytes.len() as u64;
-                let mut loaded = read_document(&bytes, &NoProgress).map_err(CliError::io)?;
+                let mut loaded =
+                    planyrith_core::io::model_file::read(&bytes, "-", &NativeFs::new())
+                        .map_err(CliError::io)?;
                 let doc = std::mem::take(&mut loaded.document);
                 (doc, Some(loaded), None, Some(size))
             }
@@ -69,7 +69,12 @@ impl Session {
             Some(p) => {
                 let bytes = NativeFs::new().read(&key(p)).map_err(CliError::io)?;
                 let size = bytes.len() as u64;
-                let mut loaded = read_document(&bytes, &NoProgress).map_err(CliError::io)?;
+                let mut loaded = planyrith_core::io::model_file::read(
+                    &bytes,
+                    &p.to_string_lossy(),
+                    &NativeFs::new(),
+                )
+                .map_err(CliError::io)?;
                 let doc = std::mem::take(&mut loaded.document);
                 (doc, Some(loaded), Some(p.clone()), Some(size))
             }
@@ -121,7 +126,12 @@ impl Session {
         if let Some(last) = history.last() {
             engine.set_last_created(last.created.clone());
         }
-        let warnings: Rc<RefCell<Vec<Warning>>> = Rc::default();
+        let warnings = Rc::new(RefCell::new(
+            loaded
+                .as_ref()
+                .map(|l| l.warnings.clone())
+                .unwrap_or_default(),
+        ));
         let sink = Rc::clone(&warnings);
         engine.events_mut().subscribe(Box::new(move |event| {
             if let Event::Warning(w) = event {
@@ -241,8 +251,19 @@ impl Session {
             crate::out::bytes(&bytes)?;
             return Ok(Some("-".into()));
         }
+        let converted = planyrith_core::io::model_file::for_save(
+            bytes,
+            &target.to_string_lossy(),
+            &NativeFs::new(),
+        )
+        .map_err(CliError::io)?;
+        self.warnings.borrow_mut().extend(
+            converted.warnings.into_iter().map(|message| {
+                Warning::new(planyrith_core::diagnostics::WarningCode::W2004, message)
+            }),
+        );
         NativeFs::new()
-            .write(&key(&target), &bytes)
+            .write(&key(&target), &converted.bytes)
             .map_err(CliError::io)?;
         Ok(Some(target.display().to_string()))
     }

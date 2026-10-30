@@ -14,9 +14,9 @@ use planyrith_core::document::{Camera, ContainerRef, Document};
 use planyrith_core::inference::{Inference, InferenceEngine, InferenceRequest};
 use planyrith_core::io::NoProgress;
 use planyrith_core::io::autosave::{self, Autosave, RowState};
-use planyrith_core::io::native::{
-    HistoryEntry, LoadedDocument, WriteOptions, read_document, write_document,
-};
+#[cfg(not(target_arch = "wasm32"))]
+use planyrith_core::io::native::read_document;
+use planyrith_core::io::native::{HistoryEntry, LoadedDocument, WriteOptions, write_document};
 use planyrith_core::io::storage::{Storage, StorageKey};
 use planyrith_core::math::Ray;
 use planyrith_core::spatial::{DocumentIndex, Hit, HitFilter};
@@ -62,12 +62,17 @@ impl Session {
         Session::build(Document::new(), None, None)
     }
 
-    /// Opens a `.plyr` file.
+    /// Opens a native or adapter-backed SKP model.
     pub fn open(path: &Path) -> Result<Session, String> {
         let bytes = platform::storage()
             .read(&key(path))
             .map_err(|e| e.to_string())?;
-        let mut loaded = read_document(&bytes, &NoProgress).map_err(|e| e.to_string())?;
+        let mut loaded = planyrith_core::io::model_file::read(
+            &bytes,
+            &path.to_string_lossy(),
+            platform::storage().as_ref(),
+        )
+        .map_err(|e| e.to_string())?;
         let doc = std::mem::take(&mut loaded.document);
         let session = Session::build(doc, Some(loaded), Some(path.to_path_buf()));
         for w in session
@@ -293,6 +298,13 @@ impl Session {
                 "command.execute",
                 serde_json::json!({"name":name,"params":params}),
             )?;
+            if let Some(warnings) = output["warnings"].as_array() {
+                self.warnings.borrow_mut().extend(
+                    warnings
+                        .iter()
+                        .filter_map(|w| w["message"].as_str().map(str::to_string)),
+                );
+            }
             self.refresh_remote(
                 !name.starts_with("camera-")
                     && !name.starts_with("zoom-")
@@ -399,10 +411,17 @@ impl Session {
     pub fn save(&mut self, path: Option<&Path>) -> Result<PathBuf, String> {
         #[cfg(not(target_arch = "wasm32"))]
         if let Some(remote) = self.remote.as_mut() {
-            remote.call(
+            let result = remote.call(
                 "session.save",
                 serde_json::json!({"path":path.map(|p|p.to_string_lossy().to_string())}),
             )?;
+            if let Some(warnings) = result["warnings"].as_array() {
+                self.warnings.borrow_mut().extend(
+                    warnings
+                        .iter()
+                        .filter_map(|w| w["message"].as_str().map(str::to_string)),
+                );
+            }
             self.refresh_remote(true)?;
             self.mark_saved();
             return self
@@ -415,8 +434,15 @@ impl Session {
             .or_else(|| self.path.clone())
             .ok_or_else(|| "choose where to save".to_string())?;
         let bytes = self.encode(&now_rfc3339())?;
+        let converted = planyrith_core::io::model_file::for_save(
+            bytes,
+            &target.to_string_lossy(),
+            self.storage.as_ref(),
+        )
+        .map_err(|e| e.to_string())?;
+        self.warnings.borrow_mut().extend(converted.warnings);
         self.storage
-            .write(&key(&target), &bytes)
+            .write(&key(&target), &converted.bytes)
             .map_err(|e| e.to_string())?;
         if let Some(autosave) = self.autosave.as_mut() {
             // Saved work needs no recovery; the new name autosaves from now.

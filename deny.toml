@@ -27,6 +27,12 @@ allow = [
 # explicit entry here plus a note in docs/02-technology-stack.md.
 confidence-threshold = 0.9
 
+# The optional converter is a separate executable, never linked into the apps.
+exceptions = [
+    { crate = "planyrith-skp", allow = ["GPL-3.0-only"] },
+    { crate = "openskp", allow = ["GPL-3.0-only"] },
+]
+
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"

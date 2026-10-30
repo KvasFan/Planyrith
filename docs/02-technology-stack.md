@@ -172,6 +172,15 @@ powerful but add ~10 MB and do not run inside the web build; they are a post-1.0
 
 ## Decisions
 
+- 2026-10-30 — **Optional SKP converter.** The user requested `.skp`
+  interoperability. `openskp` 0.5.0 is pure Rust with a pure-Rust DEFLATE
+  dependency, but GPL-3.0-only. It is confined to `planyrith-skp`, a separately
+  built/distributed GPL-3.0-only executable; no application or core crate links
+  it. The default workspace members exclude this converter. `deny.toml`
+  records package-specific GPL exceptions for these two packages only. The
+  applications exchange byte streams through the Storage adapter boundary.
+  Supported scope and compatibility limits belong to docs/09.
+
 - 2026-10-29 — **Sheets font subsets.** `subsetter` 0.2.6 (MIT/Apache-2.0,
   defaults disabled) reduces the bundled static Inter font for PDF embedding.
   Its only enabled dependency is the already-used `rustc-hash`; no C backend or

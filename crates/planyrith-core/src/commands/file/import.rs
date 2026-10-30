@@ -177,6 +177,11 @@ impl Command for Import {
             source: p.path.clone(),
         };
         let report = importer.import(&mut bytes.as_slice(), &opts, tx, &target, &NoProgress)?;
+        if format == ImportFormat::Skp {
+            for warning in &report.warnings {
+                tx.warn(warning.clone());
+            }
+        }
         Ok(ImportOutput { format, report })
     }
 

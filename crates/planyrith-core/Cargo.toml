@@ -16,6 +16,10 @@ name = "generate-sheets"
 path = "../../tools/generate-sheets.rs"
 
 [[example]]
+name = "generate-skp-fixture"
+path = "../../tools/generate-skp-fixture.rs"
+
+[[example]]
 name = "generate-solids"
 path = "../../tools/generate-solids.rs"
 required-features = ["brep"]

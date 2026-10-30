@@ -604,8 +604,9 @@ impl Server {
 
     fn opened(&mut self, session: Session) -> Value {
         let info = document_info(&session);
+        let warnings = session.warnings.borrow().clone();
         let id = self.adopt(session);
-        json!({ "doc_id": id, "info": info })
+        json!({ "doc_id": id, "info": info, "warnings": warnings })
     }
 
     fn session_new(&mut self, p: &Map<String, Value>) -> Result<Value, RpcError> {
@@ -636,11 +637,20 @@ impl Server {
         };
         let doc = self.doc_mut(p)?;
         close_group(doc)?;
+        let warned = doc.session.warnings.borrow().len();
         let saved = doc.session.save(&global).map_err(RpcError::from_cli)?;
         if let Some(path) = &saved {
             doc.session.path = Some(PathBuf::from(path));
         }
-        Ok(json!({ "path": saved }))
+        let warnings = doc
+            .session
+            .warnings
+            .borrow()
+            .iter()
+            .skip(warned)
+            .cloned()
+            .collect::<Vec<_>>();
+        Ok(json!({ "path": saved, "warnings": warnings }))
     }
 
     fn session_close(&mut self, p: &Map<String, Value>) -> Result<Value, RpcError> {

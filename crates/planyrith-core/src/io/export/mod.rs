@@ -13,6 +13,7 @@ pub mod json;
 pub mod obj;
 pub mod plyr;
 pub mod scene;
+pub mod skp;
 pub mod stl;
 pub mod view2d;
 
@@ -52,11 +53,13 @@ pub enum ExportFormat {
     Pdf,
     /// Component report.
     Csv,
+    /// SKP through an optional converter process.
+    Skp,
 }
 
 impl ExportFormat {
     /// Every export format.
-    pub const ALL: [ExportFormat; 11] = [
+    pub const ALL: [ExportFormat; 12] = [
         ExportFormat::Obj,
         ExportFormat::Stl,
         ExportFormat::Gltf,
@@ -68,9 +71,10 @@ impl ExportFormat {
         ExportFormat::Svg,
         ExportFormat::Pdf,
         ExportFormat::Csv,
+        ExportFormat::Skp,
     ];
 
-    /// The formats this build exports.
+    /// Registered formats; SKP additionally requires a converter-capable backend.
     pub fn supported() -> Vec<ExportFormat> {
         Self::ALL
             .into_iter()
@@ -92,6 +96,7 @@ impl ExportFormat {
             "svg" => ExportFormat::Svg,
             "pdf" => ExportFormat::Pdf,
             "csv" => ExportFormat::Csv,
+            "skp" => ExportFormat::Skp,
             _ => return None,
         })
     }
@@ -111,6 +116,9 @@ pub struct ExportScope {
 /// Common export options (docs/09 §6).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct ExportOptions {
+    /// SKP container version (2017 by default, or 2026).
+    #[serde(default)]
+    pub skp_version: Option<u32>,
     /// Output unit for unitless formats.
     pub units: LengthUnit,
     /// Triangulate faces.
@@ -147,6 +155,7 @@ pub struct ExportOptions {
 impl Default for ExportOptions {
     fn default() -> Self {
         ExportOptions {
+            skp_version: None,
             units: LengthUnit::Millimeter,
             triangulate: false,
             per_tag: false,
@@ -191,6 +200,18 @@ pub trait Exporter: Send + Sync {
         dst: &mut dyn Write,
         progress: &dyn Progress,
     ) -> Result<ExportReport, IoError>;
+    /// Backend-aware export for formats handled by separate converter programs.
+    fn export_with_storage(
+        &self,
+        doc: &Document,
+        scope: &ExportScope,
+        opts: &ExportOptions,
+        dst: &mut dyn Write,
+        progress: &dyn Progress,
+        _storage: &dyn crate::io::Storage,
+    ) -> Result<ExportReport, IoError> {
+        self.export(doc, scope, opts, dst, progress)
+    }
 }
 
 /// The exporter of `format`, when this build has one.
@@ -205,6 +226,7 @@ pub fn exporter(format: ExportFormat) -> Option<Box<dyn Exporter>> {
         ExportFormat::Json => Some(Box::new(json::JsonExporter)),
         ExportFormat::Obj => Some(Box::new(obj::ObjExporter)),
         ExportFormat::Plyr => Some(Box::new(plyr::PlyrExporter)),
+        ExportFormat::Skp => Some(Box::new(skp::SkpExporter)),
         ExportFormat::Stl => Some(Box::new(stl::StlExporter)),
         ExportFormat::Svg => Some(Box::new(view2d::SvgExporter)),
         ExportFormat::Pdf => Some(Box::new(view2d::PdfExporter)),

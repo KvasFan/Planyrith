@@ -90,6 +90,7 @@ control via `planyrith export --format json`. It is **not** required to load the
 | glTF 2.0 / GLB | ✔ | ✔ | nodes → groups/instances (meshes shared → components), PBR base color + texture, transforms, cameras → scenes. KHR_texture_transform supported. |
 | DXF (R12–2018 ASCII) | ✔ | ✔ (3D and 2D) | LINE, LWPOLYLINE/POLYLINE, ARC, CIRCLE, ELLIPSE (segmented), SPLINE (flattened), 3DFACE, POLYFACE mesh, INSERT/BLOCK → components, LAYER → tags, TEXT/MTEXT, DIMENSION (as text+lines on export). |
 | STEP AP203/214 | ✔ (feature `brep`) | ✔ (feature `brep`) | via `truck-stepio`; solids/shells; curved faces tessellated with curve descriptors. |
+| SKP (2017 / 2026 containers) | ✔ (optional desktop converter) | ✔ (optional desktop converter) | real model files; geometry, hierarchy, materials/textures, tags, views and sections; compatibility scope in Decisions. |
 | Images (PNG/JPEG/WebP) | ✔ | ✔ (render) | import as image entity or as a material texture. |
 | CSV | ✔ (points) | ✔ (component report) | `x,y,z[,name]` points → guide points or vertices; report: definition, count, bbox, volume, attrs. |
 | JSON | — | ✔ | full document dump (`--canonical` for diffing). |
@@ -142,6 +143,38 @@ save unless `--no-thumbnail`. `manifest.json` carries `title`, `author`, `descri
   bounds within tolerance; glTF/OBJ validated with external validators in CI when available.
 
 ## Decisions
+
+- 2026-10-30 — **SKP interoperability.** An explicit user request adds
+  `.skp` opening, Save/Save As, import and export on desktop. The optional
+  `planyrith-skp` executable is a separate GPL component (docs/02), discovered
+  beside the application or via absolute `PLANYRITH_SKP_ADAPTER`. Storage
+  invokes it with byte streams; core and frontends have no dependency on its
+  decoder. Missing converters fail explicitly; no native container is written
+  under a `.skp` extension. Browser conversion is unavailable.
+  Save writes the 2017 container; export accepts `skp_version: 2017 | 2026`.
+  Merge import follows native import semantics: geometry/assets enter a group
+  or component; source cameras, scenes, units and drawing axes are retained by
+  whole-model Open, rather than replacing the current document's settings.
+  Both containers have original-file and generated round-trip tests; intervening
+  releases are not certified. Source coordinates convert to millimeters without
+  using display units as geometry units. Export uses fixed time/seed.
+  Polygon boundaries and holes, wire edges/flags, nested and reused components,
+  groups/transforms, two-sided materials, embedded textures/UVs, tags, cameras,
+  scene visibility/sections, guides, drawing axes, display units and supported
+  attribute values transfer. Curves keep their segmented geometry. Painted
+  groups use private component instances to retain inherited material. Conflicting
+  face sides are partitioned into private surface groups without deleting faces;
+  hidden-edge scene references follow all copies. Texture placements retain their
+  projective frames through native saves. WebP textures export as PNG with the
+  same decoded pixels.
+  Annotations/placed images, Sheets, edit history, rendering styles, shadows,
+  watermarks and unrepresentable attribute/behavior details produce warnings;
+  retain `.plyr` for full fidelity. Unrepresentable UV placements and selected-only
+  export fail explicitly. Conversion failure changes neither the document nor
+  the destination. Autosave/snapshots always stay native. Inputs and converted
+  files are capped at 512 MiB; protocol metadata at 1 MiB, surface partitions at
+  4096 per source container. Fixture provenance,
+  license and detailed scope are in `crates/planyrith-skp/README.md`.
 
 - 2026-10-29 — **Sheets part (0.9).** `sheets.msgpack` follows the document
   body, is checksummed, and is omitted for an untouched empty set. It holds the

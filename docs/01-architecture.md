@@ -237,6 +237,14 @@ Frontends and the RPC server fan events out to subscribers. Event kinds:
 
 ## Decisions
 
+- 2026-10-30 — **Optional converter boundary.** SKP decoding/encoding is an
+  optional, separately distributed process. `Storage::convert_skp` exchanges
+  native/model bytes and versioned warning metadata; `NativeFs` owns process
+  discovery and stdio, while backends without that capability return an explicit
+  error. File commands and frontend session open/save share `io::model_file`.
+  No core or frontend crate links the GPL converter. CI checks the normal
+  dependency graph, as well as package-specific licensing exceptions.
+
 - 2026-10-20 — Commands are the only mutation path; undo via inverse deltas (not snapshots).
 - 2026-10-20 — A shared `planyrith-render` crate is added at 0.2 so the CLI can render headless
   without depending on the GUI crate. The user-proposed three-way split is preserved

@@ -16,6 +16,7 @@ pub mod gltf;
 pub mod image;
 pub mod obj;
 pub mod plyr;
+pub mod skp;
 pub mod stl;
 
 use std::io::Read;
@@ -50,11 +51,13 @@ pub enum ImportFormat {
     Csv,
     /// Another `.plyr`/`.plyrc` merged as group/component.
     Plyr,
+    /// SKP through the optional converter process.
+    Skp,
 }
 
 impl ImportFormat {
     /// Every import format.
-    pub const ALL: [ImportFormat; 8] = [
+    pub const ALL: [ImportFormat; 9] = [
         ImportFormat::Obj,
         ImportFormat::Stl,
         ImportFormat::Gltf,
@@ -63,9 +66,10 @@ impl ImportFormat {
         ImportFormat::Image,
         ImportFormat::Csv,
         ImportFormat::Plyr,
+        ImportFormat::Skp,
     ];
 
-    /// The formats this build imports.
+    /// Registered formats; SKP additionally requires a converter-capable backend.
     pub fn supported() -> Vec<ImportFormat> {
         Self::ALL
             .into_iter()
@@ -84,6 +88,7 @@ impl ImportFormat {
             "png" | "jpg" | "jpeg" | "webp" => ImportFormat::Image,
             "csv" => ImportFormat::Csv,
             "plyr" | "plyrc" => ImportFormat::Plyr,
+            "skp" => ImportFormat::Skp,
             _ => return None,
         })
     }
@@ -223,6 +228,7 @@ pub fn importer(format: ImportFormat) -> Option<Box<dyn Importer>> {
         ImportFormat::Gltf => Some(Box::new(gltf::GltfImporter)),
         ImportFormat::Image => Some(Box::new(image::ImageImporter)),
         ImportFormat::Plyr => Some(Box::new(plyr::PlyrImporter)),
+        ImportFormat::Skp => Some(Box::new(skp::SkpImporter)),
         ImportFormat::Obj => Some(Box::new(obj::ObjImporter)),
         ImportFormat::Stl => Some(Box::new(stl::StlImporter)),
         #[cfg(not(feature = "brep"))]

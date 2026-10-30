@@ -11,9 +11,11 @@
 //! because an attribute on this file would cascade into `render_mesh` and
 //! `import`, which still carry `todo!()` bodies.
 
+pub mod adapter;
 pub mod autosave;
 pub mod export;
 pub mod import;
+pub mod model_file;
 pub mod native;
 pub mod overlay;
 pub mod render_mesh;

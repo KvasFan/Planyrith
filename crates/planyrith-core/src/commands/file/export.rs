@@ -26,6 +26,9 @@ use crate::units::{Length, LengthUnit};
 /// `export` parameters.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct ExportParams {
+    /// SKP file version: 2017 (default) or 2026; requires the optional converter.
+    #[serde(default)]
+    pub skp_version: Option<u32>,
     /// Common fields.
     #[serde(flatten)]
     pub common: CommonParams,
@@ -144,6 +147,12 @@ impl Command for Export {
         }
         units(p)?;
         format(p)?;
+        if p.skp_version.is_some_and(|v| !matches!(v, 2017 | 2026)) {
+            return Err(CommandError::invalid_param(
+                "skp_version",
+                "must be 2017 or 2026",
+            ));
+        }
         paper_scale(p)?;
         if let Some(w) = p.paper_width
             && !(w.as_mm() > 0.0 && w.as_mm().is_finite())
@@ -177,6 +186,7 @@ impl Command for Export {
             include_hidden: p.include_hidden,
         };
         let opts = ExportOptions {
+            skp_version: p.skp_version,
             units: units(&p)?,
             ascii: p.ascii,
             z_up: p.z_up,
@@ -207,11 +217,17 @@ impl Command for Export {
             None => tx.document(),
         };
         let mut bytes = Vec::new();
-        let report = exporter.export(doc, &scope, &opts, &mut bytes, &NoProgress)?;
         let storage = storage(tx, &p.path)?;
+        let report =
+            exporter.export_with_storage(doc, &scope, &opts, &mut bytes, &NoProgress, storage)?;
         storage.write(&StorageKey::new(&p.path), &bytes)?;
         for (name, contents) in &report.side_files {
             storage.write(&StorageKey::new(sibling(&p.path, name)), contents)?;
+        }
+        if format == ExportFormat::Skp {
+            for warning in &report.warnings {
+                tx.warn(warning.clone());
+            }
         }
         Ok(ExportOutput { format, report })
     }
