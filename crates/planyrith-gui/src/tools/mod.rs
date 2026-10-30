@@ -8,6 +8,7 @@ mod component;
 mod draw;
 mod edit;
 mod select;
+mod sketch;
 mod solid;
 
 use egui::Color32;
@@ -26,6 +27,7 @@ pub use component::ComponentTool;
 pub use draw::{ArcKind, ArcTool, LineTool, RectangleTool, RoundTool};
 pub use edit::{EraserTool, MoveTool, OffsetTool, PaintTool, PushPullTool, RotateTool, ScaleTool};
 pub use select::SelectTool;
+pub use sketch::{FreehandTool, RotatedRectangleTool};
 
 /// The pointer, as a tool sees it.
 #[derive(Debug, Clone)]
@@ -181,6 +183,8 @@ pub trait Tool {
     }
     /// The pointer moved.
     fn hover(&mut self, _p: &Pointer, _cx: &Cx<'_>) {}
+    /// Primary press in the viewport, before a drag threshold is crossed.
+    fn press(&mut self, _p: &Pointer, _cx: &Cx<'_>) {}
     /// A click.
     fn click(&mut self, p: &Pointer, cx: &Cx<'_>) -> Flow;
     /// A double-click.
@@ -236,7 +240,9 @@ pub fn catalogue() -> Vec<(Box<dyn Tool>, Option<egui::Key>)> {
     vec![
         (Box::new(SelectTool::default()), Some(Key::Space)),
         (Box::new(LineTool::default()), Some(Key::L)),
+        (Box::new(FreehandTool::default()), None),
         (Box::new(RectangleTool::default()), Some(Key::R)),
+        (Box::new(RotatedRectangleTool::default()), None),
         (Box::new(RoundTool::circle()), Some(Key::C)),
         (Box::new(RoundTool::polygon()), None),
         (Box::new(ArcTool::new(ArcKind::Bulge)), Some(Key::A)),

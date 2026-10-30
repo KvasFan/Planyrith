@@ -61,7 +61,19 @@ perpendicular to hovered edge); `Esc` = cancel current step (second `Esc` = canc
 - **Params:** `points: Vec<Point>` (≥ 2), `simplify_tolerance: Length` (0.5 mm).
 - **Interactive:** press-drag-release on a face or ground plane; points sampled every 2 px,
   simplified with Douglas–Peucker. Inference: on-face only (keeps the stroke planar).
-- **Output:** `{ edges, curve: Pid }`.
+- **Output:** `{ edges, curve: Option<Pid>, faces_created }`; `curve` names a
+  member edge, like the other curve tools.
+- **Algorithm:** consecutive samples within geometric tolerance are removed;
+  iterative Douglas–Peucker preserves endpoints with deterministic tie handling.
+  Zero simplification keeps distinct samples. Closing on the first point forms
+  a closed chain; the kernel creates planar faces and records the Freehand curve.
+  GUI samples are projected onto the initial face/ground plane; direct CLI points
+  may describe a spatial polyline. Limit: 65535 samples.
+- **Edge cases:** reject negative/non-finite tolerance, collapsed strokes and a
+  closed stroke simplified below three corners. Esc cancels without mutation.
+- **Undo/tests:** one stroke is one transaction; undo/redo restores native bytes.
+  Test simplification error bounds, closed-face creation, CLI golden output and
+  actual press/drag/release input with planar samples.
 
 ### 3.3 `rectangle`
 - **Purpose:** rectangle from two opposite corners on a plane.
@@ -80,6 +92,17 @@ perpendicular to hovered edge); `Esc` = cancel current step (second `Esc` = canc
   second side direction measured from the first edge in the plane.
 - **Interactive:** click origin → click/type first edge (length) → move for width and angle
   (value field `width,angle`) → click.
+- **Purpose:** orient the first edge freely on a drawing plane and enter the
+  second side exactly. `normal: Option<Vector>` sets the plane; default Z,
+  or X when the first edge is vertical. A tilted first edge needs its plane normal.
+- **Algorithm:** normalize the first edge `u`, validate perpendicular unit normal
+  `n`, and construct the second side as `width * (u*cos(angle) + (n×u)*sin(angle))`.
+  At 90° it is a rectangle; other non-collinear angles make an oblique quadrilateral.
+  Signed angles select the other side. Four edges go through normal face finding.
+- **Edge cases:** width and first edge must exceed geometric tolerance; reject
+  collinear angles, non-finite/out-of-range corners and an incompatible normal.
+- **Output/undo/tests:** same result as `rectangle`; one transaction, byte-exact
+  undo/redo, side-length properties, vertical-plane CLI golden and GUI numeric input.
 
 ### 3.5 `circle`
 - **Params:** `center: Point`, `radius: Length`, `normal: Vector` (plane normal; inferred),

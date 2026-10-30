@@ -96,6 +96,20 @@ fn drawing_and_push_pull() {
 }
 
 #[test]
+fn freehand_and_rotated_rectangle_restore_exact_bytes() {
+    check(&[
+        (
+            "freehand",
+            json!({"points":[[0,0,0],[500,0.1,0],[1000,0,0],[1000,1000,0],[0,1000,0],[0,0,0]]}),
+        ),
+        (
+            "rotated-rectangle",
+            json!({"origin":[3000,0,0],"edge_end":[3500,500,0],"width":1000}),
+        ),
+    ]);
+}
+
+#[test]
 fn solid_tools_restore_exact_bytes() {
     for name in [
         "solid-union",

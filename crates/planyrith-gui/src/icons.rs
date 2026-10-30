@@ -15,6 +15,8 @@ pub enum Icon {
     Paint,
     /// Line tool.
     Line,
+    /// Freehand stroke.
+    Freehand,
     /// Arc through a bulge.
     Arc,
     /// Arc from its center.
@@ -25,6 +27,8 @@ pub enum Icon {
     Pie,
     /// Rectangle tool.
     Rectangle,
+    /// Rectangle oriented by its first edge.
+    RotatedRectangle,
     /// Circle tool.
     Circle,
     /// Polygon tool.
@@ -93,11 +97,13 @@ impl Icon {
             "erase" => Icon::Eraser,
             "material-apply" => Icon::Paint,
             "line" => Icon::Line,
+            "freehand" => Icon::Freehand,
             "arc-bulge" => Icon::Arc,
             "arc-2point" => Icon::ArcCenter,
             "arc-3point" => Icon::Arc3,
             "pie" => Icon::Pie,
             "rectangle" => Icon::Rectangle,
+            "rotated-rectangle" => Icon::RotatedRectangle,
             "circle" => Icon::Circle,
             "polygon" => Icon::Polygon,
             "push-pull" => Icon::PushPull,
@@ -278,6 +284,26 @@ pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
             pen.line(&[(0.16, 0.84), (0.84, 0.16)]);
             pen.dot(0.16, 0.84);
             pen.dot(0.84, 0.16);
+        }
+        Icon::Freehand => {
+            pen.line(&[
+                (0.12, 0.74),
+                (0.24, 0.32),
+                (0.4, 0.2),
+                (0.55, 0.72),
+                (0.72, 0.8),
+                (0.88, 0.26),
+            ]);
+        }
+        Icon::RotatedRectangle => {
+            pen.line(&[
+                (0.12, 0.58),
+                (0.64, 0.14),
+                (0.9, 0.46),
+                (0.38, 0.9),
+                (0.12, 0.58),
+            ]);
+            pen.dot(0.12, 0.58);
         }
         Icon::Arc => {
             pen.line(&pen.arc((0.5, 0.86), 0.42, tau * 0.5, tau));

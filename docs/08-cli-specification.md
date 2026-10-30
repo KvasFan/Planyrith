@@ -268,6 +268,20 @@ On failure: `{"ok": false, "error": {"code": "E1002", "message": "...", "param":
 
 ## Decisions
 
+- 2026-10-30 — **Drawing completion.** `tool freehand --points x,y,z` accepts
+  repeated point options and `--simplify-tolerance 0.5mm`. `tool rotated-rectangle
+  --origin 0,0,0 --edge-end 1000,1000,0 --width 500mm` uses a 90° second side;
+  `--angle 60deg --normal 0,0,1` sets an oblique side and plane. Both are typed
+  registry commands, JSON-RPC/Rhai functions, CLI goldens and GUI tools (docs/05).
+
+- 2026-10-30 — **SKP desktop entry points.** With the optional converter
+  installed, `-f model.skp` opens a model and normal saving retains SKP;
+  `-o model.plyr` saves a native copy. `import model.skp` merges into the edit
+  context with normal placement/scale and one undo step. `export model.skp`
+  writes 2017 by default; `--skp-version 2026` selects the newer container.
+  RPC session open/save and the registered import/export commands use the same
+  adapter. Incompatible data is listed in W2004 warnings (docs/09 Decisions).
+
 - 2026-10-29 — **Sheets (0.9).** `planyrith sheet <operation>` forwards to the
   schema-driven `sheet-<operation>` command; no separate mutation path exists.
   See docs/15 §5.1 for commands and parameters. `sheet export --out` is the sheet

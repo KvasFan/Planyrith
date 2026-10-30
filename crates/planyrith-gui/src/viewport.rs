@@ -483,6 +483,9 @@ impl Viewport {
         if let Some(p) = &pointer {
             let cx = cx_for(session, camera, depth, rect, unit);
             tool.hover(p, &cx);
+            if response.hovered() && ui.input(|i| i.pointer.primary_pressed()) {
+                tool.press(p, &cx);
+            }
             if response.drag_started_by(PointerButton::Primary) {
                 self.tool_dragging = true;
                 flows.push(tool.drag(tools::Drag::Start, p, p.screen, &cx));
@@ -501,6 +504,13 @@ impl Viewport {
             }
             if response.triple_clicked_by(PointerButton::Primary) {
                 flows.push(tool.triple_click(p, &cx));
+            }
+        }
+        if self.tool_dragging && ui.input(|i| i.pointer.primary_released()) {
+            self.tool_dragging = false;
+            if let Some(p) = pointer.as_ref().or(self.pointer.as_ref()) {
+                let cx = cx_for(session, camera, depth, rect, unit);
+                flows.push(tool.drag(tools::Drag::End, p, p.screen, &cx));
             }
         }
         // Right-click (docs/07 §2): the entity under the cursor joins
@@ -1177,6 +1187,76 @@ mod tests {
 
     use super::*;
     use crate::tools::{LineTool, RectangleTool, SelectTool};
+
+    #[test]
+    fn freehand_drag_is_one_planar_command_and_undo_step() {
+        let mut session = Session::new();
+        session
+            .execute("camera-standard", json!({"view":"top"}))
+            .unwrap();
+        session
+            .execute("camera-set", json!({"projection":"parallel","height":2000}))
+            .unwrap();
+        let mut h = Harness::new(session);
+        h.tool = Box::new(crate::tools::FreehandTool::default());
+        let initial = h.session.engine.history().applied();
+        let points = [
+            DVec3::new(-300.0, -200.0, 0.0),
+            DVec3::new(0.0, 100.0, 0.0),
+            DVec3::new(300.0, 100.0, 0.0),
+            DVec3::new(500.0, 400.0, 0.0),
+        ];
+        let a = h.screen(points[0]);
+        h.frame(vec![egui::Event::PointerMoved(a)]);
+        h.button(a, PointerButton::Primary, true);
+        for point in &points[1..] {
+            let p = h.screen(*point);
+            h.frame(vec![egui::Event::PointerMoved(p)]);
+        }
+        let b = h.screen(points[3]);
+        h.button(b, PointerButton::Primary, false);
+        assert_eq!(h.session.engine.history().applied(), initial + 1);
+        assert!(h.session.doc().model.mesh().edge_count() >= 2);
+        assert_eq!(h.session.doc().model.mesh().curves().count(), 1);
+        for (_, v) in h.session.doc().model.mesh().vertices() {
+            assert!(v.position.z.abs() < 1e-6);
+        }
+        h.session.undo().unwrap();
+        assert!(h.session.doc().model.is_empty());
+        h.session.redo().unwrap();
+        assert!(h.session.doc().model.mesh().edge_count() >= 2);
+    }
+
+    #[test]
+    fn rotated_rectangle_accepts_exact_first_edge_width_and_angle() {
+        let mut session = Session::new();
+        session
+            .execute("camera-standard", json!({"view":"top"}))
+            .unwrap();
+        session
+            .execute("camera-set", json!({"projection":"parallel","height":4000}))
+            .unwrap();
+        let mut h = Harness::new(session);
+        h.tool = Box::new(crate::tools::RotatedRectangleTool::default());
+        let a = h.screen(DVec3::ZERO);
+        h.click(a);
+        let b = h.screen(DVec3::new(500.0, 500.0, 0.0));
+        h.frame(vec![egui::Event::PointerMoved(b)]);
+        let cx = h.viewport.cx(&h.session);
+        assert_eq!(h.tool.value("1000mm", &cx).unwrap(), Flow::Continue);
+        let cx = h.viewport.cx(&h.session);
+        let Flow::Run(commands) = h.tool.value("500mm,90deg", &cx).unwrap() else {
+            panic!("expected a drawing command")
+        };
+        for (name, params) in commands {
+            h.session.execute(&name, params).unwrap();
+        }
+        let mesh = h.session.doc().model.mesh();
+        assert_eq!(mesh.face_count(), 1);
+        assert_eq!(mesh.edge_count(), 4);
+        let face = mesh.faces().next().unwrap().0;
+        assert!((mesh.face_area(face).unwrap() - 500_000.0).abs() < 1e-6);
+    }
 
     /// Drives the viewport with synthetic egui input, frame by frame, and
     /// applies what the tool asks for the way the application does.

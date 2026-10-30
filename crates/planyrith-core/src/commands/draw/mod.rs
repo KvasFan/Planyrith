@@ -16,16 +16,20 @@
 
 mod arc;
 mod circle;
+mod freehand;
 mod line;
 mod rectangle;
+mod rotated_rectangle;
 pub mod text3d;
 
 pub use arc::{
     Arc2Point, Arc2PointParams, Arc3Point, Arc3PointParams, ArcBulge, ArcBulgeParams, Pie,
 };
 pub use circle::{Circle, CircleParams, Polygon, PolygonParams, ShapeOutput};
+pub use freehand::{Freehand, FreehandOutput, FreehandParams};
 pub use line::{Line, LineOutput, LineParams};
 pub use rectangle::{AspectLock, Rectangle, RectangleOutput, RectangleParams};
+pub use rotated_rectangle::{RotatedRectangle, RotatedRectangleParams};
 
 use std::collections::BTreeSet;
 
@@ -40,6 +44,8 @@ use crate::ids::{EdgeId, EntityId, FaceId, Pid};
 /// [`CommandRegistry::with_builtins`]).
 pub fn register(registry: &mut CommandRegistry) {
     registry.register(Line);
+    registry.register(Freehand);
+    registry.register(RotatedRectangle);
     registry.register(Rectangle);
     registry.register(Circle);
     registry.register(Polygon);

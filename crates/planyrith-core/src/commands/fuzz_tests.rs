@@ -30,6 +30,7 @@ use crate::io::native::{WriteOptions, read_document, write_document};
 /// chooses among the current top-level entities of the right kind.
 #[derive(Debug, Clone)]
 enum Cmd {
+    Sketch(u8, [i8; 3], u8),
     Rect([i8; 3], [i8; 2], u8),
     Line([i8; 3], [i8; 3]),
     Circle([i8; 3], u8, u8),
@@ -77,6 +78,7 @@ fn pick() -> impl Strategy<Value = Pick> {
 
 fn cmd() -> impl Strategy<Value = Cmd> {
     prop_oneof![
+        2 => (0u8..2,lattice(),1u8..4).prop_map(|(op,p,s)|Cmd::Sketch(op,p,s)),
         4 => (lattice(), (1i8..4, 1i8..4), 0u8..3).prop_map(|(c, (u, v), n)| Cmd::Rect(c, [u, v], n)),
         2 => (lattice(), lattice()).prop_map(|(a, b)| Cmd::Line(a, b)),
         1 => (lattice(), 1u8..3, 0u8..3).prop_map(|(c, r, n)| Cmd::Circle(c, r, n)),
@@ -160,6 +162,21 @@ fn target(e: &Engine, p: Pick) -> Option<String> {
 fn resolve(e: &Engine, c: &Cmd) -> Option<(&'static str, Value)> {
     let face_ref = |i: usize| nth(&faces(e), i).map(|pid| json!({ "Pid": pid.0 }));
     Some(match *c {
+        Cmd::Sketch(op, p, size) => {
+            let [x, y, z] = p.map(|v| f64::from(v) * 100.0);
+            let size = f64::from(size) * 100.0;
+            if op == 0 {
+                (
+                    "freehand",
+                    json!({"points":[[x,y,z],[x+size*0.5,y+0.1,z],[x+size,y,z],[x+size,y+size,z]],"simplify_tolerance":0.5}),
+                )
+            } else {
+                (
+                    "rotated-rectangle",
+                    json!({"origin":[x,y,z],"edge_end":[x+size,y+size,z],"width":size}),
+                )
+            }
+        }
         Cmd::Rect(c0, [u, v], n) => {
             let (iu, iv) = match n % 3 {
                 0 => (1, 2),

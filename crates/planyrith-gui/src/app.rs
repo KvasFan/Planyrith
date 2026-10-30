@@ -1315,11 +1315,13 @@ impl App {
                 &["select", "erase", "material-apply"][..],
                 &[
                     "line",
+                    "freehand",
                     "arc-bulge",
                     "arc-2point",
                     "arc-3point",
                     "pie",
                     "rectangle",
+                    "rotated-rectangle",
                     "circle",
                     "polygon",
                 ],
@@ -1519,7 +1521,12 @@ impl App {
             } else {
                 text.weak()
             };
-            ui.add(egui::Label::new(text).truncate());
+            ui.add(egui::Label::new(text).truncate()).on_hover_text(
+                self.message
+                    .as_ref()
+                    .map(|(text, _)| text.as_str())
+                    .unwrap_or_default(),
+            );
         }
     }
 
@@ -1752,6 +1759,9 @@ impl App {
     fn document_dialog() -> FileDialog {
         platform::file_dialog()
             .add_file_filter_extensions("Planyrith documents", vec!["plyr"])
+            .add_file_filter_extensions("SKP models (optional converter)", vec!["skp"])
+            .add_save_extension("Planyrith documents", "plyr")
+            .add_save_extension("SKP models (optional converter)", "skp")
             .default_file_filter("Planyrith documents")
     }
 
@@ -1918,7 +1928,7 @@ impl App {
             .extension()
             .map(|e| e.to_string_lossy().to_lowercase())
             .unwrap_or_default();
-        if extension == "plyr" {
+        if extension == "plyr" || extension == "skp" {
             self.guarded(Pending::Open(Some(path)));
         } else if FileRequest::Import.dialog().2.contains(&extension.as_str()) {
             let (name, params) = FileRequest::Import.command(&path.to_string_lossy());
@@ -1973,7 +1983,7 @@ impl App {
     #[cfg(target_arch = "wasm32")]
     fn pick_from_computer(&mut self, purpose: UploadPurpose) {
         let accept = match &purpose {
-            UploadPurpose::Open => ".plyr".to_string(),
+            UploadPurpose::Open => ".plyr,.skp".to_string(),
             UploadPurpose::Store => String::new(),
             UploadPurpose::Resource(request) => request
                 .dialog()
@@ -2238,8 +2248,9 @@ impl App {
         for _ in 0..std::mem::take(&mut self.tabs) {
             self.viewport.cycle();
         }
-        for warning in self.session.take_warnings() {
-            self.info(warning);
+        let warnings = self.session.take_warnings();
+        if !warnings.is_empty() {
+            self.info(warnings.join("\n"));
         }
         self.update_preview(&ctx);
         self.play_scenes(&ctx);

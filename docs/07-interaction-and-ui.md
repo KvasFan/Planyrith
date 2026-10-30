@@ -208,6 +208,15 @@ collected by clicks: e.g. segments for Circle, array count, copy toggle).
 
 ## Decisions
 
+- 2026-10-30 — **Desktop SKP and drawing tools.** Open and Save As accept SKP
+  with the separately installed converter; import/export use the same core
+  commands and surface compatibility warnings. Browser conversion reports that
+  the adapter is unavailable. Freehand captures the primary press, samples every
+  two screen points, holds the original plane and commits on release (including
+  release outside the viewport). Rotated Rectangle collects its plane, first
+  edge and second-side width/angle with previews and exact value-field input.
+  Both tools are in the menu and vector-icon toolbar.
+
 - 2026-10-29 — **Sheets workspace (0.9).** Model/Sheets tabs share the central
   area; File › Send to Sheets places the current model view. Sheets has page
   controls, paper tools, grid snapping, zoom/pan, a properties/layers column and
