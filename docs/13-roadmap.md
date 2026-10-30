@@ -76,6 +76,15 @@ acceptance criteria. Milestones are sequential; within one, items are independen
 - **Accept:** plan, section and elevation sheets of the house exported to a multi-page PDF with
   correct scale (measured).
 
+## 0.10.0 — SKP interoperability and drawing completion
+- Optional, separable Rust SKP converter; desktop open/save/import/export through
+  shared commands and Storage, original-file fixtures and compatibility warnings.
+- Complete the already specified Freehand and Rotated Rectangle drawing tools,
+  CLI/RPC first, then GUI state machines.
+- **Accept:** original 2017/2026 fixtures open at the measured scale; generated
+  exports re-open with topology, hierarchy and texture coordinates intact;
+  import undo is byte-exact; the two drawing tools have CLI/GUI/undo tests.
+
 ## 1.0.0 — Stabilization
 - Performance targets met (`docs/00 §6`); accessibility pass; localization infrastructure with at
   least English and one additional language; documentation site; installers (MSI, DMG,

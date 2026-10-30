@@ -5,27 +5,40 @@ implementation stands, what is done, what remains, and how to resume. Update it 
 every working session. Ground truth for *what to build* stays in `docs/00`–`docs/15`; this file
 is only *progress state*.
 
-_Last updated: 2026-10-30 (0.9 complete; local release checks passed)._
+_Last updated: 2026-10-30 (0.10 complete; local release checks passed)._
 
-**Current work:** the user explicitly requested milestone 0.9 (Sheets), after 0.8
-was completed and pushed with green CI. The core data/commands, optional native
-part, layout/HLR, PDF/SVG/DXF exporters and paper GUI are implemented. Local checks
-pass: 485 workspace tests, 14 focused Sheets tests, three headless Chrome tests,
-five GPU-required snapshots, fmt, native/wasm clippy, rustdoc and cargo-deny.
-PDF scale, Unicode text extraction, house plan/section/elevation, CLI/RPC/Rhai,
-mouse placement, persistence and undo are covered. External DXF validation
-reports zero errors and zero fixes. `tools/generate-sheets.rs` reproduces the
-fixtures and writes example exports under `target/tmp/sheets`.
-The release web build is 5,450,507 bytes with brotli (budget: 12 MiB).
+**Current work:** after 0.9 was pushed as `ad1a8ef` with green CI (run
+40973246659), the user requested SKP interoperability first, then tools already
+in the specification. The 0.10 implementation adds an optional pure-Rust,
+GPL-3.0-only `planyrith-skp` executable using openskp 0.5.0. It is excluded from
+default members and never linked into the applications; cargo-deny exceptions
+and a CI dependency-graph guard enforce that separation. Build it explicitly
+beside the desktop CLI/GUI. Browser conversion is unavailable.
 
-Implementation commits are `8eedfb7` (core/export/persistence) and `cb2ac3c`
-(CLI/GUI/browser). A release-doc commit follows them; push these together once,
-wait for the CI run for the final head to succeed, then stop. Use
-`gh run list --commit <head>` to find that run. Do not start 1.0 or create release
-tags before the user's trial. Paper raster omits viewport shadow maps, fog and
-watermarks; its supported scope and bounds are in docs/15 Decisions.
-The older progress below predates this milestone; 0.8 scope remains in
-[0.8-handoff.md](0.8-handoff.md).
+Desktop session open/save, import/export and RPC share Storage-backed conversion;
+default save is 2017, export also offers 2026. Original blank-template fixtures
+(provenance/license in the converter README) and generated models cover scale,
+holes, wire edges, shared/nested components, materials/textures and UVs, tags,
+cameras/scenes, sections, guides, axes/units and attributes. Regressions cover
+conflicting face sides, copied hidden edges, reordered vertex UVs and WebP-to-PNG.
+An external house opens/exports/reopens in both containers with identical counts
+(318 definition faces, five images) and bounds; third-party assets stay uncommitted.
+Unsupported data is
+reported; keep native files for Sheets, annotations, rendering settings and history.
+Freehand and Rotated Rectangle are complete core/CLI/RPC/Rhai/GUI tools, with
+goldens, simplification/side-length properties, byte-exact undo, command fuzz and
+synthetic input. The CLI/RPC and GUI SKP acceptance tests pass with the real process.
+
+Local checks: 508 workspace tests including GPU-required snapshots and
+the converter, plus the expanded CLI/RPC/Rhai acceptance tests, three headless
+Chrome tests, native/wasm clippy, rustdoc and cargo-deny. The release web build
+is 5,462,864 bytes with brotli (budget: 12 MiB). Implementation commits:
+`37bd714` (optional converter) and `08094e6` (drawing tools and desktop UI).
+The release commit records the completed scope and checks. Publication is one
+push of these commits followed by verifying all six CI jobs for the final head;
+the Actions run for that head is the CI source of truth. Stop after green CI.
+Do not create release tags before the user's trial. Do not start 1.0 automatically. The historical progress below predates
+these milestones; 0.8 scope remains in [0.8-handoff.md](0.8-handoff.md).
 
 ## 1. Where we are
 

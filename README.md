@@ -5,7 +5,7 @@ architecture, interiors, landscape, woodworking and product mock-ups. It is writ
 entirely in Rust, runs on Linux, macOS, Windows and in the browser (WebAssembly), and is
 built *CLI-first*: every modeling tool exists as a command before it gets a button.
 
-> **Status: version 0.9.0 — Sheets.**
+> **Status: version 0.10.0 — SKP interchange and drawing tools.**
 > The geometry kernel, the document model, the modeling commands, the native file format, the
 > `planyrith` command line (headless rendering, a JSON-RPC server, a shell) and the GUI work:
 > drawing and editing tools that snap through the inference engine, exact input, previews,
@@ -17,6 +17,8 @@ built *CLI-first*: every modeling tool exists as a command before it gets a butt
 > sandboxed Rhai scripts, a Console and declarative plugins are available. The desktop GUI
 > can attach to a local command server. Paper-space Sheets add scaled model views,
 > dimensions, notes, tables and title blocks, with multi-page PDF and per-page SVG/DXF.
+> Freehand and Rotated Rectangle complete the drawing catalogue. An optional desktop
+> converter reads and writes SKP models.
 > The same application runs in the browser, and both
 > autosave and recover unsaved work. See [`CHANGELOG.md`](CHANGELOG.md) and the milestones in
 > [`docs/13-roadmap.md`](docs/13-roadmap.md).
@@ -35,6 +37,27 @@ built *CLI-first*: every modeling tool exists as a command before it gets a butt
   and image import/export, and 2D documentation sheets.
 - **Automation**: everything scriptable from the command line, a JSON-RPC server, an
   embedded scripting language, and a plugin API.
+
+## SKP models on desktop
+
+An optional Rust converter opens, saves, imports and exports `.skp` models.
+Build it with `cargo build -p planyrith-skp --release` and place `planyrith-skp`
+beside the CLI/GUI executable (or set `PLANYRITH_SKP_ADAPTER` to its absolute
+path). The converter is a separate **GPL-3.0-only** component; the applications
+remain MIT/Apache-2.0. The browser build currently has no SKP converter.
+
+```sh
+planyrith -f model.skp info
+planyrith -f model.plyr import furniture.skp
+planyrith -f model.plyr export model.skp --skp-version 2017
+planyrith -f model.plyr export model-2026.skp --skp-version 2026
+```
+
+The GUI's Open, Save As and Import/Export dialogs accept `.skp`. Tested containers
+are 2017 and 2026; intervening releases are not certified. Geometry, hierarchy,
+materials/textures, tags, cameras and sections transfer; unsupported data is
+reported. Keep `.plyr` for Sheets, annotations, rendering styles and edit history.
+See [converter scope and license](crates/planyrith-skp/README.md).
 
 ## Automation
 

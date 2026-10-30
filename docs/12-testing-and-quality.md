@@ -70,6 +70,24 @@ humans or GUI automation before releases, with expected screenshots.
 
 ## Decisions
 
+- 2026-10-30 — **SKP and drawing completion (0.10).** Native workspace tests
+  pass with the optional converter and GPU required, including real-process
+  import/export/open/save, byte-exact import undo, original blank-template
+  2017/2026 cube fixtures, repeated/nested components, two-sided textures/UVs,
+  holes, wire edges, sections, attributes and scale properties. Regressions cover
+  conflicting face sides and copied hidden edges, reordered source vertices,
+  projective UV frames through native saves and lossless WebP-to-PNG conversion.
+  A locally inspected external house also opens, exports and reopens with its
+  318 definition faces and five texture images retained (third-party assets are
+  not redistributed). CLI/RPC/Rhai and
+  desktop GUI sessions use the converter. Damaged input leaves the document
+  unchanged and protocol framing is checked. Freehand/Rotated Rectangle have
+  CLI goldens, undo and fuzz coverage, simplification/side-length properties
+  and synthetic mouse/numeric input. Native/wasm clippy, rustdoc, cargo-deny
+  and three headless Chrome tests pass. The web build is 5,462,864 bytes with
+  brotli (budget: 12 MiB). CI also checks that the optional GPL codec cannot
+  enter any application's normal dependency graph.
+
 - 2026-10-30 — **Sheets acceptance (0.9).** The reproducible house fixture in
   `tests/fixtures/sheets` has plan, section and elevation layout goldens and a
   three-page A4 PDF. An independent parser measures PDF stroke operands for a

@@ -4,6 +4,30 @@ All notable changes to Planyrith are recorded here. Versions follow
 [Semantic Versioning](https://semver.org/); before 1.0, minor versions are milestones of
 [`docs/13-roadmap.md`](docs/13-roadmap.md).
 
+## 0.10.0 — SKP interchange and drawing tools (2026-10-30)
+
+- **SKP on desktop**: Open, Save/Save As, CLI `-f`, import/export and RPC use
+  the optional `planyrith-skp` converter, a separate GPL-3.0-only Rust executable.
+  The applications keep their MIT/Apache-2.0 licensing and never link its decoder.
+  Save writes real 2017 SKP files; export also offers the 2026 container.
+- **Model transfer**: polygon faces and holes, wire edges/flags, nested/shared
+  components and groups, transforms, two-sided materials, embedded textures/UVs,
+  tags, cameras, scene visibility/sections, guides, axes, units and supported
+  attribute values. Missing adapters and conversion failures are explicit errors;
+  original-file fixtures and generated round-trips check scale and topology.
+  Conflicting face sides are retained in private surface groups. Projective
+  texture frames survive native saves; WebP textures export as lossless PNG.
+- **Compatibility notices** are returned in CLI/RPC and visible in the GUI,
+  including hoverable full messages. Keep a native copy for Sheets, annotations,
+  placed images, rendering settings and history. Curves retain segmented geometry;
+  intermediate SKP releases and browser conversion are not certified/supported.
+- **Freehand**: planar press/drag/release drawing, two-pixel sampling,
+  deterministic stroke simplification, curve grouping and a single undo step.
+- **Rotated Rectangle**: first-edge orientation, drawing plane, signed second-side
+  angle and exact width/length input, preview and one undo step. Both tools are
+  registered commands with CLI goldens, RPC/Rhai bindings, property/undo/fuzz
+  coverage and synthetic GUI input tests.
+
 ## 0.9.0 — Sheets (2026-10-30)
 
 - **Paper-space documentation**: pages inside the native document, A0–A4/Letter/
