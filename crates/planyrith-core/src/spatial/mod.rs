@@ -6,7 +6,7 @@
 //! element id so incremental updates from [`MeshDelta`]s address leaves without
 //! a lookup table (docs/01 §5 "spatial indexes update incrementally").
 //!
-//! Ordering (docs/03 §7, docs/dev/skeleton-contract.md §2): ray hits are sorted
+//! Ordering (docs/03 §7): ray hits are sorted
 //! by `t`; hits whose depths differ by no more than the proximity tolerance are
 //! ordered by kind priority (vertex > edge > face), then `t`, then id, so a
 //! vertex within tolerance beats an edge within tolerance beats a face

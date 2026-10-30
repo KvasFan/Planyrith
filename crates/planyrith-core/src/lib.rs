@@ -15,11 +15,8 @@
 //! kernel, the document model, the commands with undo/redo, native `.plyr`
 //! read/write, the JSON export, validation/repair, the camera math, the
 //! GPU-agnostic render extraction (`io::render_mesh`) and the inference
-//! engine (`inference`). Modules of later
-//! milestones keep the signatures of the skeleton contract
-//! (`docs/dev/skeleton-contract.md`) with `todo!("docs/0X §Y")` bodies. The
-//! complete design lives in the repository's `docs/` directory, starting with
-//! `docs/00-overview.md` and `docs/01-architecture.md`.
+//! engine (`inference`). The complete design lives in the repository's `docs/`
+//! directory, starting with `docs/00-overview.md` and `docs/01-architecture.md`.
 
 #![forbid(unsafe_code)]
 // TODO(skeleton): these allowances keep the signature-only draft quiet. Each

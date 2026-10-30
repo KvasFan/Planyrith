@@ -253,7 +253,7 @@ Frontends and the RPC server fan events out to subscribers. Event kinds:
 - 2026-10-20 — `planyrith-render` is scaffolded at 0.1 (empty library with its dependency
   table wired) rather than created at 0.2, so the CLI and GUI manifests can depend on it from
   the first commit and the boundary check in CI covers all four crates from the start.
-- 2026-10-20 — Skeleton contract (`docs/dev/skeleton-contract.md`): the `Command` trait exposes
+- 2026-10-20 — Skeleton contract (retired 2026-10-30; see git history): the `Command` trait exposes
   `fn name(&self) -> &'static str` instead of an associated `const NAME`, so the object-safe
   `ErasedCommand` is a blanket impl over the same type and `CommandRegistry` stores one box per
   command. `Engine::execute::<C>` therefore requires `C: Default` (commands are stateless);

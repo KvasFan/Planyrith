@@ -337,7 +337,7 @@ impl EntityKind {
     }
 
     /// Picking priority when hits tie on depth: vertex > edge > face > others
-    /// (docs/03 §6, skeleton contract "Ordering"). Lower sorts first.
+    /// (docs/03 §6). Lower sorts first.
     pub const fn pick_priority(self) -> u8 {
         match self {
             EntityKind::Vertex => 0,

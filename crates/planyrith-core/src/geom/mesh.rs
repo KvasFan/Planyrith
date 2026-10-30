@@ -3,7 +3,7 @@
 //! native file format (`from_indexed` / `to_indexed`) and importers
 //! (`from_triangles_merged`, docs/09 §6).
 //!
-//! Owner key: `mesh` (docs/dev/skeleton-contract.md).
+//! Owner key: `mesh`.
 //!
 //! Layout: this file holds the element types, the accessors, the private
 //! topology primitives (make/remove edge, attach/detach face, split edge) and
