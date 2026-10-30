@@ -144,6 +144,33 @@ save unless `--no-thumbnail`. `manifest.json` carries `title`, `author`, `descri
 
 ## Decisions
 
+- 2026-10-30 — **Native-first fidelity requirement.** The user confirmed that
+  `.plyr` remains the principal, lossless working format; SKP is an interchange
+  format with a target of complete open/save interoperability for 2017 and
+  later. New documents, recovery, snapshots and full application state stay
+  native. Complete SKP support is an acceptance target, not the current status:
+  test real files per release, all transferred data and edited round-trips,
+  rather than treating header recognition or an unchanged file as sufficient.
+  Current gaps include annotations, placed images, rendering settings and
+  uncertified intermediate versions. See the 0.11 milestone in docs/13.
+
+- 2026-10-30 — **Preserved SKP source in native working copies.** Successful
+  whole-model conversion embeds the exact source in
+  `ext/org.planyrith.skp/source.skp` and a versioned baseline digest in
+  `ext/org.planyrith.skp/baseline-v1.blake3`. Normal native open/save and
+  autosave carry these opaque parts without requiring a converter. The digest
+  covers the editable document, images and Sheets, excluding source parts,
+  journal, consumed PID allocator high-water mark, writer version and manifest
+  timestamps. A fully undone edit can therefore restore the original.
+  Whole-model SKP save restores
+  the source byte for byte only when that baseline still matches; otherwise it
+  generates current edited geometry and reports conversion losses. Regenerated
+  saves use 2017 for sources before 2026 (and new models), 2026 for later
+  sources; they never silently target a newer release than the source reader.
+  Explicit exports still choose 2017 or 2026. A change of authoring container
+  is reported. Merge import does not attach a whole source to the destination. Reader fallback with no decoded geometry
+  fails explicitly instead of producing a successful empty document.
+
 - 2026-10-30 — **SKP interoperability.** An explicit user request adds
   `.skp` opening, Save/Save As, import and export on desktop. The optional
   `planyrith-skp` executable is a separate GPL component (docs/02), discovered
@@ -151,7 +178,8 @@ save unless `--no-thumbnail`. `manifest.json` carries `title`, `author`, `descri
   invokes it with byte streams; core and frontends have no dependency on its
   decoder. Missing converters fail explicitly; no native container is written
   under a `.skp` extension. Browser conversion is unavailable.
-  Save writes the 2017 container; export accepts `skp_version: 2017 | 2026`.
+  Save follows the native-first/source-preservation decisions above; export
+  accepts `skp_version: 2017 | 2026`.
   Merge import follows native import semantics: geometry/assets enter a group
   or component; source cameras, scenes, units and drawing axes are retained by
   whole-model Open, rather than replacing the current document's settings.

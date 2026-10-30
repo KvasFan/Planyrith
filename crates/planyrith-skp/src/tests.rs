@@ -37,6 +37,229 @@ fn bytes(doc: &Document) -> Vec<u8> {
 }
 
 #[test]
+fn unchanged_skp_survives_native_working_copies_byte_for_byte() {
+    for original in [
+        include_bytes!("../tests/fixtures/box-2017.skp").as_slice(),
+        include_bytes!("../tests/fixtures/box-2026.skp").as_slice(),
+    ] {
+        let decoded = convert("decode", original).unwrap();
+        assert!(decoded.bytes.starts_with(b"PK"));
+        let loaded = read_document(&decoded.bytes, &NoProgress).unwrap();
+        assert_eq!(source::original(&loaded), Some(original));
+        let history = [native::HistoryEntry {
+            command: "select".into(),
+            params: json!({"query":"all"}),
+            group: None,
+            timestamp: Some("2026-10-30T12:00:00Z".into()),
+            created: Vec::new(),
+        }];
+        let working = write_document(
+            &loaded.document,
+            &history,
+            &WriteOptions {
+                generator: "planyrith-gui working copy".into(),
+                modified: "2026-10-30T12:00:00Z".into(),
+                ..Default::default()
+            }
+            .carry_over(&loaded),
+            &NoProgress,
+        )
+        .unwrap();
+        let saved = convert("encode-preserve", &working).unwrap();
+        assert_eq!(saved.bytes, original);
+        assert!(saved.warnings.is_empty());
+    }
+}
+
+#[test]
+fn source_preservation_keeps_foreign_streams_but_never_reverts_edits() {
+    let original = convert("encode-2026", &bytes(cube().document())).unwrap();
+    let mut archive = openskp::Document::open(&original.bytes).unwrap();
+    archive.set_entry(
+        "foreign-plugin/state.bin",
+        b"uninterpreted payload".to_vec(),
+    );
+    let original = archive.write().unwrap();
+    let decoded = convert("decode", &original).unwrap();
+    assert_eq!(
+        convert("encode-preserve", &decoded.bytes).unwrap().bytes,
+        original
+    );
+    let loaded = read_document(&decoded.bytes, &NoProgress).unwrap();
+    let mut e = Engine::new(
+        loaded.document.clone(),
+        Arc::new(CommandRegistry::with_builtins()),
+    );
+    e.execute_erased("move", json!({"targets":"all","delta":[100,0,0]}))
+        .unwrap();
+    let working = write_document(
+        e.document(),
+        &[],
+        &WriteOptions::default().carry_over(&loaded),
+        &NoProgress,
+    )
+    .unwrap();
+    let saved = convert("encode-preserve", &working).unwrap();
+    assert_ne!(saved.bytes, original);
+    assert!(!saved.warnings.is_empty());
+    assert_eq!(
+        openskp::detect_container(&saved.bytes),
+        openskp::Container::Zip
+    );
+    let back = convert("decode", &saved.bytes).unwrap();
+    let back = read_document(&back.bytes, &NoProgress).unwrap();
+    assert!((back.document.aabb().min.x - 100.0).abs() < 1e-6);
+    // The authoritative native document still holds the complete source even
+    // though a regenerated SKP cannot yet retain every foreign stream.
+    let working = read_document(&working, &NoProgress).unwrap();
+    assert_eq!(source::original(&working), Some(original.as_slice()));
+}
+
+#[test]
+fn failed_legacy_geometry_decode_is_not_a_successful_empty_document() {
+    let mut model = openskp::Model {
+        version: "{13.0.1}".into(),
+        ..Default::default()
+    };
+    model
+        .diagnostics
+        .push(openskp::Diagnostic::ContinuousFallback {
+            stage: "calibration".into(),
+            at: 9453,
+            detail: "<bad pid preamble>".into(),
+        });
+    let error = decode::document(&model, &[0; 32]).unwrap_err().to_string();
+    assert!(error.contains("geometry could not be decoded"));
+    assert!(error.contains("13.0.1"));
+    // A genuinely empty, clean file still opens.
+    assert!(decode::document(&openskp::Model::default(), &[0; 32]).is_ok());
+}
+
+#[test]
+fn intermediate_version_fixtures_measure_actual_coverage() {
+    // Genuine SDK-saved cases currently cannot be decoded by the dependency.
+    // Pin refusal, not a false successful import containing zero geometry.
+    for input in [
+        include_bytes!("../tests/fixtures/intermediate/sdk_saved_2019.skp").as_slice(),
+        include_bytes!("../tests/fixtures/intermediate/sdk_saved_2020.skp").as_slice(),
+    ] {
+        let error = convert("decode", input).unwrap_err().to_string();
+        assert!(error.contains("geometry could not be decoded"), "{error}");
+    }
+    for (input, root_faces, definitions) in [
+        (
+            include_bytes!("../tests/fixtures/intermediate/arcs_2021.skp").as_slice(),
+            2,
+            0,
+        ),
+        (
+            include_bytes!("../tests/fixtures/intermediate/nesting_2021.skp").as_slice(),
+            0,
+            3,
+        ),
+    ] {
+        assert_eq!(openskp::header_info(input).unwrap().0, "{25.0.575}");
+        let decoded = convert("decode", input).unwrap();
+        let loaded = read_document(&decoded.bytes, &NoProgress).unwrap();
+        assert_eq!(loaded.document.model.mesh().face_count(), root_faces);
+        assert_eq!(loaded.document.definitions.len(), definitions);
+        assert!(!loaded.document.aabb().is_empty());
+        assert_eq!(
+            convert("encode-preserve", &decoded.bytes).unwrap().bytes,
+            input
+        );
+        for operation in ["encode-2017", "encode-2026"] {
+            let encoded = convert(operation, &decoded.bytes).unwrap();
+            let back = convert("decode", &encoded.bytes).unwrap();
+            let back = read_document(&back.bytes, &NoProgress).unwrap();
+            assert_eq!(back.document.model.mesh().face_count(), root_faces);
+            assert_eq!(back.document.definitions.len(), definitions);
+            assert!((back.document.aabb().max - loaded.document.aabb().max).length() < 1e-6);
+        }
+        let mut e = Engine::new(
+            loaded.document.clone(),
+            Arc::new(CommandRegistry::with_builtins()),
+        );
+        e.execute_erased(
+            "camera-set",
+            json!({"eye":[10000,10000,10000],"target":[0,0,0]}),
+        )
+        .unwrap();
+        let edited = write_document(
+            e.document(),
+            &[],
+            &WriteOptions::default().carry_over(&loaded),
+            &NoProgress,
+        )
+        .unwrap();
+        let saved = convert("encode-preserve", &edited).unwrap();
+        assert!(
+            openskp::header_info(&saved.bytes)
+                .unwrap()
+                .0
+                .starts_with("{17.")
+        );
+        assert!(
+            saved
+                .warnings
+                .iter()
+                .any(|w| w.contains("2025") && w.contains("2017"))
+        );
+    }
+}
+
+#[test]
+fn native_only_edits_invalidate_source_restore_without_losing_native_state() {
+    let original = include_bytes!("../tests/fixtures/box-2017.skp");
+    let decoded = convert("decode", original).unwrap();
+    let loaded = read_document(&decoded.bytes, &NoProgress).unwrap();
+    let mut e = Engine::new(
+        loaded.document.clone(),
+        Arc::new(CommandRegistry::with_builtins()),
+    );
+    e.execute_erased("sheet-add-page", json!({"page":"Plan","paper":"A4"}))
+        .unwrap();
+    let native = write_document(
+        e.document(),
+        &[],
+        &WriteOptions::default().carry_over(&loaded),
+        &NoProgress,
+    )
+    .unwrap();
+    let saved = convert("encode-preserve", &native).unwrap();
+    assert_ne!(saved.bytes, original.as_slice());
+    assert!(saved.warnings.iter().any(|w| w.contains("Sheets")));
+    let working = read_document(&native, &NoProgress).unwrap();
+    assert!(working.document.sheets.page("Plan").is_some());
+    assert_eq!(source::original(&working), Some(original.as_slice()));
+}
+
+#[test]
+fn fully_undone_edits_restore_original_source_despite_consumed_pids() {
+    let original = include_bytes!("../tests/fixtures/box-2026.skp");
+    let decoded = convert("decode", original).unwrap();
+    let loaded = read_document(&decoded.bytes, &NoProgress).unwrap();
+    let mut e = Engine::new(
+        loaded.document.clone(),
+        Arc::new(CommandRegistry::with_builtins()),
+    );
+    e.execute_erased("line", json!({"points":[[3000,0,0],[4000,0,0]]}))
+        .unwrap();
+    e.undo().unwrap();
+    let native = write_document(
+        e.document(),
+        &[],
+        &WriteOptions::default().carry_over(&loaded),
+        &NoProgress,
+    )
+    .unwrap();
+    assert_eq!(
+        convert("encode-preserve", &native).unwrap().bytes,
+        original.as_slice()
+    );
+}
+
+#[test]
 fn real_containers_preserve_cube_scale_faces_and_determinism() {
     let native = include_bytes!("../../planyrith-core/tests/fixtures/skp/cube.plyr").to_vec();
     for operation in ["encode-2017", "encode-2026"] {

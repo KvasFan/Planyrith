@@ -268,6 +268,14 @@ On failure: `{"ok": false, "error": {"code": "E1002", "message": "...", "param":
 
 ## Decisions
 
+- 2026-10-30 — **Native-first SKP working copies.** `.plyr` is the primary
+  document format. A whole-model SKP open carries its complete source into
+  `-o working.plyr`; a later `-f working.plyr -o restored.skp` save restores
+  the original bytes when the document is unchanged. View/geometry/asset/Sheets
+  edits invalidate that shortcut; normal conversion writes the edited model
+  and returns compatibility notices. Explicit `export --skp-version` retains
+  its requested writer version. Full 2017-and-later fidelity remains in progress.
+
 - 2026-10-30 — **Drawing completion.** `tool freehand --points x,y,z` accepts
   repeated point options and `--simplify-tolerance 0.5mm`. `tool rotated-rectangle
   --origin 0,0,0 --edge-end 1000,1000,0 --width 500mm` uses a 90° second side;

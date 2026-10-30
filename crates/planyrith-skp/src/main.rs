@@ -2,9 +2,9 @@
 use std::io::{Read, Write};
 use std::process::ExitCode;
 fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let operation = std::env::args()
-        .nth(1)
-        .ok_or("usage: planyrith-skp decode|encode-2017|encode-2026 < input > response")?;
+    let operation = std::env::args().nth(1).ok_or(
+        "usage: planyrith-skp decode|encode-preserve|encode-2017|encode-2026 < input > response",
+    )?;
     if operation == "--version" {
         println!(
             "planyrith-skp {} (GPL-3.0-only; openskp 0.5.0)",

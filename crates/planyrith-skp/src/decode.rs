@@ -134,6 +134,26 @@ fn metadata(
 }
 
 pub(super) fn document(model: &Model, source_hash: &[u8; 32]) -> Result<(Document, Vec<String>)> {
+    if model
+        .geometry
+        .iter()
+        .all(|run| run.mesh.vertices.is_empty())
+        && model.diagnostics.iter().any(|d| {
+            matches!(
+                d,
+                openskp::Diagnostic::ContinuousFallback { .. }
+                    | openskp::Diagnostic::Resync { .. }
+                    | openskp::Diagnostic::Truncated { .. }
+                    | openskp::Diagnostic::Skipped { .. }
+            )
+        })
+    {
+        return Err(format!(
+            "SKP {}: geometry could not be decoded reliably; refusing to open an empty replacement",
+            model.version
+        )
+        .into());
+    }
     let mut doc = Document::new();
     use planyrith_core::units::{Angle, Length, LengthUnit};
     doc.info.display_units = match model.units.length_unit {

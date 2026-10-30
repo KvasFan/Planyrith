@@ -8,10 +8,21 @@ or set `PLANYRITH_SKP_ADAPTER` to its absolute executable path. It runs on the
 desktop; the browser backend reports that no converter is available.
 
 The process reads all input from stdin. Operations are `decode` (SKP → native),
-`encode-2017` and `encode-2026` (native → SKP). Stdout uses the versioned
+`encode-preserve` (whole-model save), `encode-2017` and `encode-2026` (explicit
+native → SKP conversion). Stdout uses the versioned
 byte-stream protocol in `planyrith-core::io::adapter`; stderr is diagnostic text.
 Inputs/outputs are limited to 512 MiB. A fixed authoring time and seed make
 exports reproducible. No proprietary SDK, C/C++ library or network service is used.
+
+`.plyr` remains the primary working format. Whole-model decoding embeds the
+original SKP in preserved native extension parts, together with a document
+baseline. Unchanged saves restore those source bytes exactly, even after a
+native save/reopen; session history and manifest timestamps do not invalidate
+them. Document/camera/assets/Sheets edits invalidate restoration, so saving
+cannot silently revert edits to the original file. A regenerated save uses
+2017 for source releases before 2026, otherwise 2026, with notices for changed
+writer versions and data conversion limits. Explicit export remains versioned.
+The native working copy retains the original even when edited SKP output cannot.
 
 Transferred: polygon faces/holes, loose edges, soft/smooth/hidden flags,
 groups, shared/nested components and transforms, front/back materials, embedded
@@ -27,9 +38,13 @@ WebP textures export as PNG without changing decoded pixels. Selected-only expor
 is rejected.
 Keep a native copy for full document fidelity.
 
-Compatibility tests cover the 2017 and 2026 containers. Intermediate releases
-are not certified. Exported files are checked by the converter's readers and
-2017 grammar; testing in the user's target application is still valuable.
+Compatibility tests cover the 2017 and 2026 containers and generated probes
+declaring a 2025 header.
+The SDK-saved 2019/2020 probes in `tests/fixtures/intermediate` are rejected:
+the dependency fails to recover their geometry. Such failures must not open a
+successful empty model. Other intermediate releases are not certified. Complete
+2017-and-later editable fidelity is still in progress. Exported files are checked
+by the converter's readers and 2017 grammar; testing in the user's target application is still valuable.
 
 `cargo test -p planyrith-skp` exercises genuine files, generated round-trips,
 texture coordinates, scale, repeated/nested components, holes, section planes,

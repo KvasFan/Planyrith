@@ -34,15 +34,16 @@ pub fn read(
 }
 
 /// Converts an already encoded native model to the requested file format.
-/// Saving SKP uses the 2017 container for compatibility; explicit export may
-/// choose 2026. Native snapshots/autosaves remain native, regardless of path.
+/// Unchanged SKP sources retain their complete original bytes. Regenerated files
+/// use a compatible writer (2017 unless the source is 2026 or later).
+/// Explicit export chooses a container. Native snapshots/autosaves remain native.
 pub fn for_save(
     bytes: Vec<u8>,
     path: &str,
     storage: &dyn Storage,
 ) -> Result<adapter::Converted, IoError> {
     if is_skp(path) {
-        storage.convert_skp("encode-2017", &bytes)
+        storage.convert_skp("encode-preserve", &bytes)
     } else {
         Ok(adapter::Converted {
             bytes,

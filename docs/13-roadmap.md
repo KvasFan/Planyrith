@@ -85,6 +85,20 @@ acceptance criteria. Milestones are sequential; within one, items are independen
   exports re-open with topology, hierarchy and texture coordinates intact;
   import undo is byte-exact; the two drawing tools have CLI/GUI/undo tests.
 
+## 0.11.0 — Native-first SKP fidelity (in progress)
+- `.plyr` remains the principal working format and the home of all application
+  state. SKP open/save must support 2017 and later; expand certified coverage
+  with actual files from each release, not altered version strings.
+- Preserve complete sources through native working copies and unchanged
+  round-trips; prevent failed decoders from opening empty replacement models.
+- Close annotation, placed-image, curve, appearance and intermediate-version
+  gaps before claiming complete interchange. Retained opaque source bytes do
+  not count as editable support for a missing entity type.
+- **Accept:** verified open → native save/reopen → edit → SKP save/reopen
+  across the supported releases; geometry, hierarchy, materials/UVs, annotations,
+  images, scenes and appearance retained; unchanged source byte identity;
+  CLI/RPC/GUI equivalence and independent target-reader verification.
+
 ## 1.0.0 — Stabilization
 - Performance targets met (`docs/00 §6`); accessibility pass; localization infrastructure with at
   least English and one additional language; documentation site; installers (MSI, DMG,

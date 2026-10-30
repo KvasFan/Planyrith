@@ -4,6 +4,17 @@ All notable changes to Planyrith are recorded here. Versions follow
 [Semantic Versioning](https://semver.org/); before 1.0, minor versions are milestones of
 [`docs/13-roadmap.md`](docs/13-roadmap.md).
 
+## Unreleased — Native-first SKP fidelity
+
+- Keep `.plyr` as the principal lossless working format. Complete SKP
+  interoperability for 2017 and later is the next acceptance target; it is
+  not yet certified across that range.
+- Preserve the entire SKP source through native working copies. Saving an
+  unchanged model back to SKP restores its original bytes and version; edited
+  models use a compatible 2017/2026 writer and retain conversion notices.
+- Refuse decoder fallback with missing geometry instead of opening a
+  misleading empty document. Intermediate-version coverage remains in progress.
+
 ## 0.10.0 — SKP interchange and drawing tools (2026-10-30)
 
 - **SKP on desktop**: Open, Save/Save As, CLI `-f`, import/export and RPC use

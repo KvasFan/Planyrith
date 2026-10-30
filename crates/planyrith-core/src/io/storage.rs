@@ -111,7 +111,7 @@ pub trait Storage {
     /// Backend capabilities.
     fn capabilities(&self) -> StorageCaps;
     /// Invokes the optional SKP converter through this backend's I/O boundary.
-    /// `operation` is `decode`, `encode-2017` or `encode-2026`.
+    /// `operation` is `decode`, `encode-preserve`, `encode-2017` or `encode-2026`.
     fn convert_skp(
         &self,
         _operation: &str,
@@ -330,7 +330,10 @@ impl Storage for NativeFs {
         use super::adapter;
         use std::io::Write;
         use std::process::{Command, Stdio};
-        if !matches!(operation, "decode" | "encode-2017" | "encode-2026") {
+        if !matches!(
+            operation,
+            "decode" | "encode-preserve" | "encode-2017" | "encode-2026"
+        ) {
             return Err(IoError::UnsupportedFormat(
                 "unknown SKP converter operation".into(),
             ));

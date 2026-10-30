@@ -40,6 +40,11 @@ built *CLI-first*: every modeling tool exists as a command before it gets a butt
 
 ## SKP models on desktop
 
+**`.plyr` is the principal lossless working format**, including full application
+state, Sheets, annotations and edit history. SKP interoperability complements it.
+Complete open/save fidelity for 2017 and later is an in-progress target; the
+current converter does not yet meet that target across all those releases.
+
 An optional Rust converter opens, saves, imports and exports `.skp` models.
 Build it with `cargo build -p planyrith-skp --release` and place `planyrith-skp`
 beside the CLI/GUI executable (or set `PLANYRITH_SKP_ADAPTER` to its absolute
@@ -53,11 +58,19 @@ planyrith -f model.plyr export model.skp --skp-version 2017
 planyrith -f model.plyr export model-2026.skp --skp-version 2026
 ```
 
-The GUI's Open, Save As and Import/Export dialogs accept `.skp`. Tested containers
-are 2017 and 2026; intervening releases are not certified. Geometry, hierarchy,
+The GUI's Open, Save As and Import/Export dialogs accept `.skp`. The established
+container tests cover 2017 and 2026; generated probes declaring a 2025 header
+also exercise geometry and hierarchy. SDK-saved 2019/2020 probes currently fail explicitly rather than
+opening empty models. Other intervening releases are not certified. Geometry,
+hierarchy,
 materials/textures, tags, cameras and sections transfer; unsupported data is
 reported. Keep `.plyr` for Sheets, annotations, rendering styles and edit history.
 See [converter scope and license](crates/planyrith-skp/README.md).
+
+Whole-model Open retains the complete SKP source through native working copies.
+Saving it back without document changes restores the original bytes, including
+uninterpreted data. Edited SKP output still has the documented conversion limits;
+source preservation alone is not complete editable interoperability.
 
 ## Automation
 

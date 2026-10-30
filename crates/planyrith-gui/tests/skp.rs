@@ -30,6 +30,17 @@ fn gui_session_opens_and_saves_skp_through_the_same_converter() {
     .unwrap();
     let mut session = Session::open(&source).unwrap();
     assert_eq!(session.doc().model.mesh().face_count(), 6);
+    let original = std::fs::read(&source).unwrap();
+    let untouched = dir.join("untouched.skp");
+    session.save(Some(&untouched)).unwrap();
+    assert_eq!(std::fs::read(&untouched).unwrap(), original);
+    let working = dir.join("working.plyr");
+    session.save(Some(&working)).unwrap();
+    assert!(std::fs::read(&working).unwrap().starts_with(b"PK"));
+    session = Session::open(&working).unwrap();
+    let restored = dir.join("restored.skp");
+    session.save(Some(&restored)).unwrap();
+    assert_eq!(std::fs::read(&restored).unwrap(), original);
     session
         .execute("move", json!({"targets":"all","delta":[100,0,0]}))
         .unwrap();

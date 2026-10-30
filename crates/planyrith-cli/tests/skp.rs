@@ -5,6 +5,46 @@ use serde_json::Value;
 fn cli() -> Command {
     Command::cargo_bin("planyrith").unwrap()
 }
+
+#[test]
+fn native_working_copy_retains_the_complete_unedited_skp_source() {
+    let adapter = assert_cmd::cargo::cargo_bin("planyrith")
+        .with_file_name(format!("planyrith-skp{}", std::env::consts::EXE_SUFFIX));
+    if !adapter.is_file() {
+        assert!(std::env::var_os("PLANYRITH_REQUIRE_SKP").is_none());
+        return;
+    }
+    let dir = std::env::temp_dir().join(format!("planyrith-cli-skp-native-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    for version in [2017, 2026] {
+        let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join(format!("../planyrith-skp/tests/fixtures/box-{version}.skp"));
+        let native = dir.join(format!("working-{version}.plyr"));
+        let restored = dir.join(format!("restored-{version}.skp"));
+        cli()
+            .arg("-f")
+            .arg(&source)
+            .arg("-o")
+            .arg(&native)
+            .args(["tool", "select", "--query", "all"])
+            .assert()
+            .success();
+        assert!(std::fs::read(&native).unwrap().starts_with(b"PK"));
+        cli()
+            .arg("-f")
+            .arg(&native)
+            .arg("-o")
+            .arg(&restored)
+            .args(["tool", "select", "--query", "all"])
+            .assert()
+            .success();
+        assert_eq!(
+            std::fs::read(&restored).unwrap(),
+            std::fs::read(&source).unwrap()
+        );
+    }
+    let _ = std::fs::remove_dir_all(dir);
+}
 #[test]
 fn cli_opens_modifies_and_saves_real_skp_without_renaming_native_bytes() {
     let adapter = assert_cmd::cargo::cargo_bin("planyrith")

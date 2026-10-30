@@ -5,40 +5,53 @@ implementation stands, what is done, what remains, and how to resume. Update it 
 every working session. Ground truth for *what to build* stays in `docs/00`–`docs/15`; this file
 is only *progress state*.
 
-_Last updated: 2026-10-30 (0.10 complete; local release checks passed)._
+_Last updated: 2026-10-30 (0.11 native-first SKP fidelity in progress)._
 
-**Current work:** after 0.9 was pushed as `ad1a8ef` with green CI (run
-40973246659), the user requested SKP interoperability first, then tools already
-in the specification. The 0.10 implementation adds an optional pure-Rust,
-GPL-3.0-only `planyrith-skp` executable using openskp 0.5.0. It is excluded from
-default members and never linked into the applications; cargo-deny exceptions
-and a CI dependency-graph guard enforce that separation. Build it explicitly
-beside the desktop CLI/GUI. Browser conversion is unavailable.
+**Current request:** `.plyr` remains the principal working format; complete
+SKP open/save must cover **2017 and later**. The user explicitly excluded a
+requirement for pre-2017 coverage after a version-range clarification.
+Do not describe current interoperability as complete. The 0.10 release
+`c1aabf9` is pushed, with all six CI jobs green in run 40984610308.
+No release tag has been created; do not create one before the user's trial.
 
-Desktop session open/save, import/export and RPC share Storage-backed conversion;
-default save is 2017, export also offers 2026. Original blank-template fixtures
-(provenance/license in the converter README) and generated models cover scale,
-holes, wire edges, shared/nested components, materials/textures and UVs, tags,
-cameras/scenes, sections, guides, axes/units and attributes. Regressions cover
-conflicting face sides, copied hidden edges, reordered vertex UVs and WebP-to-PNG.
-An external house opens/exports/reopens in both containers with identical counts
-(318 definition faces, five images) and bounds; third-party assets stay uncommitted.
-Unsupported data is
-reported; keep native files for Sheets, annotations, rendering settings and history.
-Freehand and Rotated Rectangle are complete core/CLI/RPC/Rhai/GUI tools, with
-goldens, simplification/side-length properties, byte-exact undo, command fuzz and
-synthetic input. The CLI/RPC and GUI SKP acceptance tests pass with the real process.
+The working implementation preserves the entire SKP source in native extension
+parts, with a versioned baseline covering the document, camera, images and
+Sheets. Whole-model save restores the original bytes only while that baseline
+matches. Native saves/reopens and history/timestamp changes preserve eligibility;
+real edits invalidate it. Regenerated output uses 2017 for pre-2026 sources,
+otherwise 2026, and reports any writer-version change. Native is still the home
+of full application state; no dependency on the converter is needed to open it.
+Merge import and command export do not carry a whole-model source through the
+editable Document. Browser SKP conversion is still unavailable.
 
-Local checks: 508 workspace tests including GPU-required snapshots and
-the converter, plus the expanded CLI/RPC/Rhai acceptance tests, three headless
-Chrome tests, native/wasm clippy, rustdoc and cargo-deny. The release web build
-is 5,462,864 bytes with brotli (budget: 12 MiB). Implementation commits:
-`37bd714` (optional converter) and `08094e6` (drawing tools and desktop UI).
-The release commit records the completed scope and checks. Publication is one
-push of these commits followed by verifying all six CI jobs for the final head;
-the Actions run for that head is the CI source of truth. Stop after green CI.
-Do not create release tags before the user's trial. Do not start 1.0 automatically. The historical progress below predates
-these milestones; 0.8 scope remains in [0.8-handoff.md](0.8-handoff.md).
+Coverage audit: original 2017/2026 blank-template fixtures, generated models and
+real-process CLI/GUI tests cover the established scope. Independent MIT fixtures
+are pinned in `planyrith-skp/tests/fixtures/intermediate` with their license:
+2025-header arcs/nesting open and round-trip geometry/hierarchy; SDK-saved 2019/2020
+files do **not** decode geometry. The latter now fail explicitly instead of
+opening successful empty replacement models. 2018 and 2021–2024 lack release
+certification. Original pre-2017 probes outside the repo also exposed missing
+geometry, but those releases are outside the agreed target.
+
+**Remaining for 0.11:** implement a suitable Rust decoder for the failed
+2019/2020 cases, add actual per-release fixtures, close annotation/image/curve/
+appearance gaps and validate edited outputs with an independent target reader.
+Opaque source preservation does not satisfy editable feature support. A local
+isolated experiment trying the dependency's release-17 grammar on 2019/2020
+failed with object-reference/persistent-id errors; it was not added to the app.
+Keep the optional GPL process boundary and the pure-Rust architecture.
+Detailed evidence and acceptance worklist: [skp-fidelity.md](skp-fidelity.md).
+
+Release policy remains coherent commits and one final push after local checks,
+then green CI; no tag or automatic 1.0 work. Historical progress below predates
+these milestones. The 0.10 baseline passed 508 workspace tests, three headless
+Chrome tests, native/wasm clippy, rustdoc and cargo-deny; its web brotli size was
+5,462,864 bytes. This increment passes 515 workspace tests with the converter
+and GPU required, including source restoration after fully undone edits. Local
+test executables were linked without debug symbols to work around filesystem
+metadata-allocation stalls; the code and test profiles otherwise match CI.
+Native/wasm clippy, rustdoc, fmt and cargo-deny also pass. Current coverage
+evidence is in docs/12. This increment does not complete 0.11.
 
 ## 1. Where we are
 

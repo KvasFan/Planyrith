@@ -70,6 +70,19 @@ humans or GUI automation before releases, with expected screenshots.
 
 ## Decisions
 
+- 2026-10-30 — **Native-first SKP fidelity increment.** 515 workspace tests
+  pass with the converter and GPU required. Real-process CLI/GUI tests retain
+  the exact source through native saves/reopens. Regressions cover foreign
+  archive streams, history/timestamp changes, camera and Sheets edits, consumed
+  PID allocation after undo, explicit writer versions, and failed decoders
+  returning no geometry. A locally inspected 2.2 MB house also survives a
+  native working copy with a byte-identical source restoration. Independent
+  fixtures expose refusal of SDK-saved 2019/2020 files; generated VFF-family
+  probes with actual `{25.0.575}` headers test geometry/hierarchy round-trips.
+  Those results are coverage evidence, not complete version certification.
+  Native/wasm clippy, rustdoc, fmt and cargo-deny also pass.
+  The remaining fidelity work is recorded in docs/dev/skp-fidelity.md.
+
 - 2026-10-30 — **SKP and drawing completion (0.10).** Native workspace tests
   pass with the optional converter and GPU required, including real-process
   import/export/open/save, byte-exact import undo, original blank-template

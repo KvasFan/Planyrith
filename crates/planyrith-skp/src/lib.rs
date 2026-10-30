@@ -3,6 +3,7 @@
 
 mod decode;
 mod encode;
+mod source;
 mod surfaces;
 mod texture;
 
@@ -32,26 +33,48 @@ pub fn convert(operation: &str, bytes: &[u8]) -> Result<Converted> {
         "decode" => {
             let model = openskp::Model::parse(bytes)?;
             let (doc, warnings) = decode::document(&model, blake3::hash(bytes).as_bytes())?;
-            let bytes = native::write_document(
-                &doc,
-                &[],
-                &native::WriteOptions {
-                    deterministic: true,
-                    include_history: false,
-                    ..Default::default()
-                },
-                &NoProgress,
-            )?;
+            let bytes =
+                native::write_document(&doc, &[], &source::options(&doc, bytes)?, &NoProgress)?;
             Ok(Converted { bytes, warnings })
         }
-        "encode-2017" | "encode-2026" => {
+        "encode-preserve" | "encode-2017" | "encode-2026" => {
             let loaded = native::read_document(bytes, &NoProgress)?;
+            let source_version = source::version(&loaded)?;
+            let target_version = match operation {
+                "encode-2017" => 2017,
+                "encode-2026" => 2026,
+                // Do not silently write a newer file than the source's own
+                // application can open. Intermediate releases can read 2017.
+                _ => {
+                    if source_version.is_some_and(|v| v >= 2026) {
+                        2026
+                    } else {
+                        2017
+                    }
+                }
+            };
+            if (operation == "encode-preserve"
+                || (source_version == Some(target_version)
+                    && source::matches_container(&loaded, target_version)))
+                && let Some(bytes) = source::unchanged(&loaded)?
+            {
+                return Ok(Converted {
+                    bytes,
+                    warnings: Vec::new(),
+                });
+            }
             let (model, mut warnings) = encode::model(&loaded.document)?;
+            if operation == "encode-preserve"
+                && let Some(version) = source_version
+                && version != target_version
+            {
+                warnings.push(format!("Edited SKP {version} is saved in the {target_version} container; the complete source remains in the native working copy"));
+            }
             let env = openskp::WriteEnv {
                 unix_time: 0,
                 seed: 0x504c_414e_5952_4954,
             };
-            let bytes = if operation == "encode-2017" {
+            let bytes = if target_version == 2017 {
                 let doc = openskp::Document17::from_model_with(&model, env)?;
                 doc.verify()?;
                 warnings.extend(doc.notes().iter().cloned());
@@ -64,7 +87,7 @@ pub fn convert(operation: &str, bytes: &[u8]) -> Result<Converted> {
             Ok(Converted { bytes, warnings })
         }
         _ => Err(IoError::UnsupportedFormat(
-            "converter expects decode, encode-2017 or encode-2026".into(),
+            "converter expects decode, encode-preserve, encode-2017 or encode-2026".into(),
         )
         .into()),
     }
