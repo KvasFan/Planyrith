@@ -194,7 +194,23 @@ pub enum AnchorKind {
 /// `path` is relative to the container holding the dimension or text: its
 /// steps start in that container.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub enum AnchorPosition {
+    /// Fraction of an edge, measured from its first endpoint.
+    EdgeParameter(f64),
+    /// Center of the analytic curve containing the target edge.
+    CurveCenter,
+    /// Angle in radians in the analytic curve's local plane frame.
+    CurveParameter(f64),
+    /// Intersection with a second edge in the annotation owner's frame.
+    Intersection(EntityPath),
+}
+
+/// An annotation attachment with a persistent path and optional parameter.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Anchor {
+    /// Explicit parametric attachment; absent keeps the original endpoint/midpoint behavior.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub position: Option<AnchorPosition>,
     /// Occurrence the anchor lives in, and the edge it follows.
     pub path: EntityPath,
     /// Target within that occurrence.
@@ -221,6 +237,9 @@ pub enum ArrowStyle {
 /// Dimension appearance (docs/04 §3.5 `DimStyle`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DimStyle {
+    /// Optional font information retained by document interchange.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub font: Option<TextFont>,
     /// Text height in mm (model space) — screen-sized text is a frontend option.
     pub text_height: Length,
     /// Arrow heads.
@@ -234,6 +253,7 @@ pub struct DimStyle {
 impl Default for DimStyle {
     fn default() -> Self {
         DimStyle {
+            font: None,
             text_height: Length::mm(100.0),
             arrow: ArrowStyle::Slash,
             units: None,
@@ -287,10 +307,59 @@ pub enum Dimension {
     },
 }
 
-/// Screen-space text with an optional leader (docs/04 §3.6 `ScreenText`).
-/// 3D text is not an entity: it generates faces in a group.
+/// Font request for screen or model-sized annotations (docs/04 §3.6).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(default)]
+pub struct TextFont {
+    /// Requested family; frontends substitute an available font when necessary.
+    pub family: String,
+    /// Bold face.
+    pub bold: bool,
+    /// Italic face.
+    pub italic: bool,
+    /// Screen size in points (1/72 inch).
+    pub size_pt: f64,
+    /// Fixed model-space height in mm, instead of screen size.
+    pub model_height_mm: Option<f64>,
+}
+impl Default for TextFont {
+    fn default() -> Self {
+        Self {
+            family: "Inter".into(),
+            bold: false,
+            italic: false,
+            size_pt: 12.0,
+            model_height_mm: None,
+        }
+    }
+}
+
+/// Screen placement, world leader and typography for annotation interchange.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(default)]
+pub struct TextLayout {
+    /// Leader arrow shape.
+    pub arrow: ArrowStyle,
+    /// Explicit text color.
+    pub color: Option<crate::document::Rgba8>,
+    /// Normalized viewport position, x right and y down, for screen-only text.
+    #[schemars(with = "Option<[f64; 2]>")]
+    pub screen_position: Option<DVec2>,
+    /// World-space leader vector from the anchor, in the owning container, mm.
+    #[schemars(with = "Option<[f64; 3]>")]
+    pub world_offset: Option<DVec3>,
+    /// Whether to draw the leader to the text position.
+    pub leader_visible: bool,
+    /// Font metadata and size.
+    pub font: Option<TextFont>,
+}
+
+/// Text content, optional anchor and layout (docs/04 §3.6).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Text {
+    /// Explicit layout; absent keeps the original screen-offset behavior.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layout: Option<TextLayout>,
     /// Leader target.
     pub anchor: Option<Anchor>,
     /// Content.

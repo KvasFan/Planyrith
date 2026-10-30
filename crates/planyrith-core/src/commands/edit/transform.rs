@@ -138,7 +138,7 @@ pub(crate) fn transform_entities(
         if let Some(record) = placed_record(tx.document(), container, id, &local) {
             match record {
                 Placed::Transform(t) => tx.set_transform(container, id, t)?,
-                Placed::Record(r) => tx.replace_entity(container, id, r)?,
+                Placed::Record(r) => tx.replace_entity(container, id, *r)?,
             }
         }
     }
@@ -148,7 +148,13 @@ pub(crate) fn transform_entities(
 /// The new placement of a non-mesh entity under `local`.
 enum Placed {
     Transform(DAffine3),
-    Record(EntityRecord),
+    Record(Box<EntityRecord>),
+}
+
+impl Placed {
+    fn record(record: EntityRecord) -> Self {
+        Self::Record(Box::new(record))
+    }
 }
 
 fn placed_record(
@@ -162,7 +168,7 @@ fn placed_record(
         EntityView::Group(g) => Some(Placed::Transform(*local * g.transform)),
         EntityView::Instance(i) => Some(Placed::Transform(*local * i.transform)),
         EntityView::Image(i) => Some(Placed::Transform(*local * i.transform)),
-        EntityView::Guide(g) => Some(Placed::Record(EntityRecord::Guide(match g {
+        EntityView::Guide(g) => Some(Placed::record(EntityRecord::Guide(match g {
             Guide::Line {
                 origin,
                 dir,
@@ -179,7 +185,7 @@ fn placed_record(
         EntityView::SectionPlane(s) => {
             let mut s = s.clone();
             s.plane = s.plane.transformed(local);
-            Some(Placed::Record(EntityRecord::SectionPlane(s)))
+            Some(Placed::record(EntityRecord::SectionPlane(s)))
         }
         // Edge anchors follow their edges; fixed points and offsets move.
         EntityView::Dimension(d) => {
@@ -207,16 +213,19 @@ fn placed_record(
                     *leader = local.transform_vector3(*leader);
                 }
             }
-            Some(Placed::Record(EntityRecord::Dimension(d)))
+            Some(Placed::record(EntityRecord::Dimension(d)))
         }
         EntityView::Text(t) => {
             let mut t = t.clone();
+            if let Some(layout) = &mut t.layout {
+                layout.world_offset = layout.world_offset.map(|v| local.transform_vector3(v));
+            }
             if let Some(a) = &mut t.anchor
                 && let AnchorKind::Point(p) = &mut a.kind
             {
                 *p = local.transform_point3(*p);
             }
-            Some(Placed::Record(EntityRecord::Text(t)))
+            Some(Placed::record(EntityRecord::Text(t)))
         }
         _ => None,
     }
@@ -282,7 +291,7 @@ fn copy_entities(
                 EntityRecord::Image(i)
             }
             _ => match placed_record(tx.document(), container, id, &local) {
-                Some(Placed::Record(r)) => r,
+                Some(Placed::Record(r)) => *r,
                 _ => continue,
             },
         };

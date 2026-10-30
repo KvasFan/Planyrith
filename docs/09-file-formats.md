@@ -144,6 +144,20 @@ save unless `--no-thumbnail`. `manifest.json` carries `title`, `author`, `descri
 
 ## Decisions
 
+- 2026-10-30 — **Expanded editable SKP import.** A calibrated pure-Rust classic
+  object-archive reader recovers geometry from the previously failing SDK-saved
+  2019/2020 cases; small MIT-licensed feature fixtures are pinned and reproducible.
+  Import also creates native text/linear and radial dimensions with font/layout
+  data and associative nested/parametric anchors, analytic circular curves,
+  spatial polylines, image entities, styles/fog/watermarks, geographic shadows and
+  scene appearance. Full paths rebind during native merge, even when persistent-id
+  ranges overlap. Font substitution and remaining display limits return notices;
+  decoded settings, classifications and custom stroke images are native data.
+  This expands import; edited SKP export retains the conversion limits below.
+  Whole-model source preservation still applies. Release fixtures for 2018 and
+  2021–2024 and independent edited-output validation remain required. See
+  `docs/dev/skp-fidelity.md` for evidence and outstanding work.
+
 - 2026-10-30 — **Native-first fidelity requirement.** The user confirmed that
   `.plyr` remains the principal, lossless working format; SKP is an interchange
   format with a target of complete open/save interoperability for 2017 and
@@ -151,7 +165,7 @@ save unless `--no-thumbnail`. `manifest.json` carries `title`, `author`, `descri
   native. Complete SKP support is an acceptance target, not the current status:
   test real files per release, all transferred data and edited round-trips,
   rather than treating header recognition or an unchanged file as sufficient.
-  Current gaps include annotations, placed images, rendering settings and
+  Current gaps include edited export regeneration, exact appearance details and
   uncertified intermediate versions. See the 0.11 milestone in docs/13.
 
 - 2026-10-30 — **Preserved SKP source in native working copies.** Successful
@@ -189,14 +203,15 @@ save unless `--no-thumbnail`. `manifest.json` carries `title`, `author`, `descri
   Polygon boundaries and holes, wire edges/flags, nested and reused components,
   groups/transforms, two-sided materials, embedded textures/UVs, tags, cameras,
   scene visibility/sections, guides, drawing axes, display units and supported
-  attribute values transfer. Curves keep their segmented geometry. Painted
+  attribute values transfer. Exported curves keep their segmented geometry. Painted
   groups use private component instances to retain inherited material. Conflicting
   face sides are partitioned into private surface groups without deleting faces;
   hidden-edge scene references follow all copies. Texture placements retain their
   projective frames through native saves. WebP textures export as PNG with the
   same decoded pixels.
-  Annotations/placed images, Sheets, edit history, rendering styles, shadows,
-  watermarks and unrepresentable attribute/behavior details produce warnings;
+  On edited export, annotations/placed images, Sheets, edit history, rendering
+  styles, shadows, watermarks and unrepresentable attribute/behavior details
+  produce warnings;
   retain `.plyr` for full fidelity. Unrepresentable UV placements and selected-only
   export fail explicitly. Conversion failure changes neither the document nor
   the destination. Autosave/snapshots always stay native. Inputs and converted

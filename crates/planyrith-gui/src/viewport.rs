@@ -906,17 +906,28 @@ fn paint_overlay(
     }
     let font = egui::FontId::proportional(12.0);
     for label in &overlay.labels {
-        let screen_only = label.kind == OverlayKind::Text
+        let screen_only = label.layout.is_none()
+            && label.kind == OverlayKind::Text
             && label.at == glam::DVec3::ZERO
             && label.screen_offset == glam::DVec2::ZERO;
-        let anchor = if screen_only {
+        let anchor = if let Some(p) = label.layout.as_ref().and_then(|l| l.screen_position) {
+            Some(
+                cx.rect.left_top()
+                    + Vec2::new(p.x as f32 * cx.rect.width(), p.y as f32 * cx.rect.height()),
+            )
+        } else if screen_only {
             Some(painter.clip_rect().left_top() + Vec2::new(12.0, 12.0))
         } else {
             cx.to_screen(label.at)
         };
         let Some(anchor) = anchor else { continue };
         let offset = Vec2::new(label.screen_offset.x as f32, -label.screen_offset.y as f32);
-        let at = anchor + offset;
+        let at = label
+            .layout
+            .as_ref()
+            .and_then(|l| l.world_offset)
+            .and_then(|v| cx.to_screen(label.at + v))
+            .unwrap_or(anchor + offset);
         let (text_color, fill) = match label.kind {
             OverlayKind::Detached => (
                 Color32::from_rgb(200, 20, 20),
@@ -925,11 +936,54 @@ fn paint_overlay(
             OverlayKind::SectionPlane { .. } => (Color32::WHITE, Color32::from_rgb(235, 120, 20)),
             _ => (Color32::from_gray(20), Color32::from_white_alpha(220)),
         };
-        if offset.length() > 1.0 {
+        let text_color = label
+            .layout
+            .as_ref()
+            .and_then(|l| l.color)
+            .map_or(text_color, |c| {
+                Color32::from_rgba_unmultiplied(c.r, c.g, c.b, c.a)
+            });
+        if at.distance(anchor) > 1.0 && label.layout.as_ref().is_none_or(|l| l.leader_visible) {
             painter.line_segment([anchor, at], Stroke::new(1.0, Color32::from_gray(40)));
-            painter.circle_filled(anchor, 2.0, Color32::from_gray(40));
+            use planyrith_core::document::ArrowStyle;
+            let arrow = label.layout.as_ref().map_or(ArrowStyle::Dot, |l| l.arrow);
+            let dir = (at - anchor).normalized();
+            let side = Vec2::new(-dir.y, dir.x);
+            let color = Color32::from_gray(40);
+            match arrow {
+                ArrowStyle::None => {}
+                ArrowStyle::Dot => {
+                    painter.circle_filled(anchor, 2.0, color);
+                }
+                ArrowStyle::Slash => {
+                    let d = (dir + side) * 3.0;
+                    painter.line_segment([anchor - d, anchor + d], Stroke::new(1.0, color));
+                }
+                ArrowStyle::Open | ArrowStyle::Closed => {
+                    let a = anchor + dir * 8.0 + side * 3.0;
+                    let b = anchor + dir * 8.0 - side * 3.0;
+                    if arrow == ArrowStyle::Closed {
+                        painter.add(egui::Shape::convex_polygon(
+                            vec![anchor, a, b],
+                            color,
+                            Stroke::NONE,
+                        ));
+                    } else {
+                        painter.line_segment([a, anchor], Stroke::new(1.0, color));
+                        painter.line_segment([anchor, b], Stroke::new(1.0, color));
+                    }
+                }
+            }
         }
-        let galley = painter.layout_no_wrap(label.text.clone(), font.clone(), text_color);
+        let mut font = font.clone();
+        if let Some(f) = label.layout.as_ref().and_then(|l| l.font.as_ref()) {
+            font.size = f
+                .model_height_mm
+                .and_then(|h| cx.to_screen(label.at + cx.camera.up.normalize_or_zero() * h))
+                .map_or((f.size_pt * 96.0 / 72.0) as f32, |p| p.distance(anchor))
+                .clamp(1.0, 1000.0);
+        }
+        let galley = painter.layout_no_wrap(label.text.clone(), font, text_color);
         let rect = egui::Align2::CENTER_CENTER.anchor_size(at, galley.size());
         painter.rect_filled(rect.expand(2.0), 2.0, fill);
         painter.galley(rect.min, galley, text_color);

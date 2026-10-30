@@ -180,6 +180,11 @@ powerful but add ~10 MB and do not run inside the web build; they are a post-1.0
   records package-specific GPL exceptions for these two packages only. The
   applications exchange byte streams through the Storage adapter boundary.
   Supported scope and compatibility limits belong to docs/09.
+  The calibrated classic-archive reader also ports the MIT-licensed format
+  reference from `iamahsanmehmood/openskp` at pinned revision
+  `c0bbeaa62191d776ea25e979555c5d6c464d54fa` to Rust. Its attribution/grant
+  remain in the component sources and executable `--license` output; no
+  interpreter or additional runtime dependency is introduced.
 
 - 2026-10-29 — **Sheets font subsets.** `subsetter` 0.2.6 (MIT/Apache-2.0,
   defaults disabled) reduces the bundled static Inter font for PDF embedding.

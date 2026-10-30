@@ -15,6 +15,17 @@ All notable changes to Planyrith are recorded here. Versions follow
 - Refuse decoder fallback with missing geometry instead of opening a
   misleading empty document. Intermediate-version coverage remains in progress.
 
+- Recover geometry in SDK-saved 2019/2020 files with a calibrated Rust classic
+  archive reader; add pinned geometry, nesting, texture and annotation fixtures.
+- Import editable text and linear/radial dimensions with fonts, screen/world
+  placement, leader settings and persistent nested/parametric anchors. Keep
+  anchors valid when merging documents whose persistent-id ranges overlap.
+- Import analytic circular curves, spatial polylines, placed images, styles,
+  fog/backgrounds, watermarks, sun settings and scene appearance. Preserve
+  classifications, custom stroke images and decoded settings in native data.
+  Exact external font rendering and some appearance details remain limited;
+  edited SKP regeneration and release-by-release certification remain open.
+
 ## 0.10.0 — SKP interchange and drawing tools (2026-10-30)
 
 - **SKP on desktop**: Open, Save/Save As, CLI `-f`, import/export and RPC use

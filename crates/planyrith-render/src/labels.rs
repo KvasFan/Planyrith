@@ -5,7 +5,7 @@
 use ab_glyph::{Font, FontRef, PxScale, ScaleFont, point};
 use glam::{DVec2, DVec3};
 use image::RgbaImage;
-use planyrith_core::document::Camera;
+use planyrith_core::document::{ArrowStyle, Camera};
 use planyrith_core::io::overlay::{Overlay, OverlayKind};
 use planyrith_core::math::Aabb;
 
@@ -77,26 +77,87 @@ pub fn draw_labels(image: &mut RgbaImage, overlay: &Overlay, camera: &Camera) {
             );
         }
     }
-    let scaled = font.as_scaled(PxScale::from(TEXT_PX));
     for label in &overlay.labels {
-        let screen_only = label.kind == OverlayKind::Text
+        let screen_only = label.layout.is_none()
+            && label.kind == OverlayKind::Text
             && label.at == DVec3::ZERO
             && label.screen_offset == DVec2::ZERO;
-        let anchor = if screen_only {
+        let anchor = if let Some(p) = label.layout.as_ref().and_then(|l| l.screen_position) {
+            Some(DVec2::new(p.x * w, p.y * h))
+        } else if screen_only {
             Some(DVec2::new(12.0, 12.0))
         } else {
             to_px(label.at)
         };
         let Some(anchor) = anchor else { continue };
-        let at = anchor + DVec2::new(label.screen_offset.x, -label.screen_offset.y);
-        if label.screen_offset.length() > 1.0 {
+        let at = label
+            .layout
+            .as_ref()
+            .and_then(|l| l.world_offset)
+            .and_then(|v| to_px(label.at + v))
+            .unwrap_or(anchor + DVec2::new(label.screen_offset.x, -label.screen_offset.y));
+        if at.distance(anchor) > 1.0 && label.layout.as_ref().is_none_or(|l| l.leader_visible) {
             line(image, anchor, at, [40, 40, 40]);
+            if let Some(layout) = &label.layout {
+                let dir = (at - anchor).normalize();
+                let side = DVec2::new(-dir.y, dir.x);
+                let color = [40, 40, 40];
+                match layout.arrow {
+                    ArrowStyle::None => {}
+                    ArrowStyle::Dot => {
+                        for y in -2..=2 {
+                            for x in -2..=2 {
+                                if x * x + y * y <= 4 {
+                                    blend(
+                                        image,
+                                        anchor.x.round() as i64 + x,
+                                        anchor.y.round() as i64 + y,
+                                        color,
+                                        1.0,
+                                    );
+                                }
+                            }
+                        }
+                    }
+                    ArrowStyle::Slash => {
+                        let d = (dir + side) * 3.0;
+                        line(image, anchor - d, anchor + d, color);
+                    }
+                    ArrowStyle::Open => {
+                        line(image, anchor + dir * 8.0 + side * 3.0, anchor, color);
+                        line(image, anchor, anchor + dir * 8.0 - side * 3.0, color);
+                    }
+                    ArrowStyle::Closed => {
+                        for step in 0..=16 {
+                            let s = f64::from(step) / 16.0;
+                            let p = anchor + dir * (8.0 * s);
+                            line(image, p - side * (3.0 * s), p + side * (3.0 * s), color);
+                        }
+                    }
+                }
+            }
         }
+        let size = label
+            .layout
+            .as_ref()
+            .and_then(|l| l.font.as_ref())
+            .map_or(TEXT_PX, |f| {
+                f.model_height_mm
+                    .and_then(|height| to_px(label.at + camera.up.normalize_or_zero() * height))
+                    .map_or((f.size_pt * 96.0 / 72.0) as f32, |p| {
+                        p.distance(anchor) as f32
+                    })
+                    .clamp(1.0, 1000.0)
+            });
+        let scaled = font.as_scaled(PxScale::from(size));
         let (text_color, fill): ([u8; 3], [u8; 3]) = match label.kind {
             OverlayKind::Detached => ([200, 20, 20], [255, 255, 255]),
             OverlayKind::SectionPlane { .. } => ([255, 255, 255], [235, 120, 20]),
             _ => ([20, 20, 20], [255, 255, 255]),
         };
+        let color = label.layout.as_ref().and_then(|l| l.color);
+        let text_color = color.map_or(text_color, |c| [c.r, c.g, c.b]);
+        let text_alpha = color.map_or(1.0, |c| f32::from(c.a) / 255.0);
         let lines: Vec<&str> = label.text.lines().collect();
         let line_height = f64::from(scaled.height() + scaled.line_gap());
         let widths: Vec<f64> = lines
@@ -120,7 +181,7 @@ pub fn draw_labels(image: &mut RgbaImage, overlay: &Overlay, camera: &Camera) {
             let baseline = top_left.y as f32 + row as f32 * line_height as f32 + scaled.ascent();
             for c in text.chars() {
                 let id = font.glyph_id(c);
-                let glyph = id.with_scale_and_position(PxScale::from(TEXT_PX), point(x, baseline));
+                let glyph = id.with_scale_and_position(PxScale::from(size), point(x, baseline));
                 x += scaled.h_advance(id);
                 if let Some(outlined) = font.outline_glyph(glyph) {
                     let b = outlined.px_bounds();
@@ -130,7 +191,7 @@ pub fn draw_labels(image: &mut RgbaImage, overlay: &Overlay, camera: &Camera) {
                             i64::from(b.min.x as i32) + i64::from(gx),
                             i64::from(b.min.y as i32) + i64::from(gy),
                             text_color,
-                            coverage,
+                            coverage * text_alpha,
                         );
                     });
                 }

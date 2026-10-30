@@ -47,6 +47,8 @@ pub struct OverlayLine {
 /// A text label.
 #[derive(Debug, Clone, PartialEq)]
 pub struct OverlayLabel {
+    /// Explicit screen placement, world leader and font, when supplied.
+    pub layout: Option<crate::document::TextLayout>,
     /// The point it belongs to (world).
     pub at: DVec3,
     /// Where the text sits relative to `at`, screen pixels (x right, y up);
@@ -111,6 +113,11 @@ pub fn overlay(doc: &Document, items: &[DrawItem]) -> Overlay {
                         .and_then(|a| anchor_position(doc, item.container, a))
                         .map(w);
                     out.labels.push(OverlayLabel {
+                        layout: t.layout.clone().map(|mut layout| {
+                            layout.world_offset =
+                                layout.world_offset.map(|v| item.world.transform_vector3(v));
+                            layout
+                        }),
                         at: at.unwrap_or(DVec3::ZERO),
                         screen_offset: if at.is_some() {
                             t.screen_offset
@@ -173,6 +180,7 @@ pub fn overlay(doc: &Document, items: &[DrawItem]) -> Overlay {
                         });
                     }
                     out.labels.push(OverlayLabel {
+                        layout: None,
                         at: w(corners[2]),
                         screen_offset: DVec2::ZERO,
                         text: s.symbol.clone(),
@@ -247,6 +255,10 @@ fn dimension_lines(doc: &Document, item: &DrawItem, dim: &Dimension, out: &mut O
         }
     }
     out.labels.push(OverlayLabel {
+        layout: style.font.clone().map(|font| crate::document::TextLayout {
+            font: Some(font),
+            ..Default::default()
+        }),
         at: w(view.text_at),
         screen_offset: DVec2::ZERO,
         text: view.text,

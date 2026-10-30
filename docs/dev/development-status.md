@@ -10,8 +10,8 @@ _Last updated: 2026-10-30 (0.11 native-first SKP fidelity in progress)._
 **Current request:** `.plyr` remains the principal working format; complete
 SKP open/save must cover **2017 and later**. The user explicitly excluded a
 requirement for pre-2017 coverage after a version-range clarification.
-Do not describe current interoperability as complete. The 0.10 release
-`c1aabf9` is pushed, with all six CI jobs green in run 40984610308.
+Do not describe current interoperability as complete. The preceding source-preservation increment
+`d21c2ef` is pushed, with all six CI jobs green in run 41026119552.
 No release tag has been created; do not create one before the user's trial.
 
 The working implementation preserves the entire SKP source in native extension
@@ -25,33 +25,43 @@ Merge import and command export do not carry a whole-model source through the
 editable Document. Browser SKP conversion is still unavailable.
 
 Coverage audit: original 2017/2026 blank-template fixtures, generated models and
-real-process CLI/GUI tests cover the established scope. Independent MIT fixtures
-are pinned in `planyrith-skp/tests/fixtures/intermediate` with their license:
-2025-header arcs/nesting open and round-trip geometry/hierarchy; SDK-saved 2019/2020
-files do **not** decode geometry. The latter now fail explicitly instead of
-opening successful empty replacement models. 2018 and 2021–2024 lack release
-certification. Original pre-2017 probes outside the repo also exposed missing
-geometry, but those releases are outside the agreed target.
+real-process CLI/GUI tests cover the established scope. The independent MIT
+fixtures in `planyrith-skp/tests/fixtures/intermediate` now include positive
+SDK-saved 2019/2020 regressions plus curves, nesting, textures, text arrows and
+watermarks. The new calibrated Rust classic reader recovers their geometry;
+2018 and 2021–2024 still lack release certification.
 
-**Remaining for 0.11:** implement a suitable Rust decoder for the failed
-2019/2020 cases, add actual per-release fixtures, close annotation/image/curve/
-appearance gaps and validate edited outputs with an independent target reader.
-Opaque source preservation does not satisfy editable feature support. A local
-isolated experiment trying the dependency's release-17 grammar on 2019/2020
-failed with object-reference/persistent-id errors; it was not added to the app.
-Keep the optional GPL process boundary and the pure-Rust architecture.
-Detailed evidence and acceptance worklist: [skp-fidelity.md](skp-fidelity.md).
+This increment imports native text and linear/radial dimensions with font/layout
+metadata and persistent nested/parametric/intersection anchors; analytic circular
+curves and spatial polylines; placed image entities/assets; styles, fog,
+backgrounds, watermarks, sun settings and scene appearance. Native merge rebinds
+complete annotation paths, including reused definitions and overlapping pid
+ranges. Classifications, stroke images and decoded settings are native data.
+Frontends use imported placement, size, color, leader visibility and arrow type,
+with an available-font substitution. The optional helper's `--license` includes
+the MIT reference attribution; no interpreter/runtime dependency was added.
+
+**Remaining for 0.11:** genuine per-release fixtures, unsupported classic layouts,
+exact external font/stroke/mask/camera/annotation display details, edited SKP
+regeneration for the newly imported data, and validation with independent target
+readers. Source preservation and editable import do not finish complete open/save
+interoperability. Keep the optional GPL process boundary and pure-Rust design.
+Detailed evidence: [skp-fidelity.md](skp-fidelity.md).
 
 Release policy remains coherent commits and one final push after local checks,
 then green CI; no tag or automatic 1.0 work. Historical progress below predates
 these milestones. The 0.10 baseline passed 508 workspace tests, three headless
 Chrome tests, native/wasm clippy, rustdoc and cargo-deny; its web brotli size was
-5,462,864 bytes. This increment passes 515 workspace tests with the converter
-and GPU required, including source restoration after fully undone edits. Local
-test executables were linked without debug symbols to work around filesystem
-metadata-allocation stalls; the code and test profiles otherwise match CI.
-Native/wasm clippy, rustdoc, fmt and cargo-deny also pass. Current coverage
-evidence is in docs/12. This increment does not complete 0.11.
+5,462,864 bytes. The current import increment passes 527 workspace tests (one pre-existing ignored
+case), with the converter and GPU required. Native/wasm clippy, rustdoc, fmt,
+cargo-deny, reproducible fixture hashes and dependency boundaries pass. Optimized
+CLI, GUI and converter binaries are in `target/release`; release CLI smoke tests
+open 2019/2020/2026 files. A local 2.2 MB house retains 318 faces, 51 definitions,
+11 image assets including previews, validates without errors and returns its
+original SKP bytes after a native save/reopen. External source content was not
+committed. Native debug test executables were linked without debug symbols to
+avoid filesystem metadata-allocation stalls; test behavior/profiles otherwise
+match CI. No version bump or release tag: this increment does not complete 0.11.
 
 ## 1. Where we are
 

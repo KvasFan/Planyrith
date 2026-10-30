@@ -24,27 +24,44 @@ cannot silently revert edits to the original file. A regenerated save uses
 writer versions and data conversion limits. Explicit export remains versioned.
 The native working copy retains the original even when edited SKP output cannot.
 
-Transferred: polygon faces/holes, loose edges, soft/smooth/hidden flags,
+Import transfers polygon faces/holes, loose edges, soft/smooth/hidden flags,
 groups, shared/nested components and transforms, front/back materials, embedded
-textures and representable per-face UV placement, tag visibility, camera, scene
-cameras/visibility/sections, section planes, guide points/lines, display units,
-drawing axes, and representable attribute dictionaries. Unsupported data produces
-explicit warnings: Sheets, edit history, annotations, placed images, rendering
-styles/shadows/watermarks, some attribute types and component behavior details.
-Curves retain their segmented geometry. Conflicting face sides are preserved in
-private surface groups (at most 4096 per source container), including scene
-visibility references to copied edges. Projective UV frames survive native saves;
-WebP textures export as PNG without changing decoded pixels. Selected-only export
-is rejected.
-Keep a native copy for full document fidelity.
+textures and representable per-face UV placement, tag visibility, cameras,
+scenes/sections, guides, units, drawing axes and attribute dictionaries. It also
+creates editable native text and linear/radial dimensions, with persistent
+nested anchors, edge parameters, curve centres and edge intersections. Font
+family/weight/size, screen positions, pushpin offsets, leader visibility and
+arrow types survive native saves. Frontends substitute the bundled font when
+needed. Circular arcs/circles retain analytic descriptors; spatial polylines
+and other curves retain their sampled chains. Placed images retain their
+material, texture asset, size and transform.
 
-Compatibility tests cover the 2017 and 2026 containers and generated probes
-declaring a 2025 header.
-The SDK-saved 2019/2020 probes in `tests/fixtures/intermediate` are rejected:
-the dependency fails to recover their geometry. Such failures must not open a
-successful empty model. Other intermediate releases are not certified. Complete
-2017-and-later editable fidelity is still in progress. Exported files are checked
-by the converter's readers and 2017 grammar; testing in the user's target application is still valuable.
+Styles, fog/backgrounds, watermarks, geographic sun settings and per-scene
+appearance transfer to native settings. Source classifications and custom
+stroke images remain inspectable native data; decoded settings without a
+renderer equivalent are retained under `org.planyrith.skp` attributes. Custom
+stroke rendering, luminance-mask watermarks, exact external font faces and
+some camera/annotation presentation details still have display limitations.
+The original source is retained by whole-model Open as described above.
+
+Edited SKP export still has conversion limits: annotations, image entities,
+styles/shadows/watermarks, some behavior/attribute types, Sheets and edit
+history are not all regenerated. Curves export as segmented edges. Unsupported
+export data produces warnings. Conflicting face sides are preserved in private
+surface groups (at most 4096 per source container), including scene visibility
+references to copied edges. Projective UV frames survive native saves; WebP
+textures export as PNG without changing decoded pixels. Selected-only export
+is rejected. Keep a native copy for full document fidelity.
+
+Compatibility tests cover original 2017/2026 files, independent SDK-saved
+2019/2020 files and generated probes declaring a 2025 header. The calibrated
+Rust classic-archive reader now recovers the previously missing 2019/2020
+geometry, curves, nesting and textures. It supports both short and escaped
+object references and checks persistent-id layouts without changing headers.
+2018 and 2021–2024 still lack release fixtures/certification; unknown classic
+objects fail explicitly. Complete 2017-and-later editable interchange remains
+in progress. Exported files are checked by the converter's readers and 2017
+grammar; independent target-application verification is still required.
 
 `cargo test -p planyrith-skp` exercises genuine files, generated round-trips,
 texture coordinates, scale, repeated/nested components, holes, section planes,
@@ -63,3 +80,9 @@ by the upstream GPL-3.0-only grant and kept only in this GPL component.
 Source: <https://github.com/hew3d/openskp/tree/a6788afa6386cfd4bc781998dca99c591b3fb069/corpus>.
 The script `tools/fetch-skp-fixtures.sh` reproduces both downloads and verifies
 their hashes. The dependency and this component's license are in `LICENSE`.
+
+The classic reader is a Rust port of the MIT-licensed format reference in
+`iamahsanmehmood/openskp` at revision
+`c0bbeaa62191d776ea25e979555c5d6c464d54fa`. Its copyright and grant are retained
+in `tests/fixtures/intermediate/LICENSE` and embedded in the executable's
+`--license` output. No interpreter or new runtime dependency is introduced.

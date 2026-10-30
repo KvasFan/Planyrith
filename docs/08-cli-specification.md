@@ -268,6 +268,14 @@ On failure: `{"ok": false, "error": {"code": "E1002", "message": "...", "param":
 
 ## Decisions
 
+- 2026-10-30 — **Editable annotation layout.** `tool text --layout JSON` (also
+  `text` parameters in batch/RPC) accepts normalized `screen_position`,
+  `world_offset` in mm, `leader_visible`, arrow/color and a `font` request with
+  `family`, `bold`, `italic`, `size_pt`, optional `model_height_mm`. Layout survives
+  native save/reopen and undo. SKP open uses the same fields for imported labels;
+  merged imports retain nested associative targets. Exact external font faces
+  may be substituted by the renderer's available font.
+
 - 2026-10-30 — **Native-first SKP working copies.** `.plyr` is the primary
   document format. A whole-model SKP open carries its complete source into
   `-o working.plyr`; a later `-f working.plyr -o restored.skp` save restores

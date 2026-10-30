@@ -58,13 +58,13 @@ planyrith -f model.plyr export model.skp --skp-version 2017
 planyrith -f model.plyr export model-2026.skp --skp-version 2026
 ```
 
-The GUI's Open, Save As and Import/Export dialogs accept `.skp`. The established
-container tests cover 2017 and 2026; generated probes declaring a 2025 header
-also exercise geometry and hierarchy. SDK-saved 2019/2020 probes currently fail explicitly rather than
-opening empty models. Other intervening releases are not certified. Geometry,
-hierarchy,
-materials/textures, tags, cameras and sections transfer; unsupported data is
-reported. Keep `.plyr` for Sheets, annotations, rendering styles and edit history.
+The GUI's Open, Save As and Import/Export dialogs accept `.skp`. Tests cover
+2017 and 2026 containers, SDK-saved 2019/2020 files and generated 2025-header
+probes. Other intervening releases remain uncertified. Import includes geometry,
+hierarchy, textures, annotations and associative dimensions, analytic curves,
+placed images, styles, shadows and scene appearance. Native display substitutes
+unavailable fonts; some appearance details and edited SKP exports still have
+conversion limits. Keep `.plyr` as the full working document.
 See [converter scope and license](crates/planyrith-skp/README.md).
 
 Whole-model Open retains the complete SKP source through native working copies.

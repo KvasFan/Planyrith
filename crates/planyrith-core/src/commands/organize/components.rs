@@ -74,6 +74,7 @@ pub(crate) struct Imports {
     definitions: BTreeMap<DefinitionId, DefinitionId>,
     materials: BTreeMap<MaterialId, MaterialId>,
     tags: BTreeMap<TagId, TagId>,
+    pids: BTreeMap<Pid, Pid>,
 }
 
 impl Imports {
@@ -109,6 +110,20 @@ pub(crate) fn import_definition(
         })
     {
         imports.definitions.insert(d, existing);
+        if let Some(other) = tx.document().definition(existing) {
+            for (old, new) in def.entities.order().iter().zip(other.entities.order()) {
+                if let (Some(old), Some(new)) =
+                    (def.entities.pid_of(*old), other.entities.pid_of(*new))
+                {
+                    imports.pids.insert(old, new);
+                }
+            }
+        }
+        // Reused definitions can contain targets of anchors owned by a newly
+        // imported parent. Record their nested pid mappings as well.
+        for inner in &def.entities.references().definitions {
+            import_definition(tx, source, *inner, false, imports)?;
+        }
         return Ok(existing);
     }
     let refs = def.entities.references();
@@ -139,7 +154,8 @@ pub(crate) fn import_definition(
     let pids: Vec<Pid> = (0..copy.entities.len())
         .map(|_| tx.allocate_pid())
         .collect();
-    copy.entities.reassign_pids(pids);
+    let renamed = copy.entities.reassign_pids_with_remap(pids, &imports.pids);
+    imports.pids.extend(renamed);
     let id = tx.insert_definition(copy)?;
     imports.definitions.insert(d, id);
     Ok(id)

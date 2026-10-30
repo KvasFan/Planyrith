@@ -20,6 +20,9 @@ use crate::units::{Length, LengthUnit, format_length};
 /// `text` parameters.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct TextParams {
+    /// Optional normalized screen position, world leader (mm) and font (points).
+    #[serde(default)]
+    pub layout: Option<crate::document::TextLayout>,
     /// The text (default: what the point it is attached to measures).
     #[serde(default)]
     pub text: Option<String>,
@@ -118,6 +121,29 @@ impl Command for TextCommand {
                 "must be finite",
             ));
         }
+        if let Some(layout) = &p.layout {
+            if layout.screen_position.is_some_and(|p| !p.is_finite())
+                || layout
+                    .world_offset
+                    .is_some_and(|p| !p.is_finite() || p.abs().max_element() > 1e9)
+            {
+                return Err(CommandError::invalid_param(
+                    "layout",
+                    "positions and offsets must be finite and within the model extent",
+                ));
+            }
+            if layout.font.as_ref().is_some_and(|f| {
+                !f.size_pt.is_finite()
+                    || f.size_pt <= 0.0
+                    || f.model_height_mm
+                        .is_some_and(|h| !h.is_finite() || h <= 0.0)
+            }) {
+                return Err(CommandError::invalid_param(
+                    "layout.font",
+                    "font sizes must be finite and positive",
+                ));
+            }
+        }
         Ok(())
     }
 
@@ -178,6 +204,7 @@ impl Command for TextCommand {
         let (_, pid) = tx.insert_entity(
             target.container,
             EntityRecord::Text(Text {
+                layout: p.layout,
                 anchor,
                 text: content.clone(),
                 screen_offset: p.screen_offset.unwrap_or(DVec2::new(40.0, 40.0)),

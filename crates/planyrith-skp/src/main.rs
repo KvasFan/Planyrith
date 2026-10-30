@@ -12,6 +12,14 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         );
         return Ok(());
     }
+    if operation == "--license" {
+        println!(
+            "{}\nClassic-reader reference attribution:\n{}",
+            include_str!("../LICENSE"),
+            include_str!("../tests/fixtures/intermediate/LICENSE")
+        );
+        return Ok(());
+    }
     let mut bytes = Vec::new();
     std::io::stdin()
         .take(planyrith_core::io::adapter::MAX_BYTES as u64 + 1)

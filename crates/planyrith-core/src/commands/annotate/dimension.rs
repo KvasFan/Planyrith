@@ -161,6 +161,7 @@ impl Command for DimensionCommand {
     ) -> Result<DimensionOutput, CommandError> {
         let target = target_container(tx, &p.common)?;
         let style = DimStyle {
+            font: None,
             text_height: p.text_height.unwrap_or(DimStyle::default().text_height),
             ..DimStyle::default()
         };

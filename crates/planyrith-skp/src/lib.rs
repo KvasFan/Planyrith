@@ -1,8 +1,14 @@
 //! Implements docs/09 §5: optional GPL-3.0-only SKP conversion.
 //! This crate is linked only into the separate converter executable.
 
+mod annotations;
+mod appearance;
+mod classic;
+mod curves;
 mod decode;
 mod encode;
+mod images;
+mod metadata;
 mod source;
 mod surfaces;
 mod texture;
@@ -31,10 +37,61 @@ pub fn convert(operation: &str, bytes: &[u8]) -> Result<Converted> {
     }
     match operation {
         "decode" => {
-            let model = openskp::Model::parse(bytes)?;
-            let (doc, warnings) = decode::document(&model, blake3::hash(bytes).as_bytes())?;
-            let bytes =
-                native::write_document(&doc, &[], &source::options(&doc, bytes)?, &NoProgress)?;
+            let version = openskp::header_info(bytes)
+                .map(|(v, _)| v)
+                .unwrap_or_default();
+            let classic_major = (openskp::detect_container(bytes)
+                == openskp::Container::Carchive2017)
+                .then(|| {
+                    version
+                        .trim_start_matches('{')
+                        .split('.')
+                        .next()
+                        .and_then(|v| v.parse::<u16>().ok())
+                })
+                .flatten();
+            let mut settings_warning = None;
+            let mut model = match openskp::Model::parse(bytes) {
+                Ok(model) => model,
+                Err(error) if matches!(classic_major, Some(17..=20)) => {
+                    settings_warning = Some(format!(
+                        "The classic geometry reader recovered this model; some source settings could not be decoded: {error}"
+                    ));
+                    openskp::Model {
+                        version,
+                        ..Default::default()
+                    }
+                }
+                Err(e) => return Err(e.into()),
+            };
+            let failed_walk = model.diagnostics.iter().any(|d| {
+                matches!(
+                    d,
+                    openskp::Diagnostic::ContinuousFallback { .. }
+                        | openskp::Diagnostic::Resync { .. }
+                        | openskp::Diagnostic::Truncated { .. }
+                        | openskp::Diagnostic::Skipped { .. }
+                )
+            });
+            if matches!(classic_major, Some(18..=20))
+                || (classic_major == Some(17) && (failed_walk || model.geometry.is_empty()))
+            {
+                model = classic::read(bytes, model)?;
+            }
+            let (doc, mut warnings) = decode::document(&model, blake3::hash(bytes).as_bytes())?;
+            warnings.extend(settings_warning);
+            let mut options = source::options(&doc, bytes)?;
+            if let Some(preview) = model.thumbnail.as_ref().or(model.preview.as_ref()) {
+                match image::load_from_memory(preview).and_then(|image| {
+                    let mut png = std::io::Cursor::new(Vec::new());
+                    image.write_to(&mut png, image::ImageFormat::Png)?;
+                    Ok(png.into_inner())
+                }) {
+                    Ok(png) => options.thumbnail = Some(png),
+                    Err(_) => warnings.push("The source preview could not be decoded; the original remains in the native working copy".into()),
+                }
+            }
+            let bytes = native::write_document(&doc, &[], &options, &NoProgress)?;
             Ok(Converted { bytes, warnings })
         }
         "encode-preserve" | "encode-2017" | "encode-2026" => {
@@ -109,5 +166,7 @@ fn to_transform(t: DAffine3) -> [f64; 13] {
     ]
 }
 
+#[cfg(test)]
+mod import_tests;
 #[cfg(test)]
 mod tests;

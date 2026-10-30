@@ -94,6 +94,9 @@ acceptance criteria. Milestones are sequential; within one, items are independen
 - Close annotation, placed-image, curve, appearance and intermediate-version
   gaps before claiming complete interchange. Retained opaque source bytes do
   not count as editable support for a missing entity type.
+- Import progress: SDK-saved 2019/2020 geometry, native annotations and persistent
+  anchors, curves/polylines, image entities, styles/sun and scene appearance now
+  have regressions. Edited export and complete release certification remain open.
 - **Accept:** verified open → native save/reopen → edit → SKP save/reopen
   across the supported releases; geometry, hierarchy, materials/UVs, annotations,
   images, scenes and appearance retained; unchanged source byte identity;

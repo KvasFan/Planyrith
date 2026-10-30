@@ -29,8 +29,9 @@ pub mod tags;
 pub use attributes::{AttributeDictionaries, Value};
 pub use camera::{Camera, DepthRange, Projection, StandardView};
 pub use entities::{
-    Anchor, AnchorKind, ArrowStyle, ComponentBehavior, ComponentDefinition, ComponentInstance,
-    DimStyle, Dimension, GlueTo, Group, Guide, ImageEntity, RadialKind, SectionPlane, SnapTo, Text,
+    Anchor, AnchorKind, AnchorPosition, ArrowStyle, ComponentBehavior, ComponentDefinition,
+    ComponentInstance, DimStyle, Dimension, GlueTo, Group, Guide, ImageEntity, RadialKind,
+    SectionPlane, SnapTo, Text, TextFont, TextLayout,
 };
 pub use hierarchy::{Entities, EntityCounts, EntityRecord, EntityView, HierarchyError};
 pub use materials::{

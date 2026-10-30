@@ -89,6 +89,7 @@ pub(super) fn insert(
             .collect::<BTreeMap<_, _>>();
         let mut piece = IndexedMesh {
             vertices: vertices.iter().map(|i| indexed.vertices[*i]).collect(),
+            curves: indexed.curves.clone(),
             ..Default::default()
         };
         piece.edges = edges

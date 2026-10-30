@@ -9,7 +9,7 @@ use planyrith_core::{
 use serde_json::json;
 use std::sync::Arc;
 
-fn cube() -> Engine {
+pub(super) fn cube() -> Engine {
     let mut e = Engine::new(Document::new(), Arc::new(CommandRegistry::with_builtins()));
     e.execute_erased(
         "rectangle",
@@ -23,7 +23,7 @@ fn cube() -> Engine {
     .unwrap();
     e
 }
-fn bytes(doc: &Document) -> Vec<u8> {
+pub(super) fn bytes(doc: &Document) -> Vec<u8> {
     write_document(
         doc,
         &[],
@@ -137,15 +137,6 @@ fn failed_legacy_geometry_decode_is_not_a_successful_empty_document() {
 
 #[test]
 fn intermediate_version_fixtures_measure_actual_coverage() {
-    // Genuine SDK-saved cases currently cannot be decoded by the dependency.
-    // Pin refusal, not a false successful import containing zero geometry.
-    for input in [
-        include_bytes!("../tests/fixtures/intermediate/sdk_saved_2019.skp").as_slice(),
-        include_bytes!("../tests/fixtures/intermediate/sdk_saved_2020.skp").as_slice(),
-    ] {
-        let error = convert("decode", input).unwrap_err().to_string();
-        assert!(error.contains("geometry could not be decoded"), "{error}");
-    }
     for (input, root_faces, definitions) in [
         (
             include_bytes!("../tests/fixtures/intermediate/arcs_2021.skp").as_slice(),
@@ -205,6 +196,21 @@ fn intermediate_version_fixtures_measure_actual_coverage() {
                 .iter()
                 .any(|w| w.contains("2025") && w.contains("2017"))
         );
+    }
+}
+
+#[test]
+fn classic_sdk_saved_models_import_geometry() {
+    for input in [
+        include_bytes!("../tests/fixtures/intermediate/sdk_saved_2019.skp").as_slice(),
+        include_bytes!("../tests/fixtures/intermediate/sdk_saved_2020.skp").as_slice(),
+    ] {
+        let decoded = convert("decode", input).unwrap();
+        let doc = read_document(&decoded.bytes, &NoProgress).unwrap().document;
+        assert_eq!(doc.model.mesh().vertex_count(), 4);
+        assert_eq!(doc.model.mesh().edge_count(), 4);
+        assert_eq!(doc.model.mesh().face_count(), 1);
+        assert!((doc.aabb().max - DVec3::new(254.0, 254.0, 0.0)).length() < 1e-6);
     }
 }
 
@@ -594,7 +600,7 @@ fn holes_loose_edges_sections_and_attributes_survive() {
     }
 }
 
-fn textured_cube(format: image::ImageFormat) -> (Engine, Vec<u8>) {
+pub(super) fn textured_cube(format: image::ImageFormat) -> (Engine, Vec<u8>) {
     use planyrith_core::io::{MemoryStorage, Storage, StorageKey};
     let storage = Arc::new(MemoryStorage::new());
     let image = image::RgbaImage::from_pixel(2, 2, image::Rgba([180, 30, 80, 255]));

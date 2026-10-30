@@ -377,6 +377,10 @@ perpendicular to hovered edge); `Esc` = cancel current step (second `Esc` = canc
 ### 7.2 `text`
 - **Params:** `text: String`, `anchor: Option<Anchor>`, `screen_offset: (f32,f32)`,
   `leader: None|View|Pushpin`, `font_size_px: f32`.
+  The implemented typed command also accepts optional `layout` with normalized
+  `screen_position`, `world_offset` in mm, leader visibility/arrow/color and
+  font family/weight/point size or model height in mm (docs/04 Decisions).
+  Invalid nonfinite placements or nonpositive sizes fail before mutation.
 - **Interactive:** click an entity (default text = measured length for edges, area for faces,
   coordinates for vertices, name for components) → drag the label → click; type → Enter
   (`Shift+Enter` = newline). Click in empty space = screen text (no leader).

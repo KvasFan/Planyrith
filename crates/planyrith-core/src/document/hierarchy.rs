@@ -639,26 +639,57 @@ impl Entities {
     /// keeping ids, order and side rows (a definition forked by copy-on-edit
     /// needs its own pids: pids are document-unique, docs/04 §2). Extra pids
     /// are ignored; missing ones leave the remaining entities unchanged.
-    pub(crate) fn reassign_pids(&mut self, pids: impl IntoIterator<Item = Pid>) {
+    pub(crate) fn reassign_pids(
+        &mut self,
+        pids: impl IntoIterator<Item = Pid>,
+    ) -> BTreeMap<Pid, Pid> {
+        self.reassign_pids_with_remap(pids, &BTreeMap::new())
+    }
+
+    /// Assigns local pids and remaps nested annotation targets in one pass.
+    /// Applying the maps separately could rename an already converted pid again.
+    pub(crate) fn reassign_pids_with_remap(
+        &mut self,
+        pids: impl IntoIterator<Item = Pid>,
+        nested: &BTreeMap<Pid, Pid>,
+    ) -> BTreeMap<Pid, Pid> {
         let mut renamed: BTreeMap<Pid, Pid> = BTreeMap::new();
         for (&id, pid) in self.order.iter().zip(pids) {
             if let Some(old) = self.pids.insert(id, pid) {
-                self.by_pid.remove(&old);
                 renamed.insert(old, pid);
             }
-            self.by_pid.insert(pid, id);
         }
-        // Anchors name entities of this container by pid: their first step,
-        // or the edge itself when they point into this container.
-        let fix = |anchor: &mut crate::document::Anchor| {
-            let key = match anchor.path.instances.steps.first_mut() {
-                Some(step) => step,
-                None => &mut anchor.path.target,
-            };
-            if let crate::document::EntityKey::Pid(p) = key
-                && let Some(new) = renamed.get(p)
+        // Source and destination pid ranges can overlap during a merge. Build
+        // the reverse index after every assignment so removing an old pid cannot
+        // remove the new binding of an earlier entity.
+        self.by_pid = self.pids.iter().map(|(id, pid)| (*pid, *id)).collect();
+        let mut all = nested.clone();
+        all.extend(renamed.iter().map(|(a, b)| (*a, *b)));
+        self.remap_annotation_paths(&all);
+        renamed
+    }
+
+    /// Rebinds all steps and targets of annotation paths during document merge.
+    pub(crate) fn remap_annotation_paths(&mut self, renamed: &BTreeMap<Pid, Pid>) {
+        let path = |path: &mut crate::document::EntityPath| {
+            for key in path
+                .instances
+                .steps
+                .iter_mut()
+                .chain(std::iter::once(&mut path.target))
             {
-                *p = *new;
+                if let crate::document::EntityKey::Pid(p) = key
+                    && let Some(new) = renamed.get(p)
+                {
+                    *p = *new;
+                }
+            }
+        };
+        let fix = |anchor: &mut crate::document::Anchor| {
+            path(&mut anchor.path);
+            if let Some(crate::document::AnchorPosition::Intersection(other)) = &mut anchor.position
+            {
+                path(other);
             }
         };
         for (_, dim) in self.dimensions.iter_mut() {

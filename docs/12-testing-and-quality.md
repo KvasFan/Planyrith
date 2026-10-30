@@ -70,6 +70,22 @@ humans or GUI automation before releases, with expected screenshots.
 
 ## Decisions
 
+- 2026-10-30 — **Editable SKP import and classic archives.** 527 workspace
+  tests pass (one pre-existing ignored test) with the converter and GPU required.
+  Positive SDK-saved 2019/2020 regressions recover the missing 254 mm square;
+  pinned arcs/nesting/texture/text/watermark fixtures extend the corpus.
+  Generated 2017/2026 imports test native annotation/font/layout retention,
+  associative edge and radial measurements, nested merge/reuse/undo, image
+  placement/assets, styles/fog/watermarks, geographic shadows and scene settings.
+  Malformed annotation coordinates and truncated classic archives fail safely.
+  Native/wasm clippy, rustdoc, fmt, cargo-deny, fixture download hashes and
+  architecture boundaries pass. CLI, GUI and converter release builds succeed;
+  release CLI smoke tests cover 2019/2020/2026. A locally inspected 2.2 MB house
+  retains 318 faces, 51 definitions and 11 image assets (including previews),
+  validates without errors and restores its source byte-for-byte after native
+  save/reopen. External source content is not committed. These checks do not
+  certify every release or complete edited-export/visual fidelity.
+
 - 2026-10-30 — **Native-first SKP fidelity increment.** 515 workspace tests
   pass with the converter and GPU required. Real-process CLI/GUI tests retain
   the exact source through native saves/reopens. Regressions cover foreign

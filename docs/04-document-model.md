@@ -248,6 +248,16 @@ tags, non-invertible transforms, `next_pid` monotonicity. `repair` fixes what it
 
 ## Decisions
 
+- 2026-10-30 — **Imported annotation layout and parametric attachments.** Optional
+  `Text.layout` stores normalized screen position, model-space leader offset (mm),
+  leader visibility, arrow, color and `TextFont` (family, weight, italic, point size
+  or model height in mm). `DimStyle.font` retains the same request. Renderers use
+  these placements and sizes, with an available-font fallback. `Anchor.position`
+  adds edge parameters, analytic curve centre/angle and intersection with a
+  second persistent path; paths are relative to the annotation's owner. Absent
+  optional fields preserve historical documents and command output. Annotation
+  paths rebind across complete nested imports and pid-range collisions.
+
 - 2026-10-20 — Groups are single-instance components with copy-on-edit uniqueness (§3.1).
 - 2026-10-20 — Dimensions re-measure via anchors; detached dimensions are allowed and flagged.
 - 2026-10-20 — Tags are visibility/style categories only; untagged raw geometry is the norm.

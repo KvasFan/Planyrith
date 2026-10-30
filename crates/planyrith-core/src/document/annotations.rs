@@ -47,6 +47,71 @@ pub fn resolve_steps(
 /// the dimension or text); `None` when it is detached (its edge is gone).
 pub fn anchor_position(doc: &Document, container: ContainerRef, anchor: &Anchor) -> Option<DVec3> {
     let (inner, transform) = resolve_steps(doc, container, &anchor.path.instances.steps)?;
+    if let Some(position) = &anchor.position {
+        use crate::document::AnchorPosition;
+        let entities = doc.container(inner)?;
+        let EntityId::Edge(edge) = entities.key_to_id(anchor.path.target)? else {
+            return None;
+        };
+        let mesh = entities.mesh();
+        let p = match position {
+            AnchorPosition::Intersection(other) => {
+                let (a, b) = mesh.edge_endpoints(edge).ok()?;
+                let a = mesh.position(a).ok()?;
+                let u = mesh.position(b).ok()? - a;
+                let (owner, world) = resolve_steps(doc, container, &other.instances.steps)?;
+                let entities = doc.container(owner)?;
+                let EntityId::Edge(other_edge) = entities.key_to_id(other.target)? else {
+                    return None;
+                };
+                let mesh = entities.mesh();
+                let (c, d) = mesh.edge_endpoints(other_edge).ok()?;
+                let (c, d) = (mesh.position(c).ok()?, mesh.position(d).ok()?);
+                let relative = transform.inverse() * world;
+                let v = relative.transform_vector3(d - c);
+                let c = relative.transform_point3(c);
+                let cross = u.cross(v);
+                let denominator = cross.length_squared();
+                if denominator <= 1e-18 {
+                    return None;
+                }
+                let delta = c - a;
+                if delta.dot(cross).abs() > ANCHOR_SNAP_MM * cross.length() {
+                    return None;
+                }
+                a + u * (delta.cross(v).dot(cross) / denominator)
+            }
+            AnchorPosition::EdgeParameter(t) => {
+                let (a, b) = mesh.edge_endpoints(edge).ok()?;
+                mesh.position(a).ok()?.lerp(mesh.position(b).ok()?, *t)
+            }
+            AnchorPosition::CurveCenter | AnchorPosition::CurveParameter(_) => {
+                let curve = mesh.edge(edge)?.curve?;
+                let (center, normal, radius) = match mesh.curve(curve)? {
+                    CurveDescriptor::Arc {
+                        center,
+                        normal,
+                        radius,
+                        ..
+                    }
+                    | CurveDescriptor::Circle {
+                        center,
+                        normal,
+                        radius,
+                        ..
+                    } => (*center, *normal, *radius),
+                    _ => return None,
+                };
+                if let AnchorPosition::CurveParameter(angle) = position {
+                    let frame = crate::math::Plane::from_point_normal(center, normal).frame();
+                    frame.from_2d(glam::DVec2::from_angle(*angle) * radius)
+                } else {
+                    center
+                }
+            }
+        };
+        return Some(transform.transform_point3(p));
+    }
     let local = match anchor.kind {
         AnchorKind::Point(p) => p,
         kind => {
@@ -70,6 +135,7 @@ pub fn anchor_position(doc: &Document, container: ContainerRef, anchor: &Anchor)
 /// A fixed-point anchor in `container`.
 pub fn point_anchor(p: DVec3) -> Anchor {
     Anchor {
+        position: None,
         path: EntityPath::new(InstancePath::root(), EntityKey::Pid(Pid::NONE)),
         kind: AnchorKind::Point(p),
     }
@@ -123,6 +189,7 @@ pub fn find_anchor(doc: &Document, container: ContainerRef, p: DVec3) -> Anchor 
         }
         if let Some((pid, kind)) = best {
             return Anchor {
+                position: None,
                 path: EntityPath::new(InstancePath { steps }, EntityKey::Pid(pid)),
                 kind,
             };

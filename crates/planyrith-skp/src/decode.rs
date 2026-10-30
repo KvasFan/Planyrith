@@ -70,7 +70,7 @@ fn value(v: &openskp::Value) -> Value {
         V::Vector(v) | V::Direction(v) => Value::Vec3(DVec3::from_array(*v)),
     }
 }
-fn attributes(model: &Model, owner: Owner) -> AttributeDictionaries {
+pub(super) fn attributes(model: &Model, owner: Owner) -> AttributeDictionaries {
     let mut result = AttributeDictionaries::new();
     for attrs in model.dictionaries.iter().filter(|a| a.owner == owner) {
         for dict in &attrs.dictionaries {
@@ -81,7 +81,7 @@ fn attributes(model: &Model, owner: Owner) -> AttributeDictionaries {
     }
     result
 }
-fn entity_attributes(
+pub(super) fn entity_attributes(
     tx: &mut Transaction<'_>,
     c: ContainerRef,
     id: EntityId,
@@ -99,7 +99,7 @@ fn entity_attributes(
     }
     Ok(())
 }
-fn tag(model: &Model, tags: &[TagId], slot: u16) -> Option<TagId> {
+pub(super) fn tag(model: &Model, tags: &[TagId], slot: u16) -> Option<TagId> {
     model
         .layer_links
         .iter()
@@ -108,7 +108,11 @@ fn tag(model: &Model, tags: &[TagId], slot: u16) -> Option<TagId> {
         .copied()
         .or_else(|| (slot == 0).then(|| tags.first().copied()).flatten())
 }
-fn material(model: &Model, materials: &[MaterialId], slot: Option<u16>) -> Option<MaterialId> {
+pub(super) fn material(
+    model: &Model,
+    materials: &[MaterialId],
+    slot: Option<u16>,
+) -> Option<MaterialId> {
     let slot = slot?;
     model
         .material_links
@@ -117,7 +121,7 @@ fn material(model: &Model, materials: &[MaterialId], slot: Option<u16>) -> Optio
         .and_then(|(_, i)| materials.get(*i))
         .copied()
 }
-fn metadata(
+pub(super) fn metadata(
     tx: &mut Transaction<'_>,
     c: ContainerRef,
     id: EntityId,
@@ -194,7 +198,35 @@ pub(super) fn document(model: &Model, source_hash: &[u8; 32]) -> Result<(Documen
         doc.info.axes = axes;
     }
     doc.attrs = attributes(model, Owner::Model);
+    if model.geo_located
+        && let Some(s) = &model.shadows
+    {
+        let settings = super::appearance::shadows(s)?;
+        if let SunModel::Geo {
+            lat,
+            lon,
+            north_angle,
+            ..
+        } = settings.sun
+        {
+            doc.info.geo = Some(GeoLocation {
+                lat,
+                lon,
+                north_angle,
+            });
+        }
+    }
     let mut warnings = Vec::new();
+    if model
+        .fonts
+        .iter()
+        .any(|f| f.family != "Inter" || f.bold || f.italic)
+        && (!model.texts.is_empty()
+            || !model.dimensions.is_empty()
+            || !model.radial_dimensions.is_empty())
+    {
+        warnings.push("Annotation font family and weight are retained; native display substitutes the available font".into());
+    }
     if model.units.length_unit > 4 {
         warnings.push(
             "Unsupported SKP display unit; using millimeters without rescaling geometry".into(),
@@ -226,13 +258,13 @@ pub(super) fn document(model: &Model, source_hash: &[u8; 32]) -> Result<(Documen
     let mut materials = Vec::new();
     let mut names = BTreeSet::new();
     for (index, m) in model.materials.iter().enumerate() {
-        let (name, rgba, opacity, texture, size) = match m {
+        let (name, rgba, opacity, texture, size, colorized) = match m {
             openskp::Material::Solid {
                 name,
                 rgba,
                 opacity,
                 ..
-            } => (name, *rgba, *opacity, None, None),
+            } => (name, *rgba, *opacity, None, None, false),
             openskp::Material::Textured {
                 name,
                 avg_rgba,
@@ -241,18 +273,14 @@ pub(super) fn document(model: &Model, source_hash: &[u8; 32]) -> Result<(Documen
                 applied_size_in,
                 colorized,
                 ..
-            } => {
-                if *colorized {
-                    warnings.push(format!("Material {name}: texture tint is not transferred"));
-                }
-                (
-                    name,
-                    avg_rgba.unwrap_or([255; 4]),
-                    *opacity,
-                    image_bytes.as_ref(),
-                    *applied_size_in,
-                )
-            }
+            } => (
+                name,
+                avg_rgba.unwrap_or([255; 4]),
+                *opacity,
+                image_bytes.as_ref(),
+                *applied_size_in,
+                *colorized,
+            ),
         };
         let mut name = if name.is_empty() {
             format!("Material {}", index + 1)
@@ -279,7 +307,7 @@ pub(super) fn document(model: &Model, source_hash: &[u8; 32]) -> Result<(Documen
             m.texture = Some(Texture {
                 image,
                 size_mm: DVec2::new(w, h).abs().max(DVec2::splat(1e-6)) * 25.4,
-                colorize: None,
+                colorize: colorized.then_some(ColorizeMode::Tint),
             });
         }
         materials.push(tx.insert_material(m)?);
@@ -336,6 +364,9 @@ pub(super) fn document(model: &Model, source_hash: &[u8; 32]) -> Result<(Documen
         let mut def = ComponentDefinition::new(uuid::Uuid::from_bytes(uid), name);
         def.is_internal_group = d.kind != openskp::DefinitionKind::Component;
         def.description = d.description.clone();
+        if let Some(bytes) = &d.thumbnail {
+            def.thumbnail = Some(tx.insert_image(bytes.clone())?);
+        }
         def.attrs = attributes(model, Owner::Definition(index));
         def.behavior.cuts_opening = d.behaviour.cuts_opening;
         def.behavior.always_face_camera = d.behaviour.always_faces_camera;
@@ -378,6 +409,13 @@ pub(super) fn document(model: &Model, source_hash: &[u8; 32]) -> Result<(Documen
                 .collect(),
             ..Default::default()
         };
+        let mut curve_indices = BTreeMap::new();
+        for i in 0..run.curves.len() {
+            if let Some(curve) = super::curves::descriptor(run, i) {
+                curve_indices.insert(i as u32, indexed.curves.len() as u32);
+                indexed.curves.push(curve);
+            }
+        }
         if indexed
             .vertices
             .iter()
@@ -398,7 +436,7 @@ pub(super) fn document(model: &Model, source_hash: &[u8; 32]) -> Result<(Documen
                         .with(EdgeFlags::SOFT, edge.soft)
                         .with(EdgeFlags::SMOOTH, edge.smooth)
                         .with(EdgeFlags::HIDDEN, edge.hidden),
-                    curve: None,
+                    curve: edge.curve.and_then(|c| curve_indices.get(&c).copied()),
                 });
                 i
             });
@@ -560,6 +598,23 @@ pub(super) fn document(model: &Model, source_hash: &[u8; 32]) -> Result<(Documen
             }
         }
         for (i, p) in run.placed.iter().enumerate() {
+            if model.definitions.iter().any(|d| {
+                d.map_index == Some(p.defref as usize) && d.kind == openskp::DefinitionKind::Image
+            }) {
+                let image = super::images::placed(model, p.defref, &p.transform, &materials)?;
+                let (id, pid) = tx.insert_entity(container, EntityRecord::Image(image))?;
+                metadata(&mut tx, container, id, p.hidden, tag(model, &tags, p.layer))?;
+                entity_attributes(
+                    &mut tx,
+                    container,
+                    id,
+                    attributes(model, Owner::Instance(ri, i)),
+                )?;
+                if p.pid != 0 {
+                    pids.entry(p.pid).or_default().push(pid);
+                }
+                continue;
+            }
             let def = *definitions
                 .get(&(p.defref as usize))
                 .ok_or_else(|| format!("missing placed definition {}", p.defref))?;
@@ -633,24 +688,88 @@ pub(super) fn document(model: &Model, source_hash: &[u8; 32]) -> Result<(Documen
                 pids.entry(s.pid).or_default().push(pid);
             }
         }
-        for p in &run.guide_points {
-            let (id, _) = tx.insert_entity(
+        for (i, p) in run.guide_points.iter().enumerate() {
+            let (id, pid) = tx.insert_entity(
                 container,
                 EntityRecord::Guide(Guide::Point {
                     pos: DVec3::from_array(p.point_m) * 1000.0,
                 }),
             )?;
             metadata(&mut tx, container, id, p.hidden, tag(model, &tags, p.layer))?;
+            entity_attributes(
+                &mut tx,
+                container,
+                id,
+                attributes(model, Owner::GuidePoint(ri, i)),
+            )?;
+            if p.pid != 0 {
+                pids.entry(p.pid).or_default().push(pid);
+            }
         }
-        let curves = run.curves.len().max(run.topology.curves);
+        for (i, p) in run.images.iter().enumerate() {
+            let image = super::images::placed(model, p.defref, &p.transform, &materials)?;
+            let (id, pid) = tx.insert_entity(container, EntityRecord::Image(image))?;
+            metadata(&mut tx, container, id, p.hidden, tag(model, &tags, p.layer))?;
+            entity_attributes(
+                &mut tx,
+                container,
+                id,
+                attributes(model, Owner::Image(ri, i)),
+            )?;
+            if p.pid != 0 {
+                pids.entry(p.pid).or_default().push(pid);
+            }
+        }
+        let curves = run.topology.curves.saturating_sub(run.curves.len());
         if curves > 0 {
             warnings.push(format!(
                 "Container {ri}: {} curves retained as segmented edges",
                 curves
             ));
         }
-        let images = run.images.len().max(run.topology.images_placed);
-        let polylines = run.polylines.len().max(run.topology.polylines);
+        let images = run.topology.images_placed.saturating_sub(run.images.len());
+        for (i, polyline) in run.polylines.iter().enumerate() {
+            let points = polyline
+                .points_m
+                .iter()
+                .map(|p| DVec3::from_array(*p) * 1000.0)
+                .collect::<Vec<_>>();
+            if points.len() < 2 {
+                continue;
+            }
+            let mesh = IndexedMesh {
+                vertices: points.clone(),
+                edges: (0..points.len() - 1)
+                    .map(|i| IndexedEdge {
+                        a: i as u32,
+                        b: i as u32 + 1,
+                        flags: EdgeFlags::NONE,
+                        curve: Some(0),
+                    })
+                    .collect(),
+                curves: vec![planyrith_core::geom::CurveDescriptor::Freehand { points }],
+                ..Default::default()
+            };
+            let placed = super::surfaces::insert(&mut tx, container, &mesh, source_hash)?;
+            for part in placed {
+                for edge in part.edges.values() {
+                    metadata(
+                        &mut tx,
+                        part.container,
+                        EntityId::Edge(*edge),
+                        polyline.hidden,
+                        tag(model, &tags, polyline.layer),
+                    )?;
+                    entity_attributes(
+                        &mut tx,
+                        part.container,
+                        EntityId::Edge(*edge),
+                        attributes(model, Owner::Polyline(ri, i)),
+                    )?;
+                }
+            }
+        }
+        let polylines = run.topology.polylines.saturating_sub(run.polylines.len());
         if images > 0 || polylines > 0 {
             warnings.push(format!(
                 "Container {ri}: {} placed images and {} 3D polylines are not transferred",
@@ -658,14 +777,14 @@ pub(super) fn document(model: &Model, source_hash: &[u8; 32]) -> Result<(Documen
             ));
         }
     }
-    for g in &model.guides {
+    for (i, g) in model.guides.iter().enumerate() {
         let container = match g.def_index {
             Some(r) => {
                 ContainerRef::Definition(*definitions.get(&r).ok_or("guide definition missing")?)
             }
             None => ContainerRef::Model,
         };
-        let (id, _) = tx.insert_entity(
+        let (id, pid) = tx.insert_entity(
             container,
             EntityRecord::Guide(Guide::Line {
                 origin: DVec3::from_array(g.point_m) * 1000.0,
@@ -675,12 +794,31 @@ pub(super) fn document(model: &Model, source_hash: &[u8; 32]) -> Result<(Documen
             }),
         )?;
         metadata(&mut tx, container, id, g.hidden, tag(model, &tags, g.layer))?;
+        entity_attributes(&mut tx, container, id, attributes(model, Owner::Guide(i)))?;
+        if g.pid != 0 {
+            pids.entry(g.pid).or_default().push(pid);
+        }
     }
+    super::annotations::import(&mut tx, model, &definitions, &tags, &materials, &mut pids)?;
+    super::metadata::import(&mut tx, model)?;
+    let styles = super::appearance::import(&mut tx, model, &mut warnings)?;
     for s in &model.scenes {
         let mut scene = Scene::named(&s.name);
         scene.description = s.description.clone();
         scene.include_in_animation = s.in_animation;
+        scene.transition_s = if model.animation.transitions {
+            model.animation.transition_s.max(0.0) as f32
+        } else {
+            0.0
+        };
         scene.camera = s.camera.as_ref().map(camera).transpose()?;
+        scene.style = super::appearance::scene_style(&mut tx, s, &styles)?;
+        scene.shadows = s
+            .shadows
+            .as_ref()
+            .map(super::appearance::shadows)
+            .transpose()?;
+        scene.axes_visible = s.rendering.as_ref().map(|r| r.model_axes);
         if s.saved.has(
             openskp::SceneProperties::HIDDEN_GEOMETRY
                 | openskp::SceneProperties::HIDDEN_GEOMETRY_2
@@ -740,18 +878,14 @@ pub(super) fn document(model: &Model, source_hash: &[u8; 32]) -> Result<(Documen
             .map(|r| r.topology.radial_dimensions)
             .sum(),
     );
+    let texts = texts.saturating_sub(model.texts.len());
+    let dimensions = dimensions.saturating_sub(model.dimensions.len());
+    let radial_dimensions = radial_dimensions.saturating_sub(model.radial_dimensions.len());
     if texts > 0 || dimensions > 0 || radial_dimensions > 0 {
         warnings.push(format!(
             "SKP annotations not transferred: {} texts, {} dimensions, {} radial dimensions",
             texts, dimensions, radial_dimensions
         ));
-    }
-    if !model.styles.is_empty()
-        || model.rendering.is_some()
-        || model.shadows.is_some()
-        || !model.watermarks.is_empty()
-    {
-        warnings.push("SKP rendering styles, shadows and watermarks are not transferred".into());
     }
     let report = planyrith_core::diagnostics::validate(&doc);
     if let Some(problem) = report
