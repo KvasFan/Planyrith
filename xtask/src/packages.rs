@@ -65,6 +65,7 @@ fn tar(root: &Path, destination: &Path, epoch: &str, compression: &str) -> Resul
             "--owner=0",
             "--group=0",
             "--numeric-owner",
+            "--transform=s,^\\./,,",
             &format!("--mtime=@{epoch}"),
             compression,
             "-cf",

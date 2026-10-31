@@ -10,7 +10,13 @@ for kind in deb arch portable; do
   mkdir -p "$dest"
   case "$kind" in
     deb) dpkg-deb -x "$out"/*.deb "$dest"; bins="$dest/usr/bin" ;;
-    arch) tar --zstd -xf "$out"/*.pkg.tar.zst -C "$dest"; bins="$dest/usr/bin" ;;
+    arch)
+      # libalpm requires this exact archive entry, without a leading ./.
+      tar --zstd -tf "$out"/*.pkg.tar.zst | grep -Fx '.PKGINFO'
+      if command -v pacman > /dev/null; then pacman -Qip "$out"/*.pkg.tar.zst; fi
+      tar --zstd -xf "$out"/*.pkg.tar.zst -C "$dest"
+      bins="$dest/usr/bin"
+      ;;
     portable) tar -xzf "$out"/*-linux-x86_64.tar.gz -C "$dest"; bins="$dest/bin" ;;
   esac
   test -x "$bins/planyrith-gui"

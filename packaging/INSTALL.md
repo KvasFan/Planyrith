@@ -13,7 +13,7 @@ The native and default working format is `.plyr`.
 - Arch Linux x86_64: `sudo pacman -U ./planyrith-*.pkg.tar.zst`.
 - Portable Linux x86_64: extract the archive and run `./Planyrith`, or
   `./Planyrith --cli --help`. The build requires glibc 2.35 or newer and a working
-  Vulkan/OpenGL driver. Wayland and X11 are supported.
+  Vulkan driver. Wayland and X11 are supported.
 
 Verify downloads against `SHA256SUMS`. Third-party licenses are in `licenses/`
 (installed under `/usr/share/licenses/planyrith` in system Linux packages).
