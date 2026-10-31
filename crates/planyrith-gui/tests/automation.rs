@@ -84,6 +84,71 @@ fn stairs_from_cli_and_gui_have_identical_canonical_exports() {
     assert!(!gui.doc().model.is_empty());
 }
 struct Server(Child);
+
+#[test]
+fn annotation_style_from_cli_and_gui_has_identical_canonical_state() {
+    let dir = scratch("labels");
+    let model = dir.join("labels.plyr");
+    let params = json!({"targets":"text | dimension","font":{"family":"Inter","size_pt":18,"bold":true},"color":"#318ac0","arrow":"open","leader_visible":false});
+    let mut gui = Session::new();
+    for (name, p) in [
+        (
+            "rectangle",
+            json!({"corner_a":[0,0,0],"corner_b":[2000,1000,0]}),
+        ),
+        ("text", json!({"text":"Width","at":[1000,0,0]})),
+        (
+            "dimension",
+            json!({"start":[0,0,0],"end":[2000,0,0],"offset":[0,-200,0]}),
+        ),
+        ("label-style", params),
+    ] {
+        gui.execute(name, p.clone()).unwrap();
+        let result = Command::new(cli())
+            .arg("--deterministic")
+            .arg("-f")
+            .arg(&model)
+            .args(["tool", name, "--params-json"])
+            .arg(p.to_string())
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+    }
+    let loaded = planyrith_core::io::native::read_document(
+        &std::fs::read(&model).unwrap(),
+        &planyrith_core::io::NoProgress,
+    )
+    .unwrap();
+    let mut expected = document_to_json(&loaded.document).unwrap();
+    let mut actual = document_to_json(gui.doc()).unwrap();
+    canonicalize(&mut expected);
+    canonicalize(&mut actual);
+    assert_eq!(actual, expected);
+    gui.undo().unwrap();
+    let before = gui.doc().model.texts().next().unwrap().1;
+    assert!(before.layout.is_none());
+    gui.redo().unwrap();
+    assert!(
+        gui.doc()
+            .model
+            .texts()
+            .next()
+            .unwrap()
+            .1
+            .layout
+            .as_ref()
+            .unwrap()
+            .font
+            .as_ref()
+            .unwrap()
+            .bold
+    );
+    let _ = std::fs::remove_dir_all(dir);
+}
 impl Drop for Server {
     fn drop(&mut self) {
         let _ = self.0.kill();

@@ -251,7 +251,8 @@ tags, non-invertible transforms, `next_pid` monotonicity. `repair` fixes what it
 - 2026-10-30 — **Imported annotation layout and parametric attachments.** Optional
   `Text.layout` stores normalized screen position, model-space leader offset (mm),
   leader visibility, arrow, color and `TextFont` (family, weight, italic, point size
-  or model height in mm). `DimStyle.font` retains the same request. Renderers use
+  or model height in mm). `DimStyle.font` retains the same request; optional `DimStyle.color` controls
+  dimension lines and label text. Renderers use
   these placements and sizes, with an available-font fallback. `Anchor.position`
   adds edge parameters, analytic curve centre/angle and intersection with a
   second persistent path; paths are relative to the annotation's owner. Absent

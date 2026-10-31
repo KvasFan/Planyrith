@@ -1244,7 +1244,7 @@ impl Renderer {
         // Guides, dimensions and section plane widgets (docs/06 §3.1 step 7).
         if let Some(o) = req.overlay {
             let guide = linear(style.modeling.guide_color);
-            let mut groups: BTreeMap<(u8, bool), LineGroup> = BTreeMap::new();
+            let mut groups: BTreeMap<(u8, bool, Option<[u8; 4]>), LineGroup> = BTreeMap::new();
             for line in &o.lines {
                 let (rank, color, width) = match line.kind {
                     OverlayKind::Guide => (0, [guide[0], guide[1], guide[2], 1.0], 1.0),
@@ -1253,6 +1253,10 @@ impl Renderer {
                     OverlayKind::SectionPlane { active: true } => (3, [0.95, 0.5, 0.05, 1.0], 1.5),
                     OverlayKind::SectionPlane { active: false } => (4, [0.95, 0.65, 0.3, 0.8], 1.0),
                 };
+                let color = line.color.map_or(color, |c| {
+                    let rgb = linear(c);
+                    [rgb[0], rgb[1], rgb[2], f32::from(c.a) / 255.0]
+                });
                 let (a, b) = if line.infinite {
                     let d = (line.b - line.a).normalize_or_zero();
                     (line.a - d * axis_length, line.a + d * axis_length)
@@ -1263,7 +1267,7 @@ impl Renderer {
                     continue;
                 };
                 groups
-                    .entry((rank, line.dashed))
+                    .entry((rank, line.dashed, line.color.map(|c| [c.r, c.g, c.b, c.a])))
                     .or_insert(((color, width), Vec::new()))
                     .1
                     .push(EdgeInstance {
@@ -1276,7 +1280,7 @@ impl Renderer {
                         material_color: [0.0; 4],
                     });
             }
-            for ((_, dashed), ((color, width), instances)) in groups {
+            for ((_, dashed, _), ((color, width), instances)) in groups {
                 let u = DrawUniform {
                     color,
                     viewport: [req.width as f32, req.height as f32, width * ppp, 0.0],

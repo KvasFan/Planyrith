@@ -385,7 +385,30 @@ perpendicular to hovered edge); `Esc` = cancel current step (second `Esc` = canc
   coordinates for vertices, name for components) → drag the label → click; type → Enter
   (`Shift+Enter` = newline). Click in empty space = screen text (no leader).
 
-### 7.3 `label-style` (dimension/text style editing: font, arrow, extension lines, color)
+### 7.3 `label-style` (dimension/text appearance)
+
+- **Params:** `targets: Sel` (selection), `font?: TextFont` (family, bold/italic,
+  size in pt or `model_height_mm`), `arrow?: none|slash|dot|closed|open`,
+  `color?: #RRGGBB[AA]`, `text_height?: Length` (dimension text/arrow height),
+  `leader_visible?: bool` (texts), `reset: bool` (false).
+- **Purpose:** edit existing native/imported annotations without changing content,
+  measurements, placement or persistent geometry attachments.
+- **Interactive:** select text/dimensions in the edit context → Entity Info →
+  Annotation style → edit fields → Apply style, or Reset appearance. Font faces
+  unavailable to the renderer use its substitute; font requests are retained.
+- **Algorithm:** resolve annotations in stable container order, refuse locked
+  contexts, patch cloned records and replace them through one transaction.
+  `reset` restores appearance first; supplied fields then override it. Text
+  normalized/world placement is retained. Geometry/inference is not recalculated.
+- **Edge cases:** unrelated selected entities are ignored; an empty annotation
+  set fails. Invalid colors, empty font families, nonfinite/nonpositive sizes,
+  sizes above 1000 pt or 1e9 mm fail before mutation. Dimension-only fields do
+  not modify texts; leader visibility does not modify dimension lines.
+- **Undo:** one step restores every previous appearance byte-for-byte.
+- **Accept:** native save/reopen, measured values and anchors preserved, screen
+  text stays in screen space, invalid/locked updates atomic, CLI golden,
+  fuzz/undo and CLI/RPC/GUI parity. Extension-line editing remains deferred.
+- **Output:** `{ updated: Count }`.
 
 ## 8. Solid tools (category `solid`) — operate on solid groups/instances only
 

@@ -96,7 +96,10 @@ acceptance criteria. Milestones are sequential; within one, items are independen
   not count as editable support for a missing entity type.
 - Import progress: SDK-saved 2019/2020 geometry, native annotations and persistent
   anchors, curves/polylines, image entities, styles/sun and scene appearance now
-  have regressions. Edited export and complete release certification remain open.
+  have regressions. The `0.11.0-alpha.1` preview adds `label-style` with Entity
+  Info controls and edited regeneration for supported annotations, curves,
+  images and appearance. Remaining presentation/format limitations and complete
+  release certification keep this milestone in progress.
 - **Accept:** verified open → native save/reopen → edit → SKP save/reopen
   across the supported releases; geometry, hierarchy, materials/UVs, annotations,
   images, scenes and appearance retained; unchanged source byte identity;

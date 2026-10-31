@@ -44,14 +44,28 @@ stroke rendering, luminance-mask watermarks, exact external font faces and
 some camera/annotation presentation details still have display limitations.
 The original source is retained by whole-model Open as described above.
 
-Edited SKP export still has conversion limits: annotations, image entities,
-styles/shadows/watermarks, some behavior/attribute types, Sheets and edit
-history are not all regenerated. Curves export as segmented edges. Unsupported
-export data produces warnings. Conflicting face sides are preserved in private
-surface groups (at most 4096 per source container), including scene visibility
-references to copied edges. Projective UV frames survive native saves; WebP
-textures export as PNG without changing decoded pixels. Selected-only export
-is rejected. Keep a native copy for full document fidelity.
+Edited SKP export now regenerates text and linear/radial dimensions with
+representable persistent anchors, fonts/colors and leaders, analytic circular
+curves and welded sampled chains, image entities/assets, styles/watermarks,
+geographic shadows and per-scene appearance. Repeated image conversions do not
+create unused native definitions. Temporary SKP ids do not consume native ids.
+
+Remaining conversion limits include manual sun directions, text attached at
+arbitrary analytic curve angles, sideways radial-leader components, a linear
+dimension offset along its measuring direction, radial dimensions across nested
+occurrences, some attribute/behavior types, custom strokes/masks, Sheets and edit
+history. Geographic shadow dates must fit the format's unsigned 32-bit epoch;
+detached or unrepresentable radial references fail explicitly. Fractional font
+point sizes and intermediate watermark grid positions are rounded with notices.
+Polygon edit metadata remains native-only; its welded geometry transfers.
+Regenerated files may omit foreign/unrecognized records; the complete original
+remains in a whole-model native working copy. Native-only source catalogs are
+not duplicated into exported SKP attribute strings.
+
+Conflicting face sides remain in private surface groups (at most 4096 per
+source container), including scene references to copied edges. Projective UV
+frames survive native saves; WebP textures/watermarks export as PNG. Selected-only
+export is rejected. Keep a native copy for full document fidelity.
 
 Compatibility tests cover original 2017/2026 files, independent SDK-saved
 2019/2020 files and generated probes declaring a 2025 header. The calibrated

@@ -18,6 +18,114 @@ fn engine() -> Engine {
     Engine::new(Document::new(), Arc::new(CommandRegistry::with_builtins()))
 }
 
+#[test]
+fn label_style_preserves_anchors_layout_measurements_and_native_round_trip() {
+    use crate::document::{ArrowStyle, Dimension};
+    let mut e = engine();
+    run(
+        &mut e,
+        "rectangle",
+        json!({"corner_a":[0,0,0],"corner_b":[2000,1000,0]}),
+    );
+    run(
+        &mut e,
+        "dimension",
+        json!({"start":[0,0,0],"end":[2000,0,0],"offset":[0,-200,0]}),
+    );
+    run(
+        &mut e,
+        "text",
+        json!({"at":[1000,0,0],"text":"Width","layout":{"world_offset":[200,100,0],"leader_visible":true}}),
+    );
+    let before = e.document().model.texts().next().unwrap().1.clone();
+    let result = run(
+        &mut e,
+        "label-style",
+        json!({"targets":"text | dimension","font":{"family":"Inter","size_pt":18,"italic":true},"color":"#318ac0","arrow":"closed"}),
+    );
+    assert_eq!(result["updated"], 2);
+    let e = reopen(&e);
+    let text = e.document().model.texts().next().unwrap().1;
+    assert_eq!(text.anchor, before.anchor);
+    assert_eq!(
+        text.layout.as_ref().unwrap().world_offset,
+        before.layout.unwrap().world_offset
+    );
+    assert_eq!(text.layout.as_ref().unwrap().arrow, ArrowStyle::Closed);
+    assert_eq!(measure(&e).0, 2000.0);
+    let dim = e.document().model.dimensions().next().unwrap().1;
+    let Dimension::Linear { style, .. } = dim else {
+        panic!("linear")
+    };
+    assert_eq!(
+        style.color,
+        Some(crate::document::Rgba8::rgb(0x31, 0x8a, 0xc0))
+    );
+    assert_eq!(style.font.as_ref().unwrap().size_pt, 18.0);
+}
+
+#[test]
+fn label_style_rejects_invalid_or_locked_updates_atomically() {
+    let mut e = engine();
+    run(&mut e, "text", json!({"text":"Fixed"}));
+    let snapshot = |e: &Engine| {
+        write_document(
+            e.document(),
+            &[],
+            &WriteOptions {
+                deterministic: true,
+                include_history: false,
+                ..Default::default()
+            },
+            &NoProgress,
+        )
+        .unwrap()
+    };
+    let before = snapshot(&e);
+    for patch in [
+        json!({"targets":"text","font":{"family":"","size_pt":12}}),
+        json!({"targets":"text","font":{"family":"Inter","size_pt":0}}),
+        json!({"targets":"text","color":"bad"}),
+    ] {
+        assert!(e.execute_erased("label-style", patch).is_err());
+        assert_eq!(snapshot(&e), before);
+    }
+    let group = run(&mut e, "make-group", json!({"targets":"all"}));
+    run(&mut e, "lock", json!({"targets":"group"}));
+    let context = crate::document::EntityPath::in_model(crate::document::EntityKey::Pid(
+        crate::ids::Pid(group["group"].as_u64().unwrap()),
+    ));
+    let before = snapshot(&e);
+    assert!(
+        e.execute_erased(
+            "label-style",
+            json!({"context":context,"targets":"text","arrow":"open"})
+        )
+        .is_err()
+    );
+    assert_eq!(snapshot(&e), before);
+}
+
+#[test]
+fn styling_screen_text_keeps_it_in_screen_space() {
+    let mut e = engine();
+    run(&mut e, "text", json!({"text":"Screen"}));
+    run(
+        &mut e,
+        "label-style",
+        json!({"targets":"text","color":"#0000ff"}),
+    );
+    let doc = e.document();
+    let items = crate::io::render_mesh::draw_list(
+        doc,
+        &crate::document::Selection::new(),
+        &crate::document::EditContext::model(),
+        false,
+    );
+    let overlay = crate::io::overlay::overlay(doc, &items);
+    assert!(overlay.labels[0].screen_only);
+}
+
 fn run(e: &mut Engine, name: &str, params: serde_json::Value) -> serde_json::Value {
     e.execute_erased(name, params)
         .unwrap_or_else(|err| panic!("{name}: {err}"))

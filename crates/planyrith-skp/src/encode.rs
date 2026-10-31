@@ -6,7 +6,7 @@ use planyrith_core::document::*;
 use planyrith_core::ids::{DefinitionId, EntityId, MaterialId, Pid, TagId, VertexId};
 use std::collections::BTreeMap;
 
-fn pid(p: Option<Pid>) -> Result<u32> {
+pub(super) fn pid(p: Option<Pid>) -> Result<u32> {
     match p {
         Some(p) => Ok(u32::try_from(p.raw())?),
         None => Ok(0),
@@ -43,7 +43,7 @@ fn value(v: &Value) -> Result<openskp::Value> {
         _=>return Err("attribute type cannot be represented in SKP (map, color, entity reference or arbitrary byte array)".into()),
     })
 }
-fn attributes(
+pub(super) fn attributes(
     model: &mut Model,
     owner: Owner,
     attrs: &AttributeDictionaries,
@@ -52,6 +52,7 @@ fn attributes(
     let dictionaries = attrs
         .0
         .iter()
+        .filter(|(name, _)| !name.starts_with("org.planyrith.skp"))
         .map(|(name, entries)| openskp::Dictionary {
             name: name.clone(),
             entries: entries
@@ -96,11 +97,34 @@ fn uv(
         None => q,
     }
 }
-fn layer(entities: &Entities, id: EntityId, tags: &BTreeMap<TagId, u16>) -> u16 {
+pub(super) fn layer(entities: &Entities, id: EntityId, tags: &BTreeMap<TagId, u16>) -> u16 {
     entities
         .tag_of(id)
         .and_then(|t| tags.get(&t).copied())
         .unwrap_or(0)
+}
+
+/// Temporary persistent ids for vertices, curve records and image definitions.
+pub(super) struct Pids(u32);
+impl Pids {
+    fn new(doc: &Document) -> Result<Self> {
+        let max = doc
+            .containers()
+            .iter()
+            .filter_map(|c| doc.container(*c))
+            .flat_map(|c| c.order().iter().filter_map(|id| c.pid_of(*id)))
+            .map(Pid::raw)
+            .max()
+            .unwrap_or(0);
+        Ok(Self(u32::try_from(max)?))
+    }
+    pub(super) fn next(&mut self) -> Result<u32> {
+        self.0 = self
+            .0
+            .checked_add(1)
+            .ok_or("SKP persistent-id space exhausted")?;
+        Ok(self.0)
+    }
 }
 
 pub(super) fn model(doc: &Document) -> Result<(Model, Vec<String>)> {
@@ -110,12 +134,20 @@ pub(super) fn model(doc: &Document) -> Result<(Model, Vec<String>)> {
         return Err("cannot export an invalid document to SKP".into());
     }
     let mut warnings = Vec::new();
+    if doc
+        .attrs
+        .get("org.planyrith.skp", "decoded-settings")
+        .is_some()
+    {
+        warnings.push("The original decoded-settings catalog remains native-only; SKP regeneration transfers its supported editable counterparts".into());
+    }
+    let mut pids = Pids::new(doc)?;
     if !doc.sheets.is_empty() {
         warnings.push(
             "Paper-space Sheets are not stored in SKP; save a .plyr copy to preserve them".into(),
         );
     }
-    warnings.push("SKP conversion does not preserve edit history, rendering styles, shadow settings or watermarks; keep a .plyr copy".into());
+    warnings.push("SKP conversion does not preserve edit history; keep a .plyr copy".into());
     let mut model = Model {
         camera: Some(camera(&doc.camera)),
         ..Default::default()
@@ -257,10 +289,11 @@ pub(super) fn model(doc: &Document) -> Result<(Model, Vec<String>)> {
     for container in containers {
         let entities = doc.container(container).ok_or("missing container")?;
         let mesh = entities.mesh();
-        if mesh.curves().count() > 0 {
-            warnings.push(format!(
-                "Container {container:?}: curve descriptors are retained as segmented edges"
-            ));
+        if mesh
+            .curves()
+            .any(|(_, c)| matches!(c, planyrith_core::geom::CurveDescriptor::Polygon { .. }))
+        {
+            warnings.push("Polygon geometry exports as a welded edge chain; polygon editing metadata remains native-only".into());
         }
         let ri = model.geometry.len();
         let mut run = GeometryRun {
@@ -277,7 +310,9 @@ pub(super) fn model(doc: &Document) -> Result<(Model, Vec<String>)> {
             let p = mesh.vertex(*v).ok_or("missing vertex")?.position;
             vertices.insert(*v, run.mesh.vertices.len() as u32);
             run.mesh.vertices.push((p / 1000.0).to_array());
+            run.mesh.vertex_pids.push(pids.next()?);
         }
+        let curves = super::encode_curves::append(mesh, &mut run, &mut pids)?;
         for edge in &ids.edges {
             let id = EntityId::Edge(*edge);
             let (a, b) = mesh.edge_endpoints(*edge)?;
@@ -292,6 +327,7 @@ pub(super) fn model(doc: &Document) -> Result<(Model, Vec<String>)> {
                 hidden: entities.is_hidden(id)
                     || e.flags.contains(planyrith_core::geom::EdgeFlags::HIDDEN),
                 layer: layer(entities, id, &tags),
+                curve: e.curve.and_then(|c| curves.get(&c).copied()),
                 ..Default::default()
             });
             if let Some(a) = entities.attrs(id) {
@@ -448,24 +484,76 @@ pub(super) fn model(doc: &Document) -> Result<(Model, Vec<String>)> {
                 run.placed.push(p);
             } else {
                 match id {
-                EntityId::SectionPlane(s)=>{let s=entities.section_plane(s).ok_or("missing section plane")?;let p=pid(entities.pid_of(id))?;if s.active {run.active_section=Some(p);}
-                    run.sections.push(openskp::SectionPlane {pid:p,plane:[s.plane.normal.x,s.plane.normal.y,s.plane.normal.z,s.plane.d/25.4],hidden:entities.is_hidden(id),name:s.name.clone(),symbol:s.symbol.clone(),layer:layer(entities,id,&tags),material:None,casts_shadows:true,receives_shadows:true});}
-                EntityId::Guide(g)=>{let p=pid(entities.pid_of(id))?;match entities.guide(g).ok_or("missing guide")? {
-                    Guide::Point {pos}=>run.guide_points.push(openskp::GuidePoint {pid:p,point_m:(*pos/1000.0).to_array(),anchor_m:(*pos/1000.0).to_array(),layer:layer(entities,id,&tags),hidden:entities.is_hidden(id),..Default::default()}),
-                    Guide::Line {origin,dir,finite}=>model.guides.push(openskp::Guide {def_index:run.def_index,point_m:(*origin/1000.0).to_array(),direction:dir.to_array(),pid:p,bounds:finite.map_or([-1e30,1e30],|(a,b)|[a/25.4,b/25.4]),layer:layer(entities,id,&tags),material:None,hidden:entities.is_hidden(id),casts_shadows:true,receives_shadows:true})}}
-                EntityId::Dimension(_)|EntityId::Text(_)|EntityId::Image(_)=>warnings.push(format!("Container {container:?}: {id:?} annotation/image not transferred to SKP")),
-                _=>{}
-            }
+                    EntityId::SectionPlane(s) => {
+                        let s = entities.section_plane(s).ok_or("missing section plane")?;
+                        let p = pid(entities.pid_of(id))?;
+                        if s.active {
+                            run.active_section = Some(p);
+                        }
+                        run.sections.push(openskp::SectionPlane {
+                            pid: p,
+                            plane: [
+                                s.plane.normal.x,
+                                s.plane.normal.y,
+                                s.plane.normal.z,
+                                s.plane.d / 25.4,
+                            ],
+                            hidden: entities.is_hidden(id),
+                            name: s.name.clone(),
+                            symbol: s.symbol.clone(),
+                            layer: layer(entities, id, &tags),
+                            material: None,
+                            casts_shadows: true,
+                            receives_shadows: true,
+                        });
+                    }
+                    EntityId::Guide(g) => {
+                        let p = pid(entities.pid_of(id))?;
+                        match entities.guide(g).ok_or("missing guide")? {
+                            Guide::Point { pos } => run.guide_points.push(openskp::GuidePoint {
+                                pid: p,
+                                point_m: (*pos / 1000.0).to_array(),
+                                anchor_m: (*pos / 1000.0).to_array(),
+                                layer: layer(entities, id, &tags),
+                                hidden: entities.is_hidden(id),
+                                ..Default::default()
+                            }),
+                            Guide::Line {
+                                origin,
+                                dir,
+                                finite,
+                            } => model.guides.push(openskp::Guide {
+                                def_index: run.def_index,
+                                point_m: (*origin / 1000.0).to_array(),
+                                direction: dir.to_array(),
+                                pid: p,
+                                bounds: finite.map_or([-1e30, 1e30], |(a, b)| [a / 25.4, b / 25.4]),
+                                layer: layer(entities, id, &tags),
+                                material: None,
+                                hidden: entities.is_hidden(id),
+                                casts_shadows: true,
+                                receives_shadows: true,
+                            }),
+                        }
+                    }
+                    EntityId::Dimension(_) | EntityId::Text(_) => {}
+                    EntityId::Image(_) => {}
+                    _ => {}
+                }
             }
         }
         run.topology = openskp::Topology {
             vertices: run.mesh.vertices.len(),
             edges: run.mesh.edges.len(),
             faces: run.mesh.faces.len(),
+            curves: run.curves.len(),
             ..Default::default()
         };
         model.geometry.push(run);
     }
+    super::encode_annotations::append(doc, &mut model, &tags, &mut warnings)?;
+    super::encode_images::append(doc, &mut model, &materials, &tags, &mut pids, &mut warnings)?;
+    let styles = super::encode_appearance::append(doc, &mut model, &mut warnings)?;
     for (_, s) in doc.scenes.iter() {
         let mut saved = 0;
         let mut scene = openskp::Scene {
@@ -477,6 +565,24 @@ pub(super) fn model(doc: &Document) -> Result<(Model, Vec<String>)> {
         if let Some(c) = s.camera {
             scene.camera = Some(camera(&c));
             saved |= openskp::SceneProperties::CAMERA;
+        }
+        if let Some(style) = s.style.and_then(|id| doc.styles.get(id).map(|s| (id, s))) {
+            scene.style = styles.get(&style.0).cloned();
+            scene.rendering = Some(super::encode_appearance::rendering(style.1));
+            saved |= openskp::SceneProperties::STYLE_AND_FOG;
+        }
+        if let Some(visible) = s.axes_visible {
+            let r = scene
+                .rendering
+                .get_or_insert_with(|| model.rendering.clone().unwrap_or_default());
+            r.model_axes = visible;
+            saved |= openskp::SceneProperties::STYLE_AND_FOG;
+        }
+        if let Some(shadows) = &s.shadows {
+            scene.shadows = super::encode_appearance::shadows(shadows, &mut warnings)?;
+            if scene.shadows.is_some() {
+                saved |= openskp::SceneProperties::SHADOWS;
+            }
         }
         if let Some(visibility) = &s.tag_visibility {
             scene.hidden_layers = visibility

@@ -470,6 +470,10 @@ fn annotations_sections_and_guides() {
         ),
         ("text", json!({ "at": [2000, 1000, 0] })),
         (
+            "label-style",
+            json!({"targets":"text | dimension","font":{"family":"Inter","size_pt":16,"bold":true},"arrow":"closed","color":"#318ac0","leader_visible":true}),
+        ),
+        (
             "tape-measure",
             json!({ "from": [500, 0, 0], "to": [500, -300, 0] }),
         ),

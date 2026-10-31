@@ -144,6 +144,23 @@ save unless `--no-thumbnail`. `manifest.json` carries `title`, `author`, `descri
 
 ## Decisions
 
+- 2026-10-30 — **Edited SKP regeneration (0.11.0-alpha.1).** Native text,
+  associative linear/radial dimensions, circular analytic curves and welded
+  sampled chains, image entities/assets, styles/watermarks, geographic shadows
+  and scene appearance now regenerate in both writers. Native annotation
+  appearance edits survive conversion after an SKP open and native save/reopen.
+  Image definitions stay internal to SKP and do not accumulate as unused native
+  components. Temporary curve/vertex/image ids are allocated deterministically
+  above document entity ids without advancing the document allocator.
+  Native-only source catalogs are retained in `.plyr`, not copied as giant SKP
+  attribute strings; classifications use their format records. Regenerated output
+  explicitly reports possible omission of foreign/unrecognized records.
+  Remaining limits include manual sun directions, some annotation placement and
+  radial references, custom strokes/masks, polygon editing metadata, certain
+  attribute/behavior types, Sheets/history and uncertified releases. Exact
+  source restoration still applies only to unchanged documents. This prerelease
+  does not satisfy the full 0.11 acceptance contract.
+
 - 2026-10-30 — **Expanded editable SKP import.** A calibrated pure-Rust classic
   object-archive reader recovers geometry from the previously failing SDK-saved
   2019/2020 cases; small MIT-licensed feature fixtures are pinned and reproducible.
@@ -203,15 +220,14 @@ save unless `--no-thumbnail`. `manifest.json` carries `title`, `author`, `descri
   Polygon boundaries and holes, wire edges/flags, nested and reused components,
   groups/transforms, two-sided materials, embedded textures/UVs, tags, cameras,
   scene visibility/sections, guides, drawing axes, display units and supported
-  attribute values transfer. Exported curves keep their segmented geometry. Painted
+  attribute values transfer. Circular curves retain analytic descriptors; other curves retain welded geometry. Painted
   groups use private component instances to retain inherited material. Conflicting
   face sides are partitioned into private surface groups without deleting faces;
   hidden-edge scene references follow all copies. Texture placements retain their
   projective frames through native saves. WebP textures export as PNG with the
   same decoded pixels.
-  On edited export, annotations/placed images, Sheets, edit history, rendering
-  styles, shadows, watermarks and unrepresentable attribute/behavior details
-  produce warnings;
+  Edited export transfers supported annotations/images/appearance as described
+  above. Unrepresentable data and native-only Sheets/history produce notices;
   retain `.plyr` for full fidelity. Unrepresentable UV placements and selected-only
   export fail explicitly. Conversion failure changes neither the document nor
   the destination. Autosave/snapshots always stay native. Inputs and converted

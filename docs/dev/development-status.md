@@ -5,7 +5,7 @@ implementation stands, what is done, what remains, and how to resume. Update it 
 every working session. Ground truth for *what to build* stays in `docs/00`–`docs/15`; this file
 is only *progress state*.
 
-_Last updated: 2026-10-30 (0.11 native-first SKP fidelity in progress)._
+_Last updated: 2026-10-30 (0.11.0-alpha.1 preview; 0.11 acceptance in progress)._
 
 **Current request:** `.plyr` remains the principal working format; complete
 SKP open/save must cover **2017 and later**. The user explicitly excluded a
@@ -41,27 +41,38 @@ Frontends use imported placement, size, color, leader visibility and arrow type,
 with an available-font substitution. The optional helper's `--license` includes
 the MIT reference attribution; no interpreter/runtime dependency was added.
 
-**Remaining for 0.11:** genuine per-release fixtures, unsupported classic layouts,
-exact external font/stroke/mask/camera/annotation display details, edited SKP
-regeneration for the newly imported data, and validation with independent target
-readers. Source preservation and editable import do not finish complete open/save
-interoperability. Keep the optional GPL process boundary and pure-Rust design.
+The 0.11.0-alpha.1 preview adds `label-style` (CLI/RPC/Rhai and Entity Info),
+font/model sizing, arrow/color/leader editing and reset with persistent anchors,
+placement and one-step undo. Dimension colors reach both GPU lines and labels.
+Edited SKP export now regenerates native annotations, analytic circular curves
+and welded chains, image entities, styles/watermarks, geographic sun settings
+and scene appearance. Image conversions no longer accumulate unused native
+image definitions. Native-only catalogs are not duplicated as SKP strings.
+
+**Remaining for 0.11:** genuine per-release fixtures/independent target readers,
+unsupported classic layouts, exact external font/stroke/mask/camera presentation,
+manual sun directions, some dimension offsets/nested radial references/curve
+angle attachments, polygon edit metadata and remaining attribute/behavior types.
+This is a prerelease, not completion of the 0.11 acceptance contract.
 Detailed evidence: [skp-fidelity.md](skp-fidelity.md).
 
 Release policy remains coherent commits and one final push after local checks,
 then green CI; no tag or automatic 1.0 work. Historical progress below predates
 these milestones. The 0.10 baseline passed 508 workspace tests, three headless
 Chrome tests, native/wasm clippy, rustdoc and cargo-deny; its web brotli size was
-5,462,864 bytes. The current import increment passes 527 workspace tests (one pre-existing ignored
-case), with the converter and GPU required. Native/wasm clippy, rustdoc, fmt,
-cargo-deny, reproducible fixture hashes and dependency boundaries pass. Optimized
-CLI, GUI and converter binaries are in `target/release`; release CLI smoke tests
-open 2019/2020/2026 files. A local 2.2 MB house retains 318 faces, 51 definitions,
-11 image assets including previews, validates without errors and returns its
-original SKP bytes after a native save/reopen. External source content was not
-committed. Native debug test executables were linked without debug symbols to
-avoid filesystem metadata-allocation stalls; test behavior/profiles otherwise
-match CI. No version bump or release tag: this increment does not complete 0.11.
+5,462,864 bytes. The preceding import increment (`cfe6852`) passed 527 workspace tests, native/wasm
+clippy, fmt, docs, deny and release builds. It recovered the SDK-saved 2019/2020
+geometry and validated a local 2.2 MB house (318 faces, 51 definitions, 11 images
+including previews), with exact source restoration. No external model content
+was committed. The alpha passes 538 workspace tests with GPU/converter required (one existing
+ignored benchmark) and three headless Chrome tests. Native/wasm clippy, fmt,
+rustdoc, cargo-deny and separate-converter dependency checks pass. Optimized
+CLI/GUI/converter binaries in `target/release` report `0.11.0-alpha.1`; release
+CLI smoke tests cover 2019/2020/2026 imports and 2017/2026 annotation exports.
+The built `dist/web` totals 5,493,075 brotli bytes, within 12 MiB. Push coherent
+commits once after these local gates, then verify CI for that HEAD; no tag yet. Native debug test binaries strip debug
+symbols to avoid local filesystem metadata stalls. Keep tags pending the user's
+trial; do not start 1.0 automatically.
 
 ## 1. Where we are
 

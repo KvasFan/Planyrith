@@ -201,13 +201,14 @@ fn arrow(n: u32) -> ArrowStyle {
         _ => ArrowStyle::None,
     }
 }
-fn dim_style(model: &Model, index: Option<usize>, mark: u32) -> DimStyle {
+fn dim_style(model: &Model, index: Option<usize>, mark: u32, color: Option<Rgba8>) -> DimStyle {
     let font = font(model, index);
     let height = font
         .as_ref()
         .and_then(|f| f.model_height_mm)
         .unwrap_or(100.0);
     DimStyle {
+        color,
         font,
         text_height: Length::mm(height),
         arrow: arrow(mark),
@@ -351,7 +352,14 @@ pub(super) fn import(
             end,
             offset: offset * d.offset_m * 1000.0,
             direction: Some(direction),
-            style: dim_style(model, d.font, d.arrow),
+            style: dim_style(
+                model,
+                d.font,
+                d.arrow,
+                decode::material(model, materials, d.material)
+                    .and_then(|id| tx.document().materials.get(id))
+                    .map(|m| m.color),
+            ),
             text_override: (!d.text_override.is_empty()).then_some(d.text_override.clone()),
         };
         let (id, pid) = tx.insert_entity(c, EntityRecord::Dimension(record))?;
@@ -418,7 +426,14 @@ pub(super) fn import(
                 RadialKind::Radius
             },
             leader,
-            style: dim_style(model, d.font, d.arrow),
+            style: dim_style(
+                model,
+                d.font,
+                d.arrow,
+                decode::material(model, materials, d.material)
+                    .and_then(|id| tx.document().materials.get(id))
+                    .map(|m| m.color),
+            ),
             text_override: (!d.text_override.is_empty()).then_some(d.text_override.clone()),
         };
         let (id, pid) = tx.insert_entity(c, EntityRecord::Dimension(record))?;

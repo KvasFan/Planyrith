@@ -252,6 +252,145 @@ pub fn entity_info(ui: &mut egui::Ui, session: &mut Session, error: &mut Option<
         let name = if lock { "lock" } else { "unlock" };
         run(session, error, name, json!({ "targets": "selection" }));
     }
+    annotation_style(ui, session, error);
+}
+
+#[derive(Clone)]
+struct AnnotationDraft {
+    font: planyrith_core::document::TextFont,
+    arrow: planyrith_core::document::ArrowStyle,
+    color: [u8; 4],
+    leader: bool,
+    text: bool,
+}
+
+fn annotation_style(ui: &mut egui::Ui, session: &mut Session, error: &mut Option<String>) {
+    use planyrith_core::document::{ArrowStyle, Dimension, TextFont};
+    let doc = session.doc();
+    let first = session.engine.selection().iter().find_map(|path| {
+        let entity = doc.resolve(path).ok()?;
+        let view = doc.container(entity.container)?.view(entity.entity)?;
+        let (font, arrow, color, leader, text) = match view {
+            EntityView::Text(t) => {
+                let l = t.layout.as_ref();
+                (
+                    l.and_then(|l| l.font.clone()).unwrap_or_default(),
+                    l.map_or(ArrowStyle::Dot, |l| l.arrow),
+                    l.and_then(|l| l.color),
+                    l.is_none_or(|l| l.leader_visible),
+                    true,
+                )
+            }
+            EntityView::Dimension(d) => {
+                let style = match d {
+                    Dimension::Linear { style, .. } | Dimension::Radial { style, .. } => style,
+                };
+                (
+                    style.font.clone().unwrap_or_else(|| TextFont {
+                        model_height_mm: Some(style.text_height.as_mm()),
+                        ..Default::default()
+                    }),
+                    style.arrow,
+                    style.color,
+                    false,
+                    false,
+                )
+            }
+            _ => return None,
+        };
+        let color = color.unwrap_or(Rgba8::rgb(20, 20, 20));
+        Some(AnnotationDraft {
+            font,
+            arrow,
+            color: [color.r, color.g, color.b, color.a],
+            leader,
+            text,
+        })
+    });
+    let Some(first) = first else { return };
+    let paths = session
+        .engine
+        .selection()
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>();
+    let key = ui
+        .id()
+        .with(("annotation-style", paths, session.engine.generation()));
+    let mut draft = ui
+        .data_mut(|d| d.get_temp::<AnnotationDraft>(key))
+        .unwrap_or(first);
+    let mut apply = false;
+    let mut reset = false;
+    ui.collapsing("Annotation style", |ui| {
+        ui.label("Font family");
+        ui.text_edit_singleline(&mut draft.font.family);
+        ui.horizontal(|ui| {
+            ui.checkbox(&mut draft.font.bold, "Bold");
+            ui.checkbox(&mut draft.font.italic, "Italic");
+        });
+        let mut model_sized = draft.font.model_height_mm.is_some();
+        if ui
+            .checkbox(&mut model_sized, "Height in model units")
+            .changed()
+        {
+            draft.font.model_height_mm = model_sized.then_some(100.0);
+        }
+        if let Some(height) = &mut draft.font.model_height_mm {
+            ui.add(
+                egui::DragValue::new(height)
+                    .range(0.001..=1e9)
+                    .suffix(" mm"),
+            );
+        } else {
+            ui.add(
+                egui::DragValue::new(&mut draft.font.size_pt)
+                    .range(1.0..=1000.0)
+                    .suffix(" pt"),
+            );
+        }
+        egui::ComboBox::from_id_salt("annotation-arrow")
+            .selected_text(format!("{:?}", draft.arrow))
+            .show_ui(ui, |ui| {
+                for arrow in [
+                    ArrowStyle::None,
+                    ArrowStyle::Slash,
+                    ArrowStyle::Dot,
+                    ArrowStyle::Open,
+                    ArrowStyle::Closed,
+                ] {
+                    ui.selectable_value(&mut draft.arrow, arrow, format!("{arrow:?}"));
+                }
+            });
+        ui.horizontal(|ui| {
+            ui.label("Color");
+            ui.color_edit_button_srgba_unmultiplied(&mut draft.color);
+        });
+        if draft.text {
+            ui.checkbox(&mut draft.leader, "Show leader");
+        }
+        ui.weak("Unavailable font faces use a substitute for display.");
+        ui.horizontal(|ui| {
+            apply = ui.button("Apply style").clicked();
+            reset = ui.button("Reset appearance").clicked();
+        });
+    });
+    ui.data_mut(|d| d.insert_temp(key, draft.clone()));
+    if reset {
+        run(
+            session,
+            error,
+            "label-style",
+            json!({"targets":"selection","reset":true}),
+        );
+    } else if apply {
+        run(
+            session,
+            error,
+            "label-style",
+            json!({"targets":"selection","font":draft.font,"arrow":draft.arrow,"color":format!("#{:02x}{:02x}{:02x}{:02x}",draft.color[0],draft.color[1],draft.color[2],draft.color[3]),"leader_visible":draft.text.then_some(draft.leader)}),
+        );
+    }
 }
 
 // ----- Tags ---------------------------------------------------------------------------------

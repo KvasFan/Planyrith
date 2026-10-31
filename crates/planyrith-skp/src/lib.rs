@@ -7,6 +7,10 @@ mod classic;
 mod curves;
 mod decode;
 mod encode;
+mod encode_annotations;
+mod encode_appearance;
+mod encode_curves;
+mod encode_images;
 mod images;
 mod metadata;
 mod source;
@@ -121,6 +125,9 @@ pub fn convert(operation: &str, bytes: &[u8]) -> Result<Converted> {
                 });
             }
             let (model, mut warnings) = encode::model(&loaded.document)?;
+            if source_version.is_some() {
+                warnings.push("Regenerated SKP stores supported editable data; foreign or unrecognized records may be omitted. The complete original remains in the native working copy".into());
+            }
             if operation == "encode-preserve"
                 && let Some(version) = source_version
                 && version != target_version
@@ -166,6 +173,8 @@ fn to_transform(t: DAffine3) -> [f64; 13] {
     ]
 }
 
+#[cfg(test)]
+mod export_tests;
 #[cfg(test)]
 mod import_tests;
 #[cfg(test)]

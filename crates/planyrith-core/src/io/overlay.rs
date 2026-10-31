@@ -31,6 +31,8 @@ pub enum OverlayKind {
 /// A line to draw.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct OverlayLine {
+    /// Explicit annotation color; absent follows the viewport style.
+    pub color: Option<crate::document::Rgba8>,
     /// Start (world).
     pub a: DVec3,
     /// End (world); for an infinite line, `a + direction`.
@@ -47,6 +49,8 @@ pub struct OverlayLine {
 /// A text label.
 #[derive(Debug, Clone, PartialEq)]
 pub struct OverlayLabel {
+    /// Screen-only annotation without a world anchor, including styled text.
+    pub screen_only: bool,
     /// Explicit screen placement, world leader and font, when supplied.
     pub layout: Option<crate::document::TextLayout>,
     /// The point it belongs to (world).
@@ -95,6 +99,7 @@ pub fn overlay(doc: &Document, items: &[DrawItem]) -> Overlay {
                         None => (*origin, *origin + *dir * 1000.0, true),
                     };
                     out.lines.push(OverlayLine {
+                        color: None,
                         a: w(a),
                         b: w(b),
                         infinite,
@@ -113,6 +118,7 @@ pub fn overlay(doc: &Document, items: &[DrawItem]) -> Overlay {
                         .and_then(|a| anchor_position(doc, item.container, a))
                         .map(w);
                     out.labels.push(OverlayLabel {
+                        screen_only: t.anchor.is_none(),
                         layout: t.layout.clone().map(|mut layout| {
                             layout.world_offset =
                                 layout.world_offset.map(|v| item.world.transform_vector3(v));
@@ -172,6 +178,7 @@ pub fn overlay(doc: &Document, items: &[DrawItem]) -> Overlay {
                         .map(|(x, y)| frame.from_2d(DVec2::new(x, y)));
                     for k in 0..4 {
                         out.lines.push(OverlayLine {
+                            color: None,
                             a: w(corners[k]),
                             b: w(corners[(k + 1) % 4]),
                             infinite: false,
@@ -181,6 +188,7 @@ pub fn overlay(doc: &Document, items: &[DrawItem]) -> Overlay {
                     }
                     out.labels.push(OverlayLabel {
                         layout: None,
+                        screen_only: false,
                         at: w(corners[2]),
                         screen_offset: DVec2::ZERO,
                         text: s.symbol.clone(),
@@ -196,6 +204,10 @@ pub fn overlay(doc: &Document, items: &[DrawItem]) -> Overlay {
 
 /// Extension lines, the dimension line, its end marks and the label.
 fn dimension_lines(doc: &Document, item: &DrawItem, dim: &Dimension, out: &mut Overlay) {
+    let (style, radial) = match dim {
+        Dimension::Linear { style, .. } => (style, false),
+        Dimension::Radial { style, .. } => (style, true),
+    };
     let view = dimension_view(doc, item.container, dim);
     let kind = if view.detached {
         OverlayKind::Detached
@@ -206,6 +218,7 @@ fn dimension_lines(doc: &Document, item: &DrawItem, dim: &Dimension, out: &mut O
     let mut line = |a: DVec3, b: DVec3| {
         if (b - a).length() > 1e-9 {
             out.lines.push(OverlayLine {
+                color: style.color,
                 a: w(a),
                 b: w(b),
                 infinite: false,
@@ -213,10 +226,6 @@ fn dimension_lines(doc: &Document, item: &DrawItem, dim: &Dimension, out: &mut O
                 kind,
             });
         }
-    };
-    let (style, radial) = match dim {
-        Dimension::Linear { style, .. } => (style, false),
-        Dimension::Radial { style, .. } => (style, true),
     };
     let [p, q] = view.line;
     if radial {
@@ -255,9 +264,13 @@ fn dimension_lines(doc: &Document, item: &DrawItem, dim: &Dimension, out: &mut O
         }
     }
     out.labels.push(OverlayLabel {
-        layout: style.font.clone().map(|font| crate::document::TextLayout {
-            font: Some(font),
-            ..Default::default()
+        screen_only: false,
+        layout: (style.font.is_some() || style.color.is_some()).then(|| {
+            crate::document::TextLayout {
+                font: style.font.clone(),
+                color: style.color,
+                ..Default::default()
+            }
         }),
         at: w(view.text_at),
         screen_offset: DVec2::ZERO,

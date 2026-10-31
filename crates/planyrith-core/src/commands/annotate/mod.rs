@@ -7,6 +7,7 @@
 
 pub mod dimension;
 pub mod guides;
+pub mod label_style;
 pub mod text;
 
 use crate::commands::CommandRegistry;
@@ -20,6 +21,7 @@ pub use text::{TextCommand, TextOutput, TextParams};
 pub fn register(registry: &mut CommandRegistry) {
     registry.register(DimensionCommand);
     registry.register(TextCommand);
+    registry.register(label_style::LabelStyle);
     registry.register(TapeMeasure);
     registry.register(Protractor);
     registry.register(GuideDeleteAll);

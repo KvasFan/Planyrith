@@ -52,6 +52,7 @@ enum Cmd {
     Soften(u8),
     Sweep(usize),
     Sheets(u8, usize),
+    Annotation(u8, u8),
 }
 
 /// What a transform applies to.
@@ -101,6 +102,7 @@ fn cmd() -> impl Strategy<Value = Cmd> {
         1 => (0u8..180).prop_map(Cmd::Soften),
         1 => (0usize..64).prop_map(Cmd::Sweep),
         1 => (0u8..6,0usize..8).prop_map(|(op,i)|Cmd::Sheets(op,i)),
+        1 => (0u8..3,1u8..32).prop_map(|(op,size)|Cmd::Annotation(op,size)),
     ]
 }
 
@@ -162,6 +164,17 @@ fn target(e: &Engine, p: Pick) -> Option<String> {
 fn resolve(e: &Engine, c: &Cmd) -> Option<(&'static str, Value)> {
     let face_ref = |i: usize| nth(&faces(e), i).map(|pid| json!({ "Pid": pid.0 }));
     Some(match *c {
+        Cmd::Annotation(op, size) => match op {
+            0 => ("text", json!({"text":"Fuzz label"})),
+            1 => (
+                "label-style",
+                json!({"targets":"text | dimension","font":{"family":"Inter","size_pt":size},"arrow":"open"}),
+            ),
+            _ => (
+                "label-style",
+                json!({"targets":"text | dimension","reset":true}),
+            ),
+        },
         Cmd::Sketch(op, p, size) => {
             let [x, y, z] = p.map(|v| f64::from(v) * 100.0);
             let size = f64::from(size) * 100.0;

@@ -268,6 +268,15 @@ On failure: `{"ok": false, "error": {"code": "E1002", "message": "...", "param":
 
 ## Decisions
 
+- 2026-10-30 — **Annotation appearance command (0.11 alpha).** `tool label-style`
+  patches selected texts/dimensions: `--targets 'text | dimension'`,
+  `--font '{"family":"Inter","size_pt":18,"bold":true}'`, `--arrow open`,
+  `--color '#318ac0'`, `--text-height 100mm`, `--leader-visible`, or `--reset`.
+  Batch/RPC use the same typed fields; Rhai exposes `label_style(#{...})`.
+  Font sizes are pt or model mm; heights above 1e9 mm and point sizes above
+  1000 are refused. Content, placement and persistent targets stay attached;
+  changes undo together. The CLI command is generated from its registry schema.
+
 - 2026-10-30 — **Editable annotation layout.** `tool text --layout JSON` (also
   `text` parameters in batch/RPC) accepts normalized `screen_position`,
   `world_offset` in mm, `leader_visible`, arrow/color and a `font` request with

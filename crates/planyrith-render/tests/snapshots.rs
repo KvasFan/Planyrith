@@ -492,6 +492,73 @@ fn sections_shadows_and_overlays() {
     check_within("room-section-shadows", &image, 24, 100);
 }
 
+#[test]
+fn annotation_styles_keep_separate_line_colors_on_the_gpu() {
+    let Some(gpu) = gpu() else { return };
+    let mut e = Engine::new(Document::new(), Arc::new(CommandRegistry::with_builtins()));
+    rect(&mut e, [0.0, 0.0, 0.0], [2000.0, 1000.0, 0.0]);
+    for (y, offset, color) in [(0, -200, "#cc2000"), (1000, 200, "#0066cc")] {
+        let result = run(
+            &mut e,
+            "dimension",
+            json!({"start":[0,y,0],"end":[2000,y,0],"offset":[0,offset,0]}),
+        );
+        run(
+            &mut e,
+            "label-style",
+            json!({"targets":format!("@{}",result["dimension"].as_u64().unwrap()),"color":color,"arrow":"closed"}),
+        );
+    }
+    let doc = e.document();
+    let items = draw_list(doc, &Selection::new(), &EditContext::model(), false);
+    let overlay = planyrith_core::io::overlay::overlay(doc, &items);
+    let camera = Camera {
+        eye: DVec3::new(1000.0, 500.0, 5000.0),
+        target: DVec3::new(1000.0, 500.0, 0.0),
+        up: DVec3::Y,
+        projection: Projection::Parallel { height_mm: 2000.0 },
+        aspect: f64::from(WIDTH) / f64::from(HEIGHT),
+    };
+    let mut renderer = Renderer::new(
+        gpu.device.clone(),
+        gpu.queue.clone(),
+        RendererOptions::default(),
+    );
+    renderer
+        .render(&FrameRequest {
+            doc,
+            items: &items,
+            camera: &camera,
+            style: &Style::default(),
+            width: WIDTH,
+            height: HEIGHT,
+            show_hidden: false,
+            ids: false,
+            transparent_background: false,
+            axes: false,
+            overlay: Some(&overlay),
+        })
+        .unwrap();
+    // Count the GPU line pass before CPU label text could conceal a grouping bug.
+    let image = renderer.read_color().unwrap();
+    let red = image
+        .pixels()
+        .filter(|p| {
+            i16::from(p[0]) - i16::from(p[1]) > 40 && i16::from(p[0]) - i16::from(p[2]) > 40
+        })
+        .count();
+    let blue = image
+        .pixels()
+        .filter(|p| {
+            i16::from(p[2]) - i16::from(p[0]) > 40 && i16::from(p[2]) - i16::from(p[1]) > 20
+        })
+        .count();
+    assert!(
+        red > 100 && blue > 100,
+        "expected both annotation colors: red={red}, blue={blue}"
+    );
+}
+
 /// The browser build falls back to WebGL2 (docs/11 §4.2), which lacks some
 /// downlevel features (a second view format of a texture, for one): the
 /// renderer draws, hands the UI its display view and picks on the GL backend

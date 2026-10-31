@@ -711,6 +711,54 @@ fn rpc(id: i64, method: &str, params: Value) -> Value {
     serde_json::json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params })
 }
 
+#[test]
+fn annotation_style_is_available_over_rpc_and_survives_save() {
+    use serde_json::json;
+    let dir = scratch("label-style-rpc");
+    let path = dir.join("labels.plyr");
+    let (replies, _) = serve(
+        &[],
+        &[
+            rpc(1, "session.new", json!({"path":path})),
+            rpc(
+                2,
+                "command.execute",
+                json!({"doc_id":"d1","name":"text","params":{"text":"RPC label"}}),
+            ),
+            rpc(
+                3,
+                "command.execute",
+                json!({"doc_id":"d1","name":"label-style","params":{"targets":"text","font":{"family":"Inter","size_pt":18},"color":"#318ac0","arrow":"open"}}),
+            ),
+            rpc(4, "session.save", json!({"doc_id":"d1"})),
+        ],
+    );
+    for reply in replies.values() {
+        assert!(reply.get("error").is_none(), "{reply}");
+    }
+    assert_eq!(replies[&3]["result"]["output"]["updated"], 1);
+    let loaded = planyrith_core::io::native::read_document(
+        &std::fs::read(path).unwrap(),
+        &planyrith_core::io::NoProgress,
+    )
+    .unwrap();
+    let layout = loaded
+        .document
+        .model
+        .texts()
+        .next()
+        .unwrap()
+        .1
+        .layout
+        .as_ref()
+        .unwrap();
+    assert_eq!(layout.font.as_ref().unwrap().size_pt, 18.0);
+    assert_eq!(
+        layout.color,
+        Some(planyrith_core::document::Rgba8::rgb(0x31, 0x8a, 0xc0))
+    );
+}
+
 /// docs/08 §3 and AGENTS.md §2 (every command reachable via JSON-RPC).
 #[test]
 fn serve_answers_json_rpc_over_stdio() {

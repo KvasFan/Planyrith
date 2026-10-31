@@ -1,0 +1,6 @@
+# Change annotation appearance while preserving its geometry attachments.
+rectangle --corner-a 0,0,0 --corner-b 2000,1000,0
+dimension --start 0,0,0 --end 2000,0,0 --offset 0,-300,0
+text --text 'Room width' --at 1000,0,0
+text --text Notes --layout '{"screen_position":[0.2,0.15]}'
+label-style --targets 'text | dimension' --font '{"family":"Inter","size_pt":16,"bold":true}' --arrow closed --color '#318ac0' --leader-visible

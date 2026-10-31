@@ -208,6 +208,13 @@ collected by clicks: e.g. segments for Circle, array count, copy toggle).
 
 ## Decisions
 
+- 2026-10-30 — **Annotation appearance (0.11 alpha).** Entity Info adds an
+  Annotation style form when text/dimensions are selected. Draft controls retain
+  font request, pt/model height, arrow, color and text leader visibility until
+  Apply style dispatches `label-style` once. Reset appearance dispatches the
+  same command's reset flag. A new selection or document generation refreshes
+  the draft; no geometry is changed in the panel. Font substitution is indicated.
+
 - 2026-10-30 — **Desktop SKP and drawing tools.** Open and Save As accept SKP
   with the separately installed converter; import/export use the same core
   commands and surface compatibility warnings. Browser conversion reports that

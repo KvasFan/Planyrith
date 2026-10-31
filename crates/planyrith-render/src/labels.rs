@@ -78,10 +78,7 @@ pub fn draw_labels(image: &mut RgbaImage, overlay: &Overlay, camera: &Camera) {
         }
     }
     for label in &overlay.labels {
-        let screen_only = label.layout.is_none()
-            && label.kind == OverlayKind::Text
-            && label.at == DVec3::ZERO
-            && label.screen_offset == DVec2::ZERO;
+        let screen_only = label.screen_only;
         let anchor = if let Some(p) = label.layout.as_ref().and_then(|l| l.screen_position) {
             Some(DVec2::new(p.x * w, p.y * h))
         } else if screen_only {

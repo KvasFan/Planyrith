@@ -5,7 +5,7 @@ architecture, interiors, landscape, woodworking and product mock-ups. It is writ
 entirely in Rust, runs on Linux, macOS, Windows and in the browser (WebAssembly), and is
 built *CLI-first*: every modeling tool exists as a command before it gets a button.
 
-> **Status: version 0.10.0 — SKP interchange and drawing tools.**
+> **Status: preview 0.11.0-alpha.1 — editable SKP exchange and annotation styles.**
 > The geometry kernel, the document model, the modeling commands, the native file format, the
 > `planyrith` command line (headless rendering, a JSON-RPC server, a shell) and the GUI work:
 > drawing and editing tools that snap through the inference engine, exact input, previews,
@@ -60,11 +60,16 @@ planyrith -f model.plyr export model-2026.skp --skp-version 2026
 
 The GUI's Open, Save As and Import/Export dialogs accept `.skp`. Tests cover
 2017 and 2026 containers, SDK-saved 2019/2020 files and generated 2025-header
-probes. Other intervening releases remain uncertified. Import includes geometry,
-hierarchy, textures, annotations and associative dimensions, analytic curves,
-placed images, styles, shadows and scene appearance. Native display substitutes
-unavailable fonts; some appearance details and edited SKP exports still have
-conversion limits. Keep `.plyr` as the full working document.
+probes. Other intervening releases remain uncertified. Import and edited export
+include geometry, hierarchy, textures, text and associative dimensions, analytic
+circular curves, placed images, styles, geographic shadows and scene appearance.
+Select text or dimensions and open **Entity Info → Annotation style** to change
+font requests, sizes, arrow, color and leaders. The same operation is available
+as `planyrith tool label-style` and through RPC/scripting.
+
+This is an alpha build. Native display substitutes unavailable font faces;
+manual sun directions, some annotation presentation and custom stroke/mask
+rendering retain conversion limits. Keep `.plyr` as the full working document.
 See [converter scope and license](crates/planyrith-skp/README.md).
 
 Whole-model Open retains the complete SKP source through native working copies.

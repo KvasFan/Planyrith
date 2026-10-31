@@ -339,6 +339,7 @@ pub(super) fn document(model: &Model, source_hash: &[u8; 32]) -> Result<(Documen
         tags.push(tx.insert_tag(t)?);
     }
     let mut definitions = BTreeMap::<usize, DefinitionId>::new();
+    let mut image_definitions = BTreeSet::new();
     for (index, d) in model.definitions.iter().enumerate() {
         let Some(reference) = d.map_index.or_else(|| {
             model
@@ -349,6 +350,10 @@ pub(super) fn document(model: &Model, source_hash: &[u8; 32]) -> Result<(Documen
         }) else {
             return Err(format!("definition {} has no geometry linkage", d.name).into());
         };
+        if d.kind == openskp::DefinitionKind::Image {
+            image_definitions.insert(reference);
+            continue;
+        }
         let mut name = if d.name.is_empty() {
             format!("Component {}", index + 1)
         } else {
@@ -386,6 +391,12 @@ pub(super) fn document(model: &Model, source_hash: &[u8; 32]) -> Result<(Documen
     let mut pids = BTreeMap::<u32, Vec<Pid>>::new();
     let mut seen_root = false;
     for (ri, run) in model.geometry.iter().enumerate() {
+        if run
+            .def_index
+            .is_some_and(|r| image_definitions.contains(&r))
+        {
+            continue;
+        }
         let container = match run.def_index {
             Some(reference) => ContainerRef::Definition(
                 *definitions

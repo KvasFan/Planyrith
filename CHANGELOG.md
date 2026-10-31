@@ -4,8 +4,20 @@ All notable changes to Planyrith are recorded here. Versions follow
 [Semantic Versioning](https://semver.org/); before 1.0, minor versions are milestones of
 [`docs/13-roadmap.md`](docs/13-roadmap.md).
 
-## Unreleased — Native-first SKP fidelity
+## 0.11.0-alpha.1 — Editable SKP exchange and annotation styling (2026-10-30)
 
+- Add `label-style` to CLI, RPC and scripting, plus annotation appearance controls
+  in Entity Info: font requests, screen/model height, arrow, text color, leaders
+  and reset. Edits retain anchors/placement and undo in one step; dimension
+  colors affect both lines and labels.
+- Regenerate SKP text, associative linear/radial dimensions, analytic circular
+  curves and welded chains, image entities/assets, styles, watermarks,
+  geographic shadows and scene appearance. Native → SKP → native tests cover
+  both 2017 and 2026, including actual edits after opening an SKP.
+- Avoid accumulating private image definitions on repeated conversion. Keep
+  temporary vertex/curve ids deterministic and separate from document ids.
+- This is a prerelease: manual sun directions, some annotation presentation,
+  custom strokes/masks and per-release certification remain incomplete.
 - Keep `.plyr` as the principal lossless working format. Complete SKP
   interoperability for 2017 and later is the next acceptance target; it is
   not yet certified across that range.
@@ -24,7 +36,7 @@ All notable changes to Planyrith are recorded here. Versions follow
   fog/backgrounds, watermarks, sun settings and scene appearance. Preserve
   classifications, custom stroke images and decoded settings in native data.
   Exact external font rendering and some appearance details remain limited;
-  edited SKP regeneration and release-by-release certification remain open.
+  full edited-output and release-by-release certification remain open.
 
 ## 0.10.0 — SKP interchange and drawing tools (2026-10-30)
 

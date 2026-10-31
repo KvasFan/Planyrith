@@ -70,6 +70,21 @@ humans or GUI automation before releases, with expected screenshots.
 
 ## Decisions
 
+- 2026-10-30 — **0.11.0-alpha.1 preview.** 538 workspace tests pass with GPU
+  and converter required (one existing ignored benchmark), plus three headless
+  Chrome tests. `label-style` has a CLI batch/canonical golden, byte-exact undo,
+  invalid/locked-context atomicity, fuzz coverage, RPC and CLI/GUI parity checks.
+  GPU tests distinguish independently colored dimension groups before CPU text
+  rendering. Both SKP writers retain edited annotations/live anchors/font/color,
+  analytic curves, repeated image round-trips without orphan definitions,
+  styles/watermarks/geographic sun and scene appearance. GUI SKP -> edit ->
+  native working copy -> SKP tests cover the same behavior. Native/wasm clippy,
+  fmt, rustdoc, cargo-deny and the separate-converter dependency boundary pass.
+  Optimized desktop binaries and web bundle build; brotli total is 5,493,075
+  bytes, below the 12 MiB budget. Release CLI smoke tests open 2019/2020/2026
+  files and export/reopen edited annotation fixtures in 2017/2026. Remaining
+  compatibility limits keep full 0.11 acceptance in progress.
+
 - 2026-10-30 — **Editable SKP import and classic archives.** 527 workspace
   tests pass (one pre-existing ignored test) with the converter and GPU required.
   Positive SDK-saved 2019/2020 regressions recover the missing 254 mm square;

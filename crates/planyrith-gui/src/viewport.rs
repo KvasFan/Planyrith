@@ -906,10 +906,7 @@ fn paint_overlay(
     }
     let font = egui::FontId::proportional(12.0);
     for label in &overlay.labels {
-        let screen_only = label.layout.is_none()
-            && label.kind == OverlayKind::Text
-            && label.at == glam::DVec3::ZERO
-            && label.screen_offset == glam::DVec2::ZERO;
+        let screen_only = label.screen_only;
         let anchor = if let Some(p) = label.layout.as_ref().and_then(|l| l.screen_position) {
             Some(
                 cx.rect.left_top()

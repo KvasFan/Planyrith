@@ -23,7 +23,7 @@ attributes and nested definitions without modifying version headers. It also
 reads fonts, text, dimensions and guides. Unsupported objects return errors.
 A structurally parsed empty model is valid; a failed empty fallback is not.
 
-## Editable import implemented in this increment
+## Editable import and 0.11 alpha exchange
 
 - Native text and linear/radial dimensions, font metadata and sizes, screen
   positions, pushpin offsets, arrow styles and leader visibility.
@@ -40,6 +40,23 @@ Tests cover both 2017/2026 writers → import → native save/reopen, attached l
 following edited geometry, radial measurement/leader offsets, nested merge reuse
 and undo/redo, independent text/stroke samples and malformed annotation positions.
 
+## 0.11.0-alpha.1 additions
+
+`label-style` edits font requests, pt/model height, arrow, text color and leader
+visibility without changing content/attachments/placement. Entity Info dispatches
+it once from the appearance form; CLI/RPC/Rhai expose the same command. Dimension
+colors affect both GPU line groups and label text. Screen-only labels remain in
+screen space after styling. Goldens, atomic-error/locked-context checks,
+fuzz/undo and CLI/GUI/RPC tests cover this addition.
+
+Edited native -> SKP -> native regressions now retain text/linear and radial
+measurements, fonts/colors/arrows/live anchors, analytic circles and nested
+text paths in both writers. Image entity/assets/size/placement round-trip three
+times without accumulating unused native definitions. Styles, watermarks,
+geographic sun directions and scene appearance also round-trip. The complete
+original still restores byte-identically when unchanged; native-only source
+catalogs are not duplicated as giant exported attribute strings.
+
 ## Required before complete-support claims
 
 1. Obtain genuine 2018/2021–2024 release fixtures, validate more complex classic
@@ -48,10 +65,13 @@ and undo/redo, independent text/stroke samples and malformed annotation position
    available font), custom stroke rendering, luminance-mask watermarks and
    remaining camera/annotation presentation details. Retained source metadata
    alone does not establish editable or visual equivalence.
-3. Extend **edited SKP export**: native annotations/images/styles/sun/watermarks
-   and some behavior/attribute types still produce conversion notices; curve
-   export remains segmented. This request prioritized import; it does not close
-   the complete open/save acceptance contract.
+3. The alpha now regenerates supported native annotations/images/styles/sun/
+   watermarks and circular analytic curves. Remaining export limits include
+   manual sun directions, nested radial references, some annotation offsets and
+   curve-angle attachments, certain attributes/behaviors and polygon editing
+   metadata. Custom strokes/masks and foreign records are not fully regenerated;
+   whole-model native working copies retain the original and notices explain
+   the mapped-data boundary. Complete edited-output certification remains open.
 4. Verify original → `.plyr` → reopen → edit → SKP → independent target reader
    per supported release, including entity addition/deletion and renamed
    definitions/materials. Check data and appearance, not just file acceptance.
