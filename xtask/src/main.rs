@@ -46,7 +46,10 @@ impl Options {
             }
         }
         std::fs::create_dir_all(&options.out)?;
-        options.out = std::fs::canonicalize(&options.out)?;
+        // Windows canonicalization adds a verbatim \\?\ prefix that native
+        // shell providers (including Compress-Archive) cannot handle.
+        // External packagers need an ordinary absolute path.
+        options.out = std::path::absolute(&options.out)?;
         Ok(options)
     }
 }
