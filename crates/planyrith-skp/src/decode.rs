@@ -866,7 +866,11 @@ pub(super) fn document(model: &Model, source_hash: &[u8; 32]) -> Result<(Documen
             .as_ref()
             .map(super::appearance::shadows)
             .transpose()?;
-        scene.axes_visible = s.rendering.as_ref().map(|r| r.model_axes);
+        scene.axes_visible = s
+            .rendering
+            .as_ref()
+            .filter(|r| super::appearance::plausible(r))
+            .map(|r| r.model_axes);
         if s.saved.has(
             openskp::SceneProperties::HIDDEN_GEOMETRY
                 | openskp::SceneProperties::HIDDEN_GEOMETRY_2

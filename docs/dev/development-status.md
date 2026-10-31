@@ -9,13 +9,15 @@ _Last updated: 2026-10-31 (after the 0.11.0-alpha.2 release; 0.11 acceptance in 
 
 **After alpha.2 (unreleased):** a survey of public SKP files found and fixed
 ten models that would not open and five that would not save. All 680 surveyed
-files pass the exchange chain with both writers, one with a few refaceted facets;
-88 of 94 models match the original application's COLLADA surfaces exactly and the
-other 6 are explained. Real 2018, 2021 and 2022 files are committed. Evidence,
-method and limits are in [skp-fidelity.md](skp-fidelity.md); rerun
-`tools/check-skp-corpus.py` after converter changes. Open for 0.11: 2023/2024
-files, opening regenerated files in the target application (not available here),
-deletions and renames in the chain.
+files pass the exchange chain with both writers, including deletion and renames,
+one with a few refaceted facets. Surfaces and texture coordinates match the
+original application's COLLADA exports apart from documented cases, a field
+comparison found no loss of editable data, and CLI, RPC and GUI agree byte for
+byte. `component-rename` was added. Real 2018, 2021 and 2022 files are committed.
+Evidence, method and limits are in [skp-fidelity.md](skp-fidelity.md); rerun
+`tools/check-skp-corpus.py` after converter changes. Open for 0.11, neither
+achievable here: 2023/2024 files and opening regenerated files in the target
+application. The milestone's acceptance is not met until the second is done.
 
 **Alpha.2:** direct `.skp`/`.skb` workflows with `.plyr` as the default first
 save. CLI/RPC protect existing native siblings; GUI proposes the native filename

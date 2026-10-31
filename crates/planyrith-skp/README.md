@@ -61,7 +61,8 @@ curves and welded sampled chains, image entities/assets, styles/watermarks,
 geographic shadows and per-scene appearance. Repeated image conversions do not
 create unused native definitions. Temporary SKP ids do not consume native ids.
 
-Texture tints transfer in both writers. A face whose texture samples fit no
+Texture tints, scene transitions, slide settings and guide and section attributes
+transfer in both writers. A face whose texture samples fit no
 single placement takes the closest one, reported once with a count, so one face
 cannot stop a save; an image entity that lost its material keeps its rectangle.
 

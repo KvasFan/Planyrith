@@ -97,6 +97,29 @@ fn uv(
         None => q,
     }
 }
+/// The format holds one transition time for all scenes; the slide settings
+/// have no native counterpart and travel as attributes (docs/09 Decisions).
+fn animation(doc: &Document, warnings: &mut Vec<String>) -> openskp::Animation {
+    let times = doc
+        .scenes
+        .iter()
+        .map(|(_, s)| s.transition_s)
+        .filter(|t| *t > 0.0)
+        .collect::<Vec<_>>();
+    if times.iter().any(|t| (*t - times[0]).abs() > 1e-6) {
+        warnings.push("SKP holds one scene transition time; the first is used".into());
+    }
+    let attr = |key: &str| doc.attrs.get("org.planyrith.skp", key);
+    openskp::Animation {
+        transitions: !times.is_empty(),
+        transition_s: times.first().map_or(0.0, |t| f64::from(*t)),
+        delay_s: match attr("slide-delay-s") {
+            Some(Value::Float(s)) => *s,
+            _ => 0.0,
+        },
+        loop_slideshow: matches!(attr("slide-loop"), Some(Value::Bool(true))),
+    }
+}
 pub(super) fn layer(entities: &Entities, id: EntityId, tags: &BTreeMap<TagId, u16>) -> u16 {
     entities
         .tag_of(id)
@@ -493,6 +516,10 @@ pub(super) fn model(doc: &Document) -> Result<(Model, Vec<String>)> {
                         if s.active {
                             run.active_section = Some(p);
                         }
+                        if let Some(a) = entities.attrs(id) {
+                            let owner = Owner::SectionPlane(ri, run.sections.len());
+                            attributes(&mut model, owner, a, &mut warnings);
+                        }
                         run.sections.push(openskp::SectionPlane {
                             pid: p,
                             plane: [
@@ -512,6 +539,13 @@ pub(super) fn model(doc: &Document) -> Result<(Model, Vec<String>)> {
                     }
                     EntityId::Guide(g) => {
                         let p = pid(entities.pid_of(id))?;
+                        let owner = match entities.guide(g).ok_or("missing guide")? {
+                            Guide::Point { .. } => Owner::GuidePoint(ri, run.guide_points.len()),
+                            Guide::Line { .. } => Owner::Guide(model.guides.len()),
+                        };
+                        if let Some(a) = entities.attrs(id) {
+                            attributes(&mut model, owner, a, &mut warnings);
+                        }
                         match entities.guide(g).ok_or("missing guide")? {
                             Guide::Point { pos } => run.guide_points.push(openskp::GuidePoint {
                                 pid: p,
@@ -562,6 +596,7 @@ pub(super) fn model(doc: &Document) -> Result<(Model, Vec<String>)> {
     super::encode_annotations::append(doc, &mut model, &tags, &mut warnings)?;
     super::encode_images::append(doc, &mut model, &materials, &tags, &mut pids, &mut warnings)?;
     let styles = super::encode_appearance::append(doc, &mut model, &mut warnings)?;
+    model.animation = animation(doc, &mut warnings);
     for (_, s) in doc.scenes.iter() {
         let mut saved = 0;
         let mut scene = openskp::Scene {

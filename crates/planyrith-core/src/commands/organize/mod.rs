@@ -22,9 +22,9 @@ mod tags;
 
 pub use components::{
     ComponentInsert, ComponentInsertOutput, ComponentInsertParams, ComponentOutput,
-    ComponentReload, ComponentReloadParams, ComponentReplace, ComponentReplaceOutput,
-    ComponentReplaceParams, ComponentSaveAs, ComponentSaveAsParams, MakeUnique, MakeUniqueOutput,
-    MakeUniqueParams,
+    ComponentReload, ComponentReloadParams, ComponentRename, ComponentRenameParams,
+    ComponentReplace, ComponentReplaceOutput, ComponentReplaceParams, ComponentSaveAs,
+    ComponentSaveAsParams, MakeUnique, MakeUniqueOutput, MakeUniqueParams,
 };
 pub use groups::{
     Explode, ExplodeOutput, ExplodeParams, MakeComponent, MakeComponentOutput, MakeComponentParams,
@@ -83,6 +83,7 @@ pub fn register(registry: &mut CommandRegistry) {
     registry.register(ComponentInsert);
     registry.register(ComponentSaveAs);
     registry.register(ComponentReload);
+    registry.register(ComponentRename);
     registry.register(ComponentReplace);
     registry.register(TagCreate);
     registry.register(TagRename);

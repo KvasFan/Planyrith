@@ -223,6 +223,71 @@ mod tests {
         assert!(mapping(&projective, DVec3::Z, 1e-3).unwrap().1);
     }
 
+    /// A real 2017 face pinned into a projective placement (its back side).
+    fn pinned_face() -> openskp::MeshFace {
+        let identity = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0];
+        openskp::MeshFace {
+            normal: [0.0, 0.0, -1.0],
+            texture: Some(Box::new(openskp::FaceTexture {
+                front: identity,
+                back: [
+                    0.8359580052493438,
+                    -0.0,
+                    0.0,
+                    0.41010498687664043,
+                    0.8359580052493438,
+                    -0.003417541557305337,
+                    -19.68503937007874,
+                    0.0,
+                    1.0,
+                ],
+                front_extra: [0.0; 3],
+                back_extra: [0.0; 3],
+                front_pins: Vec::new(),
+                back_pins: Vec::new(),
+                flags: [0, 1],
+            })),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn projective_placements_reproduce_their_pins_through_import_and_export() {
+        let face = pinned_face();
+        let tile = DVec2::new(3048.0, 1219.2);
+        let normal = DVec3::from_array(face.normal);
+        let plane = planyrith_core::math::Plane::from_point_normal(DVec3::ZERO, normal);
+        let map = from_source(&face, openskp::Side::Back, plane, (120.0, 48.0), tile).unwrap();
+        let (u, v) = frame(normal);
+        let core = plane.frame();
+        // (anchor_u, anchor_v, face_x, face_y), all inches, as stored.
+        let pins = [
+            [0.0, 0.0, -19.68503937007874, 0.0],
+            [-120.0, 0.0, -120.0, 0.0],
+            [0.0, 48.0, 0.0, 48.0],
+            [-120.0, 48.0, -120.0, 48.0],
+        ];
+        let mut samples = Vec::new();
+        for [a, b, x, y] in pins {
+            let p = (u * x + v * y) * 25.4;
+            let h = map * core.to_2d(p).extend(1.0);
+            let texture = h.truncate() / h.z;
+            let expected = DVec2::new(a, b) * 25.4;
+            assert!((texture - expected).length() < 1e-6, "{texture} {expected}");
+            samples.push((p, texture));
+        }
+        // Export finds the same placement again.
+        let (fitted, exact) = mapping(&samples, normal, 1e-3).unwrap();
+        assert!(exact);
+        let k = DMat3::from_cols_array(&face.texture.as_ref().unwrap().back);
+        let again = DMat3::from_cols_array(&fitted);
+        for [a, b, ..] in pins {
+            let t = DVec3::new(a, b, 1.0);
+            let (want, got) = (k * t, again * t);
+            assert!((want.truncate() / want.z - got.truncate() / got.z).length() < 1e-6);
+        }
+    }
+
     #[test]
     fn unrepresentable_placements_are_reported_instead_of_stopping_a_save() {
         let mut pins = samples(|p| p);

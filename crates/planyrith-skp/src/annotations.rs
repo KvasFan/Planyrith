@@ -119,12 +119,20 @@ fn anchor(
         } else {
             AnchorKind::End
         };
+        let at_end =
+            a.kind == 5 && (a.point_m[0].abs() < 1e-9 || (a.point_m[0] - 1.0).abs() < 1e-9);
         return Ok(Anchor {
-            position: Some(if a.kind == 10 {
-                AnchorPosition::CurveCenter
+            position: if a.kind == 10 {
+                Some(AnchorPosition::CurveCenter)
+            } else if at_end {
+                None
             } else {
-                AnchorPosition::EdgeParameter(if a.kind == 4 { 0.5 } else { a.point_m[0] })
-            }),
+                Some(AnchorPosition::EdgeParameter(if a.kind == 4 {
+                    0.5
+                } else {
+                    a.point_m[0]
+                }))
+            },
             path: EntityPath::new(InstancePath { steps }, EntityKey::Pid(pid)),
             kind,
         });
@@ -471,13 +479,12 @@ pub(super) fn import(
             .and_then(|i| run.curves.get(i as usize))
             .and_then(|c| c.arc.as_ref())
             .ok_or("radial dimension has no analytic curve")?;
-        let frame = planyrith_core::math::Plane::from_point_normal(
-            DVec3::from_array(arc.center_m) * 1000.0,
-            DVec3::from_array(arc.normal),
-        )
-        .frame();
         let x = DVec3::from_array(arc.x_axis_m).normalize_or_zero();
         let y = DVec3::from_array(arc.y_axis_m).normalize_or_zero();
+        // The native curve's normal is x × y (curves.rs), which can oppose
+        // the stored normal: anchor positions resolve in the native frame.
+        let frame =
+            Plane::from_point_normal(DVec3::from_array(arc.center_m) * 1000.0, x.cross(y)).frame();
         let cs = DVec2::from_angle(d.leader[0]);
         let dir = x * cs.x + y * cs.y;
         curve.position = Some(AnchorPosition::CurveParameter(

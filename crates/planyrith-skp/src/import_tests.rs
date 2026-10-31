@@ -1043,13 +1043,41 @@ fn radial_dimensions_keep_analytic_measurement_and_leader_angle() {
         leader: [0.7, -2.0],
         ..Default::default()
     });
-    for year in [2017, 2026] {
-        let doc = native(&encoded(&model, year));
-        let (_, dimension) = doc.model.dimensions().next().unwrap();
-        let view = annotations::dimension_view(&doc, ContainerRef::Model, dimension);
-        assert!(!view.detached);
-        assert!((view.value - radius).abs() < 1e-6);
-        assert!(((view.line[1] - view.line[0]).length() - 50.8).abs() < 1e-6);
+    // Axes whose cross product opposes the stored normal, as saved arcs have.
+    let mut mirrored = model.clone();
+    for curve in &mut mirrored
+        .geometry
+        .iter_mut()
+        .find(|r| r.def_index.is_none())
+        .unwrap()
+        .curves
+    {
+        if let Some(arc) = &mut curve.arc {
+            arc.y_axis_m = arc.y_axis_m.map(|v| -v);
+            (arc.start_rad, arc.end_rad) = (-arc.end_rad, -arc.start_rad);
+        }
+    }
+    for source in [&model, &mirrored] {
+        for year in [2017, 2026] {
+            let bytes = encoded(source, year);
+            let doc = native(&bytes);
+            let (_, dimension) = doc.model.dimensions().next().unwrap();
+            let view = annotations::dimension_view(&doc, ContainerRef::Model, dimension);
+            assert!(!view.detached);
+            assert!((view.value - radius).abs() < 1e-6);
+            assert!(((view.line[1] - view.line[0]).length() - 50.8).abs() < 1e-6);
+            // The leader runs along the radius through its attachment.
+            let outward = view.measured[1] - view.measured[0];
+            let leader = view.line[1] - view.line[0];
+            assert!(outward.cross(leader).length() < 1e-6 * outward.length() * leader.length());
+            // Regeneration writes the same placement.
+            let decoded = convert("decode", &bytes).unwrap();
+            let again = native(&convert("encode-2026", &decoded.bytes).unwrap().bytes);
+            let (_, regenerated) = again.model.dimensions().next().unwrap();
+            let view2 = annotations::dimension_view(&again, ContainerRef::Model, regenerated);
+            assert!((view.line[0] - view2.line[0]).length() < 1e-6);
+            assert!((view.line[1] - view2.line[1]).length() < 1e-6);
+        }
     }
 }
 

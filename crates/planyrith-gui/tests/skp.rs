@@ -4,6 +4,147 @@
 use planyrith_gui::session::Session;
 use serde_json::json;
 
+fn sibling(name: &str) -> std::path::PathBuf {
+    std::env::current_exe()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join(format!("{name}{}", std::env::consts::EXE_SUFFIX))
+}
+
+fn canonical(doc: &planyrith_core::document::Document) -> String {
+    use planyrith_core::io::export::json::{canonicalize, document_to_json};
+    let mut value = document_to_json(doc).unwrap();
+    canonicalize(&mut value);
+    value.to_string()
+}
+
+/// docs/13 0.11: the same real model and edits give the same document and
+/// the same SKP from the command line, the server and the GUI session.
+#[test]
+fn cli_rpc_and_gui_agree_on_real_models() {
+    let (adapter, cli) = (sibling("planyrith-skp"), sibling("planyrith"));
+    if !adapter.is_file() || !cli.is_file() {
+        assert!(std::env::var_os("PLANYRITH_REQUIRE_SKP").is_none());
+        return;
+    }
+    let run = |args: &[&std::ffi::OsStr], stdin: Option<String>| {
+        use std::{io::Write, process::Stdio};
+        let mut child = std::process::Command::new(&cli)
+            .args(args)
+            .env("PLANYRITH_SKP_ADAPTER", &adapter)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut pipe = child.stdin.take().unwrap();
+        pipe.write_all(stdin.unwrap_or_default().as_bytes())
+            .unwrap();
+        drop(pipe);
+        let output = child.wait_with_output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout).unwrap()
+    };
+    let dir = std::env::temp_dir().join(format!("planyrith-frontends-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let edits = [
+        (
+            "line",
+            json!({"points":[[9000000,0,0],[9001000,0,0]]}),
+            "line --points 9000000mm,0mm,0mm --points 9001000mm,0mm,0mm",
+        ),
+        (
+            "tag-create",
+            json!({"name":"Checked"}),
+            "tag-create --name Checked",
+        ),
+    ];
+    let fixtures =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../planyrith-skp/tests/fixtures");
+    for (i, fixture) in [
+        "release/HexCrater.skp",
+        "release/LiveComponent.skp",
+        "release/skp-vff-soft-block.skp",
+        "intermediate/capilla_quiroz_v17.skp",
+        "box-2026.skp",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let source = dir.join(format!("{i}.skp"));
+        std::fs::copy(fixtures.join(fixture), &source).unwrap();
+        let out = |name: &str| dir.join(format!("{i}-{name}"));
+
+        let mut session = Session::open(&source).unwrap();
+        for (name, params, _) in &edits {
+            session.execute(name, params.clone()).unwrap();
+        }
+        session.save(Some(&out("gui.plyr"))).unwrap();
+        session.save(Some(&out("gui.skp"))).unwrap();
+
+        let script = out("edits.plyrb");
+        let lines = edits.iter().map(|e| e.2).collect::<Vec<_>>().join("\n");
+        std::fs::write(&script, lines).unwrap();
+        for target in ["cli.plyr", "cli.skp"] {
+            run(
+                &[
+                    "batch".as_ref(),
+                    script.as_os_str(),
+                    "-f".as_ref(),
+                    source.as_os_str(),
+                    "-o".as_ref(),
+                    out(target).as_os_str(),
+                ],
+                None,
+            );
+        }
+
+        let mut calls = vec![("session.open", json!({"path":source}))];
+        for (name, params, _) in &edits {
+            calls.push((
+                "command.execute",
+                json!({"doc_id":"d1","name":name,"params":params}),
+            ));
+        }
+        calls.push((
+            "session.save",
+            json!({"doc_id":"d1","path":out("rpc.plyr")}),
+        ));
+        calls.push(("session.save", json!({"doc_id":"d1","path":out("rpc.skp")})));
+        let frames = calls
+            .into_iter()
+            .enumerate()
+            .map(|(id, (method, params))| {
+                let frame = json!({"jsonrpc":"2.0","id":id+1,"method":method,"params":params});
+                format!("{frame}\n")
+            })
+            .collect::<String>();
+        let replies = run(&["serve".as_ref(), "--stdio".as_ref()], Some(frames));
+        assert!(!replies.contains("\"error\""), "{replies}");
+
+        let native = |name: &str| {
+            let bytes = std::fs::read(out(name)).unwrap();
+            let loaded =
+                planyrith_core::io::native::read_document(&bytes, &planyrith_core::io::NoProgress);
+            canonical(&loaded.unwrap().document)
+        };
+        let reference = native("gui.plyr");
+        assert_eq!(native("cli.plyr"), reference, "{fixture}");
+        assert_eq!(native("rpc.plyr"), reference, "{fixture}");
+        let written = std::fs::read(out("gui.skp")).unwrap();
+        assert_eq!(std::fs::read(out("cli.skp")).unwrap(), written, "{fixture}");
+        assert_eq!(std::fs::read(out("rpc.skp")).unwrap(), written, "{fixture}");
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
 #[test]
 fn historical_backups_default_to_native_and_explicit_foreign_saves_keep_the_choice() {
     let adapter = std::env::current_exe()

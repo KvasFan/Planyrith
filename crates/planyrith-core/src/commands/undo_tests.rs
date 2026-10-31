@@ -409,6 +409,10 @@ fn textures_libraries_and_components() {
                 "component-reload",
                 json!({ "definition": "Table", "path": "table.plyrc" }),
             ),
+            (
+                "component-rename",
+                json!({ "definition": "Table", "new_name": "Desk" }),
+            ),
         ],
     );
 }

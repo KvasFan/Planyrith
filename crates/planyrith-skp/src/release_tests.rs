@@ -2,7 +2,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 use super::*;
 use planyrith_core::document::annotations;
-use planyrith_core::{diagnostics, document::*};
+use planyrith_core::{diagnostics, document::*, ids::EntityId};
 
 fn native(bytes: &[u8]) -> Document {
     let converted = convert("decode", bytes).unwrap();
@@ -178,6 +178,140 @@ fn texture_tints_survive_both_writers() {
         );
         assert_eq!(tinted.color.r, 200, "{writer}");
     }
+}
+
+#[test]
+fn guide_and_section_attributes_survive_both_writers() {
+    use planyrith_core::commands::{Transaction, transaction::AttrTarget};
+    let mut engine = super::tests::cube();
+    engine
+        .execute_erased(
+            "tape-measure",
+            serde_json::json!({"from":[0,0,0],"to":[100,0,0],"guide":"point"}),
+        )
+        .unwrap();
+    engine
+        .execute_erased(
+            "section-plane-add",
+            serde_json::json!({"plane":{"normal":[0,0,1],"d":-400.0}}),
+        )
+        .unwrap();
+    let mut doc = engine.document().clone();
+    let marked = doc
+        .model
+        .order()
+        .iter()
+        .copied()
+        .filter(|id| matches!(id, EntityId::Guide(_) | EntityId::SectionPlane(_)))
+        .collect::<Vec<_>>();
+    assert_eq!(marked.len(), 2);
+    let mut tx = Transaction::new(&mut doc, "mark");
+    for id in marked {
+        let target = AttrTarget::Entity {
+            container: ContainerRef::Model,
+            id,
+        };
+        tx.set_attribute(target, "plugin", "mark", Some(Value::Str("kept".into())))
+            .unwrap();
+    }
+    tx.commit();
+    let saved = super::tests::bytes(&doc);
+    for writer in ["encode-2017", "encode-2026"] {
+        let again = native(&convert(writer, &saved).unwrap().bytes);
+        for id in again.model.order() {
+            if matches!(id, EntityId::Guide(_) | EntityId::SectionPlane(_)) {
+                let attrs = again.model.attrs(*id).expect(writer);
+                assert_eq!(
+                    attrs.get("plugin", "mark"),
+                    Some(&Value::Str("kept".into())),
+                    "{writer}"
+                );
+            }
+        }
+        assert_eq!(again.model.guides().count(), 1, "{writer}");
+        assert_eq!(again.model.section_planes().count(), 1, "{writer}");
+    }
+}
+
+#[test]
+fn slide_settings_and_scene_styles_round_trip_without_accumulating() {
+    let mut engine = super::tests::cube();
+    for name in ["Front", "Back"] {
+        engine
+            .execute_erased("scene-add", serde_json::json!({"name":name}))
+            .unwrap();
+    }
+    let doc = engine.document().clone();
+    let styles = |doc: &Document| doc.styles.iter().count();
+    let mut saved = super::tests::bytes(&doc);
+    let first = {
+        let output = convert("encode-2026", &saved).unwrap();
+        saved = convert("decode", &output.bytes).unwrap().bytes;
+        let again = native::read_document(&saved, &NoProgress).unwrap().document;
+        styles(&again)
+    };
+    for writer in ["encode-2017", "encode-2026", "encode-2017"] {
+        let output = convert(writer, &saved).unwrap();
+        saved = convert("decode", &output.bytes).unwrap().bytes;
+        let again = native::read_document(&saved, &NoProgress).unwrap().document;
+        assert_eq!(styles(&again), first, "{writer}");
+    }
+}
+
+#[test]
+fn vertex_anchors_are_written_as_vertices_and_read_as_edge_ends() {
+    let mut engine = super::tests::cube();
+    engine
+        .execute_erased(
+            "dimension",
+            serde_json::json!({"start":[0,0,0],"end":[1000,0,0],"offset":[0,-100,0]}),
+        )
+        .unwrap();
+    let (model, _) = encode::model(engine.document()).unwrap();
+    let dimension = &model.dimensions[0];
+    assert_eq!((dimension.start.kind, dimension.end.kind), (2, 2));
+    let saved = super::tests::bytes(engine.document());
+    let again = native(&convert("encode-2026", &saved).unwrap().bytes);
+    let (_, record) = again.model.dimensions().next().unwrap();
+    let view = annotations::dimension_view(&again, ContainerRef::Model, record);
+    assert!(!view.detached);
+    assert!((view.value - 1000.0).abs() < 1e-6, "{}", view.value);
+}
+
+#[test]
+fn shifted_display_settings_are_not_applied_to_classic_releases() {
+    let default = Style::default();
+    for input in [
+        include_bytes!("../tests/fixtures/legacy/box-2013.skp").as_slice(),
+        include_bytes!("../tests/fixtures/legacy/box-2016.skp").as_slice(),
+        include_bytes!("../tests/fixtures/intermediate/sdk_saved_2020.skp").as_slice(),
+    ] {
+        let converted = convert("decode", input).unwrap();
+        assert!(
+            converted
+                .warnings
+                .iter()
+                .any(|w| w.contains("display settings"))
+        );
+        let doc = native(input);
+        let style = doc.styles.get(doc.styles.active()).unwrap();
+        assert_eq!(style.faces.mode, default.faces.mode);
+        assert_eq!(style.background.color, default.background.color);
+        assert_eq!(style.modeling.section_line_width_px, 3.0);
+        // Refusing them must not disturb restoration.
+        assert_eq!(
+            convert("encode-preserve", &converted.bytes).unwrap().bytes,
+            input
+        );
+    }
+    // Calibrated releases keep their saved settings.
+    let converted = convert("decode", include_bytes!("../tests/fixtures/box-2017.skp")).unwrap();
+    assert!(
+        !converted
+            .warnings
+            .iter()
+            .any(|w| w.contains("display settings"))
+    );
 }
 
 #[test]

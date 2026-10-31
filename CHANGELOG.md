@@ -15,6 +15,15 @@ All notable changes to Planyrith are recorded here. Versions follow
   represented no longer stops the save; texture tints now transfer.
 - Keep custom stroke images referenced, so `repair` no longer deletes them and
   invalidates byte-exact restoration.
+- Add `component-rename`, in the Components panel by double-clicking the name.
+- Fix radial dimensions attached to curves away from the origin, whose attachment
+  point was misplaced, and imported arcs with opposed axes.
+- Stop applying misread display settings: models from 2013–2016, 2019 and 2020
+  opened as X-ray on a transparent background. They now use native defaults with
+  a notice; their saved styles are not imported yet.
+- Keep scene styles from multiplying on every reopen. Keep scene transition times,
+  slide settings, vertex-anchored dimensions and guide and section attributes
+  through regeneration.
 - Refuse releases before 2013 by name instead of reporting undecoded geometry,
   and report each identical import notice once.
 - Add files saved by real 2018, 2021 and 2022 releases, and

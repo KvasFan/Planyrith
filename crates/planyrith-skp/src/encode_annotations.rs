@@ -79,10 +79,26 @@ fn path(
     }
     Ok((c, encode::pid(entities.pid_of(id))?, steps))
 }
+/// Persistent ids of each edge's end vertices, by edge persistent id.
+type EdgeEnds = BTreeMap<u32, [u32; 2]>;
+
+fn edge_ends(model: &Model) -> EdgeEnds {
+    let mut ends = EdgeEnds::new();
+    for run in &model.geometry {
+        for edge in &run.mesh.edges {
+            let vertex = |i: u32| run.mesh.vertex_pids.get(i as usize).copied();
+            if let (Some(a), Some(b)) = (vertex(edge.v0), vertex(edge.v1)) {
+                ends.insert(edge.pid, [a, b]);
+            }
+        }
+    }
+    ends
+}
 fn anchor(
     doc: &Document,
     c: ContainerRef,
     a: &Anchor,
+    ends: &EdgeEnds,
     warnings: &mut Vec<String>,
 ) -> Result<openskp::Anchor> {
     if let AnchorKind::Point(p) = a.kind
@@ -136,12 +152,19 @@ fn anchor(
         }
         None => match a.kind {
             AnchorKind::Mid => out.kind = 4,
-            AnchorKind::Start => {
-                out.kind = 5;
-            }
-            AnchorKind::End => {
-                out.kind = 5;
-                out.point_m = [1.0, 0.0, 0.0];
+            AnchorKind::Start | AnchorKind::End => {
+                let end = usize::from(a.kind == AnchorKind::End);
+                match ends.get(&entity).map(|e| e[end]).filter(|v| *v != 0) {
+                    // An end of an edge is a vertex anchor in the format.
+                    Some(vertex) => {
+                        out.kind = 2;
+                        out.entity = Some(vertex);
+                    }
+                    None => {
+                        out.kind = 5;
+                        out.point_m = [end as f64, 0.0, 0.0];
+                    }
+                }
             }
             AnchorKind::Point(_) => {}
         },
@@ -172,6 +195,7 @@ pub(super) fn append(
     tags: &BTreeMap<TagId, u16>,
     warnings: &mut Vec<String>,
 ) -> Result<()> {
+    let ends = edge_ends(model);
     for (ri, c) in doc
         .definition_order
         .iter()
@@ -207,7 +231,7 @@ pub(super) fn append(
                     let attached = t
                         .anchor
                         .as_ref()
-                        .map(|a| anchor(doc, c, a, warnings))
+                        .map(|a| anchor(doc, c, a, &ends, warnings))
                         .transpose()?
                         .unwrap_or_default();
                     let world = layout.world_offset;
@@ -302,8 +326,8 @@ pub(super) fn append(
                                 pid,
                                 def_index: reference,
                                 text_override: text_override.clone().unwrap_or_default(),
-                                start: anchor(doc, c, start, warnings)?,
-                                end: anchor(doc, c, end, warnings)?,
+                                start: anchor(doc, c, start, &ends, warnings)?,
+                                end: anchor(doc, c, end, &ends, warnings)?,
                                 normal: x.cross(y).normalize_or_zero().to_array(),
                                 x_axis: x.to_array(),
                                 offset_m: perpendicular.length() / 1000.0,

@@ -22,6 +22,22 @@ pub(super) fn import(tx: &mut Transaction<'_>, model: &Model) -> Result<()> {
         "decoded-settings",
         Some(Value::Str(serde_json::to_string(&json)?)),
     )?;
+    if model.animation.delay_s > 0.0 {
+        tx.set_attribute(
+            AttrTarget::Document,
+            "org.planyrith.skp",
+            "slide-delay-s",
+            Some(Value::Float(model.animation.delay_s)),
+        )?;
+    }
+    if model.animation.loop_slideshow {
+        tx.set_attribute(
+            AttrTarget::Document,
+            "org.planyrith.skp",
+            "slide-loop",
+            Some(Value::Bool(true)),
+        )?;
+    }
     for (i, c) in model.classifications.iter().enumerate() {
         tx.set_attribute(
             AttrTarget::Document,

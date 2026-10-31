@@ -1115,3 +1115,49 @@ fn images_insert_explode_and_textures_position() {
     assert!(face.sides.uv_front.is_none() && face.sides.uv_back.is_none());
     assert_valid(&e);
 }
+
+#[test]
+fn component_rename_keeps_identity_and_refuses_a_used_name() {
+    let mut e = engine();
+    run(
+        &mut e,
+        "rectangle",
+        json!({ "corner_a": [0,0,0], "corner_b": [100,100,0] }),
+    );
+    run(
+        &mut e,
+        "make-component",
+        json!({ "targets": "all", "name": "Block" }),
+    );
+    run(
+        &mut e,
+        "rectangle",
+        json!({ "corner_a": [200,0,0], "corner_b": [300,100,0] }),
+    );
+    run(
+        &mut e,
+        "make-component",
+        json!({ "targets": "last", "name": "Slab" }),
+    );
+    let doc = e.document();
+    let id = doc.definition_by_name("Block").unwrap();
+    let uuid = doc.definition(id).unwrap().uuid;
+    run(
+        &mut e,
+        "component-rename",
+        json!({ "definition": "Block", "new_name": "Crate" }),
+    );
+    let doc = e.document();
+    assert_eq!(doc.definition_by_name("Crate"), Some(id));
+    assert_eq!(doc.definition(id).unwrap().uuid, uuid);
+    assert!(doc.definition_by_name("Block").is_none());
+    for bad in ["Slab", "  "] {
+        assert!(
+            e.execute_erased(
+                "component-rename",
+                json!({ "definition": "Crate", "new_name": bad }),
+            )
+            .is_err()
+        );
+    }
+}

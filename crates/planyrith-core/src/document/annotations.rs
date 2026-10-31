@@ -103,7 +103,8 @@ pub fn anchor_position(doc: &Document, container: ContainerRef, anchor: &Anchor)
                     _ => return None,
                 };
                 if let AnchorPosition::CurveParameter(angle) = position {
-                    let frame = crate::math::Plane::from_point_normal(center, normal).frame();
+                    let frame =
+                        crate::math::Plane::from_point_normal(center, normal).frame_at(center);
                     frame.from_2d(glam::DVec2::from_angle(*angle) * radius)
                 } else {
                     center
@@ -388,6 +389,34 @@ pub fn curve_of(doc: &Document, container: ContainerRef, anchor: &Anchor) -> Opt
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn curve_angles_are_measured_around_the_curve_center() {
+        use crate::commands::{CommandRegistry, Engine};
+        let mut e = Engine::new(
+            Document::new(),
+            std::sync::Arc::new(CommandRegistry::with_builtins()),
+        );
+        e.execute_erased(
+            "circle",
+            serde_json::json!({ "center": [500, 300, 0], "normal": [0, 0, 1], "radius": 100 }),
+        )
+        .unwrap();
+        let doc = e.document();
+        let id = doc
+            .model
+            .order()
+            .iter()
+            .find(|i| matches!(i, EntityId::Edge(_)));
+        let pid = doc.model.pid_of(*id.unwrap()).unwrap();
+        let anchor = Anchor {
+            position: Some(crate::document::AnchorPosition::CurveParameter(0.7)),
+            path: EntityPath::new(InstancePath::root(), EntityKey::Pid(pid)),
+            kind: AnchorKind::Mid,
+        };
+        let at = anchor_position(doc, ContainerRef::Model, &anchor).unwrap();
+        assert!(((at - DVec3::new(500.0, 300.0, 0.0)).length() - 100.0).abs() < 1e-9);
+    }
 
     #[test]
     fn point_anchors_resolve_to_themselves() {

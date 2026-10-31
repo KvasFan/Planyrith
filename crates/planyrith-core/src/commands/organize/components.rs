@@ -713,6 +713,72 @@ impl Command for ComponentReload {
     }
 }
 
+// ----- component-rename ---------------------------------------------------------------------
+
+/// `component-rename` parameters.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct ComponentRenameParams {
+    /// Common fields.
+    #[serde(flatten)]
+    pub common: CommonParams,
+    /// The component to rename (name or UUID).
+    pub definition: String,
+    /// New unique name.
+    pub new_name: String,
+}
+
+/// The `component-rename` command (docs/05 §5.5): its UUID, contents and
+/// instances stay.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct ComponentRename;
+
+impl Command for ComponentRename {
+    type Params = ComponentRenameParams;
+    type Output = ComponentOutput;
+
+    fn name(&self) -> &'static str {
+        "component-rename"
+    }
+
+    fn validate(&self, doc: &Document, p: &ComponentRenameParams) -> Result<(), CommandError> {
+        component_named(doc, &p.definition)?;
+        if p.new_name.trim().is_empty() {
+            return Err(CommandError::invalid_param("new_name", "must not be empty"));
+        }
+        if doc.definition_by_name(&p.new_name).is_some() {
+            return Err(CommandError::invalid_param(
+                "new_name",
+                format!("a component is already named `{}`", p.new_name),
+            ));
+        }
+        Ok(())
+    }
+
+    fn apply(
+        &self,
+        tx: &mut Transaction<'_>,
+        p: ComponentRenameParams,
+    ) -> Result<ComponentOutput, CommandError> {
+        let id = component_named(tx.document(), &p.definition)?;
+        let mut definition = tx
+            .document()
+            .definition(id)
+            .cloned()
+            .ok_or_else(|| CommandError::Internal("definition vanished".into()))?;
+        definition.name = p.new_name.clone();
+        let uuid = definition.uuid.to_string();
+        tx.update_definition(id, definition)?;
+        Ok(ComponentOutput {
+            definition: p.new_name,
+            uuid,
+        })
+    }
+
+    fn meta(&self) -> CommandMeta {
+        meta("component-rename", "Rename Component", false)
+    }
+}
+
 // ----- component-replace --------------------------------------------------------------------
 
 /// `component-replace` parameters.

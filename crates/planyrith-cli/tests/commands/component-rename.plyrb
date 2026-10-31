@@ -1,0 +1,5 @@
+# Rename a component: its identity and instances stay.
+rectangle --corner-a 0,0,0 --corner-b 1000,600,0
+push-pull --face '{face & last}' --distance 400
+make-component --targets all --name Crate
+component-rename --definition Crate --new-name Chest

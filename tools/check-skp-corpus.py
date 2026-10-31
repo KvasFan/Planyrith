@@ -5,14 +5,17 @@
 
 Every 2013-or-later model below CORPUS_DIR goes through the acceptance chain of
 docs/13 0.11 with the optimized CLI and converter: open, native save/reopen,
-byte-exact unchanged restoration, edit, regenerate in both writers, reopen.
-Counts must survive; failures are listed and the exit code is 1.
+byte-exact unchanged restoration, edit (add a line, delete a face, rename a
+material, tag, scene and component), regenerate in both writers, reopen. Counts
+and the new names must survive; failures are listed and the exit code is 1.
 
 --oracle DIR holds `<year>/<name>.skp` next to `2017/<name>.dae` exports written
 by the original application. Their world-space surfaces are compared with the
 import and both regenerated files (bounds, area, vertices). Placed images are
 surfaces in those exports but not in the OBJ used here, and each side of a
-face is counted once.
+face is counted once. Texture coordinates are compared per side at every corner
+the native document places explicitly. That export bakes projectively pinned
+textures into per-face images, so such faces disagree by construction.
 
 Models are copied to temporary folders; the corpus is only read. Build first:
 cargo build --release -p planyrith-cli --features render
@@ -246,6 +249,169 @@ def compare(ref, got):
 
 
 
+def dae_pairs(path):
+    root = ET.parse(path).getroot()
+    scale = float(root.find(f"{NS}asset/{NS}unit").get("meter")) * 1000
+    geoms = {}
+    for g in root.iter(f"{NS}geometry"):
+        mesh = g.find(f"{NS}mesh")
+        if mesh is None:
+            continue
+        src = {}
+        for s in mesh.findall(f"{NS}source"):
+            a = s.find(f"{NS}float_array")
+            if a is not None and a.text:
+                src[s.get("id")] = [float(x) for x in a.text.split()]
+        verts = {}
+        for v in mesh.findall(f"{NS}vertices"):
+            for i in v.findall(f"{NS}input"):
+                if i.get("semantic") == "POSITION":
+                    verts[v.get("id")] = i.get("source")[1:]
+        out = []
+        for tag in ("polylist", "triangles", "polygons"):
+            for t in mesh.findall(f"{NS}{tag}"):
+                ins = {i.get("semantic"): i for i in t.findall(f"{NS}input")}
+                if "TEXCOORD" not in ins:
+                    continue
+                stride = max(int(i.get("offset")) for i in ins.values()) + 1
+                vo, to = int(ins["VERTEX"].get("offset")), int(ins["TEXCOORD"].get("offset"))
+                pos = src[verts[ins["VERTEX"].get("source")[1:]]]
+                uv = src[ins["TEXCOORD"].get("source")[1:]]
+                texts = [p.text for p in t.iter(f"{NS}p")] + [h.text for h in t.iter(f"{NS}h")]
+                for text in texts:
+                    idx = [int(x) for x in text.split()]
+                    for k in range(0, len(idx), stride):
+                        v, c = idx[k + vo], idx[k + to]
+                        out.append(((pos[3 * v], pos[3 * v + 1], pos[3 * v + 2]), (uv[2 * c], uv[2 * c + 1])))
+        geoms[g.get("id")] = out
+    lib = {n.get("id"): n for n in root.iter(f"{NS}node") if n.get("id")}
+    pairs = []
+    identity = [[float(i == j) for j in range(4)] for i in range(4)]
+
+    def walk(node, m, depth=0):
+        if depth > 40:
+            return
+        for x in node.findall(f"{NS}matrix"):
+            v = [float(t) for t in x.text.split()]
+            m = mat_mul(m, [v[0:4], v[4:8], v[8:12], v[12:16]])
+        for g in node.findall(f"{NS}instance_geometry"):
+            for p, uv in geoms.get(g.get("url")[1:], []):
+                w = tuple((m[r][0] * p[0] + m[r][1] * p[1] + m[r][2] * p[2] + m[r][3]) * scale for r in range(3))
+                pairs.append((w, uv))
+        for i in node.findall(f"{NS}instance_node"):
+            t = lib.get(i.get("url")[1:])
+            if t is not None:
+                walk(t, m, depth + 1)
+        for c in node.findall(f"{NS}node"):
+            walk(c, m, depth + 1)
+
+    url = root.find(f"{NS}scene/{NS}instance_visual_scene").get("url")[1:]
+    vs = next(v for v in root.iter(f"{NS}visual_scene") if v.get("id") == url)
+    for n in vs.findall(f"{NS}node"):
+        walk(n, identity)
+    return pairs
+
+
+def cross(a, b):
+    return (a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0])
+
+
+def dot(a, b):
+    return sum(x * y for x, y in zip(a, b))
+
+
+def frame(normal, d):
+    n = normal
+    a = [abs(x) for x in n]
+    axis = (1, 0, 0) if a[0] <= a[1] and a[0] <= a[2] else (0, 1, 0) if a[1] <= a[2] else (0, 0, 1)
+    k = dot(axis, n)
+    u = tuple(axis[i] - n[i] * k for i in range(3))
+    l = math.sqrt(dot(u, u))
+    u = tuple(x / l for x in u)
+    return tuple(-d * x for x in n), u, cross(n, u)
+
+
+def compose(a, b):
+    # 12 numbers: columns x, y, z, translation.
+    col = lambda t, i: t[3 * i:3 * i + 3]
+    def vec(t, v):
+        return tuple(t[r] * v[0] + t[3 + r] * v[1] + t[6 + r] * v[2] for r in range(3))
+    out = []
+    for i in range(3):
+        out += vec(a, col(b, i))
+    tr = vec(a, col(b, 3))
+    out += [tr[r] + a[9 + r] for r in range(3)]
+    return out
+
+
+def place(t, p):
+    return tuple(t[r] * p[0] + t[3 + r] * p[1] + t[6 + r] * p[2] + t[9 + r] for r in range(3))
+
+
+def key(ref):
+    return (ref["idx"], ref["version"])
+
+
+def native_pairs(doc):
+    tiles = {}
+    for ref, m in doc["materials"]["items"]:
+        if m.get("texture"):
+            tiles[key(ref)] = m["texture"]["size_mm"]
+    defs = {key(r): e for r, e in doc["definitions"]}
+    pairs = []
+
+    def visit(ent, t, depth=0):
+        mesh = ent["mesh"]
+        verts = mesh["vertices"]
+        for f in mesh["faces"]:
+            sides = f["sides"]
+            origin, u, v = frame(f["plane"]["normal"], f["plane"]["d"])
+            for mat, uvm in ((sides.get("material_front"), sides.get("uv_front")), (sides.get("material_back"), sides.get("uv_back"))):
+                if not mat or key(mat) not in tiles or not uvm:
+                    continue
+                tile = tiles[key(mat)]
+                for ring in f["loops"]:
+                    for e in ring:
+                        rev = e >= 2147483648
+                        edge = mesh["edges"][e - 2147483648 if rev else e]
+                        i = edge["b"] if rev else edge["a"]
+                        p = verts[i]
+                        r = tuple(p[k] - origin[k] for k in range(3))
+                        x, y = dot(r, u), dot(r, v)
+                        if "Projective" in uvm:
+                            m = uvm["Projective"]
+                            h = [m[c] * x + m[3 + c] * y + m[6 + c] for c in range(3)]
+                            q = (h[0] / h[2] / tile[0], h[1] / h[2] / tile[1])
+                        elif "Affine" in uvm:
+                            continue
+                        else:
+                            continue
+                        pairs.append((place(t, p), q))
+        if depth > 40:
+            return
+        for kind in ("groups", "instances"):
+            for _, g in ent.get(kind, []):
+                visit(defs[key(g["definition"])]["entities"], compose(t, g["transform"]), depth + 1)
+
+    visit(doc["model"], [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0])
+    return pairs
+
+
+def uv_contradictions(ref, got):
+    """Reference corners where the document places other coordinates."""
+    index = {}
+    for p, uv in got:
+        index.setdefault(tuple(round(c) for c in p), []).append(uv)
+    wrong = 0
+    for p, uv in ref:
+        near = [q for dx in (-1, 0, 1) for dy in (-1, 0, 1) for dz in (-1, 0, 1)
+                for q in index.get((round(p[0]) + dx, round(p[1]) + dy, round(p[2]) + dz), ())]
+        same = any(min((q[0] - uv[0]) % 1, (uv[0] - q[0]) % 1) < 0.004
+                   and min((q[1] - uv[1]) % 1, (uv[1] - q[1]) % 1) < 0.004 for q in near)
+        wrong += bool(near) and not same
+    return wrong
+
+
 STEPS = [round(k * 0.01, 2) for k in range(-3, 4)]
 
 
@@ -280,6 +446,49 @@ def message(doc):
     return str(error.get("message") if isinstance(error, dict) else error)[:200]
 
 
+def canonical(path, d):
+    out = os.path.join(d, "canonical.json")
+    run("export", "-f", path, out, "--format", "json", "--canonical")
+    with open(out, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def names(doc):
+    return {
+        "material": [m["name"] for _, m in doc["materials"]["items"] if m["is_default_for"] is None],
+        "tag": [t["name"] for ref, t in doc["tags"]["tags"] if ref != doc["tags"]["untagged"]],
+        "scene": [s["name"] for _, s in doc["scenes"]["items"]],
+        "component": [e["name"] for _, e in doc["definitions"] if not e["is_internal_group"]],
+    }
+
+
+def edits(native, base, d):
+    """A batch editing `native`, the counts it leads to and its renames."""
+    lines = [f"line --points {FAR[0]} --points {FAR[1]}"]
+    want = dict(base, edges=base["edges"] + 1)
+    code, found = run("query", "face", "--fields", "pid", "-f", native, "--no-save", "--json")
+    faces = found.get("output", [])
+    if code == 0 and faces:
+        lines.append(f"delete --targets '@{faces[0]['pid']}'")
+        want["faces"] -= 1
+    commands = {
+        "material": "material-edit --material '{}' --name '{}'",
+        "tag": "tag-rename --tag '{}' --new-name '{}'",
+        "scene": "scene-rename --scene '{}' --new-name '{}'",
+        "component": "component-rename --definition '{}' --new-name '{}'",
+    }
+    renamed = {}
+    for kind, present in names(canonical(native, d)).items():
+        usable = [n for n in present if "'" not in n and n.strip() == n]
+        if usable:
+            renamed[kind] = (usable[0], f"Renamed {kind}")
+            lines.append(commands[kind].format(*renamed[kind]))
+    script = os.path.join(d, "edits.plyrb")
+    with open(script, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+    return script, want, renamed
+
+
 def chain(path):
     """Problems of one model in the acceptance chain."""
     with tempfile.TemporaryDirectory() as d:
@@ -299,10 +508,10 @@ def chain(path):
         code, doc = run("repair", "-f", native, "-o", restored, "--json")
         if code or not filecmp.cmp(src, restored, shallow=False):
             problems.append("unchanged restoration differs")
-        code, doc = run("tool", "line", "--points", FAR[0], "--points", FAR[1], "-f", native, "-o", edited, "--json")
+        script, want, renamed = edits(native, base, d)
+        code, doc = run("batch", script, "-f", native, "-o", edited, "--json")
         if code:
             return problems + [f"edit: {message(doc)}"]
-        want = dict(base, edges=base["edges"] + 1)
         for writer, extra in (("2017", []), ("2026", ["--skp-version", "2026"])):
             out = os.path.join(d, writer + ".skp")
             code, doc = run("export", "-f", edited, out, *extra, "--no-save", "--json")
@@ -315,6 +524,10 @@ def chain(path):
                 continue
             got = summary(doc)
             problems += [f"{writer} {k}: {want[k]} -> {got[k]}" for k in COUNTS if got[k] != want[k]]
+            result = names(canonical(out, d))
+            for kind, (old, new) in renamed.items():
+                if new not in result[kind] or old in result[kind]:
+                    problems.append(f"{writer} {kind}: rename of {old!r} lost")
     return problems
 
 
@@ -347,6 +560,11 @@ def oracle(job):
             c = compare(reference, got)
             if not (c["area_rel"] < 1e-4 and (c["bounds_err"] is None or c["bounds_err"] < 0.05) and c["ref_missing"] == 0):
                 problems.append(f"{stage}: area {c['area']} bounds {c['bounds_err']} missing {c['ref_missing']}")
+        pairs = dae_pairs(os.path.join(root, "2017", name + ".dae"))
+        for stage, path in stages if pairs else ():
+            wrong = uv_contradictions(pairs, native_pairs(canonical(path, d)))
+            if wrong:
+                problems.append(f"{stage}: {wrong} of {len(pairs)} texture corners differ")
     return problems
 
 

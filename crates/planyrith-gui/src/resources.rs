@@ -128,6 +128,8 @@ pub enum ToolRequest {
 /// Panel state kept between frames.
 #[derive(Default)]
 pub struct ResourceState {
+    /// The component being renamed: its name and the edited text.
+    renaming_component: Option<(String, String)>,
     /// Thumbnails: bundled materials by name, document images by hash.
     thumbnails: std::collections::HashMap<String, egui::TextureHandle>,
     selected_material: Option<String>,
@@ -585,7 +587,32 @@ pub fn components(
             .and_then(|d| doc.definition(d))
     {
         ui.separator();
-        ui.heading(&name);
+        match &mut state.renaming_component {
+            Some((old, new)) if *old == name => {
+                let edit = ui.text_edit_singleline(new);
+                if edit.lost_focus() {
+                    if ui.input(|i| i.key_pressed(egui::Key::Enter)) && new != old {
+                        actions.push((
+                            "component-rename",
+                            json!({ "definition": old, "new_name": new }),
+                        ));
+                        state.selected_component = Some(new.clone());
+                    }
+                    state.renaming_component = None;
+                } else {
+                    edit.request_focus();
+                }
+            }
+            _ => {
+                if ui
+                    .heading(&name)
+                    .on_hover_text("Double-click to rename")
+                    .double_clicked()
+                {
+                    state.renaming_component = Some((name.clone(), name.clone()));
+                }
+            }
+        }
         let b = &def.behavior;
         let glue = format!("{:?}", b.glue_to).to_lowercase();
         ui.weak(format!(

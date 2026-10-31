@@ -32,7 +32,8 @@ A structurally parsed empty model is valid; a failed empty fallback is not.
 
 `tools/check-skp-corpus.py` runs every 2013-or-later file below a directory
 through the chain of docs/13: open, native save/reopen, unchanged restoration,
-edit, regenerate with both writers, reopen, compare counts. The surveyed files
+edit (add a line, delete a face, rename a material, tag, scene and component),
+regenerate with both writers, reopen, compare counts and names. The surveyed files
 are the five complete public repositories named in
 `tests/fixtures/*/README.md` and `tools/fetch-skp-fixtures.sh`: 680 files, most
 of them minimal feature pairs saved by 2017 and 2026 and copies of one model
@@ -59,8 +60,32 @@ bounds (0.05 mm), area (1 part in 10,000) and vertices (0.03 mm). The 6 others
 are 3 models in both years, none with a surface missing from the native
 document: placed images are surfaces in that export and not in OBJ (`house-plus`,
 `feature-pack`), and `house` holds coincident faces the comparison counts once.
-This is independent evidence for geometry and transforms only; materials, UVs
-and annotations are measured by the counts and the regressions above.
+Texture coordinates are evaluated per side at every corner the document places
+explicitly and compared with the same exports. No value contradicts them except
+projectively pinned faces, 6 of the 94 rows (`pin-one`, `pin-fixed-distort`,
+`feature-pack` in both years): that exporter bakes such faces into per-face
+images with bounding-box coordinates, which the format notes document. A unit
+test instead checks one real pinned face against the pins stored in the file,
+through import and export. Corners of placed images and of faces inheriting a
+group's material are not evaluated. This evidence does not cover annotations.
+
+A field-by-field comparison of the canonical document before and after
+regeneration covered the 2017 and 2026 corpora, every fixture and the real solid
+models. Materials, tags, names, scenes, styles, slide settings and annotations
+agree. What differs, none of it geometry or appearance:
+
+- persistent ids and component UUIDs, which are assigned on import;
+- names the 2026 writer gives to unnamed section planes, and `ModelProperties`
+  values both writers add;
+- leader text colors written where the source relied on the default.
+
+That comparison exposed display settings shifted on classic releases, decoded as
+X-ray on a transparent background. They are now refused and defaults apply, so
+styles saved in 2013–2016, 2019, 2020 and classic 2021 files are not imported
+(docs/09 Decisions).
+
+CLI, RPC and GUI are tested on five real models: the same edits give an equal
+canonical document and byte-identical SKP files (`gui/tests/skp.rs`).
 
 Models before 2013 are refused by name. Two non-SKP files named
 `.skp` are refused as unsupported containers.
@@ -113,28 +138,27 @@ step. Per-release certification and edited historical writers remain open.
 
 ## Required before complete-support claims
 
-1. Obtain genuine 2023–2024 release fixtures and more complex 2018–2022 models.
-   Extend unsupported object/layout coverage from real evidence; confirm the
-   axes of kind 7 face anchors against a source of known leader positions.
-2. Verify exact external font faces (native display currently substitutes its
-   available font), custom stroke rendering, luminance-mask watermarks and
-   remaining camera/annotation presentation details. Retained source metadata
-   alone does not establish editable or visual equivalence.
-3. The alpha now regenerates supported native annotations/images/styles/sun/
-   watermarks and circular analytic curves. Remaining export limits include
-   manual sun directions, nested radial references, some annotation offsets and
-   curve-angle attachments, certain attributes/behaviors, polygon editing
-   metadata and multi-pin placements (written as the closest single one). Custom
-   strokes/masks and foreign records are not fully regenerated;
-   whole-model native working copies retain the original and notices explain
-   the mapped-data boundary. Complete edited-output certification remains open.
-4. The corpus chain covers original → `.plyr` → reopen → edit → SKP → reopen for
-   addition only, read back by this converter. Still required: opening regenerated
-   files in the target application, entity deletion and renamed definitions and
-   materials. Check data and appearance, not just file acceptance.
-5. Exercise CLI/RPC and GUI with the same original feature-rich models. Browser
-   SKP conversion remains unavailable. Native snapshots, recovery, history and
-   Sheets must retain their existing behavior.
+1. **Target application.** Regenerated files were only read back by this converter.
+   They must be opened in the target application; data and appearance both count.
+   This cannot be done on the development machine.
+2. **2023 and 2024.** Repositories and code search found no public redistributable
+   file from either release. A user-provided save of the same model in each
+   would close this.
+3. Confirm the axes of kind 7 face anchors against a source of known positions.
+   Calibrate display settings for 2013–2016, 2019 and 2020, which needs files
+   saved with known non-default styles in those releases.
+4. Verify exact external font faces (native display substitutes its available
+   font), custom stroke rendering, luminance-mask watermarks and remaining camera
+   presentation. Retained source metadata does not establish equivalence.
+5. Edited-output limits the format cannot hold or the writers do not accept:
+   manual sun directions, text at arbitrary curve angles, linear dimension offsets
+   along the measuring direction, radial dimensions across nested occurrences,
+   polygon edit metadata, per-scene transition times, multi-pin placements
+   (written as the closest single one), custom strokes/masks and foreign records.
+   Tag attribute dictionaries are not native, so they remain only in the source.
+   Whole-model native working copies retain the original; notices explain the
+   boundary. Edited writing of 2013–2016 streams is not implemented.
+6. Browser SKP conversion remains unavailable.
 
 ## Source preservation already implemented
 

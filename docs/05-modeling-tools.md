@@ -295,8 +295,9 @@ perpendicular to hovered edge); `Esc` = cancel current step (second `Esc` = canc
 ### 5.4 `make-unique`
 - **Params:** `targets: Sel` (instances). Forks the definition for the selected instances only.
 
-### 5.5 `component-reload`, `component-save-as`, `component-replace`
+### 5.5 `component-reload`, `component-save-as`, `component-replace`, `component-rename`
 - `component-save-as { definition, path }` writes `.plyrc`; `component-replace { instances, with: Uuid|path }`.
+- `component-rename { definition, new_name }` keeps the UUID, contents and instances. The name must be unused.
 
 ### 5.6 `tag-create`, `tag-delete`, `tag-rename`, `tag-set-visible`, `tag-assign`, `tag-folder-*`
 - `tag-assign { targets: Sel, tag: String }`. `tag-delete { tag, reassign_to: String("Untagged") }`.

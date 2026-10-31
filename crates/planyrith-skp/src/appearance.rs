@@ -16,6 +16,35 @@ fn color(c: [u8; 4]) -> Rgba8 {
 fn width(on: bool, n: u32) -> Option<u8> {
     on.then_some(n.clamp(1, 255) as u8)
 }
+/// Whether decoded rendering options can be real. The reader's byte table is
+/// calibrated on the 2017 layout, and other classic releases shift it: every
+/// one of these colors is opaque in a saved file, so a shifted read shows at
+/// once. Applying one would open a model as X-ray on a transparent background.
+/// An all-zero color was not stored. The locked color sits past the point where
+/// 2018 and later files diverge, so it is checked alone (see `opaque`).
+pub(super) fn plausible(r: &openskp::RenderingOptions) -> bool {
+    [
+        r.background,
+        r.selected_color,
+        r.guides_color,
+        r.front_color,
+        r.back_color,
+        r.section_cut_color,
+    ]
+    .iter()
+    .all(|c| c[3] == 255 || *c == [0; 4])
+        && r.section_cut_width <= 255
+        && r.ground_transparency <= 100
+        && (0.0..=1.0).contains(&r.fade_rest_of_model)
+}
+/// Replaces `target` when the source stored an opaque color.
+fn opaque(target: &mut Rgba8, c: [u8; 4]) {
+    if c[3] == 255 {
+        *target = color(c);
+    }
+}
+const UNDECODED: &str = "This release's display settings could not be decoded; native defaults \
+                         apply and the complete source remains in the native working copy";
 fn style(name: &str, r: &openskp::RenderingOptions) -> Style {
     let mut s = Style {
         name: name.into(),
@@ -37,8 +66,8 @@ fn style(name: &str, r: &openskp::RenderingOptions) -> Style {
             }
         }
     };
-    s.faces.front_default = color(r.front_color);
-    s.faces.back_default = color(r.back_color);
+    opaque(&mut s.faces.front_default, r.front_color);
+    opaque(&mut s.faces.back_default, r.back_color);
     s.edges.show = r.edges;
     s.edges.profiles = width(r.profiles, r.profiles_width);
     s.edges.depth_cue = width(r.depth_cue, r.depth_cue_width);
@@ -51,19 +80,21 @@ fn style(name: &str, r: &openskp::RenderingOptions) -> Style {
         2 => EdgeColorMode::ByAxis,
         _ => EdgeColorMode::All,
     };
-    s.background.color = color(r.background);
+    opaque(&mut s.background.color, r.background);
     s.background.sky = r.sky.then_some(color(r.sky_color));
     s.background.ground = r.ground.then_some((
         color(r.ground_color),
         1.0 - r.ground_transparency.min(100) as f32 / 100.0,
     ));
     s.background.show_ground_from_below = r.ground_from_below;
-    s.modeling.selection_color = color(r.selected_color);
-    s.modeling.locked_color = color(r.locked_color);
-    s.modeling.guide_color = color(r.guides_color);
+    opaque(&mut s.modeling.selection_color, r.selected_color);
+    opaque(&mut s.modeling.locked_color, r.locked_color);
+    opaque(&mut s.modeling.guide_color, r.guides_color);
     s.modeling.inactive_fade = r.fade_rest_of_model.clamp(0.0, 1.0) as f32;
-    s.modeling.section_line_color = color(r.section_cut_color);
-    s.modeling.section_line_width_px = r.section_cut_width.max(1) as f32;
+    opaque(&mut s.modeling.section_line_color, r.section_cut_color);
+    if r.section_cut_width > 0 {
+        s.modeling.section_line_width_px = r.section_cut_width as f32;
+    }
     if let Some(c) = r.section_fill_color {
         s.modeling.section_fill = color(c);
     }
@@ -190,7 +221,15 @@ pub(super) fn import(
         while tx.document().styles.by_name(&name).is_some() && !(i == 0 && name == "Default") {
             name.push_str(" (imported)");
         }
-        let mut s = style(&name, &src.settings);
+        let mut s = if plausible(&src.settings) {
+            style(&name, &src.settings)
+        } else {
+            warnings.push(UNDECODED.into());
+            Style {
+                name: name.clone(),
+                ..Default::default()
+            }
+        };
         s.watermarks = watermarks(tx, &src.watermarks, src.settings.watermarks, warnings)?;
         let id = if i == 0 {
             let id = tx.document().styles.active();
@@ -211,7 +250,10 @@ pub(super) fn import(
         .and_then(|i| ids.get(i).copied())
         .unwrap_or(tx.document().styles.active());
     tx.set_active_style(active)?;
-    if let Some(r) = &model.rendering {
+    if model.rendering.as_ref().is_some_and(|r| !plausible(r)) {
+        warnings.push(UNDECODED.into());
+    }
+    if let Some(r) = model.rendering.as_ref().filter(|r| plausible(r)) {
         let name = tx
             .document()
             .styles
@@ -245,12 +287,36 @@ pub(super) fn scene_style(
     scene: &openskp::Scene,
     lookup: &BTreeMap<String, StyleId>,
 ) -> Result<Option<StyleId>> {
-    if let Some(r) = &scene.rendering {
-        let mut name = format!("Scene {}", scene.name);
-        while tx.document().styles.by_name(&name).is_some() {
-            name.push_str(" (imported)");
-        }
-        return Ok(Some(tx.insert_style(style(&name, r))?));
+    let named = scene.style.as_ref().and_then(|s| lookup.get(s).copied());
+    let Some(r) = scene.rendering.as_ref().filter(|r| plausible(r)) else {
+        return Ok(named);
+    };
+    // A saved scene repeats its style's settings: reuse a style that already
+    // holds them, or every save and reopen would add one per scene.
+    let settings = style("", r);
+    let same = |id: StyleId| {
+        tx.document().styles.get(id).is_some_and(|s| {
+            let mut other = s.clone();
+            other.name.clear();
+            other.watermarks.clear();
+            other == settings
+        })
+    };
+    if let Some(id) = named.filter(|id| same(*id)) {
+        return Ok(Some(id));
     }
-    Ok(scene.style.as_ref().and_then(|s| lookup.get(s).copied()))
+    let existing = tx
+        .document()
+        .styles
+        .iter()
+        .map(|(id, _)| id)
+        .find(|id| same(*id));
+    if existing.is_some() {
+        return Ok(existing);
+    }
+    let mut name = format!("Scene {}", scene.name);
+    while tx.document().styles.by_name(&name).is_some() {
+        name.push_str(" (imported)");
+    }
+    Ok(Some(tx.insert_style(style(&name, r))?))
 }

@@ -195,6 +195,28 @@ save unless `--no-thumbnail`. `manifest.json` carries `title`, `author`, `descri
   finds these conflicts; group assignment retains coordinates and both sides of
   each face, including loose edges and isolated vertices, without welding them
   across groups.
+- 2026-10-31 — **Classic display settings.** The reader's rendering-options table
+  uses the 2017 byte layout, and classic files of other releases shift it: a
+  2013 box decoded as X-ray with a transparent background. Decoded options
+  apply only when their colors are opaque or absent and their section width and
+  ground transparency are in range; otherwise the import keeps native defaults
+  with a notice, and the source is retained. No per-release layout is guessed,
+  as a default template alone cannot calibrate one. By this test 2013–2016,
+  2019, 2020 and the classic 2021 archive use defaults, and 2017, 2018 and the
+  container releases keep theirs. In 2018 and later the locked color lies past
+  the divergence, so it is applied only when opaque. All-zero colors were not
+  stored and leave the native default. Working copies saved earlier keep the
+  style they were imported with; reopening the original applies this.
+- 2026-10-31 — **SKP regeneration fidelity.** An edge end is written as a vertex
+  anchor (kind 2), as the format stores it, and an edge parameter of exactly 0
+  or 1 reads as that end, so these anchors keep their native form. A scene's
+  rendering reuses a style holding the same settings, preferring the one the
+  scene names: creating one per scene added styles on every reopen. Slide delay
+  and looping have no native field and travel as `org.planyrith.skp` document
+  attributes. The format has one transition time, so the first nonzero scene
+  value is written, with a notice if they differ. Guide and section attributes
+  are written. Radial attachments use the native curve frame (x × y of the
+  stored axes), which can oppose the stored normal.
 - 2026-10-31 — **SKP corpus findings.** Survey of 680 public files (2013–2026),
   including real 2018/2021/2022 saves; evidence in `docs/dev/skp-fidelity.md`.
   - An anchor of kind 7 names a face and stores a pair normalized over the outer
