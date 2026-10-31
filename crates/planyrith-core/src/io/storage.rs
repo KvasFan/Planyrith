@@ -395,10 +395,10 @@ impl Storage for NativeFs {
             .map_err(|e| IoError::storage("SKP adapter", e.to_string()))?;
         if !output.status.success() {
             let message = String::from_utf8_lossy(&output.stderr);
-            return Err(IoError::corrupt(
-                "SKP",
-                message.chars().take(4096).collect::<String>(),
-            ));
+            return Err(IoError::Conversion {
+                format: "SKP".into(),
+                reason: message.chars().take(4096).collect::<String>(),
+            });
         }
         written?;
         adapter::decode(&output.stdout)

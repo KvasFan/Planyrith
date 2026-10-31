@@ -4,6 +4,7 @@
 mod annotations;
 mod appearance;
 mod classic;
+mod conflicts;
 mod curves;
 mod decode;
 mod encode;
@@ -11,6 +12,7 @@ mod encode_annotations;
 mod encode_appearance;
 mod encode_curves;
 mod encode_images;
+mod face_geometry;
 mod images;
 mod metadata;
 mod source;

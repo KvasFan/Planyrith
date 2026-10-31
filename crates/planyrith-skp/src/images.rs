@@ -4,6 +4,23 @@ use glam::{DAffine3, DVec3};
 use openskp::Model;
 use planyrith_core::{document::ImageEntity, ids::MaterialId, units::Length};
 
+/// Converts legacy bitmaps losslessly to the native asset encodings.
+pub(super) fn asset(bytes: &[u8]) -> Result<Vec<u8>> {
+    if image::guess_format(bytes)? != image::ImageFormat::Bmp {
+        return Ok(bytes.to_vec());
+    }
+    let mut reader =
+        image::ImageReader::with_format(std::io::Cursor::new(bytes), image::ImageFormat::Bmp);
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(planyrith_core::document::ImageStore::MAX_SIDE_PX);
+    limits.max_image_height = Some(planyrith_core::document::ImageStore::MAX_SIDE_PX);
+    reader.limits(limits);
+    let decoded = reader.decode()?;
+    let mut png = std::io::Cursor::new(Vec::new());
+    decoded.write_to(&mut png, image::ImageFormat::Png)?;
+    Ok(png.into_inner())
+}
+
 pub(super) fn placed(
     model: &Model,
     reference: u32,

@@ -9,6 +9,48 @@ use planyrith_core::{
 };
 use std::collections::{BTreeMap, BTreeSet};
 
+#[derive(Default)]
+struct Batch {
+    faces: Vec<usize>,
+    uses: BTreeSet<DirectedEdgeIndex>,
+    edges: BTreeSet<usize>,
+    vertices: BTreeSet<usize>,
+}
+
+fn assign(
+    batches: &mut Vec<Batch>,
+    face: Option<usize>,
+    uses: BTreeSet<DirectedEdgeIndex>,
+    edges: BTreeSet<usize>,
+    vertices: BTreeSet<usize>,
+    conflicts: &super::conflicts::Conflicts,
+) -> Result<()> {
+    let candidate = batches.iter().position(|b| {
+        b.uses.is_disjoint(&uses)
+            && edges
+                .iter()
+                .all(|e| conflicts.edges[*e].is_disjoint(&b.edges))
+            && vertices
+                .iter()
+                .all(|v| conflicts.vertices[*v].is_disjoint(&b.vertices))
+    });
+    let index = if let Some(i) = candidate {
+        i
+    } else {
+        if batches.len() >= 4096 {
+            return Err("SKP container requires more than 4096 surface groups".into());
+        }
+        batches.push(Batch::default());
+        batches.len() - 1
+    };
+    let batch = &mut batches[index];
+    batch.faces.extend(face);
+    batch.uses.extend(uses);
+    batch.edges.extend(edges);
+    batch.vertices.extend(vertices);
+    Ok(())
+}
+
 pub(super) struct Placement {
     pub container: ContainerRef,
     pub edges: BTreeMap<usize, EdgeId>,
@@ -21,7 +63,8 @@ pub(super) fn insert(
     indexed: &IndexedMesh,
     source_hash: &[u8; 32],
 ) -> Result<Vec<Placement>> {
-    let mut batches: Vec<(Vec<usize>, BTreeSet<DirectedEdgeIndex>)> = Vec::new();
+    let mut batches = Vec::new();
+    let conflicts = super::conflicts::detect(indexed, tx.document().tolerances());
     let mut all_face_edges = BTreeSet::new();
     for (i, face) in indexed.faces.iter().enumerate() {
         let uses = face
@@ -31,22 +74,51 @@ pub(super) fn insert(
             .copied()
             .collect::<BTreeSet<_>>();
         all_face_edges.extend(uses.iter().map(|e| e.index() as usize));
-        if let Some((faces, occupied)) = batches
-            .iter_mut()
-            .find(|(_, occupied)| occupied.is_disjoint(&uses))
-        {
-            faces.push(i);
-            occupied.extend(uses);
-        } else {
-            if batches.len() >= 4096 {
-                return Err("SKP container requires more than 4096 surface groups".into());
-            }
-            batches.push((vec![i], uses));
+        let edges = uses
+            .iter()
+            .map(|e| e.index() as usize)
+            .collect::<BTreeSet<_>>();
+        let vertices = edges
+            .iter()
+            .flat_map(|i| [indexed.edges[*i].a as usize, indexed.edges[*i].b as usize])
+            .collect();
+        assign(&mut batches, Some(i), uses, edges, vertices, &conflicts)?;
+    }
+    for i in 0..indexed.edges.len() {
+        if !all_face_edges.contains(&i) {
+            let edge = indexed.edges[i];
+            assign(
+                &mut batches,
+                None,
+                BTreeSet::new(),
+                BTreeSet::from([i]),
+                BTreeSet::from([edge.a as usize, edge.b as usize]),
+                &conflicts,
+            )?;
+        }
+    }
+    let used_vertices = indexed
+        .edges
+        .iter()
+        .flat_map(|e| [e.a as usize, e.b as usize])
+        .collect::<BTreeSet<_>>();
+    for i in 0..indexed.vertices.len() {
+        if !used_vertices.contains(&i) {
+            assign(
+                &mut batches,
+                None,
+                BTreeSet::new(),
+                BTreeSet::new(),
+                BTreeSet::from([i]),
+                &conflicts,
+            )?;
         }
     }
     if batches.len() <= 1 {
+        let mut indexed = indexed.clone();
+        super::curves::split_chains(&mut indexed);
         let ids = tx
-            .with_mesh(parent, |m, t, d| m.insert_disjoint(indexed, t, d))?
+            .with_mesh(parent, |m, t, d| m.insert_disjoint(&indexed, t, d))?
             .ok_or("overlapping geometry runs")?;
         return Ok(vec![Placement {
             container: parent,
@@ -54,29 +126,11 @@ pub(super) fn insert(
             faces: ids.faces.into_iter().enumerate().collect(),
         }]);
     }
-    let used_vertices = indexed
-        .edges
-        .iter()
-        .flat_map(|e| [e.a as usize, e.b as usize])
-        .collect::<BTreeSet<_>>();
     let mut placements = Vec::new();
-    for (part, (faces, uses)) in batches.into_iter().enumerate() {
-        let mut edges = uses
-            .iter()
-            .map(|e| e.index() as usize)
-            .collect::<BTreeSet<_>>();
-        if part == 0 {
-            edges.extend((0..indexed.edges.len()).filter(|i| !all_face_edges.contains(i)));
-        }
-        let edges = edges.into_iter().collect::<Vec<_>>();
-        let mut vertices = edges
-            .iter()
-            .flat_map(|i| [indexed.edges[*i].a as usize, indexed.edges[*i].b as usize])
-            .collect::<BTreeSet<_>>();
-        if part == 0 {
-            vertices.extend((0..indexed.vertices.len()).filter(|i| !used_vertices.contains(i)));
-        }
-        let vertices = vertices.into_iter().collect::<Vec<_>>();
+    for (part, batch) in batches.into_iter().enumerate() {
+        let faces = batch.faces;
+        let edges = batch.edges.into_iter().collect::<Vec<_>>();
+        let vertices = batch.vertices.into_iter().collect::<Vec<_>>();
         let vertex_indices = vertices
             .iter()
             .enumerate()
@@ -116,6 +170,7 @@ pub(super) fn insert(
                 f
             })
             .collect();
+        super::curves::split_chains(&mut piece);
         let hash =
             blake3::hash(format!("SKP-surfaces:{source_hash:?}:{parent:?}:{part}").as_bytes());
         let mut uid = [0; 16];

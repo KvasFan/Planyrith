@@ -1560,6 +1560,17 @@ impl<'a> Transaction<'a> {
                 _ => {}
             }
         }
+        // Appearance/position edits do not change entity bindings. Avoid
+        // rebuilding the transaction's complete pid set for every imported
+        // face; on large models that makes appearance assignment quadratic.
+        if removed.is_empty() && added.is_empty() {
+            self.deltas.extend(
+                recorded
+                    .into_iter()
+                    .map(|delta| Delta::Mesh { container, delta }),
+            );
+            return Ok(());
+        }
         let tol = *self.doc.tolerances();
         let entities = self.entities(container)?;
         let mut seen = BTreeSet::new();

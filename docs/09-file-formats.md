@@ -144,6 +144,39 @@ save unless `--no-thumbnail`. `manifest.json` carries `title`, `author`, `descri
 
 ## Decisions
 
+- 2026-10-31 — **Classic archive compatibility and converter diagnostics.**
+  Read packed four-byte RGBA attributes as lossless signed integer values and
+  consume additional component definitions after the declared definition list,
+  including extended class tags, before reading root entities. Legacy BMP
+  textures, thumbnails, watermarks and strokes are decoded by the separate Rust
+  helper and stored as lossless PNG assets within the native image size limits;
+  existing PNG/JPEG/WebP bytes stay unchanged. A nonzero converter exit reports
+  `conversion failed` with its diagnostic (`E1402`); it does not establish that
+  the source container is corrupt. Synthetic regressions cover color values,
+  following-record alignment, trailing definitions and bitmap pixel/alpha
+  preservation. `PLANYRITH_SKP_TEST_FILE` optionally exercises desktop open,
+  native save/reopen and byte-exact unchanged SKP restoration on a private model
+  without putting that model in the repository.
+  Refit stale face planes from source vertices; polygons beyond native
+  planarity tolerance become facets, retaining exact vertices, holes, side
+  appearance and attributes with an explicit notice. New internal diagonals
+  are soft/smooth. Appearance-only mesh deltas bypass pid rebinding work so
+  assigning imported face materials/UVs does not rebuild the complete pid set
+  for every face.
+  Facets below the native area threshold retain their boundary wires with a
+  notice. Interrupted or branching source curve memberships are split into
+  deterministic editable chains; circular fragments retain their analytic
+  center, normal, radius and actual angle range. The same normalization applies
+  to fragments separated into private surface groups.
+  Coincident source vertices are normalized with the core's vertex-only repair
+  within document length tolerance, retaining pid/attribute bookkeeping and
+  reporting merges. Other repairs are not enabled; remaining structural errors
+  still fail conversion. The complete untouched input remains preserved.
+  Before repair, separate overlapping edges and coincident vertices in different
+  source faces/wires into private groups. A deterministic grid broad phase
+  finds these conflicts; group assignment retains coordinates and both sides of
+  each face, including loose edges and isolated vertices, without welding them
+  across groups.
 - 2026-10-30 — **Edited SKP regeneration (0.11.0-alpha.1).** Native text,
   associative linear/radial dimensions, circular analytic curves and welded
   sampled chains, image entities/assets, styles/watermarks, geographic shadows

@@ -133,6 +133,30 @@ impl<'a> Reader<'a> {
                 .map_err(|_| "truncated archive tag")?,
         ))
     }
+    fn next_class_is(&self, name: &str) -> bool {
+        let Ok(tag) = self.tag() else {
+            return false;
+        };
+        if tag == 65535 {
+            return self.peek(6 + name.len()).get(4..6) == Some(&(name.len() as u16).to_le_bytes())
+                && self.peek(6 + name.len()).get(6..) == Some(name.as_bytes());
+        }
+        let slot = if tag == 32767 {
+            let Some(raw) = self.peek(6).get(2..6) else {
+                return false;
+            };
+            let value = u32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]]);
+            if value & 0x80000000 == 0 {
+                return false;
+            }
+            (value & 0x7fffffff) as usize
+        } else if tag & 32768 != 0 {
+            usize::from(tag & 32767)
+        } else {
+            return false;
+        };
+        self.classes.get(&slot).is_some_and(|n| n == name)
+    }
     fn string(&mut self) -> Result<String> {
         if self.raw(3)? != [255, 254, 255] {
             return Err(format!("missing string at {:#x}", self.pos - 3).into());
@@ -302,6 +326,9 @@ impl<'a> Reader<'a> {
             5 => V::Float(f32::from_le_bytes(self.raw(4)?.try_into()?)),
             6 | 12 => V::Double(self.f64()?),
             7 => V::Bool(self.u8()? != 0),
+            // Packed RGBA uses the same four-byte storage as an integer.
+            // Retain every channel, including alpha, in the attribute value.
+            8 => V::Int(self.u32()? as i32),
             9 => V::Time(self.u32()?),
             10 => V::Text(self.string()?),
             11 => {
@@ -1282,11 +1309,7 @@ pub(super) fn read(data: &[u8], mut model: Model) -> Result<Model> {
         let attempt = (|| -> Result<Model> {
             let (mats, layers, _) = reader.prefix(materials)?;
             let mut defs = reader.count()?;
-            let definition_next = reader.peek(26).get(6..) == Some(b"CComponentDefinition")
-                || reader
-                    .classes
-                    .get(&usize::from(reader.tag()? & 32767))
-                    .is_some_and(|n| n == "CComponentDefinition");
+            let definition_next = reader.next_class_is("CComponentDefinition");
             let root_count = if defs > 0 && !definition_next {
                 let n = defs;
                 defs = 0;
@@ -1295,6 +1318,12 @@ pub(super) fn read(data: &[u8], mut model: Model) -> Result<Model> {
                 None
             };
             for _ in 0..defs {
+                reader.pointer(Some("CComponentDefinition"))?;
+            }
+            // The declared count can be followed by additional definition
+            // records. They share the archive's object map and must be read
+            // before interpreting the following root entity count.
+            while reader.next_class_is("CComponentDefinition") {
                 reader.pointer(Some("CComponentDefinition"))?;
             }
             let roots = if let Some(count) = root_count {
@@ -1338,6 +1367,18 @@ pub(super) fn read(data: &[u8], mut model: Model) -> Result<Model> {
                     reader.attrs(&mut model, node, openskp::Owner::Layer(i));
                 }
             }
+            let image_definitions = reader
+                .objects
+                .values()
+                .filter_map(|node| match node.body {
+                    Body::Instance {
+                        definition,
+                        image: true,
+                        ..
+                    } => Some(definition),
+                    _ => None,
+                })
+                .collect::<BTreeSet<_>>();
             for (id, node) in &reader.objects {
                 if let Body::Definition {
                     items: _,
@@ -1351,7 +1392,7 @@ pub(super) fn read(data: &[u8], mut model: Model) -> Result<Model> {
                         name: name.clone(),
                         guid: guid.clone(),
                         map_index: Some(*id),
-                        kind: if reader.objects.values().any(|n|matches!(&n.body,Body::Instance{definition,image:true,..} if definition==id)) {
+                        kind: if image_definitions.contains(id) {
                             openskp::DefinitionKind::Image
                         } else if *group {
                             openskp::DefinitionKind::Group
@@ -1395,4 +1436,30 @@ pub(super) fn read(data: &[u8], mut model: Model) -> Result<Model> {
         }
     }
     Err(format!("classic {text}: {error}").into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn definition_lookahead_handles_new_short_and_extended_class_tags() {
+        let mut declaration = vec![255, 255, 0, 0, 20, 0];
+        declaration.extend_from_slice(b"CComponentDefinition");
+        for (bytes, slot, expected) in [
+            (declaration, 1, true),
+            (vec![0x23, 0x81], 0x123, true),
+            (vec![255, 127, 0x23, 0x81, 0, 0x80], 0x8123, true),
+            (vec![255, 127, 0x23, 0x81, 0, 0], 0x8123, false),
+            (vec![0x23, 0x01], 0x123, false),
+            (vec![255, 127, 0x23], 0x8123, false),
+            (vec![255], 1, false),
+        ] {
+            let mut reader = Reader::new(&bytes, 0, 1, 19);
+            reader.classes.insert(slot, "CComponentDefinition".into());
+            assert_eq!(reader.next_class_is("CComponentDefinition"), expected);
+            assert!(!reader.next_class_is("CLayer"));
+            assert_eq!(reader.pos, 0);
+        }
+    }
 }

@@ -5,7 +5,23 @@ implementation stands, what is done, what remains, and how to resume. Update it 
 every working session. Ground truth for *what to build* stays in `docs/00`–`docs/15`; this file
 is only *progress state*.
 
-_Last updated: 2026-10-30 (0.11.0-alpha.1 preview; 0.11 acceptance in progress)._
+_Last updated: 2026-10-31 (0.11.0-alpha.1 preview; 0.11 acceptance in progress)._
+
+**2026-10-31 compatibility fix:** fixed false corruption reports on a private
+2019 model: packed colors, trailing definitions, BMP assets, warped polygons,
+interrupted curves and overlapping/coincident source geometry. Native groups
+retain conflicting surfaces/wires without moving their coordinates; one
+below-area-tolerance facet retains its boundary wires with a notice.
+Converter failures now describe conversion rather than asserting corruption.
+The optimized build opens the 99,216,575-byte source in about 23 seconds with
+193,201 native faces, 130 image assets and zero validation problems. Desktop
+session open → native save/reopen → unchanged SKP restoration passes, including
+canonical equality and byte-exact original bytes. The local working copy is
+under ignored `target/compat`; no external model content is committed.
+All 548 workspace tests pass (GPU/converter required; one existing ignored
+benchmark), plus native/wasm clippy, fmt, rustdoc, cargo-deny and desktop release
+builds. The preview remains `0.11.0-alpha.1`; certification remains open and tags
+await the user's trial.
 
 **Current request:** `.plyr` remains the principal working format; complete
 SKP open/save must cover **2017 and later**. The user explicitly excluded a

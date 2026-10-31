@@ -34,7 +34,9 @@ pub(super) fn import(tx: &mut Transaction<'_>, model: &Model) -> Result<()> {
         if let Some(strokes) = &s.strokes {
             let mut refs = Vec::new();
             for bytes in &strokes.images {
-                refs.push(Value::Str(tx.insert_image(bytes.clone())?.to_hex()));
+                refs.push(Value::Str(
+                    tx.insert_image(super::images::asset(bytes)?)?.to_hex(),
+                ));
             }
             tx.set_attribute(
                 AttrTarget::Document,

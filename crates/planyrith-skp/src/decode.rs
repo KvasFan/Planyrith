@@ -302,7 +302,7 @@ pub(super) fn document(model: &Model, source_hash: &[u8; 32]) -> Result<(Documen
         m.opacity = opacity.clamp(0.0, 1.0) as f32;
         m.attrs = attributes(model, Owner::Material(index));
         if let Some(bytes) = texture {
-            let image = tx.insert_image(bytes.clone())?;
+            let image = tx.insert_image(super::images::asset(bytes)?)?;
             let (w, h) = size.unwrap_or((1.0, 1.0));
             m.texture = Some(Texture {
                 image,
@@ -370,7 +370,7 @@ pub(super) fn document(model: &Model, source_hash: &[u8; 32]) -> Result<(Documen
         def.is_internal_group = d.kind != openskp::DefinitionKind::Component;
         def.description = d.description.clone();
         if let Some(bytes) = &d.thumbnail {
-            def.thumbnail = Some(tx.insert_image(bytes.clone())?);
+            def.thumbnail = Some(tx.insert_image(super::images::asset(bytes)?)?);
         }
         def.attrs = attributes(model, Owner::Definition(index));
         def.behavior.cuts_opening = d.behaviour.cuts_opening;
@@ -517,10 +517,22 @@ pub(super) fn document(model: &Model, source_hash: &[u8; 32]) -> Result<(Documen
                 },
             });
         }
+        let curve_fragments = super::curves::split_chains(&mut indexed);
+        if curve_fragments > 0 {
+            warnings.push(format!("Container {ri}: interrupted source curves retained as separate editable chains ({curve_fragments} additional fragments)"));
+        }
+        let (face_sources, warped, degenerate) =
+            super::face_geometry::prepare(&mut indexed, tx.document().tolerances())?;
+        if warped > 0 {
+            warnings.push(format!("Container {ri}: {warped} warped source faces retained as triangles with their original vertices"));
+        }
+        if degenerate > 0 {
+            warnings.push(format!("Container {ri}: {degenerate} facets below native area tolerance retained as boundary wires; the complete source remains in the native working copy"));
+        }
         let placements = super::surfaces::insert(&mut tx, container, &indexed, source_hash)?;
         if placements.len() > 1 {
             warnings.push(format!(
-                "Container {ri}: conflicting face sides retained in {} private surface groups",
+                "Container {ri}: overlapping or coincident geometry retained in {} private surface groups",
                 placements.len()
             ));
         }
@@ -553,10 +565,9 @@ pub(super) fn document(model: &Model, source_hash: &[u8; 32]) -> Result<(Documen
                     pids.entry(edge.pid).or_default().push(pid);
                 }
             }
-            for (i, face) in mesh.faces.iter().enumerate() {
-                let Some(&face_id) = placement.faces.get(&i) else {
-                    continue;
-                };
+            for (&i, &face_id) in &placement.faces {
+                let source_index = face_sources[i];
+                let face = &mesh.faces[source_index];
                 let id = EntityId::Face(face_id);
                 let mut sides = indexed.faces[i].sides.clone();
                 for (slot, side, uv) in [
@@ -596,7 +607,7 @@ pub(super) fn document(model: &Model, source_hash: &[u8; 32]) -> Result<(Documen
                     &mut tx,
                     container,
                     id,
-                    attributes(model, Owner::Face(ri, i)),
+                    attributes(model, Owner::Face(ri, source_index)),
                 )?;
                 if face.pid != 0
                     && let Some(pid) = tx
@@ -898,7 +909,22 @@ pub(super) fn document(model: &Model, source_hash: &[u8; 32]) -> Result<(Documen
             texts, dimensions, radial_dimensions
         ));
     }
-    let report = planyrith_core::diagnostics::validate(&doc);
+    let mut report = planyrith_core::diagnostics::validate(&doc);
+    if report
+        .problems
+        .iter()
+        .any(|p| p.kind == planyrith_core::diagnostics::ProblemKind::NearVertices)
+    {
+        let repaired = planyrith_core::diagnostics::repair(
+            &mut doc,
+            &planyrith_core::diagnostics::RepairFixes {
+                merge_vertices: true,
+                ..Default::default()
+            },
+        );
+        warnings.extend(repaired.warnings.into_iter().map(|w| w.message));
+        report = repaired.remaining;
+    }
     if let Some(problem) = report
         .problems
         .iter()

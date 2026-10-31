@@ -30,6 +30,357 @@ fn encoded(model: &openskp::Model, year: u32) -> Vec<u8> {
 }
 
 #[test]
+fn classic_color_attributes_and_trailing_definitions_import_without_data_loss() {
+    let mut engine = super::tests::cube();
+    engine
+        .execute_erased(
+            "make-component",
+            serde_json::json!({"targets":"all","name":"Block"}),
+        )
+        .unwrap();
+    engine
+        .execute_erased(
+            "make-component",
+            serde_json::json!({"targets":"all","name":"Assembly"}),
+        )
+        .unwrap();
+    let (mut model, _) = encode::model(engine.document()).unwrap();
+    assert_eq!(model.definitions.len(), 2);
+    model.dictionaries.push(openskp::Attributes {
+        owner: openskp::Owner::Definition(0),
+        dictionaries: vec![openskp::Dictionary {
+            name: "classic-colors".into(),
+            flag: 0,
+            entries: vec![
+                ("rgba".into(), openskp::Value::Int(0x493b2711)),
+                ("following-value".into(), openskp::Value::Double(4.0)),
+            ],
+        }],
+    });
+    let mut source = encoded(&model, 2017);
+    // The writer exposes integers but not classic packed colors. Change only
+    // the type byte; both records carry exactly four little-endian bytes.
+    let marker = [4, 0x11, 0x27, 0x3b, 0x49];
+    let at = source
+        .windows(marker.len())
+        .position(|b| b == marker)
+        .unwrap();
+    source[at] = 8;
+    // Additional definition records may follow the declared definition list.
+    let marker = b"CComponentDefinition";
+    let at = source
+        .windows(marker.len())
+        .position(|b| b == marker)
+        .unwrap();
+    let count = at - 10;
+    assert_eq!(&source[count..count + 4], &2u32.to_le_bytes());
+    source[count..count + 4].copy_from_slice(&1u32.to_le_bytes());
+    let decoded = convert("decode", &source).unwrap();
+    let loaded = native::read_document(&decoded.bytes, &NoProgress).unwrap();
+    assert_eq!(loaded.document.definitions.len(), 2);
+    assert_eq!(loaded.document.model.instances().count(), 1);
+    assert_eq!(
+        loaded
+            .document
+            .containers()
+            .iter()
+            .map(|c| loaded.document.container(*c).unwrap().mesh().face_count())
+            .sum::<usize>(),
+        6
+    );
+    let attributes = loaded
+        .document
+        .definitions
+        .iter()
+        .find_map(|(_, d)| d.attrs.get("classic-colors", "rgba").map(|_| &d.attrs))
+        .unwrap();
+    assert_eq!(
+        attributes.get("classic-colors", "rgba"),
+        Some(&Value::Int(0x493b2711))
+    );
+    assert_eq!(
+        attributes.get("classic-colors", "following-value"),
+        Some(&Value::Float(4.0))
+    );
+    assert_eq!(
+        convert("encode-preserve", &decoded.bytes).unwrap().bytes,
+        source
+    );
+}
+
+#[test]
+fn bitmap_assets_import_losslessly_into_native_textures() {
+    let image = image::DynamicImage::ImageRgba8(image::RgbaImage::from_fn(3, 2, |x, y| {
+        image::Rgba([x as u8 * 100, y as u8 * 200, 37, 255 - x as u8 * 50])
+    }));
+    let mut bitmap = std::io::Cursor::new(Vec::new());
+    image
+        .write_to(&mut bitmap, image::ImageFormat::Bmp)
+        .unwrap();
+    let bitmap = bitmap.into_inner();
+    let png = images::asset(&bitmap).unwrap();
+    assert_eq!(image::guess_format(&png).unwrap(), image::ImageFormat::Png);
+    assert_eq!(
+        image::load_from_memory(&png).unwrap().to_rgba8(),
+        image.to_rgba8()
+    );
+    assert_eq!(images::asset(&png).unwrap(), png);
+    assert!(images::asset(&bitmap[..20]).is_err());
+    let (mut model, _) = encode::model(super::tests::cube().document()).unwrap();
+    model.materials.push(openskp::Material::Textured {
+        name: "Legacy bitmap".into(),
+        texture: Some("texture.bmp".into()),
+        applied_size_in: Some((12.0, 8.0)),
+        jpeg_quality: None,
+        image_bytes: Some(bitmap),
+        avg_rgba: None,
+        texture_avg_rgba: None,
+        colorized: false,
+        colorize_type: 0,
+        opacity: 1.0,
+    });
+    model.material_links.push((17, 0));
+    model.geometry[0].mesh.faces[0].front_material = Some(17);
+    for year in [2017, 2026] {
+        let doc = native(&encoded(&model, year));
+        let (_, material) = doc
+            .materials
+            .iter()
+            .find(|(_, m)| m.name == "Legacy bitmap")
+            .unwrap();
+        let texture = material.texture.as_ref().unwrap();
+        assert!((texture.size_mm.x - 304.8).abs() < 1e-9);
+        assert!((texture.size_mm.y - 203.2).abs() < 1e-9);
+        let asset = doc.images.get(texture.image).unwrap();
+        assert_eq!(
+            image::load_from_memory(&asset.bytes).unwrap().to_rgba8(),
+            image.to_rgba8()
+        );
+    }
+}
+
+#[test]
+fn warped_source_faces_retain_vertices_attributes_and_valid_topology() {
+    let (mut model, _) = encode::model(super::tests::cube().document()).unwrap();
+    model.geometry[0].mesh.vertices[0][2] += 0.003;
+    for i in 0..6 {
+        model.dictionaries.push(openskp::Attributes {
+            owner: openskp::Owner::Face(0, i),
+            dictionaries: vec![openskp::Dictionary {
+                name: "facet-source".into(),
+                flag: 0,
+                entries: vec![("index".into(), openskp::Value::Int(i as i32))],
+            }],
+        });
+    }
+    let (doc, warnings) = decode::document(&model, &[0; 32]).unwrap();
+    assert!(warnings.iter().any(|w| w.contains("warped source faces")));
+    assert_eq!(doc.model.mesh().vertex_count(), 8);
+    assert_eq!(doc.model.mesh().face_count(), 7);
+    assert!(
+        planyrith_core::diagnostics::validate(&doc)
+            .problems
+            .is_empty()
+    );
+    for position in &model.geometry[0].mesh.vertices {
+        assert!(
+            doc.model
+                .mesh()
+                .vertices()
+                .any(|(_, v)| (v.position - DVec3::from_array(*position) * 1000.0).length() < 1e-9)
+        );
+    }
+    let mut counts = [0; 6];
+    for (id, _) in doc.model.mesh().faces() {
+        let Some(Value::Int(index)) = doc
+            .model
+            .attrs(EntityId::Face(id))
+            .and_then(|a| a.get("facet-source", "index"))
+        else {
+            panic!("facet lost source attributes")
+        };
+        counts[*index as usize] += 1;
+    }
+    assert!(counts.iter().all(|count| *count >= 1));
+    assert!(counts.contains(&2));
+    let saved = super::tests::bytes(&doc);
+    assert_eq!(
+        super::tests::bytes(&native::read_document(&saved, &NoProgress).unwrap().document),
+        saved
+    );
+    // A stale normal on a genuinely planar face is fitted without splitting.
+    let (mut model, _) = encode::model(super::tests::cube().document()).unwrap();
+    model.geometry[0].mesh.faces[0].normal[0] += 0.01;
+    let (doc, warnings) = decode::document(&model, &[1; 32]).unwrap();
+    assert_eq!(doc.model.mesh().face_count(), 6);
+    assert!(!warnings.iter().any(|w| w.contains("warped source faces")));
+}
+
+#[test]
+fn interrupted_circular_curves_import_as_analytic_fragments() {
+    use planyrith_core::commands::{CommandRegistry, Engine};
+    use std::sync::Arc;
+    let mut engine = Engine::new(Document::new(), Arc::new(CommandRegistry::with_builtins()));
+    engine
+        .execute_erased(
+            "circle",
+            serde_json::json!({"center":[0,0,0],"radius":500,"segments":12}),
+        )
+        .unwrap();
+    let (mut model, _) = encode::model(engine.document()).unwrap();
+    model.geometry[0].mesh.edges[2].curve = None;
+    model.geometry[0].mesh.edges[8].curve = None;
+    let (doc, warnings) = decode::document(&model, &[0; 32]).unwrap();
+    assert_eq!(doc.model.mesh().edge_count(), 12);
+    assert_eq!(doc.model.mesh().face_count(), 1);
+    assert_eq!(doc.model.mesh().curve_count(), 2);
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.contains("interrupted source curves"))
+    );
+    for (_, curve) in doc.model.mesh().curves() {
+        let CurveDescriptor::Arc {
+            radius,
+            segments,
+            start_angle,
+            end_angle,
+            ..
+        } = curve
+        else {
+            panic!("fragment lost its analytic radius")
+        };
+        assert!((radius - 500.0).abs() < 1e-9);
+        assert_eq!(*segments, 5);
+        assert!(
+            ((end_angle.0 - start_angle.0).abs() - std::f64::consts::TAU * 5.0 / 12.0).abs() < 1e-9
+        );
+    }
+    assert!(
+        planyrith_core::diagnostics::validate(&doc)
+            .problems
+            .is_empty()
+    );
+    let saved = super::tests::bytes(&doc);
+    assert_eq!(
+        super::tests::bytes(&native::read_document(&saved, &NoProgress).unwrap().document),
+        saved
+    );
+}
+
+#[test]
+fn near_source_vertices_keep_exact_positions_and_edge_attributes_in_separate_groups() {
+    let (mut model, _) = encode::model(super::tests::cube().document()).unwrap();
+    let mut near = model.geometry[0].mesh.vertices[0];
+    near[0] += 0.0000004;
+    let mesh = &mut model.geometry[0].mesh;
+    mesh.vertices.extend([near, [-2.0, -2.0, -2.0]]);
+    let mut edge = mesh.edges[0];
+    edge.v0 = 8;
+    edge.v1 = 9;
+    edge.pid = 50000;
+    edge.curve = None;
+    mesh.edges.push(edge);
+    model.dictionaries.push(openskp::Attributes {
+        owner: openskp::Owner::Edge(0, 12),
+        dictionaries: vec![openskp::Dictionary {
+            name: "weld-regression".into(),
+            flag: 0,
+            entries: vec![("label".into(), openskp::Value::Text("loose edge".into()))],
+        }],
+    });
+    let (doc, warnings) = decode::document(&model, &[0; 32]).unwrap();
+    let meshes = doc
+        .containers()
+        .into_iter()
+        .map(|c| doc.container(c).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        meshes
+            .iter()
+            .map(|c| c.mesh().vertex_count())
+            .sum::<usize>(),
+        10
+    );
+    assert_eq!(
+        meshes.iter().map(|c| c.mesh().edge_count()).sum::<usize>(),
+        13
+    );
+    assert_eq!(
+        meshes.iter().map(|c| c.mesh().face_count()).sum::<usize>(),
+        6
+    );
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.contains("private surface groups"))
+    );
+    assert!(meshes.iter().any(|c| {
+        c.mesh()
+            .vertices()
+            .any(|(_, v)| (v.position - DVec3::from_array(near) * 1000.0).length() < 1e-12)
+    }));
+    assert!(meshes.iter().any(|c| c.mesh().edges().any(|(id, _)| {
+        c.attrs(EntityId::Edge(id))
+            .and_then(|a| a.get("weld-regression", "label"))
+            == Some(&Value::Str("loose edge".into()))
+    })));
+    assert!(
+        planyrith_core::diagnostics::validate(&doc)
+            .problems
+            .is_empty()
+    );
+}
+
+#[test]
+fn crossed_source_wires_keep_both_segments_without_spurious_topology() {
+    let (mut model, _) = encode::model(super::tests::cube().document()).unwrap();
+    let mut edge = model.geometry[0].mesh.edges[0];
+    edge.v0 = 0;
+    edge.v1 = 1;
+    edge.curve = None;
+    edge.pid = 100;
+    let mut second = edge;
+    second.v0 = 2;
+    second.v1 = 3;
+    second.pid = 101;
+    let mesh = &mut model.geometry[0].mesh;
+    mesh.vertices = vec![
+        [-1.0, 0.0, 0.0],
+        [1.0, 0.0, 0.0],
+        [0.0, -1.0, 0.0],
+        [0.0, 1.0, 0.0],
+    ];
+    mesh.edges = vec![edge, second];
+    mesh.faces.clear();
+    let (doc, warnings) = decode::document(&model, &[0; 32]).unwrap();
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.contains("private surface groups"))
+    );
+    assert_eq!(
+        doc.containers()
+            .iter()
+            .map(|c| doc.container(*c).unwrap().mesh().edge_count())
+            .sum::<usize>(),
+        2
+    );
+    assert_eq!(
+        doc.containers()
+            .iter()
+            .map(|c| doc.container(*c).unwrap().mesh().vertex_count())
+            .sum::<usize>(),
+        4
+    );
+    assert!(
+        planyrith_core::diagnostics::validate(&doc)
+            .problems
+            .is_empty()
+    );
+}
+
+#[test]
 fn classic_extended_fixtures_keep_topology_sections_and_curves() {
     for (input, faces, definitions, curves, sections) in [
         (

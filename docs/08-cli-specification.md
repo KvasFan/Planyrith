@@ -237,7 +237,7 @@ On failure: `{"ok": false, "error": {"code": "E1002", "message": "...", "param":
 | E1301 | geometry degenerate (zero-length edge, zero-area face) |
 | E1302 | geometry non-robust (boolean failed; see hint) |
 | E1401 | document format unsupported / newer than reader |
-| E1402 | corrupt container |
+| E1402 | corrupt container, size limit, or failed format conversion (see message) |
 | E1501 | permission / read-only session |
 | E1601 | script error (with line/col) |
 | W2001 | faces merged automatically |

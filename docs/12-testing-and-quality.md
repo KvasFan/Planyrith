@@ -70,6 +70,18 @@ humans or GUI automation before releases, with expected screenshots.
 
 ## Decisions
 
+- 2026-10-31 — **Complex classic-model opening.** The 0.11.0-alpha.1 build
+  passes 548 workspace tests with the converter and GPU required (one existing
+  ignored benchmark), native/wasm clippy, fmt, rustdoc and cargo-deny. Eight new
+  helper regressions cover classic colors/trailing definitions, class tags,
+  bitmap pixels/alpha, warped polygons and holes, fragmented curves, coincident
+  vertices and crossed wires. A private 99,216,575-byte 2019 model opens in
+  about 23 seconds in the optimized build: 193,201 native faces, 130 image
+  assets, zero validation problems. The opt-in desktop session test also
+  passes native save/reopen canonical equality and byte-exact restoration of
+  its original SKP. No private model or extracted content is committed. One
+  below-tolerance facet is retained as boundary wires; source bytes remain
+  intact. Desktop CLI/GUI/converter release builds succeed.
 - 2026-10-30 — **0.11.0-alpha.1 preview.** 538 workspace tests pass with GPU
   and converter required (one existing ignored benchmark), plus three headless
   Chrome tests. `label-style` has a CLI batch/canonical golden, byte-exact undo,

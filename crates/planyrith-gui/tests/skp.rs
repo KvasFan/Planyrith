@@ -3,6 +3,35 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 use planyrith_gui::session::Session;
 use serde_json::json;
+
+#[test]
+fn external_skp_opens_and_survives_native_working_copy_when_requested() {
+    let Some(path) = std::env::var_os("PLANYRITH_SKP_TEST_FILE") else {
+        return;
+    };
+    // Opt-in large/private compatibility probe; no model content is committed.
+    let path = std::path::PathBuf::from(path);
+    let mut session = Session::open(&path).unwrap();
+    use planyrith_core::io::export::json::{canonicalize, document_to_json};
+    let mut canonical = document_to_json(session.doc()).unwrap();
+    canonicalize(&mut canonical);
+    let dir =
+        std::env::temp_dir().join(format!("planyrith-gui-external-skp-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let working = dir.join("working.plyr");
+    session.save(Some(&working)).unwrap();
+    let mut reopened = Session::open(&working).unwrap();
+    let mut actual = document_to_json(reopened.doc()).unwrap();
+    canonicalize(&mut actual);
+    assert_eq!(actual, canonical);
+    let restored = dir.join("restored.skp");
+    reopened.save(Some(&restored)).unwrap();
+    assert_eq!(
+        std::fs::read(&restored).unwrap(),
+        std::fs::read(&path).unwrap()
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
 #[test]
 fn gui_session_opens_and_saves_skp_through_the_same_converter() {
     let exe = std::env::current_exe().unwrap();

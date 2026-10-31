@@ -107,7 +107,7 @@ fn watermarks(
             WatermarkPlacement::Anchored((i % 3) as f32 / 2.0, (i / 3) as f32 / 2.0)
         };
         out.push(Watermark {
-            image: tx.insert_image(bytes.clone())?,
+            image: tx.insert_image(super::images::asset(bytes)?)?,
             placement,
             opacity: if visible {
                 mark.blend.clamp(0.0, 1.0) as f32

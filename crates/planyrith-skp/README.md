@@ -36,6 +36,15 @@ needed. Circular arcs/circles retain analytic descriptors; spatial polylines
 and other curves retain their sampled chains. Placed images retain their
 material, texture asset, size and transform.
 
+The classic reader accepts packed color attributes and trailing component
+definitions, including extended archive tags. Embedded BMP assets become
+lossless PNG images. Warped polygons become facets with unchanged vertices;
+facets below native area tolerance retain boundary wires with a notice.
+Overlapping edges and coincident vertices in separate faces/wires are retained
+in private groups, and interrupted curves become separate analytic/sample
+chains. Converter failure messages describe the cause without automatically
+declaring the source file corrupt.
+
 Styles, fog/backgrounds, watermarks, geographic sun settings and per-scene
 appearance transfer to native settings. Source classifications and custom
 stroke images remain inspectable native data; decoded settings without a

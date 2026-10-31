@@ -53,6 +53,15 @@ pub enum IoError {
         /// Explanation.
         reason: String,
     },
+    /// `E1402` — a separate format converter failed. A failed conversion
+    /// alone does not establish that the source file is damaged.
+    #[error("{format} conversion failed: {reason}")]
+    Conversion {
+        /// Format handled by the converter.
+        format: String,
+        /// Diagnostic returned by the converter.
+        reason: String,
+    },
     /// `E1403` — the storage backend failed (missing key, unreadable, quota).
     #[error("storage error on `{key}`: {reason}")]
     Storage {
@@ -80,7 +89,9 @@ impl IoError {
     pub const fn code(&self) -> &'static str {
         match self {
             IoError::UnsupportedVersion { .. } | IoError::UnsupportedFormat(_) => "E1401",
-            IoError::Corrupt { .. } | IoError::LimitExceeded(_) => "E1402",
+            IoError::Corrupt { .. } | IoError::Conversion { .. } | IoError::LimitExceeded(_) => {
+                "E1402"
+            }
             IoError::Storage { .. } | IoError::NotFound(_) => "E1403",
             IoError::ReadOnly(_) => "E1501",
             IoError::Cancelled => "E1701",
@@ -206,5 +217,18 @@ mod tests {
         );
         assert_eq!(IoError::LimitExceeded("x".into()).code(), "E1402");
         assert_eq!(IoError::Cancelled.code(), "E1701");
+    }
+
+    #[test]
+    fn converter_failure_does_not_claim_source_corruption() {
+        let error = IoError::Conversion {
+            format: "SKP".into(),
+            reason: "unsupported attribute type".into(),
+        };
+        assert_eq!(error.code(), "E1402");
+        assert_eq!(
+            error.to_string(),
+            "SKP conversion failed: unsupported attribute type"
+        );
     }
 }

@@ -31,7 +31,7 @@ high-frequency interaction**.
 | Logging/diagnostics | **tracing**, **tracing-subscriber** | MIT | log | Structured spans for profiling commands. |
 | Errors | **thiserror** (core), **anyhow** (binaries) | MIT/Apache-2.0 | — | Standard. |
 | Parallelism (desktop) | **rayon** behind feature `parallel` | MIT/Apache-2.0 | std threads | Data-parallel algorithms; must be deterministic (see `docs/01 §6`). |
-| Images / textures | **image** (PNG, JPEG, WebP decode via pure-Rust codecs) | MIT/Apache-2.0 | — | Pure Rust. |
+| Images / textures | **image** (PNG, JPEG, WebP; the separate format converter also decodes legacy BMP assets) | MIT/Apache-2.0 | — | Pure Rust. |
 | glTF | **gltf** | MIT/Apache-2.0 | own | Complete, maintained. |
 | OBJ | **tobj** (import); own writer | MIT | obj-rs | Simple and robust. |
 | STL | own (format is trivial) | — | stl_io | Avoid a dependency for 30 lines. |

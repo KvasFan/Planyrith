@@ -6,6 +6,13 @@ All notable changes to Planyrith are recorded here. Versions follow
 
 ## 0.11.0-alpha.1 — Editable SKP exchange and annotation styling (2026-10-30)
 
+- Fix classic SKP opening for packed color attributes, trailing component
+  definitions and embedded BMP images. Convert legacy bitmaps losslessly to
+  native PNG assets. Converter failures now report their cause without declaring
+  the source container corrupt (2026-10-31).
+- Retain warped source polygons as facets with unchanged vertex positions,
+  holes and appearance. Avoid quadratic pid bookkeeping while assigning
+  imported face materials and UVs.
 - Add `label-style` to CLI, RPC and scripting, plus annotation appearance controls
   in Entity Info: font requests, screen/model height, arrow, text color, leaders
   and reset. Edits retain anchors/placement and undo in one step; dimension
