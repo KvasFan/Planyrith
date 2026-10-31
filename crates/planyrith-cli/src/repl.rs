@@ -68,7 +68,11 @@ pub fn repl(global: &Global) -> Result<(), CliError> {
                 json_mode,
             )?,
             ":save" => match session.save(global) {
-                Ok(Some(path)) => out::diagnostic(format!("saved {path}")),
+                Ok(Some(path)) => {
+                    session.path = Some(std::path::PathBuf::from(&path));
+                    session.native_copy_pending = false;
+                    out::diagnostic(format!("saved {path}"));
+                }
                 Ok(None) => out::diagnostic("not saved (--no-save or --dry-run)"),
                 Err(e) => print_error(&e, json_mode)?,
             },

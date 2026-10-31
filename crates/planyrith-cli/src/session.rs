@@ -23,6 +23,8 @@ use crate::{CliError, Global};
 pub struct Session {
     /// Where it was read from (`None` = new, or standard input).
     pub path: Option<PathBuf>,
+    /// First save of an externally opened model defaults to a native copy.
+    pub native_copy_pending: bool,
     /// The engine owning the document.
     pub engine: Engine,
     /// Container metadata carried over on save.
@@ -139,6 +141,10 @@ impl Session {
             }
         }));
         Session {
+            native_copy_pending: loaded.is_some()
+                && path
+                    .as_ref()
+                    .is_some_and(|p| planyrith_core::io::model_file::is_skp(&p.to_string_lossy())),
             path,
             engine,
             loaded,
@@ -230,11 +236,25 @@ impl Session {
             return Ok(None);
         }
         let target = global.out.clone().or_else(|| self.path.clone());
-        let Some(target) = target else {
+        let Some(mut target) = target else {
             return Err(CliError::usage(
                 "nowhere to save: give -f <path> or -o <path> (or --no-save)",
             ));
         };
+        if global.out.is_none() && self.native_copy_pending {
+            target = PathBuf::from(planyrith_core::io::model_file::default_save_path(
+                &target.to_string_lossy(),
+            ));
+            if NativeFs::new()
+                .exists(&key(&target))
+                .map_err(CliError::io)?
+            {
+                return Err(CliError::usage(format!(
+                    "native working copy {} already exists; choose an explicit -o path",
+                    target.display()
+                )));
+            }
+        }
         let now = now_rfc3339();
         let mut opts = WriteOptions {
             deterministic: global.deterministic,

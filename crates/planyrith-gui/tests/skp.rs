@@ -5,6 +5,65 @@ use planyrith_gui::session::Session;
 use serde_json::json;
 
 #[test]
+fn historical_backups_default_to_native_and_explicit_foreign_saves_keep_the_choice() {
+    let adapter = std::env::current_exe()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join(format!("planyrith-skp{}", std::env::consts::EXE_SUFFIX));
+    if !adapter.is_file() {
+        assert!(std::env::var_os("PLANYRITH_REQUIRE_SKP").is_none());
+        return;
+    }
+    let dir = std::env::temp_dir().join(format!(
+        "planyrith-gui-historical-skb-{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    for year in [2013, 2016, 2026] {
+        let fixture = if year < 2017 {
+            format!("legacy/box-{year}.skp")
+        } else {
+            format!("box-{year}.skp")
+        };
+        let original = std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../planyrith-skp/tests/fixtures")
+                .join(fixture),
+        )
+        .unwrap();
+        let source = dir.join(format!("source-{year}.SKB"));
+        std::fs::write(&source, &original).unwrap();
+        let mut session = Session::open(&source).unwrap();
+        assert!(session.needs_native_copy());
+        let native = session.save(None).unwrap();
+        assert_eq!(native, source.with_extension("plyr"));
+        assert!(!session.needs_native_copy());
+        assert!(std::fs::read(&native).unwrap().starts_with(b"PK"));
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+        let mut session = Session::open(&native).unwrap();
+        assert_eq!(session.doc().model.mesh().face_count(), 6);
+        let backup = dir.join(format!("restored-{year}.skb"));
+        session.save(Some(&backup)).unwrap();
+        assert_eq!(std::fs::read(&backup).unwrap(), original);
+        session
+            .execute("move", json!({"targets":"all","delta":[100,0,0]}))
+            .unwrap();
+        assert_eq!(session.save(None).unwrap(), backup);
+        let opened = Session::open(&backup).unwrap();
+        assert!((opened.doc().aabb().min.x - 100.0).abs() < 1e-6);
+        let saved_native = std::fs::read(&native).unwrap();
+        let mut collision = Session::open(&source).unwrap();
+        assert!(collision.save(None).unwrap_err().contains("already exists"));
+        assert_eq!(std::fs::read(&native).unwrap(), saved_native);
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn external_skp_opens_and_survives_native_working_copy_when_requested() {
     let Some(path) = std::env::var_os("PLANYRITH_SKP_TEST_FILE") else {
         return;

@@ -68,6 +68,8 @@ fn cli_opens_modifies_and_saves_real_skp_without_renaming_native_bytes() {
     cli()
         .args(["--deterministic", "-f"])
         .arg(&skp)
+        .arg("-o")
+        .arg(&skp)
         .args([
             "tool",
             "move",
@@ -119,6 +121,144 @@ fn cli_opens_modifies_and_saves_real_skp_without_renaming_native_bytes() {
         .success();
     cli().args(["export", "--help"]).assert().success();
     let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn backup_alias_defaults_to_native_without_overwriting_either_source_or_existing_copy() {
+    let adapter = assert_cmd::cargo::cargo_bin("planyrith")
+        .with_file_name(format!("planyrith-skp{}", std::env::consts::EXE_SUFFIX));
+    if !adapter.is_file() {
+        assert!(std::env::var_os("PLANYRITH_REQUIRE_SKP").is_none());
+        return;
+    }
+    let dir = std::env::temp_dir().join(format!("planyrith-cli-legacy-skb-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let original = std::fs::read(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../planyrith-skp/tests/fixtures/legacy/box-2013.skp"),
+    )
+    .unwrap();
+    let source = dir.join("model.SKB");
+    std::fs::write(&source, &original).unwrap();
+    let output = cli()
+        .args(["--json", "--deterministic", "-f"])
+        .arg(&source)
+        .args(["tool", "move", "--delta", "100,0,0", "--targets", "all"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let output: Value = serde_json::from_slice(&output).unwrap();
+    let native = source.with_extension("plyr");
+    assert_eq!(
+        output["document"]["path"],
+        native.to_string_lossy().as_ref()
+    );
+    assert!(std::fs::read(&native).unwrap().starts_with(b"PK"));
+    assert_eq!(std::fs::read(&source).unwrap(), original);
+    let saved = std::fs::read(&native).unwrap();
+    cli()
+        .arg("-f")
+        .arg(&source)
+        .args(["tool", "select", "--query", "all"])
+        .assert()
+        .failure();
+    assert_eq!(std::fs::read(&native).unwrap(), saved);
+    assert_eq!(std::fs::read(&source).unwrap(), original);
+    let backup = dir.join("edited.skb");
+    cli()
+        .arg("-f")
+        .arg(&native)
+        .arg("-o")
+        .arg(&backup)
+        .args(["tool", "select", "--query", "all"])
+        .assert()
+        .success();
+    assert!(
+        std::fs::read(&backup)
+            .unwrap()
+            .starts_with(b"\xff\xfe\xff\x0e")
+    );
+    cli()
+        .arg("-f")
+        .arg(&backup)
+        .arg("validate")
+        .assert()
+        .success();
+    let exported = dir.join("exported.SKB");
+    cli()
+        .arg("-f")
+        .arg(&native)
+        .arg("export")
+        .arg(&exported)
+        .args(["--skp-version", "2026"])
+        .assert()
+        .success();
+    cli()
+        .arg("-f")
+        .arg(&exported)
+        .arg("validate")
+        .assert()
+        .success();
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn rpc_backup_sessions_default_to_native_and_keep_explicit_save_choices() {
+    let adapter = assert_cmd::cargo::cargo_bin("planyrith")
+        .with_file_name(format!("planyrith-skp{}", std::env::consts::EXE_SUFFIX));
+    if !adapter.is_file() {
+        assert!(std::env::var_os("PLANYRITH_REQUIRE_SKP").is_none());
+        return;
+    }
+    let dir = std::env::temp_dir().join(format!("planyrith-rpc-legacy-skb-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let original = std::fs::read(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../planyrith-skp/tests/fixtures/legacy/box-2013.skp"),
+    )
+    .unwrap();
+    let source = dir.join("model.SKB");
+    let native = source.with_extension("plyr");
+    let backup = dir.join("restored.skb");
+    std::fs::write(&source, &original).unwrap();
+    let frames = [
+        ("session.open", serde_json::json!({"path":source})),
+        ("session.save", serde_json::json!({"doc_id":"d1"})),
+        ("session.save", serde_json::json!({"doc_id":"d1"})),
+        ("session.save", serde_json::json!({"doc_id":"d1","path":backup})),
+        ("session.save", serde_json::json!({"doc_id":"d1"})),
+        ("command.execute", serde_json::json!({"doc_id":"d1","name":"import","params":{"path":source,"at":[2000,0,0]}})),
+        ("history.undo", serde_json::json!({"doc_id":"d1"})),
+    ].into_iter().enumerate().map(|(id,(method,params))| format!("{}\n", serde_json::json!({"jsonrpc":"2.0","id":id+1,"method":method,"params":params}))).collect::<String>();
+    let output = cli()
+        .args(["serve", "--stdio"])
+        .write_stdin(frames)
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let replies = std::str::from_utf8(&output)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(replies.len(), 7);
+    for reply in &replies {
+        assert!(reply.get("error").is_none(), "{reply}");
+    }
+    for reply in &replies[1..3] {
+        assert_eq!(reply["result"]["path"], native.to_string_lossy().as_ref());
+    }
+    for reply in &replies[3..5] {
+        assert_eq!(reply["result"]["path"], backup.to_string_lossy().as_ref());
+    }
+    assert!(std::fs::read(native).unwrap().starts_with(b"PK"));
+    assert_eq!(std::fs::read(source).unwrap(), original);
+    assert_eq!(std::fs::read(backup).unwrap(), original);
+    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]

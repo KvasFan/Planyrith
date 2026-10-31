@@ -200,6 +200,63 @@ fn intermediate_version_fixtures_measure_actual_coverage() {
 }
 
 #[test]
+fn historical_2013_through_2016_boxes_open_and_restore_original_versions() {
+    for (year, original) in [
+        (
+            2013,
+            include_bytes!("../tests/fixtures/legacy/box-2013.skp").as_slice(),
+        ),
+        (
+            2014,
+            include_bytes!("../tests/fixtures/legacy/box-2014.skp").as_slice(),
+        ),
+        (
+            2015,
+            include_bytes!("../tests/fixtures/legacy/box-2015.skp").as_slice(),
+        ),
+        (
+            2016,
+            include_bytes!("../tests/fixtures/legacy/box-2016.skp").as_slice(),
+        ),
+    ] {
+        let decoded = convert("decode", original).unwrap_or_else(|e| panic!("{year}: {e}"));
+        let loaded = read_document(&decoded.bytes, &NoProgress).unwrap();
+        let doc = &loaded.document;
+        assert_eq!(doc.model.mesh().face_count(), 6, "{year}");
+        assert_eq!(doc.model.mesh().edge_count(), 12, "{year}");
+        assert!(
+            (doc.aabb().max - DVec3::splat(1000.0)).length() < 1e-6,
+            "{year}: {:?}",
+            doc.aabb()
+        );
+        assert!(doc.aabb().min.length() < 1e-6);
+        assert!(planyrith_core::diagnostics::validate(doc).is_clean());
+        assert_eq!(source::version(&loaded).unwrap(), Some(year));
+        assert_eq!(
+            convert("encode-preserve", &decoded.bytes).unwrap().bytes,
+            original
+        );
+        let mut edited = Engine::new(doc.clone(), Arc::new(CommandRegistry::with_builtins()));
+        edited
+            .execute_erased("move", json!({"targets":"all","delta":[100,0,0]}))
+            .unwrap();
+        let working = write_document(
+            edited.document(),
+            &[],
+            &WriteOptions::default().carry_over(&loaded),
+            &NoProgress,
+        )
+        .unwrap();
+        let saved = convert("encode-preserve", &working).unwrap();
+        assert!(saved.warnings.iter().any(|w| w.contains("2017 container")));
+        let back = convert("decode", &saved.bytes).unwrap();
+        let back = read_document(&back.bytes, &NoProgress).unwrap();
+        assert_eq!(back.document.model.mesh().face_count(), 6);
+        assert!((back.document.aabb().min.x - 100.0).abs() < 1e-6);
+    }
+}
+
+#[test]
 fn classic_sdk_saved_models_import_geometry() {
     for input in [
         include_bytes!("../tests/fixtures/intermediate/sdk_saved_2019.skp").as_slice(),

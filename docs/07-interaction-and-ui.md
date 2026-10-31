@@ -208,6 +208,15 @@ collected by clicks: e.g. segments for Circle, array count, copy toggle).
 
 ## Decisions
 
+- 2026-10-31 — **Direct historical/backup workflows (alpha.2).** Open and
+  Import list `.skp` and `.skb`; dropping either opens it directly. Open's
+  default model filter shows native models and both external extensions.
+  The first Save of an externally opened model opens Save As with its native
+  `.plyr` filename and native format selected. Save As also offers explicit
+  SKP and SKB destinations; after an explicit choice, Save keeps that format
+  for the session. Original input is preserved by default. Format-module
+  details stay out of dialog labels; desktop availability errors still explain
+  how to supply a missing module. Historical writing limits are in docs/09.
 - 2026-10-30 — **Annotation appearance (0.11 alpha).** Entity Info adds an
   Annotation style form when text/dimensions are selected. Draft controls retain
   font request, pt/model height, arrow, color and text leader visibility until

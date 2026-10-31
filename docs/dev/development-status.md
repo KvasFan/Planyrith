@@ -5,7 +5,19 @@ implementation stands, what is done, what remains, and how to resume. Update it 
 every working session. Ground truth for *what to build* stays in `docs/00`–`docs/15`; this file
 is only *progress state*.
 
-_Last updated: 2026-10-31 (0.11.0-alpha.1 preview; 0.11 acceptance in progress)._
+_Last updated: 2026-10-31 (0.11.0-alpha.2 preview; 0.11 acceptance in progress)._
+
+**Alpha.2:** direct `.skp`/`.skb` workflows with `.plyr` as the default first
+save. CLI/RPC protect existing native siblings; GUI proposes the native filename
+in Save As. Explicit foreign choices remain active for the GUI/RPC session,
+including server-attached clients. Positive original 2013–2016 box fixtures and
+nested 2013/2014 cases cover the expanded historical reader. Unchanged source
+restoration keeps its original version; edited writers remain 2017 and 2026.
+All 554 workspace tests pass with GPU/converter required (one existing ignored
+benchmark), including the private-model GUI save/reopen/source-restoration
+probe. Three headless Chromium tests pass. Native/wasm clippy, fmt, rustdoc,
+cargo-deny and optimized desktop/web builds pass. Web brotli size is 5,495,108
+bytes, within 12 MiB. No tag before the user's trial; no automatic 1.0 work.
 
 **2026-10-31 compatibility fix:** fixed false corruption reports on a private
 2019 model: packed colors, trailing definitions, BMP assets, warped polygons,
@@ -20,12 +32,14 @@ canonical equality and byte-exact original bytes. The local working copy is
 under ignored `target/compat`; no external model content is committed.
 All 548 workspace tests pass (GPU/converter required; one existing ignored
 benchmark), plus native/wasm clippy, fmt, rustdoc, cargo-deny and desktop release
-builds. The preview remains `0.11.0-alpha.1`; certification remains open and tags
+builds. That increment is `0.11.0-alpha.1`; certification remains open and tags
 await the user's trial.
 
-**Current request:** `.plyr` remains the principal working format; complete
-SKP open/save must cover **2017 and later**. The user explicitly excluded a
-requirement for pre-2017 coverage after a version-range clarification.
+**Current request:** `.plyr` remains the principal and default working format.
+Direct SKP/SKB opening/import must cover **2013 and later**, superseding the
+earlier 2017 minimum. Foreign saving is explicit; unchanged old versions restore
+byte-exactly, but edited 2013–2016 writers and full release certification remain
+open. Do not describe the current writers as all-version edited output.
 Do not describe current interoperability as complete. The preceding source-preservation increment
 `d21c2ef` is pushed, with all six CI jobs green in run 41026119552.
 No release tag has been created; do not create one before the user's trial.

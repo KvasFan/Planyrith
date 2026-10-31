@@ -70,6 +70,14 @@ humans or GUI automation before releases, with expected screenshots.
 
 ## Decisions
 
+- 2026-10-31 — **Historical/backup preview (alpha.2).** All 554 workspace tests
+  pass with GPU/converter required (one existing ignored benchmark), including
+  2013–2016 file geometry, original-version restoration, edited 2017 output,
+  SKB import/export and byte-exact undo/redo; CLI/RPC/GUI native defaults,
+  collision protection, explicit foreign choice persistence and the actual
+  first-save dialog. The private large-model desktop round trip remains green.
+  Three headless Chromium tests, native/wasm clippy, fmt, rustdoc, cargo-deny and
+  optimized desktop/web builds pass. The web payload is 5,495,108 brotli bytes.
 - 2026-10-31 — **Complex classic-model opening.** The 0.11.0-alpha.1 build
   passes 548 workspace tests with the converter and GPU required (one existing
   ignored benchmark), native/wasm clippy, fmt, rustdoc and cargo-deny. Eight new

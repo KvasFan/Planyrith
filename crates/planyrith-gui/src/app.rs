@@ -392,10 +392,8 @@ impl App {
     }
 
     fn save(&mut self, path: Option<PathBuf>) {
-        if path.is_none() && self.session.path.is_none() {
-            self.dialog = Self::document_dialog();
-            self.dialog_purpose = Some(DialogPurpose::SaveAs);
-            self.dialog.save_file();
+        if path.is_none() && (self.session.path.is_none() || self.session.needs_native_copy()) {
+            self.save_as();
             return;
         }
         match self.session.save(path.as_deref()) {
@@ -405,6 +403,26 @@ impl App {
             }
             Err(e) => self.error(format!("Could not save: {e}")),
         }
+    }
+
+    fn save_as(&mut self) {
+        let mut dialog = Self::document_dialog()
+            .default_file_filter("Planyrith documents")
+            .default_file_name("Untitled.plyr");
+        if let Some(source) = &self.session.path {
+            let target = PathBuf::from(planyrith_core::io::model_file::default_save_path(
+                &source.to_string_lossy(),
+            ));
+            if let Some(parent) = target.parent() {
+                dialog = dialog.initial_directory(parent.to_path_buf());
+            }
+            if let Some(name) = target.file_name() {
+                dialog = dialog.default_file_name(&name.to_string_lossy());
+            }
+        }
+        self.dialog = dialog;
+        self.dialog_purpose = Some(DialogPurpose::SaveAs);
+        self.dialog.save_file();
     }
 
     /// Runs `action` now, or after asking when there are unsaved changes.
@@ -844,9 +862,7 @@ impl App {
             self.undo();
         }
         if pressed(Modifiers::COMMAND | Modifiers::SHIFT, Key::S) {
-            self.dialog = Self::document_dialog();
-            self.dialog_purpose = Some(DialogPurpose::SaveAs);
-            self.dialog.save_file();
+            self.save_as();
         }
         if pressed(Modifiers::COMMAND, Key::S) {
             self.save(None);
@@ -911,9 +927,7 @@ impl App {
                     ui.close();
                 }
                 if ui.button("Save As…").clicked() {
-                    self.dialog = Self::document_dialog();
-                    self.dialog_purpose = Some(DialogPurpose::SaveAs);
-                    self.dialog.save_file();
+                    self.save_as();
                     ui.close();
                 }
                 #[cfg(target_arch = "wasm32")]
@@ -1758,11 +1772,14 @@ impl App {
     /// The document dialog (open/save) again after a panel's dialog.
     fn document_dialog() -> FileDialog {
         platform::file_dialog()
+            .add_file_filter_extensions("Model documents", vec!["plyr", "skp", "skb"])
             .add_file_filter_extensions("Planyrith documents", vec!["plyr"])
-            .add_file_filter_extensions("SKP models (optional converter)", vec!["skp"])
+            .add_file_filter_extensions("SKP models", vec!["skp"])
+            .add_file_filter_extensions("SKB backups", vec!["skb"])
             .add_save_extension("Planyrith documents", "plyr")
-            .add_save_extension("SKP models (optional converter)", "skp")
-            .default_file_filter("Planyrith documents")
+            .add_save_extension("SKP models", "skp")
+            .add_save_extension("SKB backups", "skb")
+            .default_file_filter("Model documents")
     }
 
     /// Activates the tool a panel asked for.
@@ -1928,7 +1945,7 @@ impl App {
             .extension()
             .map(|e| e.to_string_lossy().to_lowercase())
             .unwrap_or_default();
-        if extension == "plyr" || extension == "skp" {
+        if extension == "plyr" || planyrith_core::io::model_file::is_skp(&path.to_string_lossy()) {
             self.guarded(Pending::Open(Some(path)));
         } else if FileRequest::Import.dialog().2.contains(&extension.as_str()) {
             let (name, params) = FileRequest::Import.command(&path.to_string_lossy());
@@ -1983,7 +2000,7 @@ impl App {
     #[cfg(target_arch = "wasm32")]
     fn pick_from_computer(&mut self, purpose: UploadPurpose) {
         let accept = match &purpose {
-            UploadPurpose::Open => ".plyr,.skp".to_string(),
+            UploadPurpose::Open => ".plyr,.skp,.skb".to_string(),
             UploadPurpose::Store => String::new(),
             UploadPurpose::Resource(request) => request
                 .dialog()
@@ -2384,6 +2401,51 @@ mod tests {
     use planyrith_core::inference::InferenceKind;
 
     use super::*;
+
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn first_save_of_a_backup_proposes_a_native_copy_without_writing_the_source() {
+        let adapter = std::env::current_exe()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join(format!("planyrith-skp{}", std::env::consts::EXE_SUFFIX));
+        if !adapter.is_file() {
+            assert!(std::env::var_os("PLANYRITH_REQUIRE_SKP").is_none());
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!(
+            "planyrith-gui-native-dialog-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let source = dir.join("plan.skb");
+        let original = std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../planyrith-skp/tests/fixtures/legacy/box-2013.skp"),
+        )
+        .unwrap();
+        std::fs::write(&source, &original).unwrap();
+        let mut shell = Shell::new();
+        shell.app.open(&source);
+        shell
+            .app
+            .session
+            .execute("move", json!({"targets":"all","delta":[100,0,0]}))
+            .unwrap();
+        shell.app.save(None);
+        assert!(matches!(
+            shell.app.dialog_purpose,
+            Some(DialogPurpose::SaveAs)
+        ));
+        assert_eq!(shell.app.dialog.config_mut().default_file_name, "plan.plyr");
+        assert!(!source.with_extension("plyr").exists());
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+        assert!(shell.app.session.dirty());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     /// The whole window driven by synthetic input, headless.
     struct Shell {

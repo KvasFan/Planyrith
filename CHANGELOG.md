@@ -4,6 +4,20 @@ All notable changes to Planyrith are recorded here. Versions follow
 [Semantic Versioning](https://semver.org/); before 1.0, minor versions are milestones of
 [`docs/13-roadmap.md`](docs/13-roadmap.md).
 
+## 0.11.0-alpha.2 — Historical models, backups and native defaults (2026-10-31)
+
+- Open/import historical SKP models from 2013 onward, adding positive 2013–2016
+  box fixtures and nested 2013/2014 regressions. Read older entity preambles,
+  definition prefixes and instance tails; assign stable archive identities when
+  the source has no persistent ids. Unchanged saves retain original bytes and
+  versions; edited writers remain 2017 and 2026 with compatibility notices.
+- Open/import/save/export `.skb` backups directly, including mixed-case file
+  names, through the same desktop workflow as `.skp`.
+- Default the first save of an externally opened model to a `.plyr` working
+  copy. The GUI proposes a native filename in Save As; CLI/RPC choose the native
+  sibling and refuse to overwrite an existing copy implicitly. Explicit foreign
+  save choices remain active for that GUI/RPC session. Source files stay intact.
+
 ## 0.11.0-alpha.1 — Editable SKP exchange and annotation styling (2026-10-30)
 
 - Fix classic SKP opening for packed color attributes, trailing component

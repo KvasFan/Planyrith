@@ -2,10 +2,23 @@
 
 use super::{IoError, NoProgress, Storage, adapter, native};
 
-/// Whether the path names an SKP model (case insensitive).
+/// Whether the path names an SKP model or SKB backup (case insensitive).
 pub fn is_skp(path: &str) -> bool {
     path.rsplit_once('.')
-        .is_some_and(|(_, ext)| ext.eq_ignore_ascii_case("skp"))
+        .is_some_and(|(_, ext)| ext.eq_ignore_ascii_case("skp") || ext.eq_ignore_ascii_case("skb"))
+}
+
+/// Suggested native working-copy path after opening an external model.
+/// Explicit save/export destinations are used unchanged.
+pub fn default_save_path(path: &str) -> String {
+    if is_skp(path) {
+        std::path::Path::new(path)
+            .with_extension("plyr")
+            .to_string_lossy()
+            .into_owned()
+    } else {
+        path.to_owned()
+    }
 }
 
 /// Opens a whole model, keeping native metadata and converter warnings.

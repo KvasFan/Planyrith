@@ -1,4 +1,4 @@
-//! Classic 2018–2020 object-archive reader (docs/09 §5).
+//! Classic 2013–2020 object-archive reader (docs/09 §5).
 //!
 //! Ported from the MIT-licensed legacy-format reference at
 //! iamahsanmehmood/openskp, revision c0bbeaa62191d776ea25e979555c5d6c464d54fa.
@@ -269,11 +269,19 @@ impl<'a> Reader<'a> {
         let result = self.body(&name, &mut node);
         self.depth -= 1;
         result.map_err(|e| format!("{name} at {:#x}: {e}", self.pos))?;
+        if self.version < 17 {
+            // Earlier archives have no persistent-id mask. Their stable
+            // object-map slots also identify annotation and instance refs.
+            node.pid = u32::try_from(id)?;
+        }
         self.objects.insert(id, node);
         Ok(id)
     }
     fn preamble(&mut self, n: &mut Node) -> Result<()> {
         n.attrs = self.pointer(Some("CAttributeContainer"))?;
+        if self.version < 17 {
+            return Ok(());
+        }
         let mask = self.u8()?;
         if mask > 15 {
             return Err("invalid persistent-id mask".into());
@@ -555,7 +563,7 @@ impl<'a> Reader<'a> {
                 Body::Other
             }
             "CComponentDefinition" => {
-                self.raw(22)?;
+                self.raw(if self.version >= 17 { 22 } else { 20 })?;
                 let layers = self.count()?;
                 let mut got = 0;
                 while got < layers {
@@ -615,7 +623,9 @@ impl<'a> Reader<'a> {
                 let definition = self.pointer(Some("CComponentDefinition"))?;
                 let transform = self.floats()?;
                 let name = self.string()?;
-                self.raw(16)?;
+                if self.version >= 14 {
+                    self.raw(16)?;
+                }
                 Body::Instance {
                     definition,
                     transform,
@@ -879,7 +889,9 @@ impl<'a> Reader<'a> {
             mats.push(self.pointer(Some("CMaterial"))?);
         }
         self.u32()?;
-        self.u8()?;
+        if self.version >= 17 {
+            self.u8()?;
+        }
         let count = self.count()?;
         let mut layers = Vec::new();
         while layers.len() < count {
@@ -1272,8 +1284,8 @@ pub(super) fn read(data: &[u8], mut model: Model) -> Result<Model> {
         .next()
         .ok_or("invalid version")?
         .parse::<u16>()?;
-    if !(17..=20).contains(&version) {
-        return Err("classic fallback requires release 17–20".into());
+    if !(13..=20).contains(&version) {
+        return Err("classic reader supports releases 2013–2020".into());
     }
     let (start, materials) = if let Some(p) = class_at(data, "CMaterial") {
         let b = data
@@ -1284,7 +1296,7 @@ pub(super) fn read(data: &[u8], mut model: Model) -> Result<Model> {
         (
             class_at(data, "CLayer")
                 .ok_or("missing layer list")?
-                .checked_sub(9)
+                .checked_sub(if version >= 17 { 9 } else { 8 })
                 .ok_or("missing layer prefix")?,
             0,
         )

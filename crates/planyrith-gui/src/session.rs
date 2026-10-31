@@ -32,6 +32,7 @@ pub struct Session {
     pub engine: Engine,
     /// Where it was read from or last saved to.
     pub path: Option<PathBuf>,
+    native_copy_pending: bool,
     loaded: Option<LoadedDocument>,
     history: Vec<HistoryEntry>,
     saved_generation: u64,
@@ -114,6 +115,10 @@ impl Session {
                 _ => {}
             }));
         Session {
+            native_copy_pending: loaded.is_some()
+                && path
+                    .as_ref()
+                    .is_some_and(|p| planyrith_core::io::model_file::is_skp(&p.to_string_lossy())),
             #[cfg(not(target_arch = "wasm32"))]
             remote: None,
             engine,
@@ -407,7 +412,12 @@ impl Session {
         Ok(())
     }
 
-    /// Saves to `path` (or where it came from).
+    /// Whether the first save should ask for a native working copy.
+    pub fn needs_native_copy(&self) -> bool {
+        self.native_copy_pending
+    }
+
+    /// Saves to an explicit destination or the session's default working file.
     pub fn save(&mut self, path: Option<&Path>) -> Result<PathBuf, String> {
         #[cfg(not(target_arch = "wasm32"))]
         if let Some(remote) = self.remote.as_mut() {
@@ -424,15 +434,31 @@ impl Session {
             }
             self.refresh_remote(true)?;
             self.mark_saved();
+            self.native_copy_pending = false;
             return self
                 .path
                 .clone()
                 .ok_or_else(|| "Remote save did not return a path".into());
         }
-        let target = path
+        let mut target = path
             .map(Path::to_path_buf)
             .or_else(|| self.path.clone())
             .ok_or_else(|| "choose where to save".to_string())?;
+        if path.is_none() && self.native_copy_pending {
+            target = PathBuf::from(planyrith_core::io::model_file::default_save_path(
+                &target.to_string_lossy(),
+            ));
+            if self
+                .storage
+                .exists(&key(&target))
+                .map_err(|e| e.to_string())?
+            {
+                return Err(format!(
+                    "native working copy {} already exists; choose Save As",
+                    target.display()
+                ));
+            }
+        }
         let bytes = self.encode(&now_rfc3339())?;
         let converted = planyrith_core::io::model_file::for_save(
             bytes,
@@ -454,6 +480,7 @@ impl Session {
         #[cfg(target_arch = "wasm32")]
         platform::web::request_persistence();
         self.path = Some(target.clone());
+        self.native_copy_pending = false;
         self.saved_generation = self.engine.generation();
         Ok(target)
     }
@@ -568,6 +595,7 @@ impl Session {
         self.engine.set_selection(snapshot.selection);
         self.engine.set_last_created(snapshot.last);
         self.path = snapshot.path;
+        self.native_copy_pending = snapshot.native_copy_pending;
         Ok(())
     }
 

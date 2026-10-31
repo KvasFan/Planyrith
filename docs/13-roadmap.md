@@ -87,7 +87,9 @@ acceptance criteria. Milestones are sequential; within one, items are independen
 
 ## 0.11.0 — Native-first SKP fidelity (in progress)
 - `.plyr` remains the principal working format and the home of all application
-  state. SKP open/save must support 2017 and later; expand certified coverage
+  state. SKP/SKB import targets 2013 and later (user expansion on 2026-10-31);
+  edited writers currently target 2017/2026 and unchanged sources retain their
+  original version. Expand certified coverage
   with actual files from each release, not altered version strings.
 - Preserve complete sources through native working copies and unchanged
   round-trips; prevent failed decoders from opening empty replacement models.
@@ -100,6 +102,10 @@ acceptance criteria. Milestones are sequential; within one, items are independen
   Info controls and edited regeneration for supported annotations, curves,
   images and appearance. Remaining presentation/format limitations and complete
   release certification keep this milestone in progress.
+- The `0.11.0-alpha.2` preview adds positive 2013–2016 import and nested
+  2013/2014 fixtures, direct backup handling, native-default first saving and
+  explicit foreign save choices through CLI/RPC/GUI. A historical header or
+  unchanged source restoration does not certify edited writing for that year.
 - **Accept:** verified open → native save/reopen → edit → SKP save/reopen
   across the supported releases; geometry, hierarchy, materials/UVs, annotations,
   images, scenes and appearance retained; unchanged source byte identity;

@@ -384,6 +384,20 @@ fn crossed_source_wires_keep_both_segments_without_spurious_topology() {
 fn classic_extended_fixtures_keep_topology_sections_and_curves() {
     for (input, faces, definitions, curves, sections) in [
         (
+            include_bytes!("../tests/fixtures/intermediate/nesting_2013.skp").as_slice(),
+            3,
+            3,
+            0,
+            0,
+        ),
+        (
+            include_bytes!("../tests/fixtures/intermediate/legacy_v2014_synthetic.skp").as_slice(),
+            4,
+            4,
+            0,
+            0,
+        ),
+        (
             include_bytes!("../tests/fixtures/intermediate/arcs_2020.skp").as_slice(),
             2,
             0,

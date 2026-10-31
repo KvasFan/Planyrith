@@ -3367,7 +3367,7 @@ checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 
 [[package]]
 name = "planyrith-cli"
-version = "0.11.0-alpha.1"
+version = "0.11.0-alpha.2"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -3386,7 +3386,7 @@ dependencies = [
 
 [[package]]
 name = "planyrith-core"
-version = "0.11.0-alpha.1"
+version = "0.11.0-alpha.2"
 dependencies = [
  "blake3",
  "bytemuck",
@@ -3424,7 +3424,7 @@ dependencies = [
 
 [[package]]
 name = "planyrith-gui"
-version = "0.11.0-alpha.1"
+version = "0.11.0-alpha.2"
 dependencies = [
  "eframe",
  "egui",
@@ -3451,7 +3451,7 @@ dependencies = [
 
 [[package]]
 name = "planyrith-render"
-version = "0.11.0-alpha.1"
+version = "0.11.0-alpha.2"
 dependencies = [
  "ab_glyph",
  "bytemuck",
@@ -3467,7 +3467,7 @@ dependencies = [
 
 [[package]]
 name = "planyrith-skp"
-version = "0.11.0-alpha.1"
+version = "0.11.0-alpha.2"
 dependencies = [
  "blake3",
  "glam",

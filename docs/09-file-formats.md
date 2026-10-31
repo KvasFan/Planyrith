@@ -90,7 +90,7 @@ control via `planyrith export --format json`. It is **not** required to load the
 | glTF 2.0 / GLB | ✔ | ✔ | nodes → groups/instances (meshes shared → components), PBR base color + texture, transforms, cameras → scenes. KHR_texture_transform supported. |
 | DXF (R12–2018 ASCII) | ✔ | ✔ (3D and 2D) | LINE, LWPOLYLINE/POLYLINE, ARC, CIRCLE, ELLIPSE (segmented), SPLINE (flattened), 3DFACE, POLYFACE mesh, INSERT/BLOCK → components, LAYER → tags, TEXT/MTEXT, DIMENSION (as text+lines on export). |
 | STEP AP203/214 | ✔ (feature `brep`) | ✔ (feature `brep`) | via `truck-stepio`; solids/shells; curved faces tessellated with curve descriptors. |
-| SKP (2017 / 2026 containers) | ✔ (optional desktop converter) | ✔ (optional desktop converter) | real model files; geometry, hierarchy, materials/textures, tags, views and sections; compatibility scope in Decisions. |
+| SKP / SKB | ✔ (desktop format module, target 2013+) | ✔ (edited 2017 / 2026; unchanged source version retained) | `.skb` is a backup with the same model encoding; direct open/save/import/export, native working-copy default; release certification and fidelity limits in Decisions. |
 | Images (PNG/JPEG/WebP) | ✔ | ✔ (render) | import as image entity or as a material texture. |
 | CSV | ✔ (points) | ✔ (component report) | `x,y,z[,name]` points → guide points or vertices; report: definition, count, bbox, volume, attrs. |
 | JSON | — | ✔ | full document dump (`--canonical` for diffing). |
@@ -144,6 +144,24 @@ save unless `--no-thumbnail`. `manifest.json` carries `title`, `author`, `descri
 
 ## Decisions
 
+- 2026-10-31 — **Historical models and native-default saves (alpha.2).** The
+  user expanded the minimum import target to 2013. Parse pre-2017 preambles
+  without pid masks, use stable object-map identities for references, read the
+  older definition prefix and pre-2014 instance tail, and account for the
+  earlier layer-list prefix. Four externally saved 2013–2016 box fixtures and
+  MIT nested 2013/2014 probes supplement the existing 2017/2019/2020/2026 tests;
+  headers are never rewritten to claim coverage. Other per-release and
+  entity-type certification remains in progress. Edited writers remain 2017
+  and 2026; unchanged historical source bytes/versions restore exactly.
+  `.skb` is an extension alias for the same importer/exporter and whole-model
+  storage operations. The desktop GUI lists both extensions in Open/Import
+  and Save As; no separate conversion action is required. The optional format
+  process remains separate under the licensing decision in docs/02.
+  A source opened from SKP/SKB initially proposes a native `.plyr` working copy.
+  GUI Save opens Save As with the native filename; CLI/RPC implicit saving uses
+  the sibling `.plyr` and refuses an existing destination. Explicit destinations
+  retain their requested format; GUI/RPC sessions remember that choice until
+  another file is opened. Backups, autosaves and snapshots remain native.
 - 2026-10-31 — **Classic archive compatibility and converter diagnostics.**
   Read packed four-byte RGBA attributes as lossless signed integer values and
   consume additional component definitions after the declared definition list,

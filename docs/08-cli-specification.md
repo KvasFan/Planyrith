@@ -268,6 +268,19 @@ On failure: `{"ok": false, "error": {"code": "E1002", "message": "...", "param":
 
 ## Decisions
 
+- 2026-10-31 — **SKB and historical native defaults (alpha.2).** `-f old.skp`
+  and `-f backup.skb` open through the same format module; 2013 is the minimum
+  import target. With no `-o`, a modifying invocation writes the sibling
+  `.plyr` and preserves the input; an existing native destination requires an
+  explicit `-o`. `-o edited.skp` or `-o edited.skb` requests foreign saving.
+  `import backup.skb` merges with normal placement and undo/redo; `export
+  backup.skb --skp-version 2026` explicitly chooses the newer writer (2017 is
+  the export default). Whole-model unchanged sources retain their original
+  version. Edited models use a supported writer with notices; writing edited
+  2013–2016 streams is not yet supported. RPC `session.save` follows the same
+  default and remembers an explicit destination for subsequent session saves.
+  `document.snapshot.native_copy_pending` carries the first-save preference to
+  attached GUI sessions; snapshots themselves always contain native bytes.
 - 2026-10-30 — **Annotation appearance command (0.11 alpha).** `tool label-style`
   patches selected texts/dimensions: `--targets 'text | dimension'`,
   `--font '{"family":"Inter","size_pt":18,"bold":true}'`, `--arrow open`,
@@ -300,8 +313,9 @@ On failure: `{"ok": false, "error": {"code": "E1002", "message": "...", "param":
   registry commands, JSON-RPC/Rhai functions, CLI goldens and GUI tools (docs/05).
 
 - 2026-10-30 — **SKP desktop entry points.** With the optional converter
-  installed, `-f model.skp` opens a model and normal saving retains SKP;
-  `-o model.plyr` saves a native copy. `import model.skp` merges into the edit
+  installed, `-f model.skp` opens a model. As updated by the 2026-10-31 decision,
+  normal first saving writes a native copy; `-o model.skp` explicitly saves SKP.
+  `import model.skp` merges into the edit
   context with normal placement/scale and one undo step. `export model.skp`
   writes 2017 by default; `--skp-version 2026` selects the newer container.
   RPC session open/save and the registered import/export commands use the same

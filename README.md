@@ -5,7 +5,7 @@ architecture, interiors, landscape, woodworking and product mock-ups. It is writ
 entirely in Rust, runs on Linux, macOS, Windows and in the browser (WebAssembly), and is
 built *CLI-first*: every modeling tool exists as a command before it gets a button.
 
-> **Status: preview 0.11.0-alpha.1 — editable SKP exchange and annotation styles.**
+> **Status: preview 0.11.0-alpha.2 — historical models, backups and native defaults.**
 > The geometry kernel, the document model, the modeling commands, the native file format, the
 > `planyrith` command line (headless rendering, a JSON-RPC server, a shell) and the GUI work:
 > drawing and editing tools that snap through the inference engine, exact input, previews,
@@ -18,7 +18,9 @@ built *CLI-first*: every modeling tool exists as a command before it gets a butt
 > can attach to a local command server. Paper-space Sheets add scaled model views,
 > dimensions, notes, tables and title blocks, with multi-page PDF and per-page SVG/DXF.
 > Freehand and Rotated Rectangle complete the drawing catalogue. An optional desktop
-> converter reads and writes SKP models.
+> format module handles direct SKP/SKB open, import and save, with historical
+> reading from 2013 and `.plyr` as the default working-copy format. Unchanged
+> sources retain their original version; edited SKP output uses 2017 or 2026.
 > The same application runs in the browser, and both
 > autosave and recover unsaved work. See [`CHANGELOG.md`](CHANGELOG.md) and the milestones in
 > [`docs/13-roadmap.md`](docs/13-roadmap.md).

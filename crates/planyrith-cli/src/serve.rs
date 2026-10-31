@@ -436,7 +436,7 @@ impl Server {
                 )
                 .map_err(|e| RpcError::from_cli(CliError::io(e)))?;
                 Ok(
-                    json!({"bytes":bytes,"generation":engine.generation(),"selection":engine.selection().normalized(engine.document()),"context":EditContext {path:engine.context().path.canonical(engine.document())},"last":engine.last_created(),"path":doc.session.path,"undo":engine.history().undo_label(),"redo":engine.history().redo_label()}),
+                    json!({"bytes":bytes,"generation":engine.generation(),"selection":engine.selection().normalized(engine.document()),"context":EditContext {path:engine.context().path.canonical(engine.document())},"last":engine.last_created(),"path":doc.session.path,"native_copy_pending":doc.session.native_copy_pending,"undo":engine.history().undo_label(),"redo":engine.history().redo_label()}),
                 )
             }
             "selection.get" => {
@@ -641,6 +641,7 @@ impl Server {
         let saved = doc.session.save(&global).map_err(RpcError::from_cli)?;
         if let Some(path) = &saved {
             doc.session.path = Some(PathBuf::from(path));
+            doc.session.native_copy_pending = false;
         }
         let warnings = doc
             .session

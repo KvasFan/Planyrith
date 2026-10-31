@@ -53,7 +53,7 @@ pub enum ExportFormat {
     Pdf,
     /// Component report.
     Csv,
-    /// SKP through an optional converter process.
+    /// SKP models and SKB backups through an optional format process.
     Skp,
 }
 
@@ -96,7 +96,7 @@ impl ExportFormat {
             "svg" => ExportFormat::Svg,
             "pdf" => ExportFormat::Pdf,
             "csv" => ExportFormat::Csv,
-            "skp" => ExportFormat::Skp,
+            "skp" | "skb" => ExportFormat::Skp,
             _ => return None,
         })
     }

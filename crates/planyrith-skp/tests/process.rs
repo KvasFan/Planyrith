@@ -77,3 +77,60 @@ fn converter_process_drives_import_export_open_save_and_exact_undo() {
     assert!((opened.document.aabb().max.x - 1000.0).abs() < 1e-6);
     let _ = std::fs::remove_dir_all(dir);
 }
+
+#[test]
+fn historical_backup_imports_are_editable_and_undo_redo_is_byte_exact() {
+    let dir = std::env::temp_dir().join(format!(
+        "planyrith-skp-historical-process-{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let storage = Arc::new(NativeFs {
+        skp_adapter: Some(env!("CARGO_BIN_EXE_planyrith-skp").into()),
+        ..NativeFs::rooted(&dir)
+    });
+    for (year, original) in [
+        (
+            2013,
+            include_bytes!("fixtures/legacy/box-2013.skp").as_slice(),
+        ),
+        (
+            2014,
+            include_bytes!("fixtures/legacy/box-2014.skp").as_slice(),
+        ),
+        (
+            2015,
+            include_bytes!("fixtures/legacy/box-2015.skp").as_slice(),
+        ),
+        (
+            2016,
+            include_bytes!("fixtures/legacy/box-2016.skp").as_slice(),
+        ),
+    ] {
+        let source = format!("model-{year}.SKB");
+        storage.write(&StorageKey::new(&source), original).unwrap();
+        let mut engine = Engine::new(Document::new(), Arc::new(CommandRegistry::with_builtins()));
+        engine.set_storage(storage.clone());
+        let before = native_bytes(engine.document());
+        let result = engine
+            .execute_erased("import", json!({"path":source}))
+            .unwrap();
+        assert_eq!(result["format"], "skp");
+        assert_eq!(engine.document().model.groups().count(), 1);
+        assert!((engine.document().aabb().max.x - 1000.0).abs() < 1e-6);
+        let after = native_bytes(engine.document());
+        engine.undo().unwrap();
+        assert_eq!(native_bytes(engine.document()), before);
+        engine.redo().unwrap();
+        assert_eq!(native_bytes(engine.document()), after);
+        engine
+            .execute_erased("export", json!({"path":"exported.skb","skp_version":2026}))
+            .unwrap();
+        let output = storage.read(&StorageKey::from("exported.skb")).unwrap();
+        let loaded = model_file::read(&output, "exported.skb", storage.as_ref()).unwrap();
+        assert!((loaded.document.aabb().max.x - 1000.0).abs() < 1e-6);
+        assert!(planyrith_core::diagnostics::validate(&loaded.document).is_clean());
+        assert_eq!(storage.read(&StorageKey::new(&source)).unwrap(), original);
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}

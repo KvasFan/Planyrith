@@ -16,7 +16,7 @@ default-members = [
 ]
 
 [workspace.package]
-version = "0.11.0-alpha.1"
+version = "0.11.0-alpha.2"
 edition = "2024"
 # MSRV follows the egui/eframe/egui-wgpu release line in use (0.36 requires 1.95).
 # See docs/02-technology-stack.md §4 and its Decisions list.
@@ -110,8 +110,8 @@ predicates = "3.1"
 criterion = "0.8"
 
 # ---- internal --------------------------------------------------------------------
-planyrith-core = { path = "crates/planyrith-core", version = "0.11.0-alpha.1" }
-planyrith-render = { path = "crates/planyrith-render", version = "0.11.0-alpha.1" }
+planyrith-core = { path = "crates/planyrith-core", version = "0.11.0-alpha.2" }
+planyrith-render = { path = "crates/planyrith-render", version = "0.11.0-alpha.2" }
 
 [workspace.lints.rust]
 unsafe_code = "deny"

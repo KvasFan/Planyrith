@@ -34,10 +34,10 @@ use serde_json::{Value, json};
 /// Global options (docs/08 §1.1); accepted before or after the verb.
 #[derive(Debug, Clone, Default, Args)]
 pub struct Global {
-    /// Document to operate on (`.plyr`, or `.skp` with its optional converter); `-` reads standard input.
+    /// Document to operate on (`.plyr`, `.skp`, `.skb`); external models save as `.plyr` by default. `-` reads standard input.
     #[arg(short = 'f', long, global = true, value_name = "PATH")]
     pub file: Option<PathBuf>,
-    /// Write the result to another file instead of in place (`-` = stdout).
+    /// Explicit destination, including `.skp`/`.skb`; `-` writes native bytes to stdout.
     #[arg(short = 'o', long, global = true, value_name = "PATH")]
     pub out: Option<PathBuf>,
     /// Apply but do not write.

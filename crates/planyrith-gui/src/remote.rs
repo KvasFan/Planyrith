@@ -19,6 +19,8 @@ pub(crate) struct Snapshot {
     pub context: EditContext,
     pub last: Vec<Pid>,
     pub path: Option<std::path::PathBuf>,
+    #[serde(default)]
+    pub native_copy_pending: bool,
     pub undo: Option<String>,
     pub redo: Option<String>,
 }

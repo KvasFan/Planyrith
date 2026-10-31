@@ -9,6 +9,8 @@ No runtime dependency on that project's implementation languages is added.
 
 | Files | Regression |
 |---|---|
+| `nesting_2013.skp` | 3 definitions, 3 faces; nested instances without trailing instance GUIDs. |
+| `legacy_v2014_synthetic.skp` | 4 definitions, 4 faces; pre-2017 entity preambles and definition prefix. |
 | `sdk_saved_2019.skp`, `sdk_saved_2020.skp` | Positive import: 4 vertices, 4 edges, one 254 mm square; formerly empty decoder fallback. |
 | `sdk_saved_sections_2019.skp`, `sdk_saved_sections_2020.skp` | Same square with additional saved file sections/settings; these are not section-plane entities. |
 | `arcs_2017.skp`, `arcs_2020.skp`, `arcs_2021.skp` | 2 root faces and 3 analytic curve records. |

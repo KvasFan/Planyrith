@@ -10,16 +10,26 @@ for version in 2017 2026; do
     "https://raw.githubusercontent.com/hew3d/openskp/$revision/corpus/$version/blank-template-box.skp" \
     --output "$out/box-$version.skp"
 done
+mkdir -p "$out/legacy"
+for version in 2013 2014 2015 2016; do
+  curl --fail --location --silent --show-error \
+    "https://raw.githubusercontent.com/hew3d/openskp/$revision/corpus/legacy/box-v$version.skp" \
+    --output "$out/legacy/box-$version.skp"
+done
 cd "$out"
 sha256sum --check <<'HASHES'
 1040c55ccd79b044070d9ae5945ac52238665eca30ca1f8cd5f5ffdae09253cd  box-2017.skp
 82280b5a11184d06f38a8592fe1683f16e68ee739ebfbef43ad7f9bab64ada3f  box-2026.skp
+b2bc194ccee1bba12cf2a4371a4f2ef42f90ad81b55fd294feb71a46fb33f83a  legacy/box-2013.skp
+72f41969ff4e08cf68e5d43c0fdaa7480c8c342fb94d418e0d334fbdcc293de4  legacy/box-2014.skp
+fb9bc7147754dd4bc472d618c6b04c37b05739f7784816397ff0dfb49ddcbef3  legacy/box-2015.skp
+4e055123353b77d3e75d10023939f50811055f5a0bc1dfcc9a3231f8311278d9  legacy/box-2016.skp
 HASHES
 
 # Independently authored SDK-saved cases and generated examples declaring a 2025 header (MIT).
 revision=c0bbeaa62191d776ea25e979555c5d6c464d54fa
 mkdir -p "$out/intermediate"
-for name in sdk_saved_2019.skp sdk_saved_2020.skp arcs_2021.skp nesting_2021.skp \
+for name in sdk_saved_2019.skp sdk_saved_2020.skp arcs_2021.skp nesting_2021.skp nesting_2013.skp legacy_v2014_synthetic.skp \
   arcs_2017.skp arcs_2020.skp nesting_2020.skp sdk_saved_sections_2019.skp sdk_saved_sections_2020.skp legacy_v2019_synthetic.skp legacy_v2020_textured.skp legacy_text_arrows_2017.skp; do
   curl --fail --location --silent --show-error \
     "https://raw.githubusercontent.com/iamahsanmehmood/openskp/$revision/packages/python/tests/fixtures/$name" \
@@ -47,4 +57,6 @@ c8e99018aad18dea12c90d407435c54d0a15a9610b6e66ff2952c4eeeb9bef45  legacy_v2020_t
 45f5d45d53dd5925f68f81cbd2458658e23ee2630085fd9a9f1dc23b6a420311  legacy_text_arrows_2017.skp
 470d540432636acb5a35184393f9bed1c5e246037532da701209340d847bc728  style_watermark.skp
 7c70ac0b7916390744a5f6361c59008cada08149a54348530b767953e050dbc6  LICENSE
+70ec9be73f20da95384910aa58ba1537dc1600b027cac65137cb2469046e5fc5  nesting_2013.skp
+63964a5fe8337812aa682f209fa92b8b835101be704dddbd092c347ae4fbebcb  legacy_v2014_synthetic.skp
 HASHES

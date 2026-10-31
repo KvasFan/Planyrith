@@ -59,7 +59,7 @@ pub fn convert(operation: &str, bytes: &[u8]) -> Result<Converted> {
             let mut settings_warning = None;
             let mut model = match openskp::Model::parse(bytes) {
                 Ok(model) => model,
-                Err(error) if matches!(classic_major, Some(17..=20)) => {
+                Err(error) if matches!(classic_major, Some(13..=20)) => {
                     settings_warning = Some(format!(
                         "The classic geometry reader recovered this model; some source settings could not be decoded: {error}"
                     ));
@@ -79,7 +79,7 @@ pub fn convert(operation: &str, bytes: &[u8]) -> Result<Converted> {
                         | openskp::Diagnostic::Skipped { .. }
                 )
             });
-            if matches!(classic_major, Some(18..=20))
+            if matches!(classic_major, Some(13..=16 | 18..=20))
                 || (classic_major == Some(17) && (failed_walk || model.geometry.is_empty()))
             {
                 model = classic::read(bytes, model)?;

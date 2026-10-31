@@ -51,7 +51,7 @@ pub enum ImportFormat {
     Csv,
     /// Another `.plyr`/`.plyrc` merged as group/component.
     Plyr,
-    /// SKP through the optional converter process.
+    /// SKP models and SKB backups through the optional format process.
     Skp,
 }
 
@@ -88,7 +88,7 @@ impl ImportFormat {
             "png" | "jpg" | "jpeg" | "webp" => ImportFormat::Image,
             "csv" => ImportFormat::Csv,
             "plyr" | "plyrc" => ImportFormat::Plyr,
-            "skp" => ImportFormat::Skp,
+            "skp" | "skb" => ImportFormat::Skp,
             _ => return None,
         })
     }
