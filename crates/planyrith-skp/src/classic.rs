@@ -1,4 +1,4 @@
-//! Classic 2013–2020 object-archive reader (docs/09 §5).
+//! Classic object-archive reader, 2013 and later (docs/09 §5).
 //!
 //! Ported from the MIT-licensed legacy-format reference at
 //! iamahsanmehmood/openskp, revision c0bbeaa62191d776ea25e979555c5d6c464d54fa.
@@ -8,6 +8,18 @@ use super::Result;
 use openskp::{GeometryRun, MeshEdge, MeshFace, Model};
 use std::collections::{BTreeMap, BTreeSet};
 
+/// First object slot of the throwaway probe that calibrates the map base.
+const BOOT_BASE: usize = 1 << 20;
+
+struct TextureBlock {
+    file: String,
+    size: (f64, f64),
+    bytes: Option<Vec<u8>>,
+    rgba: [u8; 4],
+    texture_rgba: [u8; 4],
+    colorized: bool,
+    opacity: f64,
+}
 #[derive(Clone, Default)]
 struct Draw {
     material: u16,
@@ -157,6 +169,18 @@ impl<'a> Reader<'a> {
         };
         self.classes.get(&slot).is_some_and(|n| n == name)
     }
+    // Slots past the short range use the 7F FF escape and a 32-bit tag.
+    fn class_reference_at(&self, at: usize, slot: usize) -> bool {
+        if let Ok(short) = u16::try_from(slot)
+            && short < 32767
+        {
+            return self.bytes.get(at..at + 2) == Some(&(0x8000 | short).to_le_bytes());
+        }
+        u32::try_from(slot).is_ok_and(|slot| {
+            self.bytes.get(at..at + 2) == Some(&[255, 127])
+                && self.bytes.get(at + 2..at + 6) == Some(&(0x8000_0000 | slot).to_le_bytes())
+        })
+    }
     fn string(&mut self) -> Result<String> {
         if self.raw(3)? != [255, 254, 255] {
             return Err(format!("missing string at {:#x}", self.pos - 3).into());
@@ -184,7 +208,7 @@ impl<'a> Reader<'a> {
         let at = self.pos;
         let n = self.u32()? as usize;
         if n > 5_000_000 {
-            if self.version == 20
+            if self.version >= 20
                 && let Some(marker) = (at..(at + 12).min(self.bytes.len().saturating_sub(4)))
                     .find(|p| self.bytes.get(*p..*p + 4) == Some(&[255, 254, 255, 0]))
             {
@@ -312,6 +336,40 @@ impl<'a> Reader<'a> {
     fn list(&mut self) -> Result<Vec<usize>> {
         let count = self.count()?;
         self.items(count)
+    }
+    // The prefix before a definition's GUID varies by a few bytes between
+    // releases, and large archives escape its reference. A name string
+    // follows the 16-byte GUID: search nearest first and leave any other
+    // layout to the strict read that follows.
+    fn reanchor_guid(&mut self) {
+        let marker = |pos: usize| self.bytes.get(pos + 16..pos + 19) == Some(&[255, 254, 255]);
+        if marker(self.pos) {
+            return;
+        }
+        for distance in 1..=4 {
+            for at in [self.pos.checked_sub(distance), Some(self.pos + distance)] {
+                if let Some(at) = at.filter(|at| marker(*at)) {
+                    self.pos = at;
+                    return;
+                }
+            }
+        }
+    }
+    // Some root lists declare more items than they hold and run into the
+    // document's trailing records: keep the items before the failed one.
+    // A file that ends inside an item is damaged, not over-declared.
+    fn root_items(&mut self, count: usize) -> Result<(Vec<usize>, Option<usize>)> {
+        let mut v = Vec::new();
+        for _ in 0..count {
+            let at = self.pos;
+            match self.pointer(None) {
+                Ok(0) => {}
+                Ok(p) => v.push(p),
+                Err(e) if e.to_string().contains("truncated") => return Err(e),
+                Err(_) => return Ok((v, Some(at))),
+            }
+        }
+        Ok((v, None))
     }
     fn items(&mut self, count: usize) -> Result<Vec<usize>> {
         let mut v = Vec::new();
@@ -475,12 +533,20 @@ impl<'a> Reader<'a> {
                 let hidden = self.bytes.get(begin).is_some_and(|b| *b != 0);
                 self.string()?;
                 let flag = self.u16()?;
-                if flag & 255 != 0 {
-                    return Err("textured classic layer is unsupported".into());
-                }
-                let rgba = self.raw(4)?.try_into()?;
-                self.string()?;
-                self.raw(21)?;
+                let rgba = if flag & 255 != 0 {
+                    // A layer colored by a textured material embeds that
+                    // material's block in place of a flat color.
+                    let texture = self.texture()?;
+                    self.raw(4)?;
+                    texture.rgba
+                } else {
+                    let rgba = self.raw(4)?.try_into()?;
+                    self.string()?;
+                    self.raw(21)?;
+                    self.skip_layer_color_extension();
+                    self.skip_layer_parent();
+                    rgba
+                };
                 Body::Layer(openskp::Layer {
                     name,
                     visible: !hidden,
@@ -503,45 +569,18 @@ impl<'a> Reader<'a> {
                         colorize_type: 0,
                     })
                 } else {
-                    self.pos -= 1;
-                    let mut texture = Node::default();
-                    self.preamble(&mut texture)?;
-                    let dib = self.pointer(Some("CDib"))?;
-                    let offset = self
-                        .bytes
-                        .get(self.pos..self.pos.saturating_add(28))
-                        .unwrap_or(&[])
-                        .windows(3)
-                        .position(|s| s == [255, 254, 255])
-                        .ok_or("missing texture size")?;
-                    if offset == 20 {
-                        self.u32()?;
-                    } else if offset != 16 {
-                        return Err("invalid texture size block".into());
-                    }
-                    let w = self.f64()?;
-                    let h = self.f64()?;
-                    let file = self.string()?;
-                    let avg = self.raw(9)?.to_vec();
-                    self.string()?;
-                    let flags = self.raw(8)?.to_vec();
-                    let transparency = self.f64()?;
-                    let alpha = self.u8()? != 0;
-                    let bytes = match self.objects.get(&dib).map(|n| &n.body) {
-                        Some(Body::Dib(b)) => Some(b.clone()),
-                        _ => return Err("texture image missing".into()),
-                    };
+                    let texture = self.texture()?;
                     Body::Material(openskp::Material::Textured {
                         name,
-                        texture: Some(file),
-                        applied_size_in: Some((w, h)),
+                        texture: Some(texture.file),
+                        applied_size_in: Some(texture.size),
                         jpeg_quality: None,
-                        image_bytes: bytes,
-                        avg_rgba: Some(avg[..4].try_into()?),
-                        texture_avg_rgba: Some(avg[5..9].try_into()?),
-                        colorized: flags[4] != 0,
-                        colorize_type: u32::from(flags[4]),
-                        opacity: if alpha { 1.0 - transparency } else { 1.0 },
+                        image_bytes: texture.bytes,
+                        avg_rgba: Some(texture.rgba),
+                        texture_avg_rgba: Some(texture.texture_rgba),
+                        colorized: texture.colorized,
+                        colorize_type: u32::from(texture.colorized),
+                        opacity: texture.opacity,
                     })
                 }
             }
@@ -583,6 +622,7 @@ impl<'a> Reader<'a> {
                     self.pointer(Some("CRelationship"))?;
                 }
                 self.u16()?;
+                self.reanchor_guid();
                 let guid = self.raw(16)?.iter().map(|v| format!("{v:02x}")).collect();
                 let name = self.string()?;
                 self.string()?;
@@ -600,11 +640,7 @@ impl<'a> Reader<'a> {
                             .get(start + i..start + i + 2)
                             .is_some_and(|b| b == [255, 255])
                             && self.bytes.get(start + i + 6..start + i + 16) == Some(b"CThumbnail")
-                            || thumb.is_some_and(|s| {
-                                self.bytes.get(start + i..start + i + 2).is_some_and(|b| {
-                                    u16::from_le_bytes([b[0], b[1]]) == 0x8000 | s as u16
-                                })
-                            })
+                            || thumb.is_some_and(|s| self.class_reference_at(start + i, s))
                     })
                     .ok_or("definition thumbnail missing")?;
                 let gap = self.raw(offset)?;
@@ -905,11 +941,97 @@ impl<'a> Reader<'a> {
             }
             layers.push(self.pointer(Some("CLayer"))?);
         }
-        while self.tag()? == 0 {
-            self.u16()?;
+        // Layers can continue past the declared count (a 2018 custom tag
+        // listed ahead of Layer0).
+        loop {
+            while self.tag()? == 0 {
+                self.u16()?;
+            }
+            if !self.layer_record_next() {
+                break;
+            }
+            layers.push(self.pointer(Some("CLayer"))?);
         }
         let anchor = self.pointer(Some("CLayer"))?;
         Ok((mats, layers, anchor))
+    }
+    // The caller read a u16 flag; its high byte opens the texture's preamble.
+    fn texture(&mut self) -> Result<TextureBlock> {
+        self.pos -= 1;
+        let mut texture = Node::default();
+        self.preamble(&mut texture)?;
+        let dib = self.pointer(Some("CDib"))?;
+        let offset = self
+            .bytes
+            .get(self.pos..self.pos.saturating_add(28))
+            .unwrap_or(&[])
+            .windows(3)
+            .position(|s| s == [255, 254, 255])
+            .ok_or("missing texture size")?;
+        if offset == 20 {
+            self.u32()?;
+        } else if offset != 16 {
+            return Err("invalid texture size block".into());
+        }
+        let size = (self.f64()?, self.f64()?);
+        let file = self.string()?;
+        let avg = self.raw(9)?.to_vec();
+        self.string()?;
+        let flags = self.raw(8)?.to_vec();
+        let transparency = self.f64()?;
+        let alpha = self.u8()? != 0;
+        let bytes = match self.objects.get(&dib).map(|n| &n.body) {
+            Some(Body::Dib(b)) => Some(b.clone()),
+            _ => return Err("texture image missing".into()),
+        };
+        Ok(TextureBlock {
+            file,
+            size,
+            bytes,
+            rgba: avg[..4].try_into()?,
+            texture_rgba: avg[5..9].try_into()?,
+            colorized: flags[4] != 0,
+            opacity: if alpha { 1.0 - transparency } else { 1.0 },
+        })
+    }
+    fn layer_record_next(&self) -> bool {
+        if self.next_class_is("CLayer") {
+            return true;
+        }
+        // The base probe numbers from 1 << 20, so a short class reference
+        // cannot match its real slot yet.
+        self.base >= BOOT_BASE && self.tag().is_ok_and(|t| t & 32768 != 0 && t != 65535)
+    }
+    // Some 2018 files with a custom tag ahead of Layer0 follow the 21-byte
+    // tail with twelve zero bytes and a u32, then another layer.
+    fn skip_layer_color_extension(&mut self) {
+        let start = self.pos;
+        if self.peek(12).len() == 12 && self.peek(12).iter().all(|b| *b == 0) {
+            self.pos += 16;
+            if !self.layer_record_next() {
+                self.pos = start;
+            }
+        }
+    }
+    // A template Layer0 after a custom tag stores <parent><active>. Consume
+    // the parent only when both references name decoded layers.
+    fn skip_layer_parent(&mut self) {
+        let b = self.peek(4);
+        if b.len() != 4 {
+            return;
+        }
+        let layer = |tag: u16| {
+            tag != 0
+                && tag & 32768 == 0
+                && tag != 32767
+                && matches!(
+                    self.objects.get(&usize::from(tag)).map(|n| &n.body),
+                    Some(Body::Layer(_))
+                )
+        };
+        if layer(u16::from_le_bytes([b[0], b[1]])) && layer(u16::from_le_bytes([b[2], b[3]])) {
+            self.pos += 2;
+        }
     }
     fn dictionary(&self, attrs: usize) -> Vec<openskp::Dictionary> {
         match self.objects.get(&attrs).map(|n| &n.body) {
@@ -1284,8 +1406,8 @@ pub(super) fn read(data: &[u8], mut model: Model) -> Result<Model> {
         .next()
         .ok_or("invalid version")?
         .parse::<u16>()?;
-    if !(13..=20).contains(&version) {
-        return Err("classic reader supports releases 2013–2020".into());
+    if version < 13 {
+        return Err("classic reader supports releases 2013 and later".into());
     }
     let (start, materials) = if let Some(p) = class_at(data, "CMaterial") {
         let b = data
@@ -1301,7 +1423,7 @@ pub(super) fn read(data: &[u8], mut model: Model) -> Result<Model> {
             0,
         )
     };
-    let boot_base = 1 << 20;
+    let boot_base = BOOT_BASE;
     let mut boot = Reader::new(data, start, boot_base, version);
     let bases = if materials >= 2 {
         boot.pointer(Some("CMaterial"))?;
@@ -1338,11 +1460,11 @@ pub(super) fn read(data: &[u8], mut model: Model) -> Result<Model> {
             while reader.next_class_is("CComponentDefinition") {
                 reader.pointer(Some("CComponentDefinition"))?;
             }
-            let roots = if let Some(count) = root_count {
-                reader.items(count)?
-            } else {
-                reader.list()?
+            let root_count = match root_count {
+                Some(count) => count,
+                None => reader.count()?,
             };
+            let (roots, stopped) = reader.root_items(root_count)?;
             model.geometry.clear();
             model.definitions.clear();
             model.definition_links.clear();
@@ -1435,6 +1557,9 @@ pub(super) fn read(data: &[u8], mut model: Model) -> Result<Model> {
             let run = reader.run(&mut model, &roots, None)?;
             model.geometry.push(run);
             model.diagnostics = vec![openskp::Diagnostic::ContinuousWalk { base }];
+            model
+                .diagnostics
+                .extend(stopped.map(|at| openskp::Diagnostic::Truncated { at }));
             Ok(model.clone())
         })();
         match attempt {
@@ -1453,6 +1578,38 @@ pub(super) fn read(data: &[u8], mut model: Model) -> Result<Model> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn class_references_cover_short_and_extended_tags() {
+        let bytes = [
+            0x2b, 0x80, 255, 127, 0x68, 0x36, 2, 0x80, 255, 127, 0x68, 0x36, 2, 0,
+        ];
+        let reader = Reader::new(&bytes, 0, 1, 15);
+        assert!(reader.class_reference_at(0, 0x2b));
+        assert!(!reader.class_reference_at(2, 0x2b));
+        assert!(reader.class_reference_at(2, 0x23668));
+        // Without the class bit this is an object reference.
+        assert!(!reader.class_reference_at(8, 0x23668));
+        assert!(!reader.class_reference_at(12, 0x23668));
+    }
+
+    #[test]
+    fn definition_guid_follows_the_name_marker_within_four_bytes() {
+        for skew in [0usize, 1, 2, 4, 6] {
+            let mut bytes = vec![0; skew];
+            bytes.extend([7; 16]);
+            bytes.extend([255, 254, 255, 0]);
+            let mut reader = Reader::new(&bytes, 0, 1, 15);
+            reader.pos = 2.min(skew);
+            let start = reader.pos;
+            reader.reanchor_guid();
+            if skew.abs_diff(start) <= 4 {
+                assert_eq!(reader.pos, skew);
+            } else {
+                assert_eq!(reader.pos, start);
+            }
+        }
+    }
 
     #[test]
     fn definition_lookahead_handles_new_short_and_extended_class_tags() {

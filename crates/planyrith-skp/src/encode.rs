@@ -134,6 +134,7 @@ pub(super) fn model(doc: &Document) -> Result<(Model, Vec<String>)> {
         return Err("cannot export an invalid document to SKP".into());
     }
     let mut warnings = Vec::new();
+    let mut approximated_uvs = 0usize;
     if doc
         .attrs
         .get("org.planyrith.skp", "decoded-settings")
@@ -202,9 +203,9 @@ pub(super) fn model(doc: &Document) -> Result<(Model, Vec<String>)> {
             } else {
                 (image.bytes.clone(), image.format.extension())
             };
-            if t.colorize.is_some() {
+            if t.colorize == Some(ColorizeMode::Shift) {
                 warnings.push(format!(
-                    "Material {}: texture tint is not transferred",
+                    "Material {}: hue shift is saved as the format's single texture tint",
                     m.name
                 ));
             }
@@ -215,7 +216,7 @@ pub(super) fn model(doc: &Document) -> Result<(Model, Vec<String>)> {
                 jpeg_quality: None,
                 image_bytes: Some(image_bytes),
                 avg_rgba: Some(c),
-                colorized: false,
+                colorized: t.colorize.is_some(),
                 texture_avg_rgba: Some(c),
                 colorize_type: 0,
                 opacity: f64::from(m.opacity),
@@ -408,7 +409,7 @@ pub(super) fn model(doc: &Document) -> Result<(Model, Vec<String>)> {
                             Ok((p, uv(map, p, *v, f.plane, tile)))
                         })
                         .collect::<Result<Vec<_>>>()?;
-                    *out =
+                    let (fitted, exact) =
                         super::texture::mapping(&samples, f.plane.normal, doc.tolerances().length)
                             .map_err(|e| {
                                 format!(
@@ -416,6 +417,8 @@ pub(super) fn model(doc: &Document) -> Result<(Model, Vec<String>)> {
                                     pid(entities.pid_of(id)).unwrap_or(0)
                                 )
                             })?;
+                    *out = fitted;
+                    approximated_uvs += usize::from(!exact);
                     painted = true;
                 }
             }
@@ -550,6 +553,11 @@ pub(super) fn model(doc: &Document) -> Result<(Model, Vec<String>)> {
             ..Default::default()
         };
         model.geometry.push(run);
+    }
+    if approximated_uvs > 0 {
+        warnings.push(format!(
+            "{approximated_uvs} face texture placements use the closest single SKP placement"
+        ));
     }
     super::encode_annotations::append(doc, &mut model, &tags, &mut warnings)?;
     super::encode_images::append(doc, &mut model, &materials, &tags, &mut pids, &mut warnings)?;

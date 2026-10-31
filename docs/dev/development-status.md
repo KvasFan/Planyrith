@@ -5,7 +5,17 @@ implementation stands, what is done, what remains, and how to resume. Update it 
 every working session. Ground truth for *what to build* stays in `docs/00`–`docs/15`; this file
 is only *progress state*. Release packaging is specified in `docs/16`.
 
-_Last updated: 2026-10-31 (0.11.0-alpha.2 preview; 0.11 acceptance in progress)._
+_Last updated: 2026-10-31 (after the 0.11.0-alpha.2 release; 0.11 acceptance in progress)._
+
+**After alpha.2 (unreleased):** a survey of public SKP files found and fixed
+ten models that would not open and five that would not save. All 680 surveyed
+files pass the exchange chain with both writers, one with a few refaceted facets;
+88 of 94 models match the original application's COLLADA surfaces exactly and the
+other 6 are explained. Real 2018, 2021 and 2022 files are committed. Evidence,
+method and limits are in [skp-fidelity.md](skp-fidelity.md); rerun
+`tools/check-skp-corpus.py` after converter changes. Open for 0.11: 2023/2024
+files, opening regenerated files in the target application (not available here),
+deletions and renames in the chain.
 
 **Alpha.2:** direct `.skp`/`.skb` workflows with `.plyr` as the default first
 save. CLI/RPC protect existing native siblings; GUI proposes the native filename

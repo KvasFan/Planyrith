@@ -13,10 +13,11 @@ The acceptance contract is docs/13 0.11 and docs/09 Decisions.
 | 2013 | Original 1 m box and independently generated nested model | Positive editable geometry/hierarchy, native save/reopen, byte-exact source restoration, edited 2017 regeneration; SKB import undo/redo and native-first CLI/RPC/GUI tests. |
 | 2014–2016 | Original 1 m boxes, plus a nested 2014 layout probe | Positive geometry/scale and original-version restoration; import/export through backup extensions. Edited writing in these historical versions is not implemented. |
 | 2017 | Original blank-template cube; generated models; external house inspection | Established geometry/hierarchy/material/UV scope; unchanged whole-model save is byte-exact. Editable fidelity still has the documented gaps. |
-| 2018 | No committed release fixture | Uncertified. |
+| 2018 | Real saved model (4,690 faces) and a real layout model | Full chain passes; tags, guides and overlong root lists covered. |
 | 2019 | Independent SDK-saved squares, generated nested model and private 95 MiB model | Positive geometry/hierarchy/assets; the large model has 193,201 native faces, 130 images and zero validation problems. Native save/reopen and unchanged SKP restoration pass. |
 | 2020 | Independent SDK-saved squares, generated arcs/nesting/textures | Positive native geometry/curve/hierarchy/texture import and unchanged byte-exact restoration. |
-| 2021–2024 | No committed release fixtures | Uncertified. |
+| 2021–2022 | Real saved models in both container families | Full chain passes (2021 classic archive, 2021 and 2022 containers). |
+| 2023–2024 | No public redistributable file found | Uncertified; same container family as the certified 2021, 2022 and 2026 files. |
 | 2025 header | Independent generated arcs/nesting probes (filenames refer to the 2021+ container family) | Analytic curves and hierarchy survive native save/reopen; unchanged save restores the exact original. Not retail certification. |
 | 2026 | Original blank-template cube and generated feature-rich models | Geometry plus native annotation, image, curve, appearance and scene tests; unchanged source byte identity retained. |
 
@@ -26,6 +27,43 @@ The calibrated classic reader is pure Rust; it walks object maps, persistent ids
 attributes and nested definitions without modifying version headers. It also
 reads fonts, text, dimensions and guides. Unsupported objects return errors.
 A structurally parsed empty model is valid; a failed empty fallback is not.
+
+## Public corpus survey (2026-10-31)
+
+`tools/check-skp-corpus.py` runs every 2013-or-later file below a directory
+through the chain of docs/13: open, native save/reopen, unchanged restoration,
+edit, regenerate with both writers, reopen, compare counts. The surveyed files
+are the five complete public repositories named in
+`tests/fixtures/*/README.md` and `tools/fetch-skp-fixtures.sh`: 680 files, most
+of them minimal feature pairs saved by 2017 and 2026 and copies of one model
+across language packages, the others real or test models from 2013 to 2022 and
+one future header. Only files small enough for a fixture are committed.
+
+| Check | First survey | Now (680 files) |
+|---|---|---|
+| Open without error | 257 of the first 266 | 680 |
+| Identical after native save/reopen | not measured | 680 |
+| Byte-exact unchanged restoration | not measured | 680 |
+| Saved and reopened by both writers | not measured | 680 |
+| Counts retained after regeneration | not measured | 679 |
+
+The exception is `PrusaI3_Extruder2`: self-touching facets refacet on the second
+import, 579 → 584 faces, with no moved vertices. The 99 MB private model opens in
+22 seconds with 193,201 faces and no validation problems, restores byte-exactly
+and now regenerates, with 10 placements reported as closest fits.
+
+With `--oracle`, surfaces are compared in world space against COLLADA files
+exported by the original application for 47 models, each saved by 2017 and
+2026. For the import and each writer's regenerated file, 88 of those 94 match in
+bounds (0.05 mm), area (1 part in 10,000) and vertices (0.03 mm). The 6 others
+are 3 models in both years, none with a surface missing from the native
+document: placed images are surfaces in that export and not in OBJ (`house-plus`,
+`feature-pack`), and `house` holds coincident faces the comparison counts once.
+This is independent evidence for geometry and transforms only; materials, UVs
+and annotations are measured by the counts and the regressions above.
+
+Models before 2013 are refused by name. Two non-SKP files named
+`.skp` are refused as unsupported containers.
 
 ## Editable import and 0.11 alpha exchange
 
@@ -75,8 +113,9 @@ step. Per-release certification and edited historical writers remain open.
 
 ## Required before complete-support claims
 
-1. Obtain genuine 2018/2021–2024 release fixtures, validate more complex classic
-   archives and extend unsupported object/layout coverage from real evidence.
+1. Obtain genuine 2023–2024 release fixtures and more complex 2018–2022 models.
+   Extend unsupported object/layout coverage from real evidence; confirm the
+   axes of kind 7 face anchors against a source of known leader positions.
 2. Verify exact external font faces (native display currently substitutes its
    available font), custom stroke rendering, luminance-mask watermarks and
    remaining camera/annotation presentation details. Retained source metadata
@@ -84,13 +123,15 @@ step. Per-release certification and edited historical writers remain open.
 3. The alpha now regenerates supported native annotations/images/styles/sun/
    watermarks and circular analytic curves. Remaining export limits include
    manual sun directions, nested radial references, some annotation offsets and
-   curve-angle attachments, certain attributes/behaviors and polygon editing
-   metadata. Custom strokes/masks and foreign records are not fully regenerated;
+   curve-angle attachments, certain attributes/behaviors, polygon editing
+   metadata and multi-pin placements (written as the closest single one). Custom
+   strokes/masks and foreign records are not fully regenerated;
    whole-model native working copies retain the original and notices explain
    the mapped-data boundary. Complete edited-output certification remains open.
-4. Verify original → `.plyr` → reopen → edit → SKP → independent target reader
-   per supported release, including entity addition/deletion and renamed
-   definitions/materials. Check data and appearance, not just file acceptance.
+4. The corpus chain covers original → `.plyr` → reopen → edit → SKP → reopen for
+   addition only, read back by this converter. Still required: opening regenerated
+   files in the target application, entity deletion and renamed definitions and
+   materials. Check data and appearance, not just file acceptance.
 5. Exercise CLI/RPC and GUI with the same original feature-rich models. Browser
    SKP conversion remains unavailable. Native snapshots, recovery, history and
    Sheets must retain their existing behavior.

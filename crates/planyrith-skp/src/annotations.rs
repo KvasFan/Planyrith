@@ -6,6 +6,11 @@ use planyrith_core::{
     commands::Transaction,
     document::*,
     ids::{DefinitionId, EntityId, MaterialId, Pid, TagId},
+    math::{
+        Plane,
+        polygon::{centroid, point_in_polygon},
+    },
+    tolerance::Tolerances,
     units::Length,
 };
 use std::collections::BTreeMap;
@@ -46,6 +51,7 @@ fn anchor(
     reference: Option<usize>,
     a: &openskp::Anchor,
     pids: &BTreeMap<u32, Vec<Pid>>,
+    warnings: &mut Vec<String>,
 ) -> Result<Anchor> {
     if a.point_m.iter().any(|v| !v.is_finite() || v.abs() > 1e6) {
         return Err("invalid annotation anchor coordinate or parameter".into());
@@ -56,8 +62,8 @@ fn anchor(
         let mut second = first.clone();
         second.entity = Some(a.second.ok_or("intersection anchor has no second edge")?);
         second.path = a.second_path.clone();
-        let mut native = anchor(doc, model, container, reference, &first, pids)?;
-        let other = anchor(doc, model, container, reference, &second, pids)?;
+        let mut native = anchor(doc, model, container, reference, &first, pids, warnings)?;
+        let other = anchor(doc, model, container, reference, &second, pids, warnings)?;
         native.position = Some(AnchorPosition::Intersection(other.path));
         return Ok(native);
     }
@@ -172,7 +178,16 @@ fn anchor(
             }
         }
         0 | 1 => DVec3::from_array(a.point_m) * 1000.0,
-        _ => return Err(format!("unsupported annotation anchor kind {}", a.kind).into()),
+        7 => match run.and_then(|r| face_point(r, a)) {
+            Some(point) => point,
+            None => return Err("anchor face missing".into()),
+        },
+        kind => {
+            warnings.push(format!(
+                "Annotation anchor kind {kind} is imported at its stored point"
+            ));
+            DVec3::from_array(a.point_m) * 1000.0
+        }
     };
     if !point.is_finite() {
         return Err("non-finite annotation anchor".into());
@@ -181,6 +196,47 @@ fn anchor(
     steps.extend(anchor.path.instances.steps);
     anchor.path.instances.steps = steps;
     Ok(anchor)
+}
+/// The native point of an anchor on a face: the stored pair is normalized
+/// over the outer ring's extent in the face's plane, and a position outside
+/// the polygon falls back to the ring's centroid (docs/09 Decisions).
+fn face_point(run: &openskp::GeometryRun, a: &openskp::Anchor) -> Option<DVec3> {
+    let tol = Tolerances::default();
+    let face = run.mesh.faces.iter().find(|f| Some(f.pid) == a.entity)?;
+    let point = |i: &u32| -> Option<DVec3> {
+        Some(DVec3::from_array(*run.mesh.vertices.get(*i as usize)?) * 1000.0)
+    };
+    let origin = point(face.outer.first()?)?;
+    let plane = Plane::from_point_normal(origin, DVec3::from_array(face.normal));
+    let frame = plane.frame();
+    let ring = face
+        .outer
+        .iter()
+        .map(|i| point(i).map(|p| frame.to_2d(p)))
+        .collect::<Option<Vec<_>>>()?;
+    let (low, high) = ring.iter().fold(
+        (DVec2::splat(f64::INFINITY), DVec2::splat(f64::NEG_INFINITY)),
+        |(l, h), p| (l.min(*p), h.max(*p)),
+    );
+    // The reader scales every stored coordinate as inches.
+    let fraction = DVec2::new(a.point_m[0], a.point_m[1]) / 0.0254;
+    let inside = low + (high - low) * fraction;
+    let holes = face
+        .holes
+        .iter()
+        .map(|hole| {
+            hole.iter()
+                .map(|i| point(i).map(|p| frame.to_2d(p)))
+                .collect::<Option<Vec<_>>>()
+        })
+        .collect::<Option<Vec<_>>>()?;
+    let holes = holes.iter().map(Vec::as_slice).collect::<Vec<_>>();
+    let at = if point_in_polygon(inside, &ring, &holes, &tol).is_inside_or_on() {
+        inside
+    } else {
+        centroid(&ring)?
+    };
+    Some(frame.from_2d(at))
 }
 fn font(model: &Model, index: Option<usize>) -> Option<TextFont> {
     index.and_then(|i| model.fonts.get(i)).map(|f| TextFont {
@@ -246,6 +302,7 @@ pub(super) fn import(
     tags: &[TagId],
     materials: &[MaterialId],
     pids: &mut BTreeMap<u32, Vec<Pid>>,
+    warnings: &mut Vec<String>,
 ) -> Result<()> {
     for (i, t) in model.texts.iter().enumerate() {
         if t.screen_position
@@ -266,6 +323,7 @@ pub(super) fn import(
                 t.def_index,
                 &t.anchor,
                 pids,
+                warnings,
             )?)
         };
         let color = decode::material(model, materials, t.material)
@@ -332,8 +390,16 @@ pub(super) fn import(
     }
     for (i, d) in model.dimensions.iter().enumerate() {
         let c = owner(d.def_index, defs)?;
-        let start = anchor(tx.document(), model, c, d.def_index, &d.start, pids)?;
-        let end = anchor(tx.document(), model, c, d.def_index, &d.end, pids)?;
+        let start = anchor(
+            tx.document(),
+            model,
+            c,
+            d.def_index,
+            &d.start,
+            pids,
+            warnings,
+        )?;
+        let end = anchor(tx.document(), model, c, d.def_index, &d.end, pids, warnings)?;
         let x = glam::DVec3::from_array(d.x_axis).normalize_or_zero();
         let n = glam::DVec3::from_array(d.normal).normalize_or_zero();
         let (direction, offset) = if d.variant == 2 {

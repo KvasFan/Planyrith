@@ -494,8 +494,22 @@ pub fn validate(doc: &Document) -> Report {
 /// `true` when a material texture or an image entity's material uses `image`.
 /// `true` when a material texture, a watermark or a definition thumbnail
 /// uses the image.
+/// Document attribute dictionary whose arrays name images (by hexadecimal
+/// content hash) kept for data with no native counterpart: custom stroke
+/// bitmaps of an imported style (docs/09 Decisions).
+const RETAINED_IMAGES: &str = "org.planyrith.skp.strokes";
+
 pub(crate) fn image_used(doc: &Document, image: ImageRef) -> bool {
+    let retained = |values: &crate::document::Value| {
+        matches!(values, crate::document::Value::Array(refs) if refs.iter().any(|r| {
+            matches!(r, crate::document::Value::Str(hex) if *hex == image.to_hex())
+        }))
+    };
     doc.sheets.image_refs().any(|i| i == image)
+        || doc
+            .attrs
+            .dictionary(RETAINED_IMAGES)
+            .is_some_and(|d| d.values().any(retained))
         || doc
             .materials
             .iter()
@@ -853,6 +867,26 @@ mod tests {
         });
         assert!(!r.is_clean() && !r.has_errors());
         assert_eq!(WarningCode::W2003.as_str(), "W2003");
+    }
+
+    #[test]
+    fn images_retained_for_foreign_data_are_not_unreferenced() {
+        use crate::document::{ImageData, ImageFormat, Value};
+        let mut doc = Document::new();
+        let image = doc.images.insert(ImageData {
+            bytes: vec![1, 2, 3],
+            format: ImageFormat::Png,
+            width: 1,
+            height: 1,
+        });
+        assert!(!image_used(&doc, image));
+        doc.attrs.set(
+            RETAINED_IMAGES,
+            "0",
+            Value::Array(vec![Value::Str(image.to_hex())]),
+        );
+        assert!(image_used(&doc, image));
+        assert!(validate(&doc).is_clean());
     }
 
     #[test]

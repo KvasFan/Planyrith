@@ -106,6 +106,11 @@ acceptance criteria. Milestones are sequential; within one, items are independen
   2013/2014 fixtures, direct backup handling, native-default first saving and
   explicit foreign save choices through CLI/RPC/GUI. A historical header or
   unchanged source restoration does not certify edited writing for that year.
+- After alpha.2: 680 public files from 2013–2026, including real 2018, 2021 and
+  2022 saves, pass the exchange chain with both writers, one with refaceted
+  self-touching facets; surfaces match exports of the original application
+  (`docs/dev/skp-fidelity.md`, `tools/check-skp-corpus.py`). Opening regenerated
+  files in the target application and 2023/2024 fixtures remain open.
 - **Accept:** verified open → native save/reopen → edit → SKP save/reopen
   across the supported releases; geometry, hierarchy, materials/UVs, annotations,
   images, scenes and appearance retained; unchanged source byte identity;

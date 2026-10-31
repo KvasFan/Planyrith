@@ -72,7 +72,8 @@ pub(super) fn append(
                 .get(image.material)
                 .and_then(|m| m.texture.as_ref())
                 .map(|t| t.size_mm)
-                .ok_or("image entity has no texture")?;
+                // A source image can lose its material; keep its rectangle.
+                .unwrap_or(glam::DVec2::new(width, height) * 1000.0);
             let points = [
                 DVec3::ZERO,
                 DVec3::new(width * 1000.0, 0.0, 0.0),
@@ -85,7 +86,7 @@ pub(super) fn append(
                 tile,
                 glam::DVec2::new(0.0, tile.y),
             ];
-            let mapping = super::texture::mapping(
+            let (mapping, _) = super::texture::mapping(
                 &points.into_iter().zip(coords).collect::<Vec<_>>(),
                 DVec3::Z,
                 doc.tolerances().length,

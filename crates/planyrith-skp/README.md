@@ -39,7 +39,9 @@ material, texture asset, size and transform.
 The classic reader accepts packed color attributes and trailing component
 definitions, including extended archive tags. Embedded BMP assets become
 lossless PNG images. Warped polygons become facets with unchanged vertices;
-facets below native area tolerance retain boundary wires with a notice.
+facets below native tolerance retain boundary wires with a notice. A face whose
+own rings cross or touch becomes facets, as no grouping can separate edges of
+one face; its source vertices are unchanged.
 Overlapping edges and coincident vertices in separate faces/wires are retained
 in private groups, and interrupted curves become separate analytic/sample
 chains. Converter failure messages describe the cause without automatically
@@ -58,6 +60,10 @@ representable persistent anchors, fonts/colors and leaders, analytic circular
 curves and welded sampled chains, image entities/assets, styles/watermarks,
 geographic shadows and per-scene appearance. Repeated image conversions do not
 create unused native definitions. Temporary SKP ids do not consume native ids.
+
+Texture tints transfer in both writers. A face whose texture samples fit no
+single placement takes the closest one, reported once with a count, so one face
+cannot stop a save; an image entity that lost its material keeps its rectangle.
 
 Remaining conversion limits include manual sun directions, text attached at
 arbitrary analytic curve angles, sideways radial-leader components, a linear
@@ -81,10 +87,14 @@ Compatibility tests cover original 2017/2026 files, independent SDK-saved
 Rust classic-archive reader now recovers the previously missing 2019/2020
 geometry, curves, nesting and textures. It supports both short and escaped
 object references and checks persistent-id layouts without changing headers.
-2018 and 2021–2024 still lack release fixtures/certification; unknown classic
-objects fail explicitly. Complete 2017-and-later editable interchange remains
-in progress. Exported files are checked by the converter's readers and 2017
-grammar; independent target-application verification is still required.
+It covers classic archives of any release from 2013; those of earlier releases
+are refused by name. `tests/fixtures/release` adds files saved by real 2018, 2021
+and 2022 releases. 2023 and 2024 have no public fixture; unknown classic objects
+fail explicitly. `tools/check-skp-corpus.py` runs the whole exchange chain over a
+local corpus and compares surfaces with COLLADA exports of the original
+application (docs/dev/skp-fidelity.md). Exported files are checked by the
+converter's readers and 2017 grammar; opening them in the target application
+itself is still required.
 
 `cargo test -p planyrith-skp` exercises genuine files, generated round-trips,
 texture coordinates, scale, repeated/nested components, holes, section planes,
@@ -104,7 +114,8 @@ Source: <https://github.com/hew3d/openskp/tree/a6788afa6386cfd4bc781998dca99c591
 The script `tools/fetch-skp-fixtures.sh` reproduces both downloads and verifies
 their hashes. The dependency and this component's license are in `LICENSE`.
 
-The classic reader is a Rust port of the MIT-licensed format reference in
+`tests/fixtures/release` has its own README and MIT grants. The classic reader
+is a Rust port of the MIT-licensed format reference in
 `iamahsanmehmood/openskp` at revision
 `c0bbeaa62191d776ea25e979555c5d6c464d54fa`. Its copyright and grant are retained
 in `tests/fixtures/intermediate/LICENSE` and embedded in the executable's

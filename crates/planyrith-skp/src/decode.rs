@@ -142,6 +142,7 @@ pub(super) fn document(model: &Model, source_hash: &[u8; 32]) -> Result<(Documen
         .geometry
         .iter()
         .all(|run| run.mesh.vertices.is_empty())
+        && model.guides.is_empty()
         && model.diagnostics.iter().any(|d| {
             matches!(
                 d,
@@ -313,8 +314,14 @@ pub(super) fn document(model: &Model, source_hash: &[u8; 32]) -> Result<(Documen
         materials.push(tx.insert_material(m)?);
     }
     let mut tags = Vec::new();
+    // A custom tag can be listed ahead of the default layer.
+    let default_layer = model
+        .layers
+        .iter()
+        .position(|l| l.name == "Layer0")
+        .unwrap_or(0);
     for (index, layer) in model.layers.iter().enumerate() {
-        if index == 0 {
+        if index == default_layer {
             tags.push(tx.document().tags.untagged());
             continue;
         }
@@ -521,15 +528,24 @@ pub(super) fn document(model: &Model, source_hash: &[u8; 32]) -> Result<(Documen
         if curve_fragments > 0 {
             warnings.push(format!("Container {ri}: interrupted source curves retained as separate editable chains ({curve_fragments} additional fragments)"));
         }
-        let (face_sources, warped, degenerate) =
-            super::face_geometry::prepare(&mut indexed, tx.document().tolerances())?;
-        if warped > 0 {
-            warnings.push(format!("Container {ri}: {warped} warped source faces retained as triangles with their original vertices"));
+        let prepared = super::face_geometry::prepare(&mut indexed, tx.document().tolerances())?;
+        if prepared.warped > 0 {
+            warnings.push(format!("Container {ri}: {} warped source faces retained as triangles with their original vertices", prepared.warped));
         }
-        if degenerate > 0 {
-            warnings.push(format!("Container {ri}: {degenerate} facets below native area tolerance retained as boundary wires; the complete source remains in the native working copy"));
+        if prepared.crossing > 0 {
+            warnings.push(format!("Container {ri}: {} self-crossing source faces retained as triangles with their original vertices", prepared.crossing));
         }
-        let placements = super::surfaces::insert(&mut tx, container, &indexed, source_hash)?;
+        if prepared.degenerate > 0 {
+            warnings.push(format!("Container {ri}: {} facets below native tolerance retained as boundary wires; the complete source remains in the native working copy", prepared.degenerate));
+        }
+        let face_sources = prepared.sources;
+        let placements = super::surfaces::insert(
+            &mut tx,
+            container,
+            &indexed,
+            &prepared.conflicts,
+            source_hash,
+        )?;
         if placements.len() > 1 {
             warnings.push(format!(
                 "Container {ri}: overlapping or coincident geometry retained in {} private surface groups",
@@ -772,7 +788,9 @@ pub(super) fn document(model: &Model, source_hash: &[u8; 32]) -> Result<(Documen
                 curves: vec![planyrith_core::geom::CurveDescriptor::Freehand { points }],
                 ..Default::default()
             };
-            let placed = super::surfaces::insert(&mut tx, container, &mesh, source_hash)?;
+            let conflicts = super::conflicts::detect(&mesh, tx.document().tolerances());
+            let placed =
+                super::surfaces::insert(&mut tx, container, &mesh, &conflicts, source_hash)?;
             for part in placed {
                 for edge in part.edges.values() {
                     metadata(
@@ -821,7 +839,15 @@ pub(super) fn document(model: &Model, source_hash: &[u8; 32]) -> Result<(Documen
             pids.entry(g.pid).or_default().push(pid);
         }
     }
-    super::annotations::import(&mut tx, model, &definitions, &tags, &materials, &mut pids)?;
+    super::annotations::import(
+        &mut tx,
+        model,
+        &definitions,
+        &tags,
+        &materials,
+        &mut pids,
+        &mut warnings,
+    )?;
     super::metadata::import(&mut tx, model)?;
     let styles = super::appearance::import(&mut tx, model, &mut warnings)?;
     for s in &model.scenes {
@@ -932,5 +958,7 @@ pub(super) fn document(model: &Model, source_hash: &[u8; 32]) -> Result<(Documen
     {
         return Err(format!("converted SKP is invalid: {}", problem.message).into());
     }
+    let mut seen = BTreeSet::new();
+    warnings.retain(|w| seen.insert(w.clone()));
     Ok((doc, warnings))
 }

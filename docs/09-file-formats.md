@@ -195,6 +195,34 @@ save unless `--no-thumbnail`. `manifest.json` carries `title`, `author`, `descri
   finds these conflicts; group assignment retains coordinates and both sides of
   each face, including loose edges and isolated vertices, without welding them
   across groups.
+- 2026-10-31 — **SKP corpus findings.** Survey of 680 public files (2013–2026),
+  including real 2018/2021/2022 saves; evidence in `docs/dev/skp-fidelity.md`.
+  - An anchor of kind 7 names a face and stores a pair normalized over the outer
+    ring's extent in the face's plane. The pair is identical in 2017 and 2026
+    saves whose rings start at different vertices, which supports that reading,
+    but its axes are unverified: the leader end is on the correct face at an
+    approximate position. Native text on a face is a fixed point (docs/04), so
+    the import is a fixed point; one outside the polygon falls back to the
+    ring's centroid. Unknown anchor kinds use their stored point with a notice
+    rather than preventing the model from opening.
+  - Conflicts between a face's own edges cannot be separated into groups. A face
+    with crossing or touching rings, or a ring passing along one edge twice,
+    becomes facets; a facet whose apex lies on
+    its opposite side within length tolerance keeps its wires. Vertices are
+    never moved. These facets are not reproduced as one face on regeneration:
+    a later import may refacet them, adding a few faces.
+  - The default layer is identified by its name, as a custom tag may be listed
+    first. Classic archives of every release from 2013 use the calibrated
+    reader when the general walk fails; a root list running into the document
+    tail stops there with a notice, but an archive ending inside an item is an
+    error. Releases before 2013 are refused by name.
+  - Images retained for foreign data (custom stroke bitmaps) are referenced from
+    the `org.planyrith.skp.strokes` document attributes; `validate` and `repair`
+    honor those references, so repair cannot silently invalidate restoration.
+  - Texture placement fitting uses well-spread samples. When no matrix reproduces
+    a face's samples the closest is written and the total reported, as this
+    is a limit of one face, not of the model. Tints transfer; a native hue shift
+    is written as the format's only tint.
 - 2026-10-30 — **Edited SKP regeneration (0.11.0-alpha.1).** Native text,
   associative linear/radial dimensions, circular analytic curves and welded
   sampled chains, image entities/assets, styles/watermarks, geographic shadows

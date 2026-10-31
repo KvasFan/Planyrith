@@ -19,9 +19,13 @@ No runtime dependency on that project's implementation languages is added.
 | `legacy_v2020_textured.skp` | One textured face; native material/image retention. |
 | `legacy_text_arrows_2017.skp` | 3 leader texts with different arrow codes and a font with a multibyte persistent id. |
 | `style_watermark.skp` | Saved styles with embedded watermark images. |
+| `zero_material_custom_layer_v18.skp` | 2018 layout model (`{18.0.16975}`, strings redacted by the source): a custom tag listed ahead of the default layer, an overlong root list, two guides and no faces. |
+| `capilla_quiroz_v17.skp` | Real 2017 model: leader text attached to a roof face (anchor kind 7). |
+| `Untitled.skp` | `{25.0.575}` model whose faces hold self-crossing rings and crossing holes. |
+| `nesting_v6.skp` | A release before the 2013 minimum, refused by name. |
 
 The SDK-saved cases are named by their author. The files named `*_2021.skp`
 select the 2021+ container family; their actual header is `{25.0.575}`. Generated
 cases are not certification against a retail application. Source restoration
-and editable data checks supplement topology counts. There are still no genuine
-2018 or 2021–2024 release fixtures in this directory.
+and editable data checks supplement topology counts. Files saved by real 2018,
+2021 and 2022 releases are in `../release/`.

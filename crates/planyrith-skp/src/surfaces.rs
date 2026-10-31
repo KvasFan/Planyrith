@@ -61,10 +61,10 @@ pub(super) fn insert(
     tx: &mut Transaction<'_>,
     parent: ContainerRef,
     indexed: &IndexedMesh,
+    conflicts: &super::conflicts::Conflicts,
     source_hash: &[u8; 32],
 ) -> Result<Vec<Placement>> {
     let mut batches = Vec::new();
-    let conflicts = super::conflicts::detect(indexed, tx.document().tolerances());
     let mut all_face_edges = BTreeSet::new();
     for (i, face) in indexed.faces.iter().enumerate() {
         let uses = face
@@ -82,7 +82,7 @@ pub(super) fn insert(
             .iter()
             .flat_map(|i| [indexed.edges[*i].a as usize, indexed.edges[*i].b as usize])
             .collect();
-        assign(&mut batches, Some(i), uses, edges, vertices, &conflicts)?;
+        assign(&mut batches, Some(i), uses, edges, vertices, conflicts)?;
     }
     for i in 0..indexed.edges.len() {
         if !all_face_edges.contains(&i) {
@@ -93,7 +93,7 @@ pub(super) fn insert(
                 BTreeSet::new(),
                 BTreeSet::from([i]),
                 BTreeSet::from([edge.a as usize, edge.b as usize]),
-                &conflicts,
+                conflicts,
             )?;
         }
     }
@@ -110,7 +110,7 @@ pub(super) fn insert(
                 BTreeSet::new(),
                 BTreeSet::new(),
                 BTreeSet::from([i]),
-                &conflicts,
+                conflicts,
             )?;
         }
     }

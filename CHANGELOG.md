@@ -4,6 +4,23 @@ All notable changes to Planyrith are recorded here. Versions follow
 [Semantic Versioning](https://semver.org/); before 1.0, minor versions are milestones of
 [`docs/13-roadmap.md`](docs/13-roadmap.md).
 
+## Unreleased
+
+- Open all 680 surveyed public files from 2013–2026, fixing models that failed
+  outright: text attached to a face, large archives, layers colored by a
+  textured material, a custom tag ahead of the default layer, classic archives
+  with a 2021 header, face rings that cross or repeat an edge, and slivers
+  thinner than the length tolerance.
+- Save every surveyed file with both writers. A face or image that cannot be
+  represented no longer stops the save; texture tints now transfer.
+- Keep custom stroke images referenced, so `repair` no longer deletes them and
+  invalidates byte-exact restoration.
+- Refuse releases before 2013 by name instead of reporting undecoded geometry,
+  and report each identical import notice once.
+- Add files saved by real 2018, 2021 and 2022 releases, and
+  `tools/check-skp-corpus.py`, which runs the exchange chain over a local corpus
+  and compares surfaces with exports of the original application.
+
 ## 0.11.0-alpha.2 — Historical models, backups and native defaults (2026-10-31)
 
 - Ship Windows per-user setup and portable ZIP, Linux AppImage, Debian package,

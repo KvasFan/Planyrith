@@ -30,7 +30,8 @@ HASHES
 revision=c0bbeaa62191d776ea25e979555c5d6c464d54fa
 mkdir -p "$out/intermediate"
 for name in sdk_saved_2019.skp sdk_saved_2020.skp arcs_2021.skp nesting_2021.skp nesting_2013.skp legacy_v2014_synthetic.skp \
-  arcs_2017.skp arcs_2020.skp nesting_2020.skp sdk_saved_sections_2019.skp sdk_saved_sections_2020.skp legacy_v2019_synthetic.skp legacy_v2020_textured.skp legacy_text_arrows_2017.skp; do
+  arcs_2017.skp arcs_2020.skp nesting_2020.skp sdk_saved_sections_2019.skp sdk_saved_sections_2020.skp legacy_v2019_synthetic.skp legacy_v2020_textured.skp legacy_text_arrows_2017.skp \
+  zero_material_custom_layer_v18.skp capilla_quiroz_v17.skp Untitled.skp nesting_v6.skp; do
   curl --fail --location --silent --show-error \
     "https://raw.githubusercontent.com/iamahsanmehmood/openskp/$revision/packages/python/tests/fixtures/$name" \
     --output "$out/intermediate/$name"
@@ -59,4 +60,51 @@ c8e99018aad18dea12c90d407435c54d0a15a9610b6e66ff2952c4eeeb9bef45  legacy_v2020_t
 7c70ac0b7916390744a5f6361c59008cada08149a54348530b767953e050dbc6  LICENSE
 70ec9be73f20da95384910aa58ba1537dc1600b027cac65137cb2469046e5fc5  nesting_2013.skp
 63964a5fe8337812aa682f209fa92b8b835101be704dddbd092c347ae4fbebcb  legacy_v2014_synthetic.skp
+48c85a5b02bd03767f0bc7ef1c2fee907d355698b0d5bb572ff4e41cb3926585  zero_material_custom_layer_v18.skp
+5974c5f416ae32aaf12093b2808bdeff662efed7ee85565bab3caf7ddbd9f98e  capilla_quiroz_v17.skp
+382d66f54c59f82a176d10c535b0731653bf3949a3057121cb32bac3799c7aff  Untitled.skp
+85a506d3e970233806ef1ecf2decfa6e8a461004cce0845a4e4fef58ccdab2a8  nesting_v6.skp
+HASHES
+
+# Models saved by the releases themselves, from MIT-licensed repositories.
+# The test suite is addressed by repository id and git blob (content), so
+# its files need no path; see tests/fixtures/release/README.md.
+mkdir -p "$out/release"
+blob() {
+  curl --fail --location --silent --show-error \
+    --header 'Accept: application/vnd.github.raw' \
+    "https://api.github.com/repositories/15951247/git/blobs/$1" --output "$out/release/$2"
+}
+blob a0e7f4fa1cbd8da316050297abf10b513627abf0 skp-vff-soft-block.skp
+blob 141b5b4c72504a09b67dfb35b6d6f0aaee828dc9 skp-vff-hard-block.skp
+blob cc3528a2878a877e426b3331596d97e9784a76c4 LiveComponent.skp
+blob 49f85895e28098f18a738c134475b77e40f073fd missing_material.skp
+blob 76281e755cf6447dd7dd0b7dbd12bb8bcdb9a497 uv_tile_at.skp
+blob 32ad38d532b79da8b83d29d7e284968be1bf697b LICENSE-test-suite
+raw() {
+  curl --fail --location --silent --show-error "https://raw.githubusercontent.com/$1" --output "$out/release/$2"
+}
+quad=thomthom/quadface-tools/481e6951e1a9da67a1aaa6bffd4768a7818f5a09
+raw "$quad/Test%20Models/HexCrater.skp" HexCrater.skp
+raw "$quad/LICENSE" LICENSE-quad-tools
+solid=thomthom/solid-inspector/e238257f3a5c27f7c611fe2515f7d88a9d0d86b5
+models="Tests/Solid%20Inspector%202/TC_ErrorFinder"
+raw "$solid/$models/ReversedFaces-SmallModel.skp" ReversedFaces-SmallModel.skp
+raw "$solid/$models/PrusaI3_Extruder2.skp" PrusaI3_Extruder2.skp
+raw "$solid/$models/box.skp" degenerate-uv-box.skp
+raw "$solid/LICENSE" LICENSE-solid-tools
+cd "$out/release"
+sha256sum --check <<'HASHES'
+640f57790551b48f35bc2a7931240aa64606e4ac8e1ff64c663c880891fca097  skp-vff-soft-block.skp
+83c3f1dfdba0f0501311c059b82a873fff1e6ea95bdc49f0eab43dc58d7601f6  skp-vff-hard-block.skp
+abf406909fb5656af588c9571fa1ef3c17fbbbeb1636e577aed469e4e3e12b18  LiveComponent.skp
+c53614901ee0d06fb1a50920034daf44c1c1a3c6f830ed4357c91bae132c7981  missing_material.skp
+928587de98a8bb8b5d5b53544863a8e6cf22a1f96ab0659f5e975c87fc277dc0  uv_tile_at.skp
+1cd5970550df665cf355de497f32882b5aa1d7b7c72092d45f70a5b731c12c83  LICENSE-test-suite
+fa54fd93935b8e716d627186b80e24bd971e8d9eeefe71d17aa26c3f1d7d88f2  HexCrater.skp
+4b72d81a9196bf4681545dfd6aafb499ad70aad4b28cafc8ca791a8fecf65671  LICENSE-quad-tools
+b615e73d9790e294b1ca917112b1d10ef3a5fc15083d985d6d0d05f6fd99a948  ReversedFaces-SmallModel.skp
+9922548164b5d6c826005f6cba82640873f01b6e2f50aa63079cff1e878047af  PrusaI3_Extruder2.skp
+2e5c112d64e7e362d6cd82ff1592e19b036982937288a173fc02db63a1e1bc60  degenerate-uv-box.skp
+f1d7178decba08819ac5447fd80dc4f5a20c41838c74153c68528afc089ab022  LICENSE-solid-tools
 HASHES

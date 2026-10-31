@@ -83,6 +83,13 @@ humans or GUI automation before releases, with expected screenshots.
   first-save dialog. The private large-model desktop round trip remains green.
   Three headless Chromium tests, native/wasm clippy, fmt, rustdoc, cargo-deny and
   optimized desktop/web builds pass. The web payload is 5,495,108 brotli bytes.
+- 2026-10-31 — **Public SKP corpus.** `tools/check-skp-corpus.py` is a local
+  check, like `tools/validate-exports.sh`: it runs the docs/13 0.11 exchange chain
+  over a directory of models and, with `--oracle`, compares surfaces with COLLADA
+  exports of the original application. Fixtures small enough to commit cover what
+  it found. Results and limits: `docs/dev/skp-fidelity.md`. 569 workspace tests
+  pass with GPU and converter required (one existing ignored benchmark), plus
+  native/wasm clippy, fmt, rustdoc and cargo-deny.
 - 2026-10-31 — **Complex classic-model opening.** The 0.11.0-alpha.1 build
   passes 548 workspace tests with the converter and GPU required (one existing
   ignored benchmark), native/wasm clippy, fmt, rustdoc and cargo-deny. Eight new

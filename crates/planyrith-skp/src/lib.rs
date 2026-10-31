@@ -56,10 +56,16 @@ pub fn convert(operation: &str, bytes: &[u8]) -> Result<Converted> {
                         .and_then(|v| v.parse::<u16>().ok())
                 })
                 .flatten();
+            if classic_major.is_some_and(|major| major < 13) {
+                return Err(format!(
+                    "SKP {version} predates the supported 2013 minimum; re-save it in a newer release"
+                )
+                .into());
+            }
             let mut settings_warning = None;
             let mut model = match openskp::Model::parse(bytes) {
                 Ok(model) => model,
-                Err(error) if matches!(classic_major, Some(13..=20)) => {
+                Err(error) if classic_major.is_some() => {
                     settings_warning = Some(format!(
                         "The classic geometry reader recovered this model; some source settings could not be decoded: {error}"
                     ));
@@ -80,7 +86,7 @@ pub fn convert(operation: &str, bytes: &[u8]) -> Result<Converted> {
                 )
             });
             if matches!(classic_major, Some(13..=16 | 18..=20))
-                || (classic_major == Some(17) && (failed_walk || model.geometry.is_empty()))
+                || (classic_major.is_some() && (failed_walk || model.geometry.is_empty()))
             {
                 model = classic::read(bytes, model)?;
             }
@@ -179,5 +185,7 @@ fn to_transform(t: DAffine3) -> [f64; 13] {
 mod export_tests;
 #[cfg(test)]
 mod import_tests;
+#[cfg(test)]
+mod release_tests;
 #[cfg(test)]
 mod tests;
