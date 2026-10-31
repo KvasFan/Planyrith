@@ -172,6 +172,18 @@ powerful but add ~10 MB and do not run inside the web build; they are a post-1.0
 
 ## Decisions
 
+- 2026-10-31 — **Desktop distribution.** `xtask` is a Rust-only build tool using
+  the existing serde_json dependency. NSIS and appimagetool are external packaging
+  tools. The explicitly requested optional AppImage includes an external MIT
+  type-2 loader (pinned commit fedfad51acc2860b2916a1eef32ba4a500ff31ef), statically
+  linked upstream with LGPL-2.1 libfuse and permissive squashfuse, zstd, zlib,
+  musl and mimalloc. This deployment wrapper is a narrow exception to the
+  application-only Rust policy; no application Cargo dependency or executable
+  links C or this loader. Its licenses, complete libfuse/loader sources, patches
+  and relink instructions are distributed alongside the application source.
+  The wrapper can be replaced or omitted by using the other Linux packages.
+  The Cargo policy remains unchanged; deny.toml records the external exception.
+  Dependency notices and the complete locked Cargo source accompany all formats.
 - 2026-10-30 — **Optional SKP converter.** The user requested `.skp`
   interoperability. `openskp` 0.5.0 is pure Rust with a pure-Rust DEFLATE
   dependency, but GPL-3.0-only. It is confined to `planyrith-skp`, a separately

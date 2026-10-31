@@ -124,6 +124,10 @@ parametric/dynamic components, GPU path-traced preview, mobile UI.
 
 ## Decisions
 
+- 2026-10-31 — At the user's request, ship installable Windows, AppImage,
+  Debian and Arch preview packages before the 1.0 stabilization milestone.
+  Publish the current 0.11.0-alpha.2 with the gates in docs/16. This does not
+  change the remaining SKP fidelity acceptance work or authorize 1.0 work.
 - 2026-10-29 — **0.9 as built.** Persistent paper-space pages, linked scaled
   model views, live/frozen dimensions, rich text, bound tables/labels, images,
   shapes, title blocks, layers/pen tables and print order have typed commands and

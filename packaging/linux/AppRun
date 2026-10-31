@@ -1,0 +1,9 @@
+#!/bin/sh
+# The format helper remains beside the actual GUI/CLI executables.
+set -eu
+planyrith_appdir=${APPDIR:-$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)}
+if [ "${1:-}" = "--cli" ]; then
+    shift
+    exec "$planyrith_appdir/usr/bin/planyrith" "$@"
+fi
+exec "$planyrith_appdir/usr/bin/planyrith-gui" "$@"

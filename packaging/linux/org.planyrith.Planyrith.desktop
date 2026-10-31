@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Planyrith
+GenericName=3D modeler
+Comment=Model, document and automate precise 3D designs
+Exec=planyrith-gui %f
+Icon=org.planyrith.Planyrith
+Terminal=false
+Categories=Graphics;3DGraphics;Engineering;
+MimeType=application/x-planyrith;
+StartupNotify=true
+StartupWMClass=org.planyrith.Planyrith

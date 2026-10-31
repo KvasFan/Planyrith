@@ -70,3 +70,7 @@ ignore = [
     { id = "RUSTSEC-2026-0371", reason = "zbus_names unmaintained; GUI accessibility on Linux only (accesskit_unix); review in 0.2" },
     { id = "RUSTSEC-2026-0372", reason = "zvariant_derive unmaintained; GUI accessibility on Linux only (accesskit_unix); review in 0.2" },
 ]
+# The optional AppImage deployment loader is outside Cargo: MIT loader with
+# LGPL-2.1 libfuse and permissive static dependencies. It is never linked into
+# application crates. Corresponding loader/libfuse sources and relink inputs
+# accompany releases; see docs/02 Decisions and docs/16. Other packages omit it.

@@ -23,6 +23,7 @@ by milestone (`13-roadmap.md`). Working rules for implementers are in the reposi
 | 13 | [Roadmap](13-roadmap.md) | Milestones 0.1 → 1.0 with acceptance criteria |
 | 14 | [Glossary](14-glossary.md) | Canonical vocabulary |
 | 15 | [Sheets](15-sheets-2d-documentation.md) | 2D documentation module |
+| 16 | [Release and packaging](16-release-and-packaging.md) | Installers, portable distributions, source and publication gates |
 
 Implementation progress (not part of the spec): `dev/development-status.md` records what is
 built so far and the critical path to resume.

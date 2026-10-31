@@ -31,11 +31,24 @@ mod screens;
 /// Runs the desktop application, opening `file` if given.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn run_native(file: Option<std::path::PathBuf>) -> eframe::Result {
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_title("Planyrith")
+        .with_app_id("org.planyrith.Planyrith")
+        .with_inner_size([1400.0, 900.0])
+        .with_min_inner_size([640.0, 400.0]);
+    if let Ok(icon) =
+        image::load_from_memory(include_bytes!("../../../packaging/icons/planyrith-256.png"))
+    {
+        let icon = icon.into_rgba8();
+        let (width, height) = icon.dimensions();
+        viewport = viewport.with_icon(egui::IconData {
+            rgba: icon.into_raw(),
+            width,
+            height,
+        });
+    }
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_title("Planyrith")
-            .with_inner_size([1400.0, 900.0])
-            .with_min_inner_size([640.0, 400.0]),
+        viewport,
         ..Default::default()
     };
     eframe::run_native(

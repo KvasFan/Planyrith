@@ -1,0 +1,209 @@
+# Builds and verifies complete packages before creating the tag/public release.
+name: Release
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Commit, branch or tag to package
+        default: main
+        required: true
+        type: string
+      tag:
+        description: Release tag matching the workspace version
+        default: v0.11.0-alpha.2
+        required: true
+        type: string
+      publish:
+        description: Publish after package verification and green CI
+        default: false
+        required: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-22.04
+    outputs:
+      sha: ${{ steps.meta.outputs.sha }}
+      version: ${{ steps.meta.outputs.version }}
+      prerelease: ${{ steps.meta.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - id: meta
+        name: Validate version and immutable source revision
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          version=$(cargo metadata --locked --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "planyrith-cli") | .version')
+          test "$RELEASE_TAG" = "v$version"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?$ ]]
+          printf 'version=%s\nsha=%s\n' "$version" "$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          if [[ "$version" == *-* ]]; then echo 'prerelease=true' >> "$GITHUB_OUTPUT"; else echo 'prerelease=false' >> "$GITHUB_OUTPUT"; fi
+
+  linux:
+    needs: prepare
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-linux-glibc235
+      - name: Packaging and graphics tools
+        run: sudo apt-get update && sudo apt-get install -y dpkg-dev zstd desktop-file-utils libxkbcommon-dev libwayland-dev libx11-dev libxi-dev libxrandr-dev libxcursor-dev libegl1-mesa-dev libvulkan1 mesa-vulkan-drivers
+      - name: Build GUI, CLI with headless rendering, and separate format module
+        run: cargo build --workspace --release --locked --features planyrith-cli/render
+      - name: Fetch pinned AppImage deployment tools
+        run: tools/fetch-packaging-tools.sh
+      - name: Build portable, Debian, Arch and AppImage distributions
+        run: cargo xtask linux --appimagetool "$PWD/target/packaging-tools/appimagetool.AppImage" --runtime "$PWD/target/packaging-tools/runtime-x86_64"
+      - name: Verify installed payloads and format module discovery
+        run: packaging/linux/verify.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-linux
+          if-no-files-found: error
+          path: |
+            dist/release/*.AppImage
+            dist/release/*.deb
+            dist/release/*.pkg.tar.zst
+            dist/release/*-linux-x86_64.tar.gz
+
+  windows:
+    needs: prepare
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-windows-x86_64
+      - name: Installer tool
+        shell: pwsh
+        run: |
+          choco install nsis --yes --no-progress
+          if ($LASTEXITCODE -ne 0) { throw 'NSIS installation failed' }
+          'MAKENSIS=C:\Program Files (x86)\NSIS\makensis.exe' >> $env:GITHUB_ENV
+      - name: Build all desktop programs
+        run: cargo build --workspace --release --locked --features planyrith-cli/render
+      - name: Build setup and portable archive
+        run: cargo xtask windows
+      - name: Install, exercise format module, save, reopen and uninstall
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          & packaging/windows/verify.ps1 -Installer "$PWD/dist/release/Planyrith-$env:RELEASE_VERSION-windows-x86_64-setup.exe" -Fixture "$PWD/crates/planyrith-skp/tests/fixtures/legacy/box-2013.skp"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-windows
+          if-no-files-found: error
+          path: |
+            dist/release/*-setup.exe
+            dist/release/*-portable.zip
+
+  source:
+    needs: prepare
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Complete offline Cargo source and deployment-runtime sources
+        run: |
+          cargo xtask source
+          tools/bundle-runtime-sources.sh
+      - name: Validate offline source resolution, including local patch
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          cd "dist/release/planyrith-$RELEASE_VERSION-source"
+          cargo metadata --locked --offline --no-deps --format-version 1 > /dev/null
+          test -f cargo-vendor/openskp/Cargo.toml
+          test -f vendor/truck-shapeops/Cargo.toml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-source
+          if-no-files-found: error
+          path: |
+            dist/release/*-source.tar.gz
+
+  publish:
+    needs: [prepare, linux, windows, source]
+    if: ${{ inputs.publish }}
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: dist/publish
+      - name: Require successful CI for this exact source revision
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ needs.prepare.outputs.sha }}
+        run: |
+          set -euo pipefail
+          run_id=$(gh run list --workflow ci.yml --commit "$RELEASE_SHA" --json databaseId --jq '.[0].databaseId')
+          test -n "$run_id" && test "$run_id" != null
+          gh run watch "$run_id" --exit-status
+      - name: Validate manifest, create draft, upload and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_SHA: ${{ needs.prepare.outputs.sha }}
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+          IS_PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist/publish
+          test -f "Planyrith-$RELEASE_VERSION-windows-x86_64-setup.exe"
+          test -f "planyrith-$RELEASE_VERSION-windows-x86_64-portable.zip"
+          test -f "Planyrith-$RELEASE_VERSION-x86_64.AppImage"
+          test -f "planyrith_$RELEASE_VERSION"_amd64.deb
+          test -f "planyrith-$RELEASE_VERSION-linux-x86_64.tar.gz"
+          test -f "planyrith-$RELEASE_VERSION-source.tar.gz"
+          test -f planyrith-appimage-runtime-source.tar.gz
+          test "$(find . -maxdepth 1 -name '*.pkg.tar.zst' | wc -l)" -eq 1
+          find . -maxdepth 1 -type f ! -name SHA256SUMS -printf '%f\0' | sort -z | xargs -0 sha256sum > SHA256SUMS
+          sha256sum --check SHA256SUMS
+          cd ../..
+          notes="docs/releases/$RELEASE_TAG.md"
+          test -f "$notes"
+          if gh release view "$RELEASE_TAG" > /dev/null 2>&1; then
+            test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = true
+            test "$(git rev-list -n 1 "$RELEASE_TAG")" = "$RELEASE_SHA"
+          else
+            flags=()
+            if [ "$IS_PRERELEASE" = true ]; then flags+=(--prerelease); fi
+            gh release create "$RELEASE_TAG" --draft "${flags[@]}" --target "$RELEASE_SHA" --title "Planyrith $RELEASE_VERSION" --notes-file "$notes"
+          fi
+          gh release upload "$RELEASE_TAG" dist/publish/* --clobber
+          gh release edit "$RELEASE_TAG" --draft=false

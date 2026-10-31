@@ -70,6 +70,11 @@ humans or GUI automation before releases, with expected screenshots.
 
 ## Decisions
 
+- 2026-10-31 — **Installable preview.** Release distribution and publication
+  gates are specified in docs/16. Windows tests install, run the historical
+  format module, save/reopen native data and uninstall; Linux tests extracted
+  Debian/Arch/portable payloads and FUSE-free AppImage execution. Main CI enables
+  the rendering CLI feature used by every distributed binary.
 - 2026-10-31 — **Historical/backup preview (alpha.2).** All 554 workspace tests
   pass with GPU/converter required (one existing ignored benchmark), including
   2013–2016 file geometry, original-version restoration, edited 2017 output,

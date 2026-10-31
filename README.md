@@ -1,170 +1,176 @@
-# Planyrith
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/brand/logo-dark.svg">
+    <img src="assets/brand/logo-light.svg" alt="Planyrith logo" width="128" height="128">
+  </picture>
+</p>
 
-**Planyrith** is a cross-platform, open-source 3D design and modeling application for
-architecture, interiors, landscape, woodworking and product mock-ups. It is written
-entirely in Rust, runs on Linux, macOS, Windows and in the browser (WebAssembly), and is
-built *CLI-first*: every modeling tool exists as a command before it gets a button.
+<h1 align="center">Planyrith</h1>
 
-> **Status: preview 0.11.0-alpha.2 — historical models, backups and native defaults.**
-> The geometry kernel, the document model, the modeling commands, the native file format, the
-> `planyrith` command line (headless rendering, a JSON-RPC server, a shell) and the GUI work:
-> drawing and editing tools that snap through the inference engine, exact input, previews,
-> textured materials (bundled and your own images), components and component files, scenes
-> with animated transitions, styles with fog and watermarks, material, component and style
-> libraries, import and export of glTF/GLB, OBJ, STL, DXF, images and CSV, 2D drawings of a
-> view as SVG, PDF or DXF, dimensions, texts, guides, section cuts, sun shadows, 3D text and
-> multiple viewports. Solid booleans, Sweep, Intersect Faces, Soften/Smooth, STEP,
-> sandboxed Rhai scripts, a Console and declarative plugins are available. The desktop GUI
-> can attach to a local command server. Paper-space Sheets add scaled model views,
-> dimensions, notes, tables and title blocks, with multi-page PDF and per-page SVG/DXF.
-> Freehand and Rotated Rectangle complete the drawing catalogue. An optional desktop
-> format module handles direct SKP/SKB open, import and save, with historical
-> reading from 2013 and `.plyr` as the default working-copy format. Unchanged
-> sources retain their original version; edited SKP output uses 2017 or 2026.
-> The same application runs in the browser, and both
-> autosave and recover unsaved work. See [`CHANGELOG.md`](CHANGELOG.md) and the milestones in
-> [`docs/13-roadmap.md`](docs/13-roadmap.md).
+<p align="center"><b>Precise 3D modeling, drawings and automation.</b></p>
 
-## What Planyrith will be
+<p align="center">
+  Draw edges and faces, shape solids, organize reusable components and turn a model into scaled drawings.
+  Work in the desktop GUI or run the same tools through the CLI, scripts and JSON-RPC.
+  Written in Rust. Your native working format is <code>.plyr</code>.
+</p>
 
-- **Direct modeling** of edges and faces: draw, push/pull, move, rotate, scale, offset,
-  sweep. Faces form automatically from closed coplanar edge loops.
-- **A precise inference engine**: endpoint, midpoint, intersection, on-edge, on-face,
-  perpendicular, parallel, tangent and axis snapping, with axis locking.
-- **Organization**: groups, reusable components, tags for visibility, saved scenes,
-  section planes, guides, dimensions, text and 3D text.
-- **Materials and rendering**: colors, textures, transparency, shadows from a sun
-  model, line styles, section cuts, a fast `wgpu` viewport.
-- **Interchange**: a versioned native container format plus OBJ, STL, glTF, DXF, STEP
-  and image import/export, and 2D documentation sheets.
-- **Automation**: everything scriptable from the command line, a JSON-RPC server, an
-  embedded scripting language, and a plugin API.
+<p align="center">
+  <a href="https://github.com/KvasFan/Planyrith/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/KvasFan/Planyrith/actions/workflows/ci.yml/badge.svg"></a>
+  <img alt="Written in Rust" src="https://img.shields.io/badge/written%20in-Rust-2f3a45?style=flat-square&amp;logo=rust">
+  <img alt="Windows and Linux downloads" src="https://img.shields.io/badge/downloads-Windows%20%C2%B7%20Linux-2f3a45?style=flat-square">
+  <a href="#license-and-credits"><img alt="Applications: MIT or Apache-2.0" src="https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-2f3a45?style=flat-square"></a>
+  <a href="https://github.com/KvasFan/Planyrith/releases/tag/v0.11.0-alpha.2"><img alt="Preview 0.11.0-alpha.2" src="https://img.shields.io/badge/preview-0.11.0--alpha.2-e0a458?style=flat-square"></a>
+</p>
 
-## SKP models on desktop
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/modeling-dark.png">
+    <img src="docs/images/modeling-light.png" alt="Planyrith modeling a room with a door and window, with modeling tools, Entity Info and the Outliner visible">
+  </picture>
+  <br>
+  <sub>A room made with Planyrith's own modeling acceptance scenario. Light and dark themes.</sub>
+</p>
 
-**`.plyr` is the principal lossless working format**, including full application
-state, Sheets, annotations and edit history. SKP interoperability complements it.
-Complete open/save fidelity for 2017 and later is an in-progress target; the
-current converter does not yet meet that target across all those releases.
+<p align="center">
+  <a href="#downloads">Downloads</a> ·
+  <a href="#screenshots">Screenshots</a> ·
+  <a href="#what-works-today">What works today</a> ·
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#skp-and-skb-models">SKP / SKB</a> ·
+  <a href="#build-from-source">Build from source</a> ·
+  <a href="#roadmap">Roadmap</a> ·
+  <a href="#license-and-credits">License and credits</a>
+</p>
 
-An optional Rust converter opens, saves, imports and exports `.skp` models.
-Build it with `cargo build -p planyrith-skp --release` and place `planyrith-skp`
-beside the CLI/GUI executable (or set `PLANYRITH_SKP_ADAPTER` to its absolute
-path). The converter is a separate **GPL-3.0-only** component; the applications
-remain MIT/Apache-2.0. The browser build currently has no SKP converter.
+## Downloads
 
-```sh
-planyrith -f model.skp info
-planyrith -f model.plyr import furniture.skp
-planyrith -f model.plyr export model.skp --skp-version 2017
-planyrith -f model.plyr export model-2026.skp --skp-version 2026
-```
+**[0.11.0-alpha.2 — desktop preview](https://github.com/KvasFan/Planyrith/releases/tag/v0.11.0-alpha.2)**
 
-The GUI's Open, Save As and Import/Export dialogs accept `.skp`. Tests cover
-2017 and 2026 containers, SDK-saved 2019/2020 files and generated 2025-header
-probes. Other intervening releases remain uncertified. Import and edited export
-include geometry, hierarchy, textures, text and associative dimensions, analytic
-circular curves, placed images, styles, geographic shadows and scene appearance.
-Select text or dimensions and open **Entity Info → Annotation style** to change
-font requests, sizes, arrow, color and leaders. The same operation is available
-as `planyrith tool label-style` and through RPC/scripting.
+| Platform | Download | Start |
+|---|---|---|
+| Windows 10/11, x64 | [Installer `.exe`](https://github.com/KvasFan/Planyrith/releases/download/v0.11.0-alpha.2/Planyrith-0.11.0-alpha.2-windows-x86_64-setup.exe) | Per-user installation with shortcuts and native file association. |
+| Windows, portable x64 | [Portable `.zip`](https://github.com/KvasFan/Planyrith/releases/download/v0.11.0-alpha.2/planyrith-0.11.0-alpha.2-windows-x86_64-portable.zip) | Extract and run `planyrith-gui.exe`. |
+| Linux, x86_64 | [AppImage](https://github.com/KvasFan/Planyrith/releases/download/v0.11.0-alpha.2/Planyrith-0.11.0-alpha.2-x86_64.AppImage) | Make executable and run. |
+| Debian 12 / Ubuntu 22.04+, amd64 | [Debian package `.deb`](https://github.com/KvasFan/Planyrith/releases/download/v0.11.0-alpha.2/planyrith_0.11.0-alpha.2_amd64.deb) | `sudo apt install ./planyrith_*.deb` |
+| Arch Linux, x86_64 | [Arch package `.pkg.tar.zst`](https://github.com/KvasFan/Planyrith/releases/download/v0.11.0-alpha.2/planyrith-0.11.0alpha2-1-x86_64.pkg.tar.zst) | `sudo pacman -U ./planyrith-*.pkg.tar.zst` |
+| Arch / Linux, portable x86_64 | [Executable bundle `.tar.gz`](https://github.com/KvasFan/Planyrith/releases/download/v0.11.0-alpha.2/planyrith-0.11.0-alpha.2-linux-x86_64.tar.gz) | Extract and run `./Planyrith`. |
 
-This is an alpha build. Native display substitutes unavailable font faces;
-manual sun directions, some annotation presentation and custom stroke/mask
-rendering retain conversion limits. Keep `.plyr` as the full working document.
-See [converter scope and license](crates/planyrith-skp/README.md).
+Packages include the GUI, CLI and separate SKP/SKB module, with license notices.
+Windows setup lets you deselect the GPL format module. The installer is unsigned.
+Linux binaries require glibc 2.35+ and a working Vulkan driver. Wayland and X11 are supported.
+See [installation details](packaging/INSTALL.md), [checksums and complete sources](https://github.com/KvasFan/Planyrith/releases/tag/v0.11.0-alpha.2).
+macOS and the browser edition can be built from source.
 
-Whole-model Open retains the complete SKP source through native working copies.
-Saving it back without document changes restores the original bytes, including
-uninterpreted data. Edited SKP output still has the documented conversion limits;
-source preservation alone is not complete editable interoperability.
+## Screenshots
 
-## Automation
+<table>
+  <tr>
+    <td width="50%"><img src="docs/images/materials.png" alt="Textured material blocks and the bundled material palette"><br><sub>Bundled materials, textures and the Materials panel.</sub></td>
+    <td width="50%"><img src="docs/images/viewports.png" alt="One model displayed in perspective, top, front and right viewports"><br><sub>Four views of the same editable model.</sub></td>
+  </tr>
+</table>
 
-Automation examples (script lengths are millimeters; angles are radians):
+## What works today
 
-```sh
-planyrith -f stairs.plyr tool ext:org.planyrith.stairs/stairs --steps 14 --rise 2.8m --run 4.2m
-planyrith -f model.plyr script build.rhai --arg width=1200
-planyrith ext list
-planyrith ext check plugins/org.planyrith.stairs
-planyrith -f model.plyr serve --socket 4500 --token local-secret
-```
+- **Direct modeling.** Lines, rectangles, circles, arcs, freehand, Push/Pull,
+  offsets, transforms, solids, Sweep, intersections and softened edges.
+- **Precise placement.** Endpoint, midpoint, intersection, axis and plane
+  inference; axis locking and exact value entry. Geometry uses millimeters internally.
+- **Reusable models.** Groups, shared components, tags, materials, scenes,
+  section cuts, guides, text and associative dimensions, with undo/redo.
+- **Drawings.** Paper-space Sheets with scaled model views, annotations, tables
+  and title blocks; multi-page PDF and SVG/DXF output.
+- **Interchange.** SKP/SKB on desktop, OBJ, STL, glTF/GLB, DXF, STEP, images and
+  CSV, plus the native `.plyr` container. Conversion limits are reported.
+- **Automation.** Every modeling tool is a typed core command. The GUI,
+  CLI, JSON-RPC server, Rhai scripts and declarative extensions share those commands.
+- **Recovery.** Autosaves, crash recovery and native working copies preserve the
+  full document. Whole-model external sources remain available in `.plyr` copies.
 
-Use Extensions › Extension Manager in the GUI to install `.plyrx` archives or attach
-to the server (port `4500`, its token, document `d1`). Window › Console runs scripts;
-Extensions opens plugin forms. Solid tools and Sweep are in Tools. STEP exchanges
-placed solid bodies; unsupported assembly placements are reported explicitly.
+## Quick start
 
-## Sheets
+Start **Planyrith**, draw a rectangle, use Push/Pull to give it height and save
+your model as `.plyr`. Open the included examples to explore the tools.
+Use the **Model / Sheets** tabs to switch between modeling and paper layouts.
 
-Use File › Send to Sheets or the Sheets tab to lay out model views on paper.
-Pick a scene and a rational scale, add dimensions and notes, then export all pages
-as PDF. `Edit Camera in Model` adjusts a viewport using the ordinary 3D controls.
+The CLI is included beside the GUI:
 
 ```sh
-planyrith -f house.plyr sheet add-page --page A101 --paper A4
-planyrith -f house.plyr sheet add-view --page A101 --scene Plan --scale 1:50
-planyrith -f house.plyr sheet export --pages all --out house.pdf
+planyrith new -o design.plyr
+planyrith -f design.plyr tool rectangle --corner-a 0,0,0 --corner-b 1000,1000,0
+planyrith -f design.plyr tool push-pull --face '{face}' --distance 1000mm
+planyrith -f design.plyr validate
 ```
 
-A scene named `Plan` must exist for the linked example; omit `--scene` to capture
-the current camera. Paper coordinates are millimeters. See
-[the Sheets command catalogue](docs/15-sheets-2d-documentation.md#51-command-surface-09).
-`cargo run -p planyrith-core --example generate-sheets` reproduces the house
-fixture and printable examples in `target/tmp/sheets/`.
+Use `planyrith tool` to list modeling commands and `planyrith tool <name> --help`
+for parameters and units. Scripts use millimeters and radians. On portable Linux
+or AppImage, `./Planyrith --cli …` or `./Planyrith-….AppImage --cli …` selects the CLI.
+The [CLI specification](docs/08-cli-specification.md) covers scripting and RPC.
 
-## Repository layout
+## SKP and SKB models
 
-| Path | Purpose |
+Open or import `.skp` and `.skb` directly on desktop. Historical reading starts
+at 2013; fixtures cover 2013–2017, 2019/2020 and 2026, with additional modern-family
+probes. **Complete per-release fidelity remains in progress**, particularly for
+uncertified releases and some appearance/entity details.
+
+The first save proposes **`.plyr`**, preserving your input. Choose an explicit
+SKP/SKB destination in **Save As** to write that format. Unchanged whole-model
+sources restore byte for byte, including their original version. After edits,
+the current writers target **2017 or 2026**; edited 2013–2016 writing is not yet
+implemented. The original remains in the native working copy.
+
+The optional format module runs as a separate GPL-3.0-only process; the GUI calls
+it automatically. Keep it beside the application. The browser currently cannot
+run this module. See [scope and licenses](crates/planyrith-skp/README.md) and the
+[compatibility worklist](docs/dev/skp-fidelity.md).
+
+## Build from source
+
+```sh
+git clone https://github.com/KvasFan/Planyrith.git
+cd Planyrith
+cargo build --workspace --release --locked --features planyrith-cli/render
+./target/release/planyrith-gui
+```
+
+The stable Rust toolchain is pinned by `rust-toolchain.toml`; the current MSRV is
+1.95. `--workspace` also builds the separate format module. Default application
+members remain independent of GPL code. Use `cargo test --workspace` for the
+test suite. [Packaging instructions](docs/16-release-and-packaging.md) describe
+`cargo xtask`, installer validation and release publication.
+
+## Architecture
+
+| Component | Responsibility |
 |---|---|
-| `docs/` | The specification. Start with [`docs/00-overview.md`](docs/00-overview.md). |
-| `crates/planyrith-core` | Document model, geometry kernel, commands, file I/O. No GUI or GPU dependencies. |
-| `crates/planyrith-render` | `wgpu` renderer without UI, shared by the GUI viewport and the CLI's headless `render` subcommand. |
-| `crates/planyrith-cli` | `planyrith` binary: every tool as a subcommand, scripting, headless export, JSON-RPC server. |
-| `crates/planyrith-gui` | `planyrith-gui` binary: egui/eframe shell with a wgpu viewport; desktop and WebAssembly. |
-| `AGENTS.md` | Working instructions for AI agents and contributors implementing the spec. |
-| `deny.toml` | Licensing and "pure Rust" dependency policy enforced by `cargo-deny`. |
-| `.github/workflows/ci.yml` | Lint, test and WebAssembly jobs from `docs/12-testing-and-quality.md`. |
+| [`planyrith-core`](crates/planyrith-core) | Deterministic document model, geometry, typed commands and file I/O. |
+| [`planyrith-render`](crates/planyrith-render) | Shared `wgpu` viewport and headless rendering. |
+| [`planyrith-cli`](crates/planyrith-cli) | CLI, scripting, extensions and JSON-RPC. |
+| [`planyrith-gui`](crates/planyrith-gui) | Desktop and browser interface over the same command registry. |
+| [`planyrith-skp`](crates/planyrith-skp) | Optional, separate GPL format process. |
+| [`xtask`](xtask) / [`packaging`](packaging) | Release payloads, licenses and installers. |
 
-## Design principles
+## Roadmap
 
-1. **Core, CLI, GUI are separate.** The core knows nothing about windows or pixels.
-   The CLI exposes the whole core. The GUI is a client of the same command registry.
-2. **CLI first.** A tool is finished when it works headless with typed parameters,
-   has tests, and is documented. Only then does it get interactive behavior.
-3. **Rust only, open licenses only.** No vendored C/C++; dependencies must be
-   MIT/Apache-2.0/BSD-style (see `deny.toml`).
-4. **Deterministic documents.** The same commands on the same document always yield
-   the same result, byte for byte, in the native format.
-5. **Precision by default.** Geometry is computed in `f64` millimeters with explicit
-   tolerances; rendering uses `f32`.
+The modeling kernel, desktop/browser interfaces, organization, interchange,
+automation, solids and Sheets milestones are implemented. The current preview
+focuses on historical-model compatibility and native working copies; full SKP
+fidelity and independent reader certification remain open. Stabilization and
+broader installation testing follow. See [the roadmap](docs/13-roadmap.md),
+[changes](CHANGELOG.md) and [project specification](docs/00-overview.md).
 
-## Building and trying it
+## License and credits
 
-```sh
-cargo build --release -p planyrith-cli -p planyrith-gui
+The applications are dual-licensed under [MIT](LICENSE-MIT) or
+[Apache-2.0](LICENSE-APACHE). The optional `planyrith-skp` executable and its
+`openskp` dependency are [GPL-3.0-only](crates/planyrith-skp/LICENSE) and are never
+linked into the applications. The classic reader retains its
+[MIT reference attribution](crates/planyrith-skp/tests/fixtures/intermediate/LICENSE).
+Inter font notices and dependency licenses accompany the packages. AppImage
+deployment-runtime notices and corresponding sources accompany that distribution.
+Logo, interface images and example geometry shown here are project-made.
 
-planyrith-gui box.plyr                        # the GUI: L line, R rectangle, P push/pull, type values
-
-planyrith new -f box.plyr
-planyrith -f box.plyr tool rectangle --corner-a 0,0,0 --corner-b 1m,600mm,0
-planyrith -f box.plyr tool push-pull --face '{face & last}' --distance 450mm
-planyrith -f box.plyr query 'face' --fields pid,area
-planyrith -f box.plyr validate
-planyrith -f box.plyr render box.png           # a headless image
-planyrith tool                                # every command; `planyrith tool <name> --help`
-```
-
-The web build: `tools/build-web.sh` (needs the `wasm-bindgen` CLI matching `Cargo.lock`) writes
-static files to `dist/web`; serve them with any static server, e.g.
-`python3 -m http.server -d dist/web`, and open the address in a browser.
-
-Longer scripts run as one undo step with `planyrith -f room.plyr batch room.plyrb`; see
-[`docs/08-cli-specification.md`](docs/08-cli-specification.md) and the acceptance script
-[`crates/planyrith-cli/tests/batches/furnished-room.plyrb`](crates/planyrith-cli/tests/batches/furnished-room.plyrb).
-
-## License
-
-Dual-licensed under [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at your option.
-Contributions are accepted under the same terms.
+Dependency policy is recorded in [docs/02](docs/02-technology-stack.md) and checked
+by `cargo deny`. Contributor instructions are in [AGENTS.md](AGENTS.md).

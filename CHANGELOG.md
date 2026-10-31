@@ -6,6 +6,11 @@ All notable changes to Planyrith are recorded here. Versions follow
 
 ## 0.11.0-alpha.2 — Historical models, backups and native defaults (2026-10-31)
 
+- Ship Windows per-user setup and portable ZIP, Linux AppImage, Debian package,
+  Arch package and portable archive. Include GUI, rendering-enabled CLI, the
+  separate optional format helper, notices, source bundles and checksums.
+- Add verified release automation, installation documentation, an application
+  icon and a refreshed project page with theme-aware artwork and screenshots.
 - Open/import historical SKP models from 2013 onward, adding positive 2013–2016
   box fixtures and nested 2013/2014 regressions. Read older entity preambles,
   definition prefixes and instance tails; assign stable archive identities when

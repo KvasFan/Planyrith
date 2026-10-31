@@ -3,7 +3,7 @@
 **Audience:** the next implementing agent/session. This file records exactly where the draft
 implementation stands, what is done, what remains, and how to resume. Update it at the end of
 every working session. Ground truth for *what to build* stays in `docs/00`–`docs/15`; this file
-is only *progress state*.
+is only *progress state*. Release packaging is specified in `docs/16`.
 
 _Last updated: 2026-10-31 (0.11.0-alpha.2 preview; 0.11 acceptance in progress)._
 
@@ -17,7 +17,18 @@ All 554 workspace tests pass with GPU/converter required (one existing ignored
 benchmark), including the private-model GUI save/reopen/source-restoration
 probe. Three headless Chromium tests pass. Native/wasm clippy, fmt, rustdoc,
 cargo-deny and optimized desktop/web builds pass. Web brotli size is 5,495,108
-bytes, within 12 MiB. No tag before the user's trial; no automatic 1.0 work.
+bytes, within 12 MiB. No automatic 1.0 work.
+
+**Release request (2026-10-31):** the user now explicitly authorizes publishing
+the current preview, superseding the previous tag hold. The refreshed README
+uses original theme-aware branding and screenshots. `cargo xtask` builds Windows
+per-user setup/portable ZIP and Linux AppImage, Debian, Arch and portable archives.
+The Release workflow verifies installed/extracted payloads and exact-revision CI
+before publishing the prerelease with complete Cargo/runtime source and checksums.
+Local checks pass: 554 tests (one ignored benchmark), native/wasm clippy, fmt,
+rustdoc, cargo-deny and optimized binaries. Extracted Linux packages pass
+historical SKP open, native save/validate and extension discovery; AppImage
+runs without FUSE. Windows installation is verified by the release runner.
 
 **2026-10-31 compatibility fix:** fixed false corruption reports on a private
 2019 model: packed colors, trailing definitions, BMP assets, warped polygons,
@@ -42,7 +53,7 @@ byte-exactly, but edited 2013–2016 writers and full release certification rema
 open. Do not describe the current writers as all-version edited output.
 Do not describe current interoperability as complete. The preceding source-preservation increment
 `d21c2ef` is pushed, with all six CI jobs green in run 41026119552.
-No release tag has been created; do not create one before the user's trial.
+The subsequent explicit release request authorizes the alpha.2 tag and publication.
 
 The working implementation preserves the entire SKP source in native extension
 parts, with a versioned baseline covering the document, camera, images and
