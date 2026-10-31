@@ -36,8 +36,18 @@ packaging/linux/verify.sh
 ```
 
 Linux requires GNU tar, zstd, dpkg-deb and desktop-file-utils. Windows uses NSIS
-and PowerShell: `cargo xtask windows`, optionally setting `MAKENSIS` to the
-compiler path. Output goes to `dist/release/`; `--out` and `--bin-dir` override
+and PowerShell. Official Windows binaries use the MSVC target with the platform
+CRT linked statically, avoiding a separate runtime installer:
+
+```powershell
+$env:RUSTFLAGS = '-C target-feature=+crt-static'
+cargo build --workspace --release --locked --target x86_64-pc-windows-msvc --features planyrith-cli/render
+Remove-Item Env:RUSTFLAGS
+cargo xtask windows --bin-dir target/x86_64-pc-windows-msvc/release
+```
+
+Optionally set `MAKENSIS` to the NSIS compiler path. Output goes to
+`dist/release/`; `--out` and `--bin-dir` override
 the directories. Installation instructions, licenses and build revision travel
 with each payload. Packaging from the repository requires a Git checkout.
 
@@ -55,7 +65,8 @@ tag and a publication flag. It resolves the revision once, builds on Linux and
 Windows, creates the source bundles, and exercises extracted/installed programs
 outside the build tree. The smoke tests open a historical model through the
 adjacent format module, save a native document and validate it. Windows also
-installs and uninstalls the setup; Linux checks desktop metadata and AppImage
+installs and uninstalls the setup and checks executable imports for unwanted
+runtime DLL dependencies; Linux checks desktop metadata and AppImage
 execution without FUSE. CLI tests in the main CI include the render feature.
 
 Publication requires successful main CI for that exact revision and every

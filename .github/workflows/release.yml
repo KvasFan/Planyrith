@@ -93,7 +93,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: release-windows-x86_64
+          shared-key: release-windows-x86_64-static
           cache-on-failure: true
       - name: Installer tool
         shell: pwsh
@@ -102,9 +102,23 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'NSIS installation failed' }
           'MAKENSIS=C:\Program Files (x86)\NSIS\makensis.exe' >> $env:GITHUB_ENV
       - name: Build all desktop programs
-        run: cargo build --workspace --release --locked --features planyrith-cli/render
+        # Explicit target keeps host proc-macros on their normal dynamic CRT.
+        run: cargo build --workspace --release --locked --target x86_64-pc-windows-msvc --features planyrith-cli/render
+        env:
+          RUSTFLAGS: "-C target-feature=+crt-static"
       - name: Build setup and portable archive
-        run: cargo xtask windows
+        run: cargo xtask windows --bin-dir target/x86_64-pc-windows-msvc/release
+      - name: Check deployment imports without a separate runtime installer
+        shell: pwsh
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}/Microsoft Visual Studio/Installer/vswhere.exe" -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          $tools = Get-ChildItem "$vs/VC/Tools/MSVC" -Directory | Sort-Object Name -Descending | Select-Object -First 1
+          $dumpbin = Join-Path $tools.FullName 'bin/Hostx64/x64/dumpbin.exe'
+          foreach ($name in @('planyrith', 'planyrith-gui', 'planyrith-skp')) {
+            $imports = & $dumpbin /DEPENDENTS "target/x86_64-pc-windows-msvc/release/$name.exe"
+            if ($LASTEXITCODE -ne 0) { throw "Cannot inspect $name" }
+            if ($imports -match '(?i)(VCRUNTIME|MSVCP)[0-9_]*\.dll') { throw "$name requires a separately installed runtime" }
+          }
       - name: Install, exercise format module, save, reopen and uninstall
         shell: pwsh
         env:
