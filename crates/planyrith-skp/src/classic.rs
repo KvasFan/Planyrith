@@ -36,7 +36,8 @@ enum Body {
     Use(usize, bool),
     Loop(Vec<usize>),
     Face([f64; 4], Vec<usize>, u16),
-    Layer(openskp::Layer),
+    Layer(openskp::Layer, Option<usize>),
+    LineStyle(String),
     Material(openskp::Material),
     Curve(Option<openskp::Arc>),
     Definition {
@@ -533,7 +534,7 @@ impl<'a> Reader<'a> {
                 let hidden = self.bytes.get(begin).is_some_and(|b| *b != 0);
                 self.string()?;
                 let flag = self.u16()?;
-                let rgba = if flag & 255 != 0 {
+                let rgba: [u8; 4] = if flag & 255 != 0 {
                     // A layer colored by a textured material embeds that
                     // material's block in place of a flat color.
                     let texture = self.texture()?;
@@ -547,11 +548,25 @@ impl<'a> Reader<'a> {
                     self.skip_layer_parent();
                     rgba
                 };
-                Body::Layer(openskp::Layer {
-                    name,
-                    visible: !hidden,
-                    rgba,
-                })
+                let line_style = self.line_style()?;
+                Body::Layer(
+                    openskp::Layer {
+                        name,
+                        visible: !hidden,
+                        rgba,
+                    },
+                    line_style,
+                )
+            }
+            "CCustomLineStyle" => {
+                let begin = self.pos;
+                while self.peek(3) != [255, 254, 255] && self.pos - begin < 8 {
+                    self.u8()?;
+                }
+                self.string()?;
+                let pattern = self.string()?;
+                self.floats::<3>()?;
+                Body::LineStyle(pattern)
             }
             "CMaterial" => {
                 let name = self.string()?;
@@ -955,6 +970,33 @@ impl<'a> Reader<'a> {
         let anchor = self.pointer(Some("CLayer"))?;
         Ok((mats, layers, anchor))
     }
+    // From 2019 a layer ends with a reference to its dash pattern. Null ones
+    // stay with the list walks, which skip them as separators.
+    fn line_style(&mut self) -> Result<Option<usize>> {
+        if self.next_class_is("CCustomLineStyle") {
+            return Ok(Some(self.pointer(Some("CCustomLineStyle"))?));
+        }
+        let Ok(tag) = self.tag() else {
+            return Ok(None);
+        };
+        let (slot, size) = if tag == 32767 {
+            let Some(raw) = self.peek(6).get(2..6) else {
+                return Ok(None);
+            };
+            let value = u32::from_le_bytes(raw.try_into()?);
+            (value as usize, 6)
+        } else {
+            (usize::from(tag), 2)
+        };
+        if !matches!(
+            self.objects.get(&slot).map(|n| &n.body),
+            Some(Body::LineStyle(_))
+        ) {
+            return Ok(None);
+        }
+        self.raw(size)?;
+        Ok(Some(slot))
+    }
     // The caller read a u16 flag; its high byte opens the texture's preamble.
     fn texture(&mut self) -> Result<TextureBlock> {
         self.pos -= 1;
@@ -1026,7 +1068,7 @@ impl<'a> Reader<'a> {
                 && tag != 32767
                 && matches!(
                     self.objects.get(&usize::from(tag)).map(|n| &n.body),
-                    Some(Body::Layer(_))
+                    Some(Body::Layer(..))
                 )
         };
         if layer(u16::from_le_bytes([b[0], b[1]])) && layer(u16::from_le_bytes([b[2], b[3]])) {
@@ -1492,10 +1534,27 @@ pub(super) fn read(data: &[u8], mut model: Model) -> Result<Model> {
                 reader.attrs(&mut model, node, openskp::Owner::Material(i));
             }
             for (i, id) in layers.iter().enumerate() {
-                let Some(Body::Layer(l)) = reader.objects.get(id).map(|n| &n.body) else {
+                let Some(Body::Layer(l, line_style)) = reader.objects.get(id).map(|n| &n.body)
+                else {
                     return Err("layer expected".into());
                 };
                 model.layers.push(l.clone());
+                if let Some(Body::LineStyle(pattern)) = line_style
+                    .and_then(|style| reader.objects.get(&style))
+                    .map(|n| &n.body)
+                {
+                    model.dictionaries.push(openskp::Attributes {
+                        owner: openskp::Owner::Layer(i),
+                        dictionaries: vec![openskp::Dictionary {
+                            name: "org.planyrith.skp".into(),
+                            flag: 0,
+                            entries: vec![(
+                                "line-pattern".into(),
+                                openskp::Value::Text(pattern.clone()),
+                            )],
+                        }],
+                    });
+                }
                 model.layer_links.push((u16::try_from(*id)?, i));
                 if let Some(node) = reader.objects.get(id) {
                     reader.attrs(&mut model, node, openskp::Owner::Layer(i));
@@ -1576,8 +1635,41 @@ pub(super) fn read(data: &[u8], mut model: Model) -> Result<Model> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    fn wide(text: &str) -> Vec<u8> {
+        let mut bytes = vec![255, 254, 255, text.len() as u8];
+        bytes.extend(text.encode_utf16().flat_map(u16::to_le_bytes));
+        bytes
+    }
+
+    #[test]
+    fn layers_read_their_line_style_and_share_it_by_reference() {
+        let mut bytes = vec![255, 255, 2, 0, 16, 0];
+        bytes.extend_from_slice(b"CCustomLineStyle");
+        bytes.extend([0; 6]);
+        bytes.extend(wide("Short dash"));
+        bytes.extend(wide("6.0, -6.0"));
+        bytes.extend(1f64.to_le_bytes().repeat(3));
+        let first = bytes.len();
+        // The back reference of a later layer, then another object's tag.
+        bytes.extend([2, 0, 0, 0]);
+        let mut reader = Reader::new(&bytes, 0, 1, 19);
+        // The class declaration takes slot 1 and the object slot 2.
+        assert_eq!(reader.line_style().unwrap(), Some(2));
+        assert_eq!(reader.pos, first);
+        assert!(matches!(
+            reader.objects.get(&2).map(|n| &n.body),
+            Some(Body::LineStyle(p)) if p == "6.0, -6.0"
+        ));
+        assert_eq!(reader.line_style().unwrap(), Some(2));
+        assert_eq!(reader.pos, first + 2);
+        // A null reference stays with the list walks.
+        assert_eq!(reader.line_style().unwrap(), None);
+        assert_eq!(reader.pos, first + 2);
+    }
 
     #[test]
     fn class_references_cover_short_and_extended_tags() {

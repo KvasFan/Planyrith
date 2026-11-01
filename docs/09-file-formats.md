@@ -195,6 +195,17 @@ save unless `--no-thumbnail`. `manifest.json` carries `title`, `author`, `descri
   finds these conflicts; group assignment retains coordinates and both sides of
   each face, including loose edges and isolated vertices, without welding them
   across groups.
+- 2026-11-01 — **Real-model additions.** A private 160 MB 2019.3 model required the
+  following. From 2019 a layer ends with a reference to a custom line style:
+  a name, a dash pattern (`12.0, -6.0, 1.0, -6.0`, negative numbers are gaps) and
+  three `f64`, and the "separator" null of earlier notes is that reference left
+  empty. The pattern maps to the closest native tag style; tag styles are not
+  written back, with a notice. Texture images in other encodings become
+  lossless PNG assets: BMP, TIFF, GIF, Targa and 8-bit RGB or grayscale Photoshop
+  files (merged image, raw or RLE), the last with a small decoder in
+  `planyrith-skp`. An image that still cannot be read leaves its material's color
+  with a notice, and drops a thumbnail or watermark: one asset never stops a
+  model from opening.
 - 2026-10-31 — **Classic display settings.** The reader's rendering-options table
   uses the 2017 byte layout, and classic files of other releases shift it: a
   2013 box decoded as X-ray with a transparent background. Decoded options

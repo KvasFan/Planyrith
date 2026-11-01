@@ -20,7 +20,7 @@
   <img alt="Written in Rust" src="https://img.shields.io/badge/written%20in-Rust-2f3a45?style=flat-square&amp;logo=rust">
   <img alt="Windows and Linux downloads" src="https://img.shields.io/badge/downloads-Windows%20%C2%B7%20Linux-2f3a45?style=flat-square">
   <a href="#license-and-credits"><img alt="Applications: MIT or Apache-2.0" src="https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-2f3a45?style=flat-square"></a>
-  <a href="https://github.com/KvasFan/Planyrith/releases/tag/v0.11.0-alpha.2"><img alt="Preview 0.11.0-alpha.2" src="https://img.shields.io/badge/preview-0.11.0--alpha.2-e0a458?style=flat-square"></a>
+  <a href="https://github.com/KvasFan/Planyrith/releases/tag/v0.11.0-alpha.3"><img alt="Preview 0.11.0-alpha.3" src="https://img.shields.io/badge/preview-0.11.0--alpha.2-e0a458?style=flat-square"></a>
 </p>
 
 <p align="center">
@@ -45,21 +45,21 @@
 
 ## Downloads
 
-**[0.11.0-alpha.2 — desktop preview](https://github.com/KvasFan/Planyrith/releases/tag/v0.11.0-alpha.2)**
+**[0.11.0-alpha.3 — desktop preview](https://github.com/KvasFan/Planyrith/releases/tag/v0.11.0-alpha.3)**
 
 | Platform | Download | Start |
 |---|---|---|
-| Windows 10/11, x64 | [Installer `.exe`](https://github.com/KvasFan/Planyrith/releases/download/v0.11.0-alpha.2/Planyrith-0.11.0-alpha.2-windows-x86_64-setup.exe) | Per-user installation with shortcuts and native file association. |
-| Windows, portable x64 | [Portable `.zip`](https://github.com/KvasFan/Planyrith/releases/download/v0.11.0-alpha.2/planyrith-0.11.0-alpha.2-windows-x86_64-portable.zip) | Extract and run `planyrith-gui.exe`. |
-| Linux, x86_64 | [AppImage](https://github.com/KvasFan/Planyrith/releases/download/v0.11.0-alpha.2/Planyrith-0.11.0-alpha.2-x86_64.AppImage) | Make executable and run. |
-| Debian 12 / Ubuntu 22.04+, amd64 | [Debian package `.deb`](https://github.com/KvasFan/Planyrith/releases/download/v0.11.0-alpha.2/planyrith_0.11.0-alpha.2_amd64.deb) | `sudo apt install ./planyrith_*.deb` |
-| Arch Linux, x86_64 | [Arch package `.pkg.tar.zst`](https://github.com/KvasFan/Planyrith/releases/download/v0.11.0-alpha.2/planyrith-0.11.0alpha2-1-x86_64.pkg.tar.zst) | `sudo pacman -U ./planyrith-*.pkg.tar.zst` |
-| Arch / Linux, portable x86_64 | [Executable bundle `.tar.gz`](https://github.com/KvasFan/Planyrith/releases/download/v0.11.0-alpha.2/planyrith-0.11.0-alpha.2-linux-x86_64.tar.gz) | Extract and run `./Planyrith`. |
+| Windows 10/11, x64 | [Installer `.exe`](https://github.com/KvasFan/Planyrith/releases/download/v0.11.0-alpha.3/Planyrith-0.11.0-alpha.3-windows-x86_64-setup.exe) | Per-user installation with shortcuts and native file association. |
+| Windows, portable x64 | [Portable `.zip`](https://github.com/KvasFan/Planyrith/releases/download/v0.11.0-alpha.3/planyrith-0.11.0-alpha.3-windows-x86_64-portable.zip) | Extract and run `planyrith-gui.exe`. |
+| Linux, x86_64 | [AppImage](https://github.com/KvasFan/Planyrith/releases/download/v0.11.0-alpha.3/Planyrith-0.11.0-alpha.3-x86_64.AppImage) | Make executable and run. |
+| Debian 12 / Ubuntu 22.04+, amd64 | [Debian package `.deb`](https://github.com/KvasFan/Planyrith/releases/download/v0.11.0-alpha.3/planyrith_0.11.0-alpha.3_amd64.deb) | `sudo apt install ./planyrith_*.deb` |
+| Arch Linux, x86_64 | [Arch package `.pkg.tar.zst`](https://github.com/KvasFan/Planyrith/releases/download/v0.11.0-alpha.3/planyrith-0.11.0alpha3-1-x86_64.pkg.tar.zst) | `sudo pacman -U ./planyrith-*.pkg.tar.zst` |
+| Arch / Linux, portable x86_64 | [Executable bundle `.tar.gz`](https://github.com/KvasFan/Planyrith/releases/download/v0.11.0-alpha.3/planyrith-0.11.0-alpha.3-linux-x86_64.tar.gz) | Extract and run `./Planyrith`. |
 
 Packages include the GUI, CLI and separate SKP/SKB module, with license notices.
 Windows setup lets you deselect the GPL format module. The installer is unsigned.
 Linux binaries require glibc 2.35+ and a working Vulkan driver. Wayland and X11 are supported.
-See [installation details](packaging/INSTALL.md), [checksums and complete sources](https://github.com/KvasFan/Planyrith/releases/tag/v0.11.0-alpha.2).
+See [installation details](packaging/INSTALL.md), [checksums and complete sources](https://github.com/KvasFan/Planyrith/releases/tag/v0.11.0-alpha.3).
 macOS and the browser edition can be built from source.
 
 ## Screenshots

@@ -87,6 +87,12 @@ styles saved in 2013–2016, 2019, 2020 and classic 2021 files are not imported
 CLI, RPC and GUI are tested on five real models: the same edits give an equal
 canonical document and byte-identical SKP files (`gui/tests/skp.rs`).
 
+A private 160 MB 2019.3 model (332,515 faces, 171 images, 548 materials) then
+exposed custom line styles and Photoshop and TIFF textures. It opens in about 40
+seconds with no validation problems, restores byte-exactly in the GUI session
+test and regenerates with both writers; reopening gives 332,523 faces. Tests
+cover the same structures with synthetic data, as the model stays private.
+
 Models before 2013 are refused by name. Two non-SKP files named
 `.skp` are refused as unsupported containers.
 
@@ -142,8 +148,7 @@ step. Per-release certification and edited historical writers remain open.
    They must be opened in the target application; data and appearance both count.
    This cannot be done on the development machine.
 2. **2023 and 2024.** Repositories and code search found no public redistributable
-   file from either release. A user-provided save of the same model in each
-   would close this.
+   file from either release, and the user has none (2026-11-01).
 3. Confirm the axes of kind 7 face anchors against a source of known positions.
    Calibrate display settings for 2013–2016, 2019 and 2020, which needs files
    saved with known non-default styles in those releases.

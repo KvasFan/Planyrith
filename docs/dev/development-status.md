@@ -5,9 +5,9 @@ implementation stands, what is done, what remains, and how to resume. Update it 
 every working session. Ground truth for *what to build* stays in `docs/00`–`docs/15`; this file
 is only *progress state*. Release packaging is specified in `docs/16`.
 
-_Last updated: 2026-10-31 (after the 0.11.0-alpha.2 release; 0.11 acceptance in progress)._
+_Last updated: 2026-11-01 (0.11.0-alpha.3; 0.11 acceptance in progress)._
 
-**After alpha.2 (unreleased):** a survey of public SKP files found and fixed
+**Alpha.3:** a survey of public SKP files found and fixed
 ten models that would not open and five that would not save. All 680 surveyed
 files pass the exchange chain with both writers, including deletion and renames,
 one with a few refaceted facets. Surfaces and texture coordinates match the

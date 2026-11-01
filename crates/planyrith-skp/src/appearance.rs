@@ -137,8 +137,15 @@ fn watermarks(
             let i = mark.position.min(8);
             WatermarkPlacement::Anchored((i % 3) as f32 / 2.0, (i / 3) as f32 / 2.0)
         };
+        let asset = match super::images::asset(bytes) {
+            Ok(asset) => asset,
+            Err(e) => {
+                warnings.push(format!("Watermark {} not imported: {e}", mark.name));
+                continue;
+            }
+        };
         out.push(Watermark {
-            image: tx.insert_image(super::images::asset(bytes)?)?,
+            image: tx.insert_image(asset)?,
             placement,
             opacity: if visible {
                 mark.blend.clamp(0.0, 1.0) as f32

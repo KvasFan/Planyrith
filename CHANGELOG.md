@@ -4,8 +4,11 @@ All notable changes to Planyrith are recorded here. Versions follow
 [Semantic Versioning](https://semver.org/); before 1.0, minor versions are milestones of
 [`docs/13-roadmap.md`](docs/13-roadmap.md).
 
-## Unreleased
+## 0.11.0-alpha.3 — Real models and verified exchange (2026-11-01)
 
+- Open large real models that failed: custom line styles on tags (now native tag
+  styles) and textures embedded as Photoshop, TIFF, GIF or Targa images, converted
+  losslessly. An unreadable image no longer stops a model from opening.
 - Open all 680 surveyed public files from 2013–2026, fixing models that failed
   outright: text attached to a face, large archives, layers colored by a
   textured material, a custom tag ahead of the default layer, classic archives

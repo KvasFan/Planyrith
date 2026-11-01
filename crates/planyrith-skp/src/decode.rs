@@ -70,6 +70,25 @@ fn value(v: &openskp::Value) -> Value {
         V::Vector(v) | V::Direction(v) => Value::Vec3(DVec3::from_array(*v)),
     }
 }
+/// The native tag style closest to a dash pattern such as `12.0, -6.0, 1.0,
+/// -6.0`: positive numbers are drawn, negative ones are gaps.
+fn line_style(pattern: &str) -> LineStyle {
+    let dashes = pattern
+        .split(',')
+        .filter_map(|v| v.trim().parse::<f64>().ok())
+        .filter(|v| *v > 0.0)
+        .collect::<Vec<_>>();
+    let dot = |v: &f64| *v <= 2.0;
+    if pattern.split(',').count() < 2 || dashes.is_empty() {
+        LineStyle::Solid
+    } else if dashes.iter().all(dot) {
+        LineStyle::Dotted
+    } else if dashes.iter().any(dot) {
+        LineStyle::DashDot
+    } else {
+        LineStyle::Dashed
+    }
+}
 pub(super) fn attributes(model: &Model, owner: Owner) -> AttributeDictionaries {
     let mut result = AttributeDictionaries::new();
     for attrs in model.dictionaries.iter().filter(|a| a.owner == owner) {
@@ -303,13 +322,20 @@ pub(super) fn document(model: &Model, source_hash: &[u8; 32]) -> Result<(Documen
         m.opacity = opacity.clamp(0.0, 1.0) as f32;
         m.attrs = attributes(model, Owner::Material(index));
         if let Some(bytes) = texture {
-            let image = tx.insert_image(super::images::asset(bytes)?)?;
-            let (w, h) = size.unwrap_or((1.0, 1.0));
-            m.texture = Some(Texture {
-                image,
-                size_mm: DVec2::new(w, h).abs().max(DVec2::splat(1e-6)) * 25.4,
-                colorize: colorized.then_some(ColorizeMode::Tint),
-            });
+            match super::images::asset(bytes) {
+                Ok(asset) => {
+                    let (w, h) = size.unwrap_or((1.0, 1.0));
+                    m.texture = Some(Texture {
+                        image: tx.insert_image(asset)?,
+                        size_mm: DVec2::new(w, h).abs().max(DVec2::splat(1e-6)) * 25.4,
+                        colorize: colorized.then_some(ColorizeMode::Tint),
+                    });
+                }
+                Err(e) => warnings.push(format!(
+                    "Material {}: texture not imported ({e}); it keeps its color and the complete source remains in the native working copy",
+                    m.name
+                )),
+            }
         }
         materials.push(tx.insert_material(m)?);
     }
@@ -343,6 +369,10 @@ pub(super) fn document(model: &Model, source_hash: &[u8; 32]) -> Result<(Documen
             },
         );
         t.visible = layer.visible;
+        let attrs = attributes(model, Owner::Layer(index));
+        if let Some(Value::Str(pattern)) = attrs.get("org.planyrith.skp", "line-pattern") {
+            t.line_style = line_style(pattern);
+        }
         tags.push(tx.insert_tag(t)?);
     }
     let mut definitions = BTreeMap::<usize, DefinitionId>::new();
@@ -376,8 +406,9 @@ pub(super) fn document(model: &Model, source_hash: &[u8; 32]) -> Result<(Documen
         let mut def = ComponentDefinition::new(uuid::Uuid::from_bytes(uid), name);
         def.is_internal_group = d.kind != openskp::DefinitionKind::Component;
         def.description = d.description.clone();
-        if let Some(bytes) = &d.thumbnail {
-            def.thumbnail = Some(tx.insert_image(super::images::asset(bytes)?)?);
+        // A thumbnail is a preview: losing one must not stop the model.
+        if let Some(Ok(asset)) = d.thumbnail.as_deref().map(super::images::asset) {
+            def.thumbnail = Some(tx.insert_image(asset)?);
         }
         def.attrs = attributes(model, Owner::Definition(index));
         def.behavior.cuts_opening = d.behaviour.cuts_opening;
@@ -965,4 +996,24 @@ pub(super) fn document(model: &Model, source_hash: &[u8; 32]) -> Result<(Documen
     let mut seen = BTreeSet::new();
     warnings.retain(|w| seen.insert(w.clone()));
     Ok((doc, warnings))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dash_patterns_map_to_the_closest_tag_style() {
+        for (pattern, style) in [
+            ("6.0, -6.0", LineStyle::Dashed),
+            ("36.0, -10.0, 12.0, -10.0", LineStyle::Dashed),
+            ("1.0, -6.0", LineStyle::Dotted),
+            ("12.0, -6.0, 1.0, -6.0", LineStyle::DashDot),
+            ("12.0, -6.0, 1.0, -6.0, 1.0, -6.0", LineStyle::DashDot),
+            ("", LineStyle::Solid),
+            ("not a pattern", LineStyle::Solid),
+        ] {
+            assert_eq!(line_style(pattern), style, "{pattern}");
+        }
+    }
 }

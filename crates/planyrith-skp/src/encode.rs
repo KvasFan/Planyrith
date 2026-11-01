@@ -270,6 +270,9 @@ pub(super) fn model(doc: &Document) -> Result<(Model, Vec<String>)> {
             visible: t.visible,
             rgba: [t.color.r, t.color.g, t.color.b, t.color.a],
         });
+        if t.line_style != LineStyle::Solid {
+            warnings.push("Tag line styles are not written; edges export as solid lines".into());
+        }
     }
     let mut definitions = BTreeMap::<DefinitionId, u32>::new();
     for (i, id) in doc.definition_order.iter().enumerate() {

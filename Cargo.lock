@@ -919,6 +919,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "color_quant"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3d7b894f5411737b7867f4827955924d7c254fc9f4d91a6aad6b097804b1018b"
+
+[[package]]
 name = "colorchoice"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1792,6 +1798,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "gif"
+version = "0.14.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ee8cfcc411d9adbbaba82fb72661cc1bcca13e8bba98b364e62b2dba8f960159"
+dependencies = [
+ "color_quant",
+ "weezl",
+]
+
+[[package]]
 name = "gl_generator"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2211,6 +2227,8 @@ checksum = "85ab80394333c02fe689eaf900ab500fbd0c2213da414687ebf995a65d5a6104"
 dependencies = [
  "bytemuck",
  "byteorder-lite",
+ "color_quant",
+ "gif",
  "image-webp",
  "moxcms",
  "num-traits",
@@ -3367,7 +3385,7 @@ checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 
 [[package]]
 name = "planyrith-cli"
-version = "0.11.0-alpha.2"
+version = "0.11.0-alpha.3"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -3386,7 +3404,7 @@ dependencies = [
 
 [[package]]
 name = "planyrith-core"
-version = "0.11.0-alpha.2"
+version = "0.11.0-alpha.3"
 dependencies = [
  "blake3",
  "bytemuck",
@@ -3424,7 +3442,7 @@ dependencies = [
 
 [[package]]
 name = "planyrith-gui"
-version = "0.11.0-alpha.2"
+version = "0.11.0-alpha.3"
 dependencies = [
  "eframe",
  "egui",
@@ -3451,7 +3469,7 @@ dependencies = [
 
 [[package]]
 name = "planyrith-render"
-version = "0.11.0-alpha.2"
+version = "0.11.0-alpha.3"
 dependencies = [
  "ab_glyph",
  "bytemuck",
@@ -3467,7 +3485,7 @@ dependencies = [
 
 [[package]]
 name = "planyrith-skp"
-version = "0.11.0-alpha.2"
+version = "0.11.0-alpha.3"
 dependencies = [
  "blake3",
  "glam",
@@ -5993,7 +6011,7 @@ checksum = "e450f9b2ed1dff33c94c12589a87338689467b9c4f5d8a5710bd09a847d2c8a7"
 
 [[package]]
 name = "xtask"
-version = "0.11.0-alpha.2"
+version = "0.11.0-alpha.3"
 dependencies = [
  "serde_json",
 ]

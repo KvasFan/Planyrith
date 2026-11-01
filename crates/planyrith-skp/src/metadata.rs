@@ -49,10 +49,12 @@ pub(super) fn import(tx: &mut Transaction<'_>, model: &Model) -> Result<()> {
     for (i, s) in model.styles.iter().enumerate() {
         if let Some(strokes) = &s.strokes {
             let mut refs = Vec::new();
-            for bytes in &strokes.images {
-                refs.push(Value::Str(
-                    tx.insert_image(super::images::asset(bytes)?)?.to_hex(),
-                ));
+            for asset in strokes
+                .images
+                .iter()
+                .filter_map(|b| super::images::asset(b).ok())
+            {
+                refs.push(Value::Str(tx.insert_image(asset)?.to_hex()));
             }
             tx.set_attribute(
                 AttrTarget::Document,
