@@ -7,6 +7,14 @@ is only *progress state*. Release packaging is specified in `docs/16`.
 
 _Last updated: 2026-11-01 (0.11.0-alpha.3; 0.11 acceptance in progress)._
 
+**Release state (2026-11-01):** `v0.11.0-alpha.3` is prepared at `3d55f6e`: main
+CI and the Release workflow's Windows and Linux package checks passed with
+`publish=false`. It has not been published. The next increment is under
+`## Unreleased` in the changelog. Before any push, run each `ci.yml` step locally
+with its flags, and check Windows with `--target x86_64-pc-windows-gnu`; do not
+rerun CI after a failure until the cause is understood. Only the headless Chrome
+test cannot run here, as `wasm-bindgen` is not installed.
+
 **Alpha.3:** a survey of public SKP files found and fixed
 ten models that would not open and five that would not save. All 680 surveyed
 files pass the exchange chain with both writers, including deletion and renames,

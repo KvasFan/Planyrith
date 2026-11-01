@@ -187,9 +187,26 @@ struct Opening {
     result: std::sync::mpsc::Receiver<Result<planyrith_core::io::native::LoadedDocument, String>>,
 }
 
+/// A foreign save running on its own thread.
+#[cfg(not(target_arch = "wasm32"))]
+struct Saving {
+    path: PathBuf,
+    started: std::time::Instant,
+    result: std::sync::mpsc::Receiver<Result<crate::session::FinishedSave, String>>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn foreign_target(path: &std::path::Path) -> bool {
+    path.extension().is_some_and(|extension| {
+        extension.eq_ignore_ascii_case("skp") || extension.eq_ignore_ascii_case("skb")
+    })
+}
+
 pub struct App {
     #[cfg(not(target_arch = "wasm32"))]
     opening: Option<Opening>,
+    #[cfg(not(target_arch = "wasm32"))]
+    saving: Option<Saving>,
     session: Session,
     viewport: Viewport,
     /// Extra viewports with cameras of their own (View › Viewports).
@@ -297,6 +314,8 @@ impl App {
         App {
             #[cfg(not(target_arch = "wasm32"))]
             opening: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            saving: None,
             session: Session::new(),
             viewport: Viewport::default(),
             extra_viewports: Vec::new(),
@@ -488,12 +507,106 @@ impl App {
             self.save_as();
             return;
         }
-        match self.session.save(path.as_deref()) {
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.saving.is_some() {
+            self.info("The document is still saving".to_string());
+            return;
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.session.saves_locally() {
+            match self.session.start_save(path.as_deref()) {
+                Ok(job) if foreign_target(job.target()) => self.save_in_background(job),
+                Ok(job) => {
+                    let finished = job.run().and_then(|f| self.session.finish_save(f));
+                    self.saved(finished);
+                }
+                Err(e) => self.saved(Err(e)),
+            }
+            return;
+        }
+        let result = self.session.save(path.as_deref());
+        self.saved(result);
+    }
+
+    /// Saves before another action that depends on the outcome.
+    fn save_now(&mut self) {
+        if self.session.path.is_none() || self.session.needs_native_copy() {
+            self.save_as();
+            return;
+        }
+        let result = self.session.save(None);
+        self.saved(result);
+    }
+
+    fn saved(&mut self, result: Result<PathBuf, String>) {
+        match result {
             Ok(path) => {
                 self.remember(path.clone());
                 self.info(format!("Saved {}", file_name(&path)));
             }
             Err(e) => self.error(format!("Could not save: {e}")),
+        }
+    }
+
+    /// Converting to a foreign format takes seconds on a large model.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn save_in_background(&mut self, job: crate::session::SaveJob) {
+        let path = job.target().to_path_buf();
+        let (sender, result) = std::sync::mpsc::channel();
+        let spawned = std::thread::Builder::new()
+            .name("save-document".into())
+            .spawn(move || {
+                let _ = sender.send(job.run());
+            });
+        match spawned {
+            Ok(_) => {
+                self.saving = Some(Saving {
+                    path,
+                    started: std::time::Instant::now(),
+                    result,
+                });
+            }
+            Err(e) => self.error(format!("Could not save: {e}")),
+        }
+    }
+
+    /// Takes a finished save, or shows that one is running.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn poll_saving(&mut self, ctx: &egui::Context) {
+        use std::sync::mpsc::TryRecvError;
+        let Some(saving) = &self.saving else {
+            return;
+        };
+        let received = match saving.result.try_recv() {
+            Ok(result) => Some(result),
+            Err(TryRecvError::Empty) => None,
+            Err(TryRecvError::Disconnected) => Some(Err("the writer stopped unexpectedly".into())),
+        };
+        if let Some(result) = received {
+            self.saving = None;
+            let finished = result.and_then(|f| self.session.finish_save(f));
+            self.saved(finished);
+            return;
+        }
+        let name = file_name(&saving.path);
+        let seconds = saving.started.elapsed().as_secs();
+        egui::Modal::new(egui::Id::new("saving document")).show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.heading(format!("Saving {name}"));
+            });
+            ui.label(format!("{seconds} s"));
+        });
+        ctx.request_repaint_after(std::time::Duration::from_millis(100));
+    }
+
+    /// Waits for a save started by [`App::save`].
+    #[cfg(all(test, not(target_arch = "wasm32")))]
+    fn finish_saving(&mut self) {
+        if let Some(saving) = self.saving.take() {
+            let result = saving.result.recv().unwrap_or_else(|e| Err(e.to_string()));
+            let finished = result.and_then(|f| self.session.finish_save(f));
+            self.saved(finished);
         }
     }
 
@@ -1950,7 +2063,7 @@ impl App {
         });
         match choice {
             Some(0) => {
-                self.save(None);
+                self.save_now();
                 if !self.session.dirty() {
                     self.pending = None;
                     self.perform(pending);
@@ -2452,6 +2565,8 @@ impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         #[cfg(not(target_arch = "wasm32"))]
         self.poll_opening(ui.ctx());
+        #[cfg(not(target_arch = "wasm32"))]
+        self.poll_saving(ui.ctx());
         self.shell(ui, frame.wgpu_render_state());
     }
 
@@ -2539,6 +2654,16 @@ mod tests {
         assert!(!source.with_extension("plyr").exists());
         assert_eq!(std::fs::read(&source).unwrap(), original);
         assert!(shell.app.session.dirty());
+        // A foreign save runs on its own thread and then updates the session.
+        let exported = dir.join("edited.skp");
+        shell.app.save(Some(exported.clone()));
+        assert!(shell.app.saving.is_some());
+        shell.app.save(Some(exported.clone()));
+        shell.app.finish_saving();
+        assert!(shell.app.saving.is_none());
+        assert!(!shell.app.session.dirty());
+        assert_eq!(shell.app.session.path.as_deref(), Some(exported.as_path()));
+        assert_eq!(&std::fs::read(&exported).unwrap()[..3], [255, 254, 255]);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

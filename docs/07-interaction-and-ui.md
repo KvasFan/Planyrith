@@ -245,7 +245,10 @@ collected by clicks: e.g. segments for Circle, array count, copy toggle).
 - 2026-11-01 — Opening a document reads it on a separate thread on the desktop, under
   a modal with a spinner and elapsed time: converting a large foreign model takes
   tens of seconds, during which the window must keep responding. Only the read
-  moves; the session is created on the interface thread.
+  moves; the session is created on the interface thread. Saving to a foreign
+  format converts and writes on a thread the same way, while encoding stays on
+  the interface thread so the saved state is a single generation. A save that
+  another action depends on, as in the unsaved-changes prompt, stays synchronous.
 - 2026-10-20 — Fluent for localization; English source.
 - 2026-10-25 — A bare signed or decimal number in the value field (`-45`, `22.5`) is a length in
   the document unit where the step wants a length and an angle in degrees where it wants an

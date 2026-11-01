@@ -4,6 +4,10 @@ All notable changes to Planyrith are recorded here. Versions follow
 [Semantic Versioning](https://semver.org/); before 1.0, minor versions are milestones of
 [`docs/13-roadmap.md`](docs/13-roadmap.md).
 
+## Unreleased
+
+- Keep the window responsive while saving to SKP, with a progress dialog.
+
 ## 0.11.0-alpha.3 — Real models and verified exchange (2026-11-01)
 
 - Keep the window responsive while a document opens, with a progress dialog.

@@ -57,6 +57,48 @@ pub struct Session {
     autosaved: bool,
 }
 
+/// A save whose document is already encoded: converting it to a foreign
+/// format and writing it can take a while, so it may leave the interface
+/// thread.
+pub struct SaveJob {
+    bytes: Vec<u8>,
+    target: PathBuf,
+    generation: u64,
+    storage: Arc<dyn Storage + Send + Sync>,
+}
+
+/// The outcome of [`SaveJob::run`], for [`Session::finish_save`].
+pub struct FinishedSave {
+    target: PathBuf,
+    generation: u64,
+    warnings: Vec<String>,
+}
+
+impl SaveJob {
+    /// Where this save writes.
+    pub fn target(&self) -> &Path {
+        &self.target
+    }
+
+    /// Converts and writes the document.
+    pub fn run(self) -> Result<FinishedSave, String> {
+        let converted = planyrith_core::io::model_file::for_save(
+            self.bytes,
+            &self.target.to_string_lossy(),
+            self.storage.as_ref(),
+        )
+        .map_err(|e| e.to_string())?;
+        self.storage
+            .write(&key(&self.target), &converted.bytes)
+            .map_err(|e| e.to_string())?;
+        Ok(FinishedSave {
+            target: self.target,
+            generation: self.generation,
+            warnings: converted.warnings,
+        })
+    }
+}
+
 impl Session {
     /// A new, empty document.
     pub fn new() -> Session {
@@ -450,6 +492,22 @@ impl Session {
                 .clone()
                 .ok_or_else(|| "Remote save did not return a path".into());
         }
+        let finished = self.start_save(path)?.run()?;
+        self.finish_save(finished)
+    }
+
+    /// `true` when [`Session::start_save`] applies: an attached server saves
+    /// its own copy through [`Session::save`].
+    pub fn saves_locally(&self) -> bool {
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.remote.is_some() {
+            return false;
+        }
+        true
+    }
+
+    /// Encodes the document for [`SaveJob::run`], which any thread may do.
+    pub fn start_save(&self, path: Option<&Path>) -> Result<SaveJob, String> {
         let mut target = path
             .map(Path::to_path_buf)
             .or_else(|| self.path.clone())
@@ -469,30 +527,31 @@ impl Session {
                 ));
             }
         }
-        let bytes = self.encode(&now_rfc3339())?;
-        let converted = planyrith_core::io::model_file::for_save(
-            bytes,
-            &target.to_string_lossy(),
-            self.storage.as_ref(),
-        )
-        .map_err(|e| e.to_string())?;
-        self.warnings.borrow_mut().extend(converted.warnings);
-        self.storage
-            .write(&key(&target), &converted.bytes)
-            .map_err(|e| e.to_string())?;
+        Ok(SaveJob {
+            bytes: self.encode(&now_rfc3339())?,
+            target,
+            generation: self.engine.generation(),
+            storage: Arc::clone(&self.storage),
+        })
+    }
+
+    /// Records a finished save. Edits made since [`Session::start_save`] stay
+    /// unsaved.
+    pub fn finish_save(&mut self, saved: FinishedSave) -> Result<PathBuf, String> {
+        self.warnings.borrow_mut().extend(saved.warnings);
         if let Some(autosave) = self.autosave.as_mut() {
             // Saved work needs no recovery; the new name autosaves from now.
             autosave
-                .reset(self.storage.as_ref(), key(&target), 0.0)
+                .reset(self.storage.as_ref(), key(&saved.target), 0.0)
                 .map_err(|e| e.to_string())?;
             self.clock_started = false;
         }
         #[cfg(target_arch = "wasm32")]
         platform::web::request_persistence();
-        self.path = Some(target.clone());
+        self.path = Some(saved.target.clone());
         self.native_copy_pending = false;
-        self.saved_generation = self.engine.generation();
-        Ok(target)
+        self.saved_generation = saved.generation;
+        Ok(saved.target)
     }
 
     /// Runs a command on a copy of the document (a tool's preview, docs/07
@@ -693,6 +752,42 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn edits_made_while_a_save_runs_stay_unsaved() {
+        let path =
+            std::env::temp_dir().join(format!("planyrith-save-job-{}.plyr", std::process::id()));
+        let mut s = Session::new();
+        s.execute(
+            "rectangle",
+            json!({"corner_a":[0,0,0],"corner_b":[100,100,0]}),
+        )
+        .unwrap();
+        let job = s.start_save(Some(&path)).unwrap();
+        assert_eq!(job.target(), path);
+        let finished = std::thread::spawn(move || job.run())
+            .join()
+            .unwrap()
+            .unwrap();
+        s.execute(
+            "rectangle",
+            json!({"corner_a":[200,0,0],"corner_b":[300,100,0]}),
+        )
+        .unwrap();
+        assert_eq!(s.finish_save(finished).unwrap(), path);
+        assert!(s.dirty());
+        assert_eq!(s.path.as_deref(), Some(path.as_path()));
+        assert_eq!(
+            Session::open(&path)
+                .unwrap()
+                .doc()
+                .model
+                .mesh()
+                .face_count(),
+            1
+        );
+        std::fs::remove_file(path).unwrap();
+    }
 
     #[test]
     fn commands_are_journaled_and_saving_clears_the_dirty_flag() {
