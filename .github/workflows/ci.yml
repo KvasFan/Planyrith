@@ -1,6 +1,7 @@
 # Continuous integration — implements the lint, test, wasm and web jobs of
 # docs/12-testing-and-quality.md §4. The render, fuzz, bench and release jobs
-# are added with the milestones that need them (docs/13-roadmap.md).
+# are added with the milestones that need them (docs/13-roadmap.md). The
+# commands live in tools/ci-steps.sh, which tools/ci-local.sh also runs.
 name: CI
 
 on:
@@ -24,37 +25,13 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - name: cargo fmt --check
-        run: cargo fmt --all --check
+        run: tools/ci-steps.sh fmt
       - name: cargo clippy
-        run: cargo clippy --workspace --all-targets --features planyrith-cli/render -- -D clippy::all
+        run: tools/ci-steps.sh clippy
       - name: cargo doc
-        run: cargo doc --workspace --no-deps
-        env:
-          RUSTDOCFLAGS: "-D warnings"
+        run: tools/ci-steps.sh doc
       - name: architecture boundaries (docs/01 §1.1)
-        run: |
-          set -eu
-          fail=0
-          for forbidden in egui eframe egui-wgpu egui_tiles winit wgpu web-sys; do
-            if grep -Eq "^${forbidden}\s*=" crates/planyrith-core/Cargo.toml; then
-              echo "planyrith-core must not depend on ${forbidden}"; fail=1
-            fi
-          done
-          for forbidden in egui eframe egui-wgpu egui_tiles winit; do
-            if grep -Eq "^${forbidden}\s*=" crates/planyrith-render/Cargo.toml; then
-              echo "planyrith-render must not depend on ${forbidden}"; fail=1
-            fi
-          done
-          for forbidden in egui eframe egui-wgpu egui_tiles wgpu; do
-            if grep -Eq "^${forbidden}\s*=" crates/planyrith-cli/Cargo.toml; then
-              echo "planyrith-cli must not depend on ${forbidden}"; fail=1
-            fi
-          done
-          cargo tree -p planyrith-core -p planyrith-cli -p planyrith-render -p planyrith-gui --edges normal --prefix none --format '{p}' > /tmp/application-dependencies.txt
-          if grep -Eq '^(openskp|planyrith-skp) v' /tmp/application-dependencies.txt; then
-            echo "optional GPL converters must never be linked into the applications"; fail=1
-          fi
-          exit "$fail"
+        run: tools/ci-steps.sh boundaries
       - name: cargo deny (licenses, bans, sources)
         uses: EmbarkStudios/cargo-deny-action@v2
         with:
@@ -77,13 +54,11 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers
       - name: build optional SKP converter
-        # Optional GPL converter stays a separate process; test it on each OS.
-        run: cargo build -p planyrith-skp
+        shell: bash
+        run: tools/ci-steps.sh converter
       - name: cargo test with optional SKP converter
-        run: cargo test --workspace --features planyrith-cli/render
-        env:
-          PLANYRITH_REQUIRE_GPU: "1"
-          PLANYRITH_REQUIRE_SKP: "1"
+        shell: bash
+        run: tools/ci-steps.sh test
       - name: snapshot images on failure
         if: failure()
         uses: actions/upload-artifact@v4
@@ -102,7 +77,7 @@ jobs:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
       - name: cargo check (wasm32-unknown-unknown)
-        run: cargo check -p planyrith-core --target wasm32-unknown-unknown
+        run: tools/ci-steps.sh wasm
 
   web:
     name: web (GUI build, size budget, headless Chrome)
@@ -119,15 +94,11 @@ jobs:
         with:
           tool: wasm-bindgen@0.2.129
       - name: cargo clippy (wasm32-unknown-unknown)
-        run: cargo clippy -p planyrith-gui -p planyrith-render --target wasm32-unknown-unknown --all-targets -- -D warnings
+        run: tools/ci-steps.sh web-clippy
       - name: build the web application and check its size budget (docs/11 §4)
-        run: tools/build-web.sh dist/web
+        run: tools/ci-steps.sh web-build
       - name: storage conformance and classroom scenario in headless Chrome (docs/11 §7, docs/13 0.7)
-        run: CHROMEDRIVER="$CHROMEWEBDRIVER/chromedriver" cargo test -p planyrith-gui --target wasm32-unknown-unknown --test web
-        env:
-          CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
-          # Debug sections substantially increase wasm-bindgen's peak memory.
-          CARGO_PROFILE_TEST_DEBUG: "0"
+        run: tools/ci-steps.sh web-test
       - uses: actions/upload-artifact@v4
         with:
           name: planyrith-web

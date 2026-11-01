@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Refuses a push to main until tools/ci-local.sh has passed on the commit, and
+# runs it when needed. Not active by default; enable it once per clone with
+#   git config core.hooksPath .githooks
+set -euo pipefail
+
+while read -r _ local_sha remote_ref _; do
+  case "$remote_ref" in
+    refs/heads/main)
+      if [ "$local_sha" != 0000000000000000000000000000000000000000 ]; then
+        "$(git rev-parse --show-toplevel)/tools/ci-local.sh" "$local_sha" </dev/null
+      fi
+      ;;
+  esac
+done

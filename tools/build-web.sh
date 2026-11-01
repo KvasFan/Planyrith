@@ -26,7 +26,7 @@ cargo build --manifest-path "$root/Cargo.toml" --release -p planyrith-gui \
   --bin planyrith-gui --target wasm32-unknown-unknown
 mkdir -p "$out"
 wasm-bindgen --target web --no-typescript --out-dir "$out" \
-  "$root/target/wasm32-unknown-unknown/release/planyrith-gui.wasm"
+  "${CARGO_TARGET_DIR:-$root/target}/wasm32-unknown-unknown/release/planyrith-gui.wasm"
 if command -v wasm-opt >/dev/null; then
   wasm-opt -Oz --enable-bulk-memory --enable-nontrapping-float-to-int \
     --enable-sign-ext --enable-mutable-globals --enable-reference-types \

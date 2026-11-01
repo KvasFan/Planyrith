@@ -236,3 +236,18 @@ humans or GUI automation before releases, with expected screenshots.
   wasm-bindgen peak above 11 GiB locally. Assertions remain enabled. The release
   build is unchanged; its complete static bundle measures 5,160,320 bytes with
   brotli, below the 12 MiB budget.
+- 2026-11-02 — **Local CI before pushing.** Run `tools/ci-local.sh` before every push to
+  `main`. Of the seven failed runs so far, five came from the Linux or Windows software
+  renderers (four snapshot differences and one crash), and a development machine's GPU cannot
+  show them. The script tests the commit from a clean clone. It runs the Linux jobs in the
+  image CI uses, with the same lavapipe (Ubuntu 26.04, Mesa 26.0.8), then runs `cargo deny` and the web
+  tests in headless Chromium here, and compiles for Windows and macOS. Replaying
+  `1a64bd3`, which failed on GitHub, fails the same snapshot in the same way. A first
+  run takes about 15 minutes and needs podman, `cargo-deny`, Chromium and chromedriver.
+  Workflow steps call `tools/ci-steps.sh`, so both places run the same commands. Delete the
+  `planyrith-ci` image when the runner image or its Mesa changes. `.githooks/pre-push`
+  enforces the check once enabled with `git config core.hooksPath .githooks`.
+  GitHub alone still catches: test results on Windows and macOS, including their WARP and
+  Metal snapshots, and Windows packaging in the Release workflow. A single `SIGSEGV` in the
+  snapshot tests on lavapipe (run 41207495935, 2026-10-31) did not recur in 40
+  repetitions, and its cause is unknown.

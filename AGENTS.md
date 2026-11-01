@@ -33,6 +33,7 @@ specification itself lives in `docs/`. Read this file first, then the docs in or
 - Entity ids are opaque newtypes (`FaceId`, `EdgeId`, …); never expose raw integers in APIs.
 - Prefer small, pure functions for geometry with property-based tests (`proptest`).
 - Every importer/exporter has golden-file round-trip tests under `crates/planyrith-core/tests/fixtures/`.
+- Before pushing to `main`, `tools/ci-local.sh` must pass on the commit (docs/12 Decisions, 2026-11-02). After a CI failure, find the cause before pushing or rerunning.
 - Commit messages: imperative subject ≤ 72 chars, body explains *why*, reference the spec section (e.g. `Implement Offset tool (docs/05 §4.9)`).
 
 ## 4. How to add a tool (checklist)
