@@ -45,6 +45,13 @@ step() {
       PLANYRITH_REQUIRE_GPU=1 PLANYRITH_REQUIRE_SKP=1 \
         cargo test --workspace --features planyrith-cli/render
       ;;
+    test-build) cargo test --workspace --features planyrith-cli/render --no-run ;;
+    # Timing races in the renderer's tests show up in some runs only.
+    snapshots)
+      for _ in $(seq 25); do
+        PLANYRITH_REQUIRE_GPU=1 cargo test -q -p planyrith-render --test snapshots
+      done
+      ;;
     wasm) cargo check -p planyrith-core --target wasm32-unknown-unknown ;;
     web-clippy)
       cargo clippy -p planyrith-gui -p planyrith-render --target wasm32-unknown-unknown \

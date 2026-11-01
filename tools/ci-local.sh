@@ -41,8 +41,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxrandr2 libwayland-client0 libegl1 libgl1 jq
 IMAGE
 
+# container [podman option... --] command...
 container() {
-  podman run --rm --init --userns=keep-id -w /work \
+  local options=()
+  if [[ "$1" == --* ]]; then
+    while [ "$1" != -- ]; do options+=("$1"); shift; done
+    shift
+  fi
+  podman run --rm --init --userns=keep-id -w /work "${options[@]}" \
     -v "$tree:/work" -v "$state/cargo:/opt/cargo" -v "$state/rustup:/opt/rustup" \
     -e HOME=/tmp -e CARGO_HOME=/opt/cargo -e RUSTUP_HOME=/opt/rustup \
     -e PATH=/opt/cargo/bin:/usr/bin:/bin -e CI=true \
@@ -55,7 +61,11 @@ container bash -euc '
     curl -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path --default-toolchain none
   rustup -q update stable --no-self-update
 '
-container tools/ci-steps.sh fmt clippy doc boundaries wasm web-clippy converter test
+container tools/ci-steps.sh fmt clippy doc boundaries wasm web-clippy converter test-build
+# GitHub's Linux runners have four cores. Races between tests appear with that
+# few and stay hidden on more: 14 % of snapshot runs crashed on four, none on 16.
+cores=--cpuset-cpus=0-3
+container "$cores" -- tools/ci-steps.sh test snapshots
 
 # The remaining steps use tools of this machine, and its toolchain.
 export CARGO_TARGET_DIR="$state/host"

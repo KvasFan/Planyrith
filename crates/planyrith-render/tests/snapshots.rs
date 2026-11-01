@@ -8,7 +8,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use glam::DVec3;
 use planyrith_core::document::{
@@ -22,15 +22,20 @@ use serde_json::{Value, json};
 const WIDTH: u32 = 320;
 const HEIGHT: u32 = 200;
 
+/// The device all tests share, as the application has one. A test that
+/// destroyed its own Vulkan instance could crash another that was using the
+/// Vulkan loader (docs/12 Decisions, 2026-11-02).
 fn gpu() -> Option<Gpu> {
-    match Gpu::headless() {
+    static GPU: OnceLock<Option<Gpu>> = OnceLock::new();
+    GPU.get_or_init(|| match Gpu::headless() {
         Ok(gpu) => Some(gpu),
         Err(e) if std::env::var_os("PLANYRITH_REQUIRE_GPU").is_none() => {
             eprintln!("skipping GPU snapshot tests: {e}");
             None
         }
         Err(e) => panic!("PLANYRITH_REQUIRE_GPU is set but {e}"),
-    }
+    })
+    .clone()
 }
 
 fn run(e: &mut Engine, name: &str, params: Value) -> Value {

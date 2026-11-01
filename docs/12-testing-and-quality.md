@@ -247,7 +247,13 @@ humans or GUI automation before releases, with expected screenshots.
   Workflow steps call `tools/ci-steps.sh`, so both places run the same commands. Delete the
   `planyrith-ci` image when the runner image or its Mesa changes. `.githooks/pre-push`
   enforces the check once enabled with `git config core.hooksPath .githooks`.
-  GitHub alone still catches: test results on Windows and macOS, including their WARP and
-  Metal snapshots, and Windows packaging in the Release workflow. A single `SIGSEGV` in the
-  snapshot tests on lavapipe (run 41207495935, 2026-10-31) did not recur in 40
-  repetitions, and its cause is unknown.
+  GitHub alone still catches test results on Windows and macOS, including their WARP and
+  Metal snapshots, and Windows packaging in the Release workflow.
+- 2026-11-02 — **Snapshot tests share one device.** Two CI runs crashed with `SIGSEGV` in the
+  snapshot tests, 41207495935 and 41360627834. The second came after a clean local check,
+  which then ran on 16 cores. On the runners' four cores 83 of 600 runs crashed; on 16 cores
+  none of 40 did. The backtrace is in the Vulkan loader, naming a buffer through the debug
+  extension, while another test thread tears down, so each test's own instance and device
+  are the likely cause: running the tests one at a time gave 0 of 100 crashes, and the GL test
+  is not involved. Tests now share one device for the process, as the application does,
+  and `tools/ci-local.sh` runs the tests on four cores and repeats the snapshots 25 times.
