@@ -83,6 +83,13 @@ pub const MAX_MANIFEST_SIZE: u64 = 16 * 1024 * 1024;
 /// Deflate level used for compressed parts (pinned for byte stability).
 const DEFLATE_LEVEL: i64 = 6;
 
+/// Deflate level of parts of [`LARGE_PART`] bytes or more: saving is on the
+/// user's path, and these parts decide its time (docs/00 §6).
+const LARGE_DEFLATE_LEVEL: i64 = 1;
+
+/// Size from which a part uses [`LARGE_DEFLATE_LEVEL`].
+const LARGE_PART: usize = 8 * 1024 * 1024;
+
 /// What a container holds, by extension (docs/09 §1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -326,11 +333,11 @@ fn put_entry<W: Write + std::io::Seek>(
     bytes: &[u8],
     method: CompressionMethod,
 ) -> Result<(), IoError> {
-    let level = if method == CompressionMethod::Deflated {
-        Some(DEFLATE_LEVEL)
+    let level = (method == CompressionMethod::Deflated).then_some(if bytes.len() >= LARGE_PART {
+        LARGE_DEFLATE_LEVEL
     } else {
-        None
-    };
+        DEFLATE_LEVEL
+    });
     let options = SimpleFileOptions::default()
         .compression_method(method)
         .compression_level(level)

@@ -315,6 +315,40 @@ fn shifted_display_settings_are_not_applied_to_classic_releases() {
 }
 
 #[test]
+fn the_saved_view_reaches_the_document_and_survives_both_writers() {
+    let input = include_bytes!("../tests/fixtures/box-2017.skp");
+    let saved = openskp::Model::parse(input).unwrap().camera.unwrap();
+    let eye = glam::DVec3::from_array(saved.eye_m) * 1000.0;
+    let converted = convert("decode", input).unwrap();
+    let doc = native(input);
+    assert!(
+        (doc.camera.eye - eye).length() < 1e-6,
+        "{:?}",
+        doc.camera.eye
+    );
+    for writer in ["encode-2017", "encode-2026"] {
+        let again = native(&convert(writer, &converted.bytes).unwrap().bytes);
+        assert!((again.camera.eye - eye).length() < 1e-3, "{writer}");
+        assert!(
+            (again.camera.target - doc.camera.target).length() < 1e-3,
+            "{writer}"
+        );
+    }
+}
+
+#[test]
+fn models_without_a_readable_camera_open_framed() {
+    let (mut model, _) = encode::model(super::tests::cube().document()).unwrap();
+    model.camera = None;
+    let (doc, _) = decode::document(&model, &[0; 32]).unwrap();
+    let bounds = doc.aabb();
+    assert!((doc.camera.target - bounds.center()).length() < 1e-6);
+    let distance = (doc.camera.eye - doc.camera.target).length();
+    assert!(distance > bounds.diagonal() * 0.5, "{distance}");
+    assert!(distance < bounds.diagonal() * 5.0, "{distance}");
+}
+
+#[test]
 fn releases_before_the_minimum_are_refused_by_name() {
     let error = convert(
         "decode",

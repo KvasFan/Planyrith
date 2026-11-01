@@ -65,15 +65,25 @@ impl Session {
 
     /// Opens a native or adapter-backed SKP model.
     pub fn open(path: &Path) -> Result<Session, String> {
+        Ok(Session::from_loaded(Session::read(path)?, path))
+    }
+
+    /// Reads a document. A session itself is tied to the interface thread,
+    /// so a slow conversion runs here and [`Session::from_loaded`] follows.
+    pub fn read(path: &Path) -> Result<LoadedDocument, String> {
         let bytes = platform::storage()
             .read(&key(path))
             .map_err(|e| e.to_string())?;
-        let mut loaded = planyrith_core::io::model_file::read(
+        planyrith_core::io::model_file::read(
             &bytes,
             &path.to_string_lossy(),
             platform::storage().as_ref(),
         )
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| e.to_string())
+    }
+
+    /// The session of a document [`Session::read`] returned.
+    pub fn from_loaded(mut loaded: LoadedDocument, path: &Path) -> Session {
         let doc = std::mem::take(&mut loaded.document);
         let session = Session::build(doc, Some(loaded), Some(path.to_path_buf()));
         for w in session
@@ -84,7 +94,7 @@ impl Session {
         {
             session.warnings.borrow_mut().push(w.message);
         }
-        Ok(session)
+        session
     }
 
     fn build(doc: Document, loaded: Option<LoadedDocument>, path: Option<PathBuf>) -> Session {

@@ -179,7 +179,17 @@ struct PreviewState {
 }
 
 /// The application.
+/// A document being read on its own thread.
+#[cfg(not(target_arch = "wasm32"))]
+struct Opening {
+    path: PathBuf,
+    started: std::time::Instant,
+    result: std::sync::mpsc::Receiver<Result<planyrith_core::io::native::LoadedDocument, String>>,
+}
+
 pub struct App {
+    #[cfg(not(target_arch = "wasm32"))]
+    opening: Option<Opening>,
     session: Session,
     viewport: Viewport,
     /// Extra viewports with cameras of their own (View › Viewports).
@@ -285,6 +295,8 @@ impl App {
     /// The app with an empty document.
     fn blank(tree: Tree<Pane>, settings: Settings) -> Self {
         App {
+            #[cfg(not(target_arch = "wasm32"))]
+            opening: None,
             session: Session::new(),
             viewport: Viewport::default(),
             extra_viewports: Vec::new(),
@@ -370,11 +382,49 @@ impl App {
         }
     }
 
+    /// Opens a document. On the desktop reading runs on its own thread: the
+    /// first conversion of a large foreign model takes a while, and the window
+    /// must keep responding (docs/07 Decisions).
+    #[cfg(not(target_arch = "wasm32"))]
     fn open(&mut self, path: &std::path::Path) {
+        if self.opening.is_some() {
+            self.info("Another document is still opening".to_string());
+            return;
+        }
+        let (sender, result) = std::sync::mpsc::channel();
+        let source = path.to_path_buf();
+        let spawned = std::thread::Builder::new()
+            .name("open-document".into())
+            .stack_size(32 * 1024 * 1024)
+            .spawn(move || {
+                let _ = sender.send(Session::read(&source));
+            });
+        match spawned {
+            Ok(_) => {
+                self.opening = Some(Opening {
+                    path: path.to_path_buf(),
+                    started: std::time::Instant::now(),
+                    result,
+                });
+            }
+            Err(e) => self.error(format!("Could not open {}: {e}", path.display())),
+        }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn open(&mut self, path: &std::path::Path) {
+        self.opened(path, Session::read(path));
+    }
+
+    fn opened(
+        &mut self,
+        path: &std::path::Path,
+        result: Result<planyrith_core::io::native::LoadedDocument, String>,
+    ) {
         let recoverable = self.autosave && Session::recoverable(Some(path));
-        match Session::open(path) {
-            Ok(session) => {
-                self.adopt(session);
+        match result {
+            Ok(loaded) => {
+                self.adopt(Session::from_loaded(loaded, path));
                 if recoverable {
                     self.recovery = Some(Some(path.to_path_buf()));
                 }
@@ -382,6 +432,48 @@ impl App {
                 self.info(format!("Opened {}", file_name(path)));
             }
             Err(e) => self.error(format!("Could not open {}: {e}", path.display())),
+        }
+    }
+
+    /// Takes a finished read, or shows that one is running.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn poll_opening(&mut self, ctx: &egui::Context) {
+        use std::sync::mpsc::TryRecvError;
+        let Some(opening) = &self.opening else {
+            return;
+        };
+        let received = match opening.result.try_recv() {
+            Ok(result) => Some(result),
+            Err(TryRecvError::Empty) => None,
+            Err(TryRecvError::Disconnected) => Some(Err("the reader stopped unexpectedly".into())),
+        };
+        if let Some(result) = received {
+            if let Some(opening) = self.opening.take() {
+                self.opened(&opening.path, result);
+            }
+            return;
+        }
+        let name = file_name(&opening.path);
+        let seconds = opening.started.elapsed().as_secs();
+        egui::Modal::new(egui::Id::new("opening document")).show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.heading(format!("Opening {name}"));
+            });
+            ui.label(format!("{seconds} s"));
+            if seconds >= 5 {
+                ui.weak("The first conversion of a large model can take a minute.");
+            }
+        });
+        ctx.request_repaint_after(std::time::Duration::from_millis(100));
+    }
+
+    /// Waits for a read started by [`App::open`].
+    #[cfg(all(test, not(target_arch = "wasm32")))]
+    fn finish_opening(&mut self) {
+        if let Some(opening) = self.opening.take() {
+            let result = opening.result.recv().unwrap_or_else(|e| Err(e.to_string()));
+            self.opened(&opening.path, result);
         }
     }
 
@@ -2358,6 +2450,8 @@ impl App {
 
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        #[cfg(not(target_arch = "wasm32"))]
+        self.poll_opening(ui.ctx());
         self.shell(ui, frame.wgpu_render_state());
     }
 
@@ -2430,6 +2524,7 @@ mod tests {
         std::fs::write(&source, &original).unwrap();
         let mut shell = Shell::new();
         shell.app.open(&source);
+        shell.app.finish_opening();
         shell
             .app
             .session
@@ -3230,6 +3325,42 @@ mod tests {
             .collect();
         lengths.sort_by(f64::total_cmp);
         lengths
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn documents_open_on_their_own_thread_and_report_failures() {
+        let dir = std::env::temp_dir().join(format!("planyrith-opening-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("box.plyr");
+        let mut session = Session::new();
+        session
+            .execute(
+                "rectangle",
+                json!({"corner_a":[0,0,0],"corner_b":[100,100,0]}),
+            )
+            .unwrap();
+        session.save(Some(&path)).unwrap();
+        let mut shell = Shell::new();
+        shell.app.open(&path);
+        assert!(shell.app.opening.is_some());
+        // A second request while reading is declined, not queued.
+        shell.app.open(&dir.join("other.plyr"));
+        shell.app.finish_opening();
+        assert!(shell.app.opening.is_none());
+        assert_eq!(shell.app.session.path.as_deref(), Some(path.as_path()));
+        assert_eq!(shell.app.session.doc().model.mesh().face_count(), 1);
+        shell.app.open(&dir.join("missing.plyr"));
+        shell.app.finish_opening();
+        assert_eq!(shell.app.session.path.as_deref(), Some(path.as_path()));
+        assert!(
+            shell
+                .app
+                .message
+                .as_ref()
+                .is_some_and(|(text, error)| { *error && text.contains("Could not open") })
+        );
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

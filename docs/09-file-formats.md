@@ -205,7 +205,12 @@ save unless `--no-thumbnail`. `manifest.json` carries `title`, `author`, `descri
   files (merged image, raw or RLE), the last with a small decoder in
   `planyrith-skp`. An image that still cannot be read leaves its material's color
   with a notice, and drops a thumbnail or watermark: one asset never stops a
-  model from opening.
+  model from opening. The saved camera sets the document's camera directly; a
+  transaction only queues view requests for the interactive session, so import
+  had been dropping it for every model. A model without a usable camera opens
+  framed from the default direction. Native parts of 8 MiB or more use deflate level 1:
+  they decide save time, level 6 took 16 s on a 160 MB document for a 9% smaller
+  file, and any level is equally deterministic.
 - 2026-10-31 — **Classic display settings.** The reader's rendering-options table
   uses the 2017 byte layout, and classic files of other releases shift it: a
   2013 box decoded as X-ray with a transparent background. Decoded options

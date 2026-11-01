@@ -10,7 +10,7 @@ use planyrith_core::geom::{
 };
 use planyrith_core::ids::{DefinitionId, EntityId, MaterialId, Pid, TagId};
 use planyrith_core::math::Plane;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 pub(super) fn camera(c: &openskp::Camera) -> Result<Camera> {
     let camera = Camera {
@@ -90,8 +90,13 @@ fn line_style(pattern: &str) -> LineStyle {
     }
 }
 pub(super) fn attributes(model: &Model, owner: Owner) -> AttributeDictionaries {
+    native_attributes(model.dictionaries.iter().filter(|a| a.owner == owner))
+}
+fn native_attributes<'a>(
+    owned: impl Iterator<Item = &'a openskp::Attributes>,
+) -> AttributeDictionaries {
     let mut result = AttributeDictionaries::new();
-    for attrs in model.dictionaries.iter().filter(|a| a.owner == owner) {
+    for attrs in owned {
         for dict in &attrs.dictionaries {
             for (key, v) in &dict.entries {
                 result.set(&dict.name, key, value(v));
@@ -426,6 +431,13 @@ pub(super) fn document(model: &Model, source_hash: &[u8; 32]) -> Result<(Documen
         };
         definitions.insert(reference, tx.insert_definition(def)?);
     }
+    // Models hold hundreds of thousands of edges and faces; finding each
+    // one's dictionaries by a scan of them all dominated the whole import.
+    let mut by_owner = HashMap::<Owner, Vec<&openskp::Attributes>>::new();
+    for attrs in &model.dictionaries {
+        by_owner.entry(attrs.owner).or_default().push(attrs);
+    }
+    let owned = |owner: Owner| by_owner.get(&owner).into_iter().flatten().copied();
     let mut pids = BTreeMap::<u32, Vec<Pid>>::new();
     let mut seen_root = false;
     for (ri, run) in model.geometry.iter().enumerate() {
@@ -601,7 +613,7 @@ pub(super) fn document(model: &Model, source_hash: &[u8; 32]) -> Result<(Documen
                     &mut tx,
                     container,
                     id,
-                    attributes(model, Owner::Edge(ri, i)),
+                    native_attributes(owned(Owner::Edge(ri, i))),
                 )?;
                 if edge.pid != 0
                     && let Some(pid) = tx
@@ -654,7 +666,7 @@ pub(super) fn document(model: &Model, source_hash: &[u8; 32]) -> Result<(Documen
                     &mut tx,
                     container,
                     id,
-                    attributes(model, Owner::Face(ri, source_index)),
+                    native_attributes(owned(Owner::Face(ri, source_index))),
                 )?;
                 if face.pid != 0
                     && let Some(pid) = tx
@@ -940,9 +952,6 @@ pub(super) fn document(model: &Model, source_hash: &[u8; 32]) -> Result<(Documen
         }
         tx.insert_scene(scene)?;
     }
-    if let Some(c) = &model.camera {
-        tx.set_camera(camera(c)?);
-    }
     tx.commit();
     doc.refresh_usage_counts();
     doc.nesting_depth()?;
@@ -969,6 +978,12 @@ pub(super) fn document(model: &Model, source_hash: &[u8; 32]) -> Result<(Documen
             "SKP annotations not transferred: {} texts, {} dimensions, {} radial dimensions",
             texts, dimensions, radial_dimensions
         ));
+    }
+    // The saved view belongs to the document. Without a usable one, frame the
+    // model, or it opens looking at a corner of itself.
+    match model.camera.as_ref().map(camera) {
+        Some(Ok(saved)) => doc.camera = saved,
+        _ => doc.camera.zoom_extents(&doc.aabb(), 0.05),
     }
     let mut report = planyrith_core::diagnostics::validate(&doc);
     if report

@@ -6,6 +6,13 @@ All notable changes to Planyrith are recorded here. Versions follow
 
 ## 0.11.0-alpha.3 — Real models and verified exchange (2026-11-01)
 
+- Keep the window responsive while a document opens, with a progress dialog.
+- Open large foreign models about three times faster: attributes are found by
+  owner instead of a scan per entity.
+- Save large native documents much faster: a 160 MB model went from about 18 s
+  to 2 s for open, edit and save, for a 9% larger file.
+- Open SKP models from their saved view, which was being lost for every model,
+  and frame the model when there is none.
 - Open large real models that failed: custom line styles on tags (now native tag
   styles) and textures embedded as Photoshop, TIFF, GIF or Targa images, converted
   losslessly. An unreadable image no longer stops a model from opening.
