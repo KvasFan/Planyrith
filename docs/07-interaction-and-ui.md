@@ -410,3 +410,12 @@ collected by clicks: e.g. segments for Circle, array count, copy toggle).
   origin. Gluing applies once the component is in the model and placed from the model's list.
   Thumbnails, search and drag into the viewport remain to do; the browser build has no folders
   and shows no Library.
+- 2026-11-02 — **Texture pins** (docs/05 §5.9 interactive). Position Texture › Pins… activates
+  the Texture Pins tool on the face: four pins at the corners of the texture's first repeat on
+  the chosen side (front unless "Back side"), joined by a frame. Clicking within 12 points of a
+  pin takes it; it follows the pointer, projected onto the face's plane, with the result
+  previewed; a second click runs `texture-position` with pins, Esc drops it. Fixed pins: red
+  sends one pin (moves), green two (turns and scales about red), blue and yellow three (skews,
+  keeping red and green). "Free pins" sends all four with `projective`. Projected placements
+  are refused, as the pins are measured on the face. Clicks land on whole pixels, so typed
+  exact positions remain the command's job.

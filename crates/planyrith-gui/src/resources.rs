@@ -127,6 +127,8 @@ pub enum ToolRequest {
     /// folders to browse).
     #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     PlaceFile(String),
+    /// Move the texture pins of this face.
+    TexturePins(planyrith_core::document::EntityPath),
 }
 
 /// A folder or component file of a library folder.

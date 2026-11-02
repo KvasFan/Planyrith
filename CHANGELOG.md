@@ -17,6 +17,10 @@ All notable changes to Planyrith are recorded here. Versions follow
 - Place a texture with pins: `texture-position --pins` puts chosen points of
   the texture on chosen points of the face. One pin moves it, two also turn
   and scale it, three also skew it, four in perspective with `--projective`.
+- Move a texture by its pins in the model: Position Texture › Pins… shows the
+  corners of one repeat; click a pin, then click where it goes. Red moves the
+  texture, green turns and scales it, blue and yellow skew it; free pins give
+  a perspective placement.
 - Project a texture from a plane with `texture-position --project-from`, and
   continue a face's texture onto other faces with `--copy-to`, without seams.
 - Browse a folder of component files in the Components panel's Library and

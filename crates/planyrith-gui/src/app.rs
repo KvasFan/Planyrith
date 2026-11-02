@@ -1915,6 +1915,7 @@ impl App {
         };
         let mut open = true;
         let mut apply = None;
+        let mut pins = false;
         egui::Window::new("Position Texture")
             .open(&mut open)
             .resizable(false)
@@ -1978,6 +1979,13 @@ impl App {
                     {
                         apply = Some(fields.request(face, true));
                     }
+                    if ui
+                        .button("Pins…")
+                        .on_hover_text("Move the texture by its corner pins in the model")
+                        .clicked()
+                    {
+                        pins = true;
+                    }
                     if ui.button("Reset").clicked() {
                         apply =
                             Some(json!({ "face": { "Path": face }, "side": side, "reset": true }));
@@ -1987,6 +1995,10 @@ impl App {
             });
         if let Some(params) = apply {
             self.run("texture-position", params);
+        }
+        if pins && let Some((face, _)) = self.texture.take() {
+            self.activate_request(ToolRequest::TexturePins(face));
+            return;
         }
         if !open {
             self.texture = None;
@@ -2039,6 +2051,10 @@ impl App {
             ToolRequest::PlaceFile(path) => (
                 "component-insert",
                 Box::new(tools::ComponentTool::from_file(path)),
+            ),
+            ToolRequest::TexturePins(face) => (
+                "texture-position",
+                Box::new(tools::TexturePinTool::new(face)),
             ),
         };
         if let Some(i) = self.tools.iter().position(|(t, _)| t.command() == command) {
@@ -3113,6 +3129,65 @@ mod tests {
             "the file's component is loaded once"
         );
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn texture_pins_move_with_two_clicks() {
+        let mut shell = Shell::new();
+        let b = &crate::bundled::catalogue()[0];
+        let texture = crate::bundled::texture_path(b).unwrap();
+        let session = &mut shell.app.session;
+        for (name, params) in [
+            (
+                "rectangle",
+                json!({ "corner_a": [0, 0, 0], "corner_b": [2000, 2000, 0] }),
+            ),
+            (
+                "material-create",
+                json!({ "name": "Wood", "color": "#A0522D", "texture": texture.to_string_lossy(),
+                        "texture_width": 500.0, "texture_height": 500.0 }),
+            ),
+            (
+                "material-apply",
+                json!({ "targets": "face", "material": "Wood", "side": "both" }),
+            ),
+            ("camera-standard", json!({ "view": "top", "extents": true })),
+        ] {
+            session.execute(name, params).unwrap();
+        }
+        let doc = session.doc();
+        let (id, _) = doc.model.mesh().faces().next().unwrap();
+        let path = planyrith_core::document::EntityPath::in_model(
+            planyrith_core::document::EntityKey::Id(EntityId::Face(id)),
+        );
+        // The first repeat's corners at 100,100 and 600,100.
+        session
+            .execute(
+                "texture-position",
+                json!({ "face": { "Path": path }, "side": "both", "pins": [
+                    { "uv": [0, 0], "at": [100, 100, 0] }, { "uv": [1, 0], "at": [600, 100, 0] }] }),
+            )
+            .unwrap();
+        shell.frame(Vec::new());
+        shell.app.activate_request(ToolRequest::TexturePins(path));
+        assert_eq!(shell.app.tool().label(), "Texture Pins");
+        shell.click(DVec3::new(600.0, 100.0, 0.0));
+        shell.click(DVec3::new(700.0, 300.0, 0.0));
+        let doc = shell.app.session.doc();
+        let (_, face) = doc.model.mesh().faces().next().unwrap();
+        // The tool pins the front side unless told otherwise.
+        let map = &face.sides.uv_front;
+        let Some(planyrith_core::document::UvMap::Affine(a)) = map else {
+            panic!("{map:?} {:?}", shell.app.message)
+        };
+        let at = |p: DVec3| a.transform_point2(face.plane.frame().to_2d(p));
+        assert!(at(DVec3::new(100.0, 100.0, 0.0)).length() < 1e-3);
+        // Clicks land on whole pixels: within 1 % of the 500 mm repeat.
+        assert!(
+            at(DVec3::new(700.0, 300.0, 0.0)).distance(glam::DVec2::new(500.0, 0.0)) < 5.0,
+            "{}",
+            at(DVec3::new(700.0, 300.0, 0.0))
+        );
     }
 
     #[test]

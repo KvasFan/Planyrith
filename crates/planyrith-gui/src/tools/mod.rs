@@ -10,6 +10,7 @@ mod edit;
 mod select;
 mod sketch;
 mod solid;
+mod texture;
 
 use egui::Color32;
 use glam::DVec3;
@@ -28,6 +29,7 @@ pub use draw::{ArcKind, ArcTool, LineTool, RectangleTool, RoundTool};
 pub use edit::{EraserTool, MoveTool, OffsetTool, PaintTool, PushPullTool, RotateTool, ScaleTool};
 pub use select::SelectTool;
 pub use sketch::{FreehandTool, RotatedRectangleTool};
+pub use texture::TexturePinTool;
 
 /// The pointer, as a tool sees it.
 #[derive(Debug, Clone)]
@@ -265,6 +267,8 @@ pub fn catalogue() -> Vec<(Box<dyn Tool>, Option<egui::Key>)> {
         (Box::new(AxesTool::default()), None),
         // Activated from the Components panel with a component to place.
         (Box::new(ComponentTool::default()), None),
+        // Activated from the Position Texture window with a face.
+        (Box::new(TexturePinTool::default()), None),
         (Box::new(solid::SweepTool::default()), None),
         (
             Box::new(solid::SolidTool::new("solid-union", "Solid Union")),
