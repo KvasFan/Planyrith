@@ -34,7 +34,8 @@ pub struct RenderArgs {
     /// Style name (default: the active style).
     #[arg(long)]
     pub style: Option<String>,
-    /// Sun shadows (not rendered yet: a warning is printed).
+    /// Sun shadows for this image, from the document's sun settings, even
+    /// when they are off in the document (which is not changed).
     #[arg(long)]
     pub shadows: bool,
     /// Transparent background (PNG and WebP).
@@ -70,9 +71,15 @@ pub fn render(global: &Global, args: &RenderArgs) -> Result<(), CliError> {
         ),
         None => None,
     };
-    if args.shadows {
-        out::diagnostic("warning: shadows are not rendered yet; rendering without them");
-    }
+    let shadowed;
+    let doc = if args.shadows && !doc.rendering.shadows.enabled {
+        let mut copy = doc.clone();
+        copy.rendering.shadows.enabled = true;
+        shadowed = copy;
+        &shadowed
+    } else {
+        doc
+    };
     let gpu = Gpu::headless().map_err(render_error)?;
     let mut outputs = Vec::new();
     let mut views: Vec<(PathBuf, Camera)> = Vec::new();

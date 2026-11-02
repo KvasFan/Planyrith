@@ -484,8 +484,9 @@ On failure: `{"ok": false, "error": {"code": "E1002", "message": "...", "param":
   `target`, `up` (points with units), `fov` (angle), `height` (length, parallel views) and
   `projection` (`perspective`, `parallel`, `two-point`); unspecified keys keep the document
   camera's values. `--all-scenes <dir>` writes `<scene name>.png` per scene (path separators and
-  reserved characters become `_`), from the scene's camera or the document's. `--shadows` is
-  accepted and prints a warning until shadows are rendered. A machine without any graphics
+  reserved characters become `_`), from the scene's camera or the document's. `--shadows`
+  turns the document's sun shadows on for that render only (2026-11-02; until then it printed a
+  warning). A machine without any graphics
   adapter, hardware or software, fails with an I/O-class error (`E1403`, exit 4). JSON output:
   `{images, width, height, adapter}`. `--animation` follows with scene transitions.
 - 2026-10-25 — **`serve` transports (0.2)**, completing the 0.1 entry. `--socket <port>` listens on

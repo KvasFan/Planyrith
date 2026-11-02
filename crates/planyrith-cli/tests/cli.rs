@@ -977,6 +977,26 @@ fn render_writes_images() {
     let image = image::open(&png).unwrap();
     assert_eq!((image.width(), image.height()), (160, 100));
 
+    // `--shadows` draws the sun's shadows without turning them on in the
+    // document, which stays as it was.
+    let before = std::fs::read(&file).unwrap();
+    let shadowed = dir.join("shadowed.png");
+    planyrith()
+        .args(["render", "-f", f, shadowed.to_str().unwrap(), "--shadows"])
+        .args(["--width", "160", "--height", "100"])
+        .args(["--camera", "eye=3m,-2m,2m;target=600,400,400;fov=40"])
+        .assert()
+        .success();
+    let plain = image::open(&png).unwrap().to_rgba8();
+    let dark = image::open(&shadowed).unwrap().to_rgba8();
+    let darker = plain
+        .pixels()
+        .zip(dark.pixels())
+        .filter(|(a, b)| i32::from(a.0[1]) - i32::from(b.0[1]) > 20)
+        .count();
+    assert!(darker > 100, "{darker} pixels in shadow");
+    assert_eq!(std::fs::read(&file).unwrap(), before);
+
     let scenes = dir.join("scenes");
     planyrith()
         .args(["render", "-f", f, "--all-scenes", scenes.to_str().unwrap()])

@@ -14,6 +14,8 @@ All notable changes to Planyrith are recorded here. Versions follow
   "From edges" is on in the Shadows window or `shadows-set --from-edges`.
 - Show distant textures smoothly: textures now have mipmaps, so floors, fabrics
   and tiles seen from afar no longer turn into speckled noise.
+- `planyrith render --shadows` now draws the sun's shadows, from the document's
+  sun settings, without changing the document. It used to only print a warning.
 
 ## 0.11.0-alpha.3 — Real models and verified exchange (2026-11-01)
 
