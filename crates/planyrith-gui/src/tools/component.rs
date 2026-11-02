@@ -13,6 +13,9 @@ use super::{Cx, Flow, Pointer, Tool, pt};
 #[derive(Debug, Default)]
 pub struct ComponentTool {
     definition: Option<String>,
+    /// A component file placed instead: each click inserts from it, and
+    /// the model reuses the component it loaded the first time.
+    file: Option<String>,
     request: Option<Value>,
 }
 
@@ -21,12 +24,25 @@ impl ComponentTool {
     pub fn new(definition: impl Into<String>) -> Self {
         ComponentTool {
             definition: Some(definition.into()),
+            file: None,
+            request: None,
+        }
+    }
+
+    /// Places instances of the component in `path` (a `.plyrc` file).
+    pub fn from_file(path: impl Into<String>) -> Self {
+        ComponentTool {
+            definition: None,
+            file: Some(path.into()),
             request: None,
         }
     }
 
     /// The `component-insert` parameters for the pointer.
     fn params(&self, p: &Pointer, cx: &Cx<'_>) -> Option<Value> {
+        if let Some(path) = &self.file {
+            return Some(json!({ "path": path, "position": pt(p.inference.point) }));
+        }
         let name = self.definition.as_ref()?;
         let d = cx.doc.definition_by_name(name)?;
         let glue = cx.doc.definition(d)?.behavior.glue_to;
@@ -104,12 +120,19 @@ impl Tool for ComponentTool {
     }
 
     fn options(&mut self, ui: &mut egui::Ui, _cx: &Cx<'_>) {
-        match &self.definition {
-            Some(name) => {
+        match (&self.definition, &self.file) {
+            (Some(name), _) => {
                 ui.label(format!("Placing `{name}`"));
                 ui.weak("Click to place; gluing components lie on matching faces. Space ends.");
             }
-            None => {
+            (None, Some(path)) => {
+                let name = std::path::Path::new(path)
+                    .file_stem()
+                    .map_or_else(|| path.clone(), |s| s.to_string_lossy().into_owned());
+                ui.label(format!("Placing `{name}` from the library"));
+                ui.weak("Click to place. Space ends.");
+            }
+            (None, None) => {
                 ui.weak("Choose a component in the Components panel.");
             }
         }

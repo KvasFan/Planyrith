@@ -122,6 +122,8 @@ enum DialogPurpose {
     SaveAs,
     /// A panel's file (texture, library, component).
     Resource(FileRequest),
+    /// The folder of the component library.
+    Library,
     /// A file in the browser to download to the computer (web).
     #[cfg(target_arch = "wasm32")]
     Download,
@@ -148,6 +150,8 @@ struct Settings {
     show_axes: bool,
     /// View › Theme.
     theme: ThemeChoice,
+    /// The Components panel's library folder.
+    component_library: Option<PathBuf>,
 }
 
 impl Default for Settings {
@@ -156,6 +160,7 @@ impl Default for Settings {
             recent: Vec::new(),
             show_axes: true,
             theme: ThemeChoice::System,
+            component_library: None,
         }
     }
 }
@@ -316,6 +321,7 @@ impl App {
             .and_then(|s| eframe::get_value(s, SETTINGS_KEY))
             .unwrap_or_default();
         let mut app = App::blank(tree, settings);
+        app.resources.library = app.settings.component_library.clone();
         theme::apply(&cc.egui_ctx, app.settings.theme);
         app.autosave = !cfg!(test);
         if app.autosave {
@@ -2030,6 +2036,10 @@ impl App {
                 Box::new(tools::PaintTool::with_material(m)),
             ),
             ToolRequest::Place(d) => ("component-insert", Box::new(tools::ComponentTool::new(d))),
+            ToolRequest::PlaceFile(path) => (
+                "component-insert",
+                Box::new(tools::ComponentTool::from_file(path)),
+            ),
         };
         if let Some(i) = self.tools.iter().position(|(t, _)| t.command() == command) {
             self.activate(i);
@@ -2061,6 +2071,10 @@ impl App {
                     }
                 }
                 Some(DialogPurpose::Open) => self.open(&path),
+                Some(DialogPurpose::Library) => {
+                    self.resources.library = Some(path.clone());
+                    self.settings.component_library = Some(path);
+                }
                 #[cfg(target_arch = "wasm32")]
                 Some(DialogPurpose::Download) => self.download(&path),
                 Some(DialogPurpose::SaveAs) => {
@@ -2560,6 +2574,11 @@ impl App {
         if let Some(request) = self.resources.file.take() {
             self.open_resource_dialog(request);
         }
+        if std::mem::take(&mut self.resources.pick_library) {
+            self.dialog = platform::file_dialog().title("Component library");
+            self.dialog.pick_directory();
+            self.dialog_purpose = Some(DialogPurpose::Library);
+        }
         if let Some(e) = self.viewport.error.take() {
             self.error(e);
         }
@@ -3043,6 +3062,57 @@ mod tests {
             .filter(|(_, f)| f.sides.material_front == wood)
             .count();
         assert_eq!(painted, 2, "the top and the selected side");
+    }
+
+    #[test]
+    fn library_components_are_placed_by_clicking() {
+        let dir = std::env::temp_dir().join(format!("planyrith-place-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("Crate.plyrc");
+        // A component file from another model.
+        let mut source = Session::new();
+        for (name, params) in [
+            (
+                "rectangle",
+                json!({ "corner_a": [0, 0, 0], "corner_b": [500, 500, 0] }),
+            ),
+            (
+                "push-pull",
+                json!({ "face": { "Query": "face" }, "distance": 500.0 }),
+            ),
+            (
+                "make-component",
+                json!({ "targets": "all", "name": "Crate" }),
+            ),
+            (
+                "component-save-as",
+                json!({ "definition": "Crate", "path": file.to_string_lossy() }),
+            ),
+        ] {
+            source.execute(name, params).unwrap();
+        }
+
+        let mut shell = Shell::new();
+        shell
+            .app
+            .session
+            .execute("camera-standard", json!({ "view": "top" }))
+            .unwrap();
+        shell.frame(Vec::new());
+        shell
+            .app
+            .activate_request(ToolRequest::PlaceFile(file.to_string_lossy().into_owned()));
+        assert_eq!(shell.app.tool().command(), "component-insert");
+        shell.click(DVec3::new(-1500.0, 0.0, 0.0));
+        shell.click(DVec3::new(1500.0, 0.0, 0.0));
+        let doc = shell.app.session.doc();
+        assert_eq!(doc.model.counts().instances, 2, "{:?}", shell.app.message);
+        assert_eq!(
+            doc.definitions.len(),
+            1,
+            "the file's component is loaded once"
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

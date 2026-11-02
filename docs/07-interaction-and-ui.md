@@ -401,3 +401,12 @@ collected by clicks: e.g. segments for Circle, array count, copy toggle).
   placement and runs `texture-position` with `copy_to: "face & selection"`, so the other
   selected faces get the texture projected from the positioned face. Pins stay command-only
   until the interactive pin tool.
+- 2026-11-02 — **Component library** (§6 Components: "local folders, user library"). The
+  Components panel's Library section shows a folder the user chose (Choose folder…, a per-user
+  setting): its folders, then its `.plyrc` files, each group by name ignoring case; hidden and
+  other files are left out. A folder opens in place (Up returns, Refresh rereads it). Clicking a
+  file activates placement from that file: each click runs `component-insert { path, position }`,
+  so the first loads the component and the others reuse it by UUID, leaving nothing at the
+  origin. Gluing applies once the component is in the model and placed from the model's list.
+  Thumbnails, search and drag into the viewport remain to do; the browser build has no folders
+  and shows no Library.

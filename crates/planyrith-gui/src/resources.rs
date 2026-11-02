@@ -123,6 +123,57 @@ pub enum ToolRequest {
     Paint(String),
     /// Place this component.
     Place(String),
+    /// Place the component of this file (desktop: the browser has no
+    /// folders to browse).
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    PlaceFile(String),
+}
+
+/// A folder or component file of a library folder.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+pub struct LibraryEntry {
+    /// File or folder name (files without `.plyrc`).
+    pub name: String,
+    /// Full path.
+    pub path: std::path::PathBuf,
+    /// A folder to open rather than a component to place.
+    pub folder: bool,
+}
+
+/// The folders and `.plyrc` files in `dir`, folders first, each group by
+/// name ignoring case (docs/07 §6 Components: "local folders").
+#[cfg(not(target_arch = "wasm32"))]
+pub fn library_entries(dir: &std::path::Path) -> std::io::Result<Vec<LibraryEntry>> {
+    let mut out = Vec::new();
+    for entry in std::fs::read_dir(dir)? {
+        let path = entry?.path();
+        let folder = path.is_dir();
+        let component = path
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("plyrc"));
+        let hidden = path
+            .file_name()
+            .is_some_and(|n| n.to_string_lossy().starts_with('.'));
+        if hidden || !(folder || component) {
+            continue;
+        }
+        let name = if folder {
+            path.file_name()
+        } else {
+            path.file_stem()
+        }
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+        out.push(LibraryEntry { name, path, folder });
+    }
+    out.sort_by(|a, b| {
+        b.folder
+            .cmp(&a.folder)
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+            .then_with(|| a.name.cmp(&b.name))
+    });
+    Ok(out)
 }
 
 /// Panel state kept between frames.
@@ -140,6 +191,16 @@ pub struct ResourceState {
     pub file: Option<FileRequest>,
     /// A tool to activate, for the application.
     pub activate: Option<ToolRequest>,
+    /// The component library folder (a user setting).
+    pub library: Option<std::path::PathBuf>,
+    /// The library folder shown (the library or one inside it).
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    library_at: Option<std::path::PathBuf>,
+    /// What the shown folder holds, read when it changes or on Refresh.
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    library_cache: Option<(std::path::PathBuf, Result<Vec<LibraryEntry>, String>)>,
+    /// The application should ask for a library folder.
+    pub pick_library: bool,
 }
 
 /// Runs a command; a failure goes to `error`.
@@ -577,6 +638,8 @@ pub fn components(
             actions.push(("make-unique", json!({ "targets": "selection" })));
         }
     });
+    #[cfg(not(target_arch = "wasm32"))]
+    library(ui, state);
     let selected = state
         .selected_component
         .clone()
@@ -655,6 +718,90 @@ pub fn components(
     for (name, params) in actions {
         run(session, error, name, params);
     }
+}
+
+/// The component library: folders and `.plyrc` files of a folder the
+/// user chose; a click places a file's component (docs/07 §6).
+#[cfg(not(target_arch = "wasm32"))]
+fn library(ui: &mut egui::Ui, state: &mut ResourceState) {
+    egui::CollapsingHeader::new("Library")
+        .default_open(true)
+        .show(ui, |ui| {
+            let Some(root) = state.library.clone() else {
+                ui.weak("Choose a folder of component files (.plyrc) to browse.");
+                if ui.button("Choose folder…").clicked() {
+                    state.pick_library = true;
+                }
+                return;
+            };
+            let at = state
+                .library_at
+                .clone()
+                .filter(|p| p.starts_with(&root))
+                .unwrap_or_else(|| root.clone());
+            ui.horizontal(|ui| {
+                let shown = at.file_name().map_or_else(
+                    || at.display().to_string(),
+                    |n| n.to_string_lossy().into_owned(),
+                );
+                ui.label(RichText::new(shown).strong())
+                    .on_hover_text(at.display().to_string());
+                if at != root && ui.small_button("Up").clicked() {
+                    state.library_at = at.parent().map(std::path::Path::to_path_buf);
+                }
+                if ui.small_button("Refresh").clicked() {
+                    state.library_cache = None;
+                }
+                if ui.small_button("Change…").clicked() {
+                    state.pick_library = true;
+                }
+            });
+            if state.library_cache.as_ref().is_none_or(|(p, _)| *p != at) {
+                let entries = library_entries(&at).map_err(|e| e.to_string());
+                state.library_cache = Some((at.clone(), entries));
+            }
+            let mut open = None;
+            match state.library_cache.as_ref().map(|(_, e)| e) {
+                Some(Ok(entries)) if entries.is_empty() => {
+                    ui.weak("No component files here.");
+                }
+                Some(Ok(entries)) => {
+                    egui::ScrollArea::vertical()
+                        .id_salt("component library")
+                        .max_height(ui.available_height() * 0.5)
+                        .show(ui, |ui| {
+                            for entry in entries {
+                                if entry.folder {
+                                    if ui
+                                        .selectable_label(false, format!("▸ {}", entry.name))
+                                        .clicked()
+                                    {
+                                        open = Some(entry.path.clone());
+                                    }
+                                } else if ui
+                                    .selectable_label(false, &entry.name)
+                                    .on_hover_text("Click, then click in the model to place it")
+                                    .clicked()
+                                {
+                                    state.activate = Some(ToolRequest::PlaceFile(
+                                        entry.path.to_string_lossy().into_owned(),
+                                    ));
+                                }
+                            }
+                        });
+                }
+                Some(Err(e)) => {
+                    ui.colored_label(
+                        Color32::from_rgb(200, 60, 60),
+                        format!("Cannot read it: {e}"),
+                    );
+                }
+                None => {}
+            }
+            if let Some(folder) = open {
+                state.library_at = Some(folder);
+            }
+        });
 }
 
 // ----- Styles -------------------------------------------------------------------------------
@@ -992,6 +1139,35 @@ mod tests {
         session: Session,
         state: ResourceState,
         error: Option<String>,
+    }
+
+    /// A library folder lists its folders, then its component files, by
+    /// name; other and hidden files are left out.
+    #[test]
+    fn library_folders_list_folders_then_components() {
+        let dir = std::env::temp_dir().join(format!("planyrith-library-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        for folder in ["Kitchen", "bath", ".cache"] {
+            std::fs::create_dir_all(dir.join(folder)).unwrap();
+        }
+        for file in ["Table.plyrc", "chair.PLYRC", "notes.txt", ".hidden.plyrc"] {
+            std::fs::write(dir.join(file), b"").unwrap();
+        }
+        let entries = library_entries(&dir).unwrap();
+        let names: Vec<(&str, bool)> = entries
+            .iter()
+            .map(|e| (e.name.as_str(), e.folder))
+            .collect();
+        assert_eq!(
+            names,
+            [
+                ("bath", true),
+                ("Kitchen", true),
+                ("chair", false),
+                ("Table", false)
+            ]
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     /// The style editor offers every edge effect and edits the active style.
