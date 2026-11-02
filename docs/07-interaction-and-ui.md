@@ -396,3 +396,4 @@ collected by clicks: e.g. segments for Circle, array count, copy toggle).
 - 2026-11-02 — The Styles panel's Edges section sets depth cue, extension and endpoints in
   pixels (0 turns one off) and switches jitter, next to profiles and back edges; each change
   is one `style-edit`.
+- 2026-11-02 — The Shadows window's "From edges" switches `from_edges` (`shadows-set`).

@@ -1861,6 +1861,14 @@ impl App {
                 if ui.checkbox(&mut faces, "On faces").changed() {
                     change = Some(json!({ "on_faces": faces }));
                 }
+                let mut edges = shadows.from_edges;
+                if ui
+                    .checkbox(&mut edges, "From edges")
+                    .on_hover_text("Edges that bound no face cast shadows too")
+                    .changed()
+                {
+                    change = Some(json!({ "from_edges": edges }));
+                }
             });
         if let Some(params) = change {
             self.run("shadows-set", params);

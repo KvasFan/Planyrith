@@ -494,6 +494,68 @@ fn fog_ground_and_watermarks() {
     check("room-fog-ground-watermark", &image);
 }
 
+/// Edges that bound no face cast shadows when the settings ask for it
+/// (docs/06 §6): a wire above the ground darkens it only then.
+#[test]
+fn edges_cast_shadows() {
+    let Some(gpu) = gpu() else { return };
+    let mut renderer = Renderer::new(
+        gpu.device.clone(),
+        gpu.queue.clone(),
+        RendererOptions::default(),
+    );
+    let mut frames = Vec::new();
+    for from_edges in [false, true] {
+        let mut e = room();
+        // A wire outside the window wall, 30 cm above the ground.
+        run(
+            &mut e,
+            "line",
+            json!({ "points": [[500, 4500, 300], [3500, 4500, 300]] }),
+        );
+        run(
+            &mut e,
+            "camera-standard",
+            json!({ "view": "iso", "extents": true }),
+        );
+        run(
+            &mut e,
+            "shadows-set",
+            json!({ "enabled": true, "date": "2026-06-21", "time": "12:00",
+                    "latitude": 45.0, "longitude": 9.0, "utc_offset": 2.0,
+                    "from_edges": from_edges }),
+        );
+        let mut style = Style::default();
+        style.edges.show = false;
+        let doc = e.document();
+        frames.push(frame(
+            &mut renderer,
+            doc,
+            &Selection::new(),
+            &EditContext::model(),
+            &doc.camera,
+            &style,
+            false,
+        ));
+    }
+    // Only the wire's shadow differs: a darker line on the ground.
+    let changed = |darker: bool| {
+        frames[0]
+            .pixels()
+            .zip(frames[1].pixels())
+            .filter(|(a, b)| {
+                let (a, b) = (i32::from(a.0[1]), i32::from(b.0[1]));
+                if darker { a - b > 20 } else { b - a > 20 }
+            })
+            .count()
+    };
+    let (darker, lighter) = (changed(true), changed(false));
+    assert!(
+        darker > 40 && lighter == 0,
+        "darker {darker}, lighter {lighter}"
+    );
+}
+
 /// docs/13 0.6: a section cut with caps, sun shadows, a dimension, a guide
 /// and the section plane's widget.
 #[test]

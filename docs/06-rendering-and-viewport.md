@@ -327,3 +327,9 @@ exposes a frame-time overlay (`F11` panel).
   edges off their line, so jittered edges are pulled toward the eye ten times as far (0.4 % of
   the distance). `edge_effects` checks that each effect adds ink to a hidden-line frame and
   that jitter is repeatable; its images allow adapter differences of 1 % of the pixels.
+- 2026-11-02 — **Shadows from edges** (§6). With `from_edges`, edges that bound no face are drawn
+  into the sun's depth map as strips; edges of faces are skipped, since their faces already cast
+  that shadow. A strip is as wide as 1.5 screen pixels at the model's center, measured in
+  shadow-map texels (1 to 16): at a fixed texel width a wire's shadow is far thinner than a
+  pixel on large models and shows as dots. `edges_cast_shadows` renders a wire over the ground
+  with the setting off and on; only the second darkens it.

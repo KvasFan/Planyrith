@@ -41,6 +41,8 @@ const UNIFORM_STRIDE: u64 = 512;
 
 /// Shadow map size (docs/06 §3.1 step 1).
 const SHADOW_SIZE: u32 = 2048;
+/// Width of an edge's shadow in screen pixels at the model's center.
+const EDGE_SHADOW_PX: f64 = 1.5;
 const SHADOW_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
 /// Renderer settings.
@@ -189,6 +191,7 @@ const BY_AXIS: u32 = 16;
 const BY_MATERIAL: u32 = 32;
 const CLIPPED: u32 = 64;
 const SHADOW_CATCHER: u32 = 128;
+const SUN_EDGES: u32 = 1024;
 const EDGE_HAS_FACE0: u32 = 256;
 const EDGE_HAS_FACE1: u32 = 512;
 // `scene.wgsl` reads the extraction's flag bits directly.
@@ -249,6 +252,8 @@ struct Pipelines {
     mark: wgpu::RenderPipeline,
     /// Depth from the sun.
     shadow: wgpu::RenderPipeline,
+    /// Edges without faces in the sun's depth.
+    shadow_edge: wgpu::RenderPipeline,
     /// Section caps (both windings, so no culling).
     cap: wgpu::RenderPipeline,
 }
@@ -852,7 +857,19 @@ impl Renderer {
             (true, true, false) => [2.0, lit, dark, 0.0],
         };
         let sun_light = f32x4(sun, 0.35);
+        // A shadow narrower than a pixel would show as dots: the edge's
+        // width in the sun's map is about EDGE_SHADOW_PX on the screen.
+        let edge_shadow_texels = {
+            let texel =
+                (model_bounds.max - model_bounds.min).length().max(1.0) / f64::from(SHADOW_SIZE);
+            let pixel = camera.world_per_pixel_at(
+                camera.depth_of(model_bounds.center()),
+                f64::from(req.height),
+            );
+            (EDGE_SHADOW_PX * pixel / texel).clamp(1.0, 16.0) as f32
+        };
         let mut shadow_draws: Vec<(u32, ContainerRef, Range<u32>)> = Vec::new();
+        let mut shadow_edges: Vec<(u32, ContainerRef, u32)> = Vec::new();
 
         let mut uniforms: Vec<DrawUniform> = Vec::new();
         let mut opaque: Vec<Draw> = Vec::new();
@@ -967,6 +984,24 @@ impl Renderer {
                     opaque.push(draw);
                 }
                 id_draws.push((slot, item.container, range.clone(), 0));
+            }
+
+            // Edges without faces cast shadows when the settings ask for it.
+            if sun_up && shadows.from_edges && mesh.edge_count > 0 {
+                let u = DrawUniform {
+                    clip_from_local: (sun_clip * glam::DMat4::from(world))
+                        .as_mat4()
+                        .to_cols_array_2d(),
+                    viewport: [
+                        SHADOW_SIZE as f32,
+                        SHADOW_SIZE as f32,
+                        edge_shadow_texels,
+                        0.0,
+                    ],
+                    ids: [0, cut | SUN_EDGES, 0, 0],
+                    ..base
+                };
+                shadow_edges.push((push(&mut uniforms, u), item.container, mesh.edge_count));
             }
 
             // Edges.
@@ -1519,6 +1554,15 @@ impl Renderer {
                 pass.set_vertex_buffer(0, vb.slice(..));
                 pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
                 pass.draw_indexed(range.clone(), 0, 0..1);
+            }
+            pass.set_pipeline(&self.pipelines.shadow_edge);
+            for (slot, container, count) in &shadow_edges {
+                let Some(buffer) = self.meshes.get(container).and_then(|m| m.edges.as_ref()) else {
+                    continue;
+                };
+                pass.set_bind_group(0, &self.uniform_group, &[*slot * UNIFORM_STRIDE as u32]);
+                pass.set_vertex_buffer(0, buffer.slice(..));
+                pass.draw(0..6, 0..*count);
             }
         }
         {
@@ -2587,6 +2631,41 @@ fn build_pipelines(
             fragment: Some(wgpu::FragmentState {
                 module: shader,
                 entry_point: Some("fs_shadow"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                targets: &[],
+            }),
+            multiview_mask: None,
+            cache: None,
+        }),
+        shadow_edge: device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("sun depth of edges"),
+            layout: Some(edge_layout),
+            vertex: wgpu::VertexState {
+                module: shader,
+                entry_point: Some("vs_edge"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                buffers: &edge_buffers,
+            },
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                cull_mode: None,
+                ..Default::default()
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: SHADOW_FORMAT,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(Less),
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState {
+                    constant: 2,
+                    slope_scale: 2.0,
+                    clamp: 0.0,
+                },
+            }),
+            multisample: wgpu::MultisampleState::default(),
+            fragment: Some(wgpu::FragmentState {
+                module: shader,
+                entry_point: Some("fs_edge_shadow"),
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
                 targets: &[],
             }),

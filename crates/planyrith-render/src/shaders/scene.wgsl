@@ -75,6 +75,8 @@ const BY_AXIS: u32 = 16u;
 const BY_MATERIAL: u32 = 32u;
 const CLIPPED: u32 = 64u;
 const SHADOW_CATCHER: u32 = 128u;
+// Edges drawn into the sun's depth (normal Z): only those without faces.
+const SUN_EDGES: u32 = 1024u;
 
 // The section plane cuts this local point away.
 fn cut_away(local: vec3<f32>) -> bool {
@@ -294,6 +296,10 @@ fn vs_edge(input: EdgeIn) -> EdgeOut {
     if (soft && !profile && (draw.ids.y & HIDE_SOFT) != 0u) {
         width = 0.0;
     }
+    // Faces already cast the shadow of the edges around them.
+    if ((draw.ids.y & SUN_EDGES) != 0u && (has0 || has1)) {
+        width = 0.0;
+    }
 
     var p = draw.clip_from_local * vec4<f32>(input.a, 1.0);
     var q = draw.clip_from_local * vec4<f32>(input.b, 1.0);
@@ -380,8 +386,10 @@ fn vs_edge(input: EdgeIn) -> EdgeOut {
     // the eye in reversed Z. Jitter moves edges sideways onto the faces
     // beside them, so it pulls ten times as far (0.4 % of the distance).
     out.depth = view_depth(clip);
-    let pull = select(1.0004, 1.004, jitter > 0.0);
-    clip.z = clip.z * pull + 1e-7 * clip.w;
+    if ((draw.ids.y & SUN_EDGES) == 0u) {
+        let pull = select(1.0004, 1.004, jitter > 0.0);
+        clip.z = clip.z * pull + 1e-7 * clip.w;
+    }
     out.clip = clip;
     out.along = along;
 
@@ -409,6 +417,14 @@ fn fs_edge(input: EdgeOut) -> @location(0) vec4<f32> {
         discard;
     }
     return vec4<f32>(fogged(input.color.rgb, input.depth), input.color.a);
+}
+
+// Edges in the sun's depth (shadows from edges, docs/06 §6).
+@fragment
+fn fs_edge_shadow(input: EdgeOut) {
+    if (cut_away(input.local)) {
+        discard;
+    }
 }
 
 @fragment
