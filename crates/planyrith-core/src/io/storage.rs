@@ -245,13 +245,23 @@ impl NativeFs {
         }
     }
 
-    /// The sibling `.<name>.tmp` path an atomic write of `path` goes through.
+    /// A sibling `.<name>.<process>-<n>.tmp` path for one atomic write of
+    /// `path`. Each write gets its own: with one shared name, two writers
+    /// of the same file (threads, or two processes) replaced each other's
+    /// temp file and one rename failed with "not found".
     fn temp_path(path: &std::path::Path) -> std::path::PathBuf {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(0);
         let name = path
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
-        path.with_file_name(format!(".{name}{}", Self::TEMP_SUFFIX))
+        let n = NEXT.fetch_add(1, Ordering::Relaxed);
+        path.with_file_name(format!(
+            ".{name}.{}-{n}{}",
+            std::process::id(),
+            Self::TEMP_SUFFIX
+        ))
     }
 
     /// `true` for the temporary files this backend creates, which `list`
@@ -616,9 +626,36 @@ mod tests {
             names,
             vec!["docs/house.plyr", "docs/house.plyr~1", "docs/house.plyr~2"]
         );
-        assert!(!NativeFs::temp_path(&fs.path_for(&key)).exists());
+        let leftovers = std::fs::read_dir(scratch.0.join("docs"))
+            .unwrap()
+            .filter(|e| NativeFs::is_temp_name(&e.as_ref().unwrap().file_name().to_string_lossy()))
+            .count();
+        assert_eq!(leftovers, 0);
         assert_eq!(fs.list("docs/house.plyr~").unwrap().len(), 2);
         assert!(fs.list("missing/").unwrap().is_empty());
+    }
+
+    /// Writers of one file at the same time all succeed and leave no
+    /// temporary files; the file holds one whole version.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn native_fs_concurrent_writes_of_one_file_succeed() {
+        let scratch = Scratch::new("concurrent");
+        let fs = std::sync::Arc::new(NativeFs::rooted(&scratch.0));
+        let key = StorageKey::from("shared/texture.png");
+        let writers: Vec<_> = (0..8u8)
+            .map(|t| {
+                let (fs, key) = (fs.clone(), key.clone());
+                std::thread::spawn(move || (0..25).try_for_each(|_| fs.write(&key, &[t; 4096])))
+            })
+            .collect();
+        for w in writers {
+            w.join().unwrap().unwrap();
+        }
+        let bytes = fs.read(&key).unwrap();
+        assert!(bytes.len() == 4096 && bytes.iter().all(|b| *b == bytes[0]));
+        let leftovers = std::fs::read_dir(scratch.0.join("shared")).unwrap().count();
+        assert_eq!(leftovers, 1, "only the file itself");
     }
 
     #[cfg(not(target_arch = "wasm32"))]

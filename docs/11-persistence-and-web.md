@@ -164,3 +164,11 @@ The core never calls `std::fs` directly outside `NativeFs`. Open/save commands t
   the page while the picker is open), store it in the browser's storage and use it from there;
   File › Open Stored in Browser… opens documents saved there before. Exports and other files
   written go to the browser's storage through the file dialog and are then downloaded.
+- 2026-11-02 — **Unique temporary files for atomic writes.** Desktop storage writes through a
+  temporary sibling and renames it over the file. The sibling was `.<name>.tmp` for every writer,
+  so two writers of one file at once (two windows, the command line and the GUI, or threads)
+  replaced each other's temporary file and one rename failed with "not found". The local check
+  caught it in GUI tests that create the same bundled texture at once. Each write now uses
+  `.<name>.<process>-<n>.tmp`, unique per process and write; listing still hides them.
+  `native_fs_concurrent_writes_of_one_file_succeed` writes one file from eight threads 25 times
+  each; with the shared name it failed on every run.

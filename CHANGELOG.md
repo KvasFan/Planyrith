@@ -21,6 +21,8 @@ All notable changes to Planyrith are recorded here. Versions follow
   continue a face's texture onto other faces with `--copy-to`, without seams.
 - Browse a folder of component files in the Components panel's Library and
   place one by clicking it, then clicking in the model (desktop).
+- Two saves of the same file at once, from two windows or the command line
+  and the GUI, no longer make one of them fail with "not found".
 - Select images by clicking them, as other entities; geometry in front of an
   image still takes the click.
 - glTF cameras import as scenes, and scenes export as glTF cameras, so views
