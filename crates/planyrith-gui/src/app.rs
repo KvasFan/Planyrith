@@ -266,6 +266,31 @@ struct TextureFields {
     both_sides: bool,
 }
 
+impl TextureFields {
+    /// The `texture-position` request for `face`; `continued` also gives the
+    /// other selected faces the same texture, projected from this face
+    /// (docs/05 §5.9 `copy_to`).
+    fn request(
+        &self,
+        face: &planyrith_core::document::EntityPath,
+        continued: bool,
+    ) -> serde_json::Value {
+        let mut params = json!({
+            "face": { "Path": face },
+            "side": if self.both_sides { "both" } else { "front" },
+            "offset_u": self.offset_u,
+            "offset_v": self.offset_v,
+            "rotation": self.rotation,
+            "scale_u": self.scale_u,
+            "scale_v": self.scale_v,
+        });
+        if continued {
+            params["copy_to"] = json!("face & selection");
+        }
+        params
+    }
+}
+
 impl Default for TextureFields {
     fn default() -> Self {
         TextureFields {
@@ -1935,15 +1960,17 @@ impl App {
                 ui.horizontal(|ui| {
                     let side = if fields.both_sides { "both" } else { "front" };
                     if ui.button("Apply").clicked() {
-                        apply = Some(json!({
-                            "face": { "Path": face },
-                            "side": side,
-                            "offset_u": fields.offset_u,
-                            "offset_v": fields.offset_v,
-                            "rotation": fields.rotation,
-                            "scale_u": fields.scale_u,
-                            "scale_v": fields.scale_v,
-                        }));
+                        apply = Some(fields.request(face, false));
+                    }
+                    if ui
+                        .button("Continue onto selected faces")
+                        .on_hover_text(
+                            "Apply, then give the other selected faces this texture, \
+                             projected from this face so it runs on without seams",
+                        )
+                        .clicked()
+                    {
+                        apply = Some(fields.request(face, true));
                     }
                     if ui.button("Reset").clicked() {
                         apply =
@@ -2960,6 +2987,62 @@ mod tests {
             click(&mut shell, DVec3::new(1500.0, 200.0, 100.0)),
             [Some(planyrith_core::ids::EntityKind::Face)]
         );
+    }
+
+    #[test]
+    fn position_texture_continues_onto_the_selected_faces() {
+        let mut shell = Shell::new();
+        let b = &crate::bundled::catalogue()[0];
+        let texture = crate::bundled::texture_path(b).unwrap();
+        let session = &mut shell.app.session;
+        for (name, params) in [
+            (
+                "rectangle",
+                json!({ "corner_a": [0, 0, 0], "corner_b": [1000, 1000, 0] }),
+            ),
+            (
+                "push-pull",
+                json!({ "face": { "Query": "face" }, "distance": 1000.0 }),
+            ),
+            (
+                "material-create",
+                json!({ "name": "Wood", "color": "#A0522D", "texture": texture.to_string_lossy(),
+                        "texture_width": 500.0, "texture_height": 500.0 }),
+            ),
+            (
+                "material-apply",
+                json!({ "targets": "face & plane:xy@1000", "material": "Wood" }),
+            ),
+            ("select", json!({ "query": "face & plane:xz@0" })),
+        ] {
+            session.execute(name, params).unwrap();
+        }
+        let doc = session.doc();
+        let (top, _) = doc
+            .model
+            .mesh()
+            .faces()
+            .find(|(_, f)| f.plane.normal.z > 0.999)
+            .unwrap();
+        let path = planyrith_core::document::EntityPath::in_model(
+            planyrith_core::document::EntityKey::Id(planyrith_core::ids::EntityId::Face(top)),
+        );
+        let fields = TextureFields {
+            rotation: 30.0,
+            ..TextureFields::default()
+        };
+        session
+            .execute("texture-position", fields.request(&path, true))
+            .unwrap();
+        let doc = session.doc();
+        let wood = doc.materials.by_name("Wood");
+        let painted = doc
+            .model
+            .mesh()
+            .faces()
+            .filter(|(_, f)| f.sides.material_front == wood)
+            .count();
+        assert_eq!(painted, 2, "the top and the selected side");
     }
 
     #[test]

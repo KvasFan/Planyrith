@@ -397,3 +397,7 @@ collected by clicks: e.g. segments for Circle, array count, copy toggle).
   pixels (0 turns one off) and switches jitter, next to profiles and back edges; each change
   is one `style-edit`.
 - 2026-11-02 — The Shadows window's "From edges" switches `from_edges` (`shadows-set`).
+- 2026-11-02 — The Position Texture window gains "Continue onto selected faces": it applies the
+  placement and runs `texture-position` with `copy_to: "face & selection"`, so the other
+  selected faces get the texture projected from the positioned face. Pins stay command-only
+  until the interactive pin tool.
