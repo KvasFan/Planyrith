@@ -257,3 +257,11 @@ humans or GUI automation before releases, with expected screenshots.
   are the likely cause: running the tests one at a time gave 0 of 100 crashes, and the GL test
   is not involved. Tests now share one device for the process, as the application does,
   and `tools/ci-local.sh` runs the tests on four cores and repeats the snapshots 25 times.
+- 2026-11-02 — **Fixed property-test seed in CI.** Property tests drew new cases on every run,
+  so a run could fail on a commit that changed nothing they cover. The local check did so in
+  `math::polygon::boundary_and_holes`: a sliver triangle whose centroid lay within the length
+  tolerance of the quarter-size hole around it, a flaw of the generator, which now requires
+  the centroid to be 1 mm from every edge. The `test` step of `tools/ci-steps.sh` sets
+  `PROPTEST_RNG_SEED`, so CI and the local check depend on the commit only; plain `cargo test`
+  keeps exploring new cases. Failures proptest finds are committed under
+  `crates/planyrith-core/proptest-regressions/` and rerun first.

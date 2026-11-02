@@ -41,8 +41,10 @@ step() {
     boundaries) boundaries ;;
     # The optional GPL converter stays a separate process; test it on each OS.
     converter) cargo build -p planyrith-skp ;;
+    # A fixed property-test seed: a run's result depends on the commit only.
+    # Plain `cargo test` keeps exploring new cases.
     test)
-      PLANYRITH_REQUIRE_GPU=1 PLANYRITH_REQUIRE_SKP=1 \
+      PLANYRITH_REQUIRE_GPU=1 PLANYRITH_REQUIRE_SKP=1 PROPTEST_RNG_SEED=20261102 \
         cargo test --workspace --features planyrith-cli/render
       ;;
     test-build) cargo test --workspace --features planyrith-cli/render --no-run ;;

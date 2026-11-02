@@ -509,8 +509,22 @@ mod tests {
                     .collect()
             })
             .prop_filter("non-degenerate", |ring: &Vec<DVec2>| {
-                ring.len() >= 3 && area(ring) > 1.0
+                ring.len() >= 3 && area(ring) > 1.0 && thick(ring)
             })
+    }
+
+    /// The centroid is at least 1 mm from every edge. A sliver fails the
+    /// tests' assumptions, not the code: a copy shrunk to a quarter about
+    /// the centroid would pass within the length tolerance of it.
+    fn thick(ring: &[DVec2]) -> bool {
+        let Some(c) = centroid(ring) else {
+            return false;
+        };
+        (0..ring.len()).all(|i| {
+            let (a, b) = (ring[i], ring[(i + 1) % ring.len()]);
+            let t = ((c - a).dot(b - a) / (b - a).length_squared().max(1e-12)).clamp(0.0, 1.0);
+            c.distance(a + (b - a) * t) >= 1.0
+        })
     }
 
     proptest! {

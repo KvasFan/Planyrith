@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 54b182b7c187c83962bc008ea8d581a5b4a2a8f7cb383a57bcdf04fdbdf4c1fb # shrinks to ring = [DVec2(95.0817738338079, 0.9553461987273126), DVec2(94.52272343950021, 0.9607324860926572), DVec2(-109.52246329166452, -0.7905750504045972)], i = 0
