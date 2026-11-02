@@ -737,6 +737,16 @@ impl DocumentIndex {
         Self::build_from(doc)
     }
 
+    /// The bounds of every indexed occurrence, read from the root of the
+    /// instance tree in constant time (empty when nothing is indexed).
+    pub fn bounds(&self) -> Aabb {
+        if self.leaves.is_empty() {
+            Aabb::EMPTY
+        } else {
+            from_parry_aabb(&self.instance_bvh.root_aabb())
+        }
+    }
+
     /// Builds everything from any scene provider.
     pub fn build_from<P: InstanceProvider + ?Sized>(provider: &P) -> Self {
         let mut index = Self::new();

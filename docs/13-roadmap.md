@@ -132,6 +132,11 @@ parametric/dynamic components, GPU path-traced preview, mobile UI.
 
 ## Decisions
 
+- 2026-11-02 — At the user's request ("procedi con prossima tappa"), 1.0 stabilization work
+  starts while 0.11 waits only for the user's check of regenerated files in the target
+  application. This replaces "no automatic 1.0 work" (2026-10-31). The first step measures the
+  quality targets of docs/00 §6 (docs/12 Decisions, 2026-11-02).
+
 - 2026-10-31 — At the user's request, ship installable Windows, AppImage,
   Debian and Arch preview packages before the 1.0 stabilization milestone.
   Publish the current 0.11.0-alpha.2 with the gates in docs/16. This does not

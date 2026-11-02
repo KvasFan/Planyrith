@@ -562,8 +562,9 @@ impl InferenceEngine {
         let within = |p: DVec3| ray.distance_to_point(p) <= world_tol(ray.closest_param(p));
 
         // Broad phase with the tolerance at the model's far side; each hit is
-        // then checked at its own depth.
-        let bounds = doc.aabb();
+        // then checked at its own depth. The index's bounds are kept current
+        // and cost nothing; the document's are recomputed from every vertex.
+        let bounds = index.bounds();
         let far = if bounds.is_empty() {
             1.0e6
         } else {

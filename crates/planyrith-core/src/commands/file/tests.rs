@@ -1534,3 +1534,191 @@ fn gltf_cameras_round_trip_as_scenes() {
     assert_eq!(out["scenes"], 2);
     assert!(back.document().scenes.by_name("Corner (2)").is_some());
 }
+
+/// docs/00 §6 quality targets that the core alone decides: native save and
+/// load, undo and redo of a small change, and inference latency, on a
+/// terrain of `PLANYRITH_BENCH_CELLS`² cells (two triangles each; the
+/// default 707 gives one million). Run with `cargo test --release -p
+/// planyrith-core quality_targets_benchmark -- --ignored --nocapture`.
+#[test]
+#[ignore = "benchmark"]
+fn quality_targets_benchmark() {
+    use crate::inference::{Constraint, InferenceEngine, InferenceRequest, ViewMetrics};
+    use crate::io::NoProgress;
+    use crate::io::native::{WriteOptions, read_document, write_document};
+    use crate::spatial::DocumentIndex;
+    use std::time::Instant;
+    let n = std::env::var("PLANYRITH_BENCH_CELLS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(707);
+    let best = |runs: usize, mut f: Box<dyn FnMut() -> f64 + '_>| {
+        (0..runs).map(|_| f()).fold(f64::MAX, f64::min)
+    };
+    let (mut e, storage) = engine();
+    // `PLANYRITH_BENCH_FILE` measures a native file instead of the terrain.
+    if let Some(path) = std::env::var_os("PLANYRITH_BENCH_FILE") {
+        let bytes = crate::io::storage::NativeFs::new()
+            .read(&StorageKey::new(path.to_string_lossy()))
+            .unwrap();
+        let loaded = read_document(&bytes, &NoProgress).unwrap();
+        e = Engine::new(loaded.document, Arc::new(CommandRegistry::with_builtins()));
+        let counts = e.document().model.counts();
+        eprintln!(
+            "model: {} ({} definitions, model faces {})",
+            path.to_string_lossy(),
+            e.document().definitions.len(),
+            counts.faces
+        );
+    } else {
+        storage
+            .write(&StorageKey::new("t.glb"), &terrain_glb(n))
+            .unwrap();
+        let started = Instant::now();
+        let out = run(&mut e, "import", json!({ "path": "t.glb" }));
+        eprintln!(
+            "model: {} faces, {} edges ({} triangles); import {:.2} s",
+            out["faces"],
+            out["edges"],
+            2 * n * n,
+            started.elapsed().as_secs_f64()
+        );
+    }
+
+    // Save and load (target: 100 MB in < 3 s).
+    let mut bytes = Vec::new();
+    let save = best(
+        3,
+        Box::new(|| {
+            let t = Instant::now();
+            bytes =
+                write_document(e.document(), &[], &WriteOptions::default(), &NoProgress).unwrap();
+            t.elapsed().as_secs_f64()
+        }),
+    );
+    let load = best(
+        3,
+        Box::new(|| {
+            let t = Instant::now();
+            read_document(&bytes, &NoProgress).unwrap();
+            t.elapsed().as_secs_f64()
+        }),
+    );
+    eprintln!(
+        "native file: {:.1} MB; save {save:.2} s, load {load:.2} s (target < 3 s per 100 MB)",
+        bytes.len() as f64 / 1e6
+    );
+
+    // Undo and redo of one line (target: proportional to the change).
+    let mut undo = f64::MAX;
+    let mut redo = f64::MAX;
+    for k in 0..5 {
+        let x = f64::from(k) * 10.0;
+        run(
+            &mut e,
+            "line",
+            json!({ "points": [[x, -500.0, 0.0], [x, -400.0, 0.0]] }),
+        );
+        let t = Instant::now();
+        e.undo().unwrap();
+        undo = undo.min(t.elapsed().as_secs_f64());
+        let t = Instant::now();
+        e.redo().unwrap();
+        redo = redo.min(t.elapsed().as_secs_f64());
+    }
+    eprintln!(
+        "one-line change: undo {:.1} µs, redo {:.1} µs",
+        undo * 1e6,
+        redo * 1e6
+    );
+
+    // Inference over a sweep of the cursor across the terrain (target: < 4 ms).
+    let doc = e.document();
+    let t = Instant::now();
+    let index = DocumentIndex::build(doc);
+    let build = t.elapsed().as_secs_f64();
+    let engine = InferenceEngine::default();
+    let mut camera = doc.camera;
+    camera.zoom_extents(&doc.aabb(), 0.05);
+    let view = ViewMetrics::for_camera(&camera, 1080.0);
+    let mut times: Vec<f64> = (0..400)
+        .filter_map(|i| {
+            let (x, y) = (
+                f64::from(i % 20) / 10.0 - 0.95,
+                f64::from(i / 20) / 10.0 - 0.95,
+            );
+            let req = InferenceRequest {
+                ray: camera.ray_through_ndc(glam::DVec2::new(x, y)),
+                pixel_tolerance: InferenceRequest::DEFAULT_PIXEL_TOLERANCE,
+                view,
+                constraint: Constraint::Free,
+                reference_point: None,
+                last_point: None,
+            };
+            let t = Instant::now();
+            let found = engine.infer(doc, &index, &req);
+            let secs = t.elapsed().as_secs_f64();
+            // Moves over the model only: a ray past it costs nothing.
+            (found.kind != crate::inference::InferenceKind::Free).then_some(secs)
+        })
+        .collect();
+    times.sort_by(f64::total_cmp);
+    if std::env::var_os("PLANYRITH_BENCH_PARTS").is_some() {
+        let t = Instant::now();
+        for _ in 0..20 {
+            std::hint::black_box(doc.aabb());
+        }
+        eprintln!(
+            "  doc.aabb: {:.2} ms",
+            t.elapsed().as_secs_f64() * 1e3 / 20.0
+        );
+        let ray = camera.ray_through_ndc(glam::DVec2::ZERO);
+        for (d, _) in doc.definitions.iter() {
+            let c = crate::document::ContainerRef::Definition(d);
+            let (Some(ci), Some(entities)) = (index.container(c), doc.container(c)) else {
+                continue;
+            };
+            for (faces, edges, vertices) in [
+                (true, false, false),
+                (false, true, false),
+                (false, false, true),
+            ] {
+                let filter = crate::spatial::HitFilter {
+                    proximity: 1.0,
+                    faces,
+                    edges,
+                    vertices,
+                    ..Default::default()
+                };
+                let t = Instant::now();
+                let hits = ci.ray_cast_local(entities.mesh(), &ray, &filter, doc.tolerances());
+                eprintln!(
+                    "  local f{faces} e{edges} v{vertices}: {:.3} ms, {} hits",
+                    t.elapsed().as_secs_f64() * 1e3,
+                    hits.len()
+                );
+            }
+        }
+        for proximity in [1.0, 10.0, 100.0] {
+            let filter = crate::spatial::HitFilter {
+                proximity,
+                ..Default::default()
+            };
+            let t = Instant::now();
+            let hits = index.ray_cast(doc, &ray, &filter);
+            eprintln!(
+                "  ray_cast proximity {proximity} mm: {:.2} ms, {} hits",
+                t.elapsed().as_secs_f64() * 1e3,
+                hits.len()
+            );
+        }
+    }
+    eprintln!(
+        "inference: index {build:.2} s; {} moves over the model: median {:.2} ms, 95th percentile {:.2} ms, \
+         worst {:.2} ms (target < 4 ms)",
+        times.len(),
+        times[times.len() / 2] * 1e3,
+        times[times.len() * 95 / 100] * 1e3,
+        times[times.len() - 1] * 1e3
+    );
+}

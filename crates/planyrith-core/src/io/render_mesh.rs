@@ -546,18 +546,14 @@ fn active_section(doc: &Document, entities: &Entities) -> Option<SectionCut> {
     if !doc.rendering.section.cuts_visible {
         return None;
     }
-    entities
-        .order()
-        .iter()
-        .find_map(|&id| match entities.view(id) {
-            Some(EntityView::SectionPlane(s)) if s.active && !entities.is_hidden(id) => {
-                Some(SectionCut {
-                    plane: s.plane,
-                    fill: s.fill_cap && doc.rendering.section.fills_visible,
-                })
-            }
-            _ => None,
+    // Only the section planes: walking every entity made each pick and
+    // inference cost as much as the container is large.
+    entities.section_planes().find_map(|(id, s)| {
+        (s.active && !entities.is_hidden(EntityId::SectionPlane(id))).then_some(SectionCut {
+            plane: s.plane,
+            fill: s.fill_cap && doc.rendering.section.fills_visible,
         })
+    })
 }
 
 /// The active section plane that cuts an occurrence (the outermost one on

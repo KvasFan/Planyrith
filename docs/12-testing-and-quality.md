@@ -265,3 +265,23 @@ humans or GUI automation before releases, with expected screenshots.
   `PROPTEST_RNG_SEED`, so CI and the local check depend on the commit only; plain `cargo test`
   keeps exploring new cases. Failures proptest finds are committed under
   `crates/planyrith-core/proptest-regressions/` and rerun first.
+- 2026-11-02 — **Measuring the quality targets (1.0).** `quality_targets_benchmark` (core,
+  ignored; `cargo test --release -p planyrith-core quality_targets_benchmark -- --ignored
+  --nocapture`) measures what the core decides on a generated terrain (`PLANYRITH_BENCH_CELLS`,
+  default 707: one million triangles, 1.5 million edges) or a native file
+  (`PLANYRITH_BENCH_FILE`): native save and load, undo and redo of one line, and inference over
+  400 cursor positions, reporting those over the model. On the development machine:
+
+  | Model | Save / load | Undo / redo | Inference median / 95th / worst |
+  |---|---|---|---|
+  | 200k edges (target size) | 0.20 / 0.18 s (9 MB) | 1.3 / 1.2 µs | 0.57 / 0.86 / 1.1 ms |
+  | 1M triangles, 1.5M edges | 1.9 / 1.8 s (70 MB) | 1.8 / 1.6 µs | 3.5 / 4.5 / 6.4 ms |
+  | 160 MB house (332k faces) | 0.9 / 0.7 s | 48 / 47 µs | 0.12 / 2.1 / 12 ms |
+
+  Save and load meet "100 MB in under 3 s" (about 2.7 s at 100 MB), undo is proportional to
+  the change, and inference meets "under 4 ms for 200k edges". The first run found inference
+  at 15 ms median on the terrain: every ray cast looked for the active section plane by walking
+  all entities of each container, and inference recomputed the model's bounds from every
+  vertex. Both are now constant time (`Entities::section_planes`, `DocumentIndex::bounds`);
+  the house went from 2.4 to 0.12 ms median. Still to measure: frame time (renderer), startup
+  (GUI) and memory; the house's 12 ms worst move is not explained yet.
