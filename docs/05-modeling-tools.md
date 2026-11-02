@@ -716,3 +716,14 @@ UI hints are generated from one source.
   `math::pins`, on centered and scaled coordinates; property tests recover random similarity,
   affine and projective maps to 0.1 µm. The interactive pins of the GUI come later; the
   Position Texture window keeps offset, rotation and scale.
+- 2026-11-02 — **`project_from` and `copy_to`** (§5.9). `project_from: Plane` (world) measures
+  offsets, rotation, scale and pins in that plane instead of the face's, and stores a projected
+  map: each point of the face takes the texture of its projection onto the plane. It refuses
+  `projective` and `reset`. `copy_to: Sel` names other faces of the edit context; each gets the
+  positioned side's material and its placement as a projection from the positioned face's plane
+  (a projection stays as it is), so the texture runs on across shared edges without a seam.
+  Faces seen edge-on from that plane get stretched texture, as any projection gives. A
+  perspective or per-vertex placement cannot be continued, and a `copy_to` that names no other
+  face fails; both leave the document unchanged. The output counts every face changed.
+  `textures_project_and_continue_onto_other_faces` continues a box's top onto its sides and
+  checks that both faces give the same texture point on each shared edge.

@@ -17,6 +17,8 @@ All notable changes to Planyrith are recorded here. Versions follow
 - Place a texture with pins: `texture-position --pins` puts chosen points of
   the texture on chosen points of the face. One pin moves it, two also turn
   and scale it, three also skew it, four in perspective with `--projective`.
+- Project a texture from a plane with `texture-position --project-from`, and
+  continue a face's texture onto other faces with `--copy-to`, without seams.
 - Select images by clicking them, as other entities; geometry in front of an
   image still takes the click.
 - glTF cameras import as scenes, and scenes export as glTF cameras, so views

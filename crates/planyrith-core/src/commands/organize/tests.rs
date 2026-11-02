@@ -1347,3 +1347,137 @@ fn texture_pins_place_textures() {
     let (_, face) = doc.model.mesh().faces().next().unwrap();
     assert!(matches!(face.sides.uv_front, Some(UvMap::Affine(_))));
 }
+
+/// `project_from` measures a placement in another plane, and `copy_to`
+/// continues a face's texture onto others, projected from its plane
+/// (docs/05 §5.9).
+#[test]
+fn textures_project_and_continue_onto_other_faces() {
+    use crate::document::UvMap;
+    use glam::{DVec2, DVec3};
+    let (mut e, _storage) = engine_with_storage();
+    run(
+        &mut e,
+        "rectangle",
+        json!({ "corner_a": [0, 0, 0], "corner_b": [1000, 1000, 0] }),
+    );
+    run(
+        &mut e,
+        "push-pull",
+        json!({ "face": { "Query": "face" }, "distance": 1000.0 }),
+    );
+    run(
+        &mut e,
+        "material-create",
+        json!({ "name": "Tile", "color": "#C8C8D2", "texture": "textures/tile.png",
+                "texture_width": 500.0, "texture_height": 500.0 }),
+    );
+    let face_at = |e: &Engine, on: DVec3, normal: DVec3| {
+        let doc = e.document();
+        let (id, _) = doc
+            .model
+            .mesh()
+            .faces()
+            .find(|(_, f)| {
+                f.plane.normal.dot(normal) > 0.999 && f.plane.signed_distance(on).abs() < 1e-6
+            })
+            .unwrap();
+        doc.model.pid_of(crate::ids::EntityId::Face(id)).unwrap()
+    };
+    let top = face_at(&e, DVec3::new(0.0, 0.0, 1000.0), DVec3::Z);
+    run(
+        &mut e,
+        "material-apply",
+        json!({ "targets": format!("@{}", top.0), "material": "Tile" }),
+    );
+    // Texture millimeters of a point on the front side of the face `pid`.
+    let mapped = |e: &Engine, pid: crate::ids::Pid, p: DVec3| {
+        let doc = e.document();
+        let resolved = doc
+            .model
+            .key_to_id(crate::document::EntityKey::Pid(pid))
+            .unwrap();
+        let crate::ids::EntityId::Face(id) = resolved else {
+            panic!()
+        };
+        let face = doc.model.mesh().face(id).unwrap();
+        let tile = face
+            .sides
+            .material_front
+            .and_then(|m| doc.materials.get(m))
+            .map(|m| m.texture.is_some());
+        assert_eq!(tile, Some(true), "painted with the texture");
+        match &face.sides.uv_front {
+            Some(UvMap::Affine(a)) => a.transform_point2(face.plane.frame().to_2d(p)),
+            Some(UvMap::Projected { plane, affine }) => {
+                affine.transform_point2(plane.frame().to_2d(p))
+            }
+            other => panic!("{other:?}"),
+        }
+    };
+
+    // Projected from the ground, the offset is measured there.
+    run(
+        &mut e,
+        "texture-position",
+        json!({ "face": { "Pid": top.0 }, "project_from": { "normal": [0, 0, 1], "d": 0.0 },
+                "offset_u": 100.0 }),
+    );
+    let ground = crate::math::Plane::from_point_normal(DVec3::ZERO, DVec3::Z).frame();
+    let corner = DVec3::new(0.0, 0.0, 1000.0);
+    let expected = ground.to_2d(DVec3::ZERO) - DVec2::new(100.0, 0.0);
+    assert!(mapped(&e, top, corner).distance(expected) < 1e-9);
+
+    // Continued onto every other face, the texture meets itself at each
+    // edge the top shares with a side.
+    run(
+        &mut e,
+        "texture-position",
+        json!({ "face": { "Pid": top.0 }, "rotation": 30.0 }),
+    );
+    let out = run(
+        &mut e,
+        "texture-position",
+        json!({ "face": { "Pid": top.0 }, "rotation": 30.0, "copy_to": "face" }),
+    );
+    assert_eq!(out["faces"], 6);
+    for (normal, edge) in [
+        (-DVec3::Y, DVec3::new(400.0, 0.0, 1000.0)),
+        (DVec3::X, DVec3::new(1000.0, 300.0, 1000.0)),
+        (DVec3::Y, DVec3::new(700.0, 1000.0, 1000.0)),
+        (-DVec3::X, DVec3::new(0.0, 600.0, 1000.0)),
+    ] {
+        let side = face_at(&e, edge, normal);
+        let (a, b) = (mapped(&e, top, edge), mapped(&e, side, edge));
+        assert!(a.distance(b) < 1e-9, "{normal}: {a} vs {b}");
+    }
+    assert_valid(&e);
+
+    // A perspective placement cannot be continued, and copy_to must name
+    // another face; neither changes anything.
+    let before = e.document().clone();
+    for params in [
+        json!({ "face": { "Pid": top.0 }, "projective": true, "copy_to": "face", "pins": [
+            { "uv": [0, 0], "at": [0, 0, 1000] }, { "uv": [1, 0], "at": [900, 0, 1000] },
+            { "uv": [1, 1], "at": [800, 900, 1000] }, { "uv": [0, 1], "at": [0, 1000, 1000] }] }),
+        json!({ "face": { "Pid": top.0 }, "copy_to": "face & area>10m2" }),
+    ] {
+        assert!(
+            e.execute_erased("texture-position", params.clone())
+                .is_err(),
+            "{params}"
+        );
+    }
+    assert_eq!(
+        e.document().model.mesh().face_count(),
+        before.model.mesh().face_count()
+    );
+    let unchanged = e
+        .document()
+        .model
+        .mesh()
+        .faces()
+        .zip(before.model.mesh().faces())
+        .all(|((_, a), (_, b))| a.sides == b.sides);
+    assert!(unchanged);
+}

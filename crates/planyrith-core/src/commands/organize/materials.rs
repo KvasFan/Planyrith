@@ -16,7 +16,7 @@ use crate::commands::{
     Command, CommandCategory, CommandError, CommandMeta, CommonParams, ToolStep, Transaction,
 };
 use crate::document::{
-    ColorizeMode, ContainerRef, Document, EntityRecord, EntityView, Material, Query, Texture,
+    ColorizeMode, ContainerRef, Document, EntityRecord, EntityView, Material, Query, Texture, UvMap,
 };
 use crate::geom::FaceSides;
 use crate::ids::{EntityId, FaceId, MaterialId};
@@ -852,6 +852,14 @@ pub struct TexturePositionParams {
     /// With four pins, a perspective placement through all of them.
     #[serde(default)]
     pub projective: bool,
+    /// Project the texture from this plane (world) instead of laying it on
+    /// the face: offsets and pins are measured in the plane.
+    #[serde(default)]
+    pub project_from: Option<crate::math::Plane>,
+    /// Faces of the edit context that continue the texture: they get the
+    /// face's material and its placement, projected from its plane.
+    #[serde(default)]
+    pub copy_to: Option<Query>,
 }
 
 fn unit_scale() -> f64 {
@@ -880,7 +888,7 @@ fn pinned(
     match pairs.len() {
         1 => {
             let linear = match current {
-                Some(UvMap::Affine(a)) => a.matrix2,
+                Some(UvMap::Affine(a) | UvMap::Projected { affine: a, .. }) => a.matrix2,
                 _ => glam::DMat2::IDENTITY,
             };
             Ok(UvMap::Affine(glam::DAffine2::from_mat2_translation(
@@ -900,6 +908,85 @@ fn pinned(
         _ => pins::affine_fit(&pairs)
             .map(UvMap::Affine)
             .ok_or_else(degenerate),
+    }
+}
+
+/// A positioned face whose texture continues onto others (`copy_to`).
+struct Continuation<'a> {
+    face: FaceId,
+    plane: crate::math::Plane,
+    sides: &'a FaceSides,
+    front: bool,
+    back: bool,
+}
+
+impl Continuation<'_> {
+    /// One side's placement as a projection: a face's own placement is
+    /// projected from its plane, so the texture runs on across the others.
+    fn projected(&self, map: Option<&UvMap>) -> Result<UvMap, CommandError> {
+        match map {
+            None => Ok(UvMap::Projected {
+                plane: self.plane,
+                affine: glam::DAffine2::IDENTITY,
+            }),
+            Some(UvMap::Affine(affine)) => Ok(UvMap::Projected {
+                plane: self.plane,
+                affine: *affine,
+            }),
+            Some(projected @ UvMap::Projected { .. }) => Ok(projected.clone()),
+            Some(_) => Err(CommandError::NotApplicable(
+                "a perspective or per-vertex placement cannot be continued onto other faces".into(),
+            )),
+        }
+    }
+
+    /// Paints and maps the other faces `query` names; returns their count.
+    fn onto(
+        &self,
+        tx: &mut Transaction<'_>,
+        target: &crate::commands::params::Target,
+        query: &Query,
+    ) -> Result<usize, CommandError> {
+        let front = self
+            .front
+            .then(|| self.projected(self.sides.uv_front.as_ref()))
+            .transpose()?;
+        let back = self
+            .back
+            .then(|| self.projected(self.sides.uv_back.as_ref()))
+            .transpose()?;
+        let ids = crate::commands::common::targets_of(tx, target, "copy_to", query)?;
+        let mut count = 0;
+        for id in ids {
+            let EntityId::Face(f) = id else { continue };
+            if f == self.face {
+                continue;
+            }
+            let Some(mut sides) = tx
+                .document()
+                .container(target.container)
+                .and_then(|c| c.mesh().face(f))
+                .map(|face| face.sides.clone())
+            else {
+                continue;
+            };
+            if let Some(map) = &front {
+                sides.material_front = self.sides.material_front;
+                sides.uv_front = Some(map.clone());
+            }
+            if let Some(map) = &back {
+                sides.material_back = self.sides.material_back;
+                sides.uv_back = Some(map.clone());
+            }
+            tx.with_mesh(target.container, |m, _, d| m.set_face_sides(f, sides, d))?;
+            count += 1;
+        }
+        if count == 0 {
+            return Err(CommandError::NotApplicable(
+                "copy_to names no other face in the edit context".into(),
+            ));
+        }
+        Ok(count)
     }
 }
 
@@ -957,6 +1044,22 @@ impl Command for TexturePosition {
                 "a perspective placement needs four pins",
             ));
         }
+        if let Some(plane) = p.project_from {
+            if !(plane.normal.is_finite() && plane.d.is_finite())
+                || (plane.normal.length() - 1.0).abs() > 1e-6
+            {
+                return Err(CommandError::invalid_param(
+                    "project_from",
+                    "the normal must be a unit vector",
+                ));
+            }
+            if p.projective || p.reset {
+                return Err(CommandError::invalid_param(
+                    "project_from",
+                    "a projection takes offsets or up to four affine pins",
+                ));
+            }
+        }
         Ok(())
     }
 
@@ -978,33 +1081,58 @@ impl Command for TexturePosition {
                 "the face is not in the edit context; open its group first".into(),
             ));
         }
-        let mut sides = tx
+        let (mut sides, face_plane) = tx
             .document()
             .container(target.container)
             .and_then(|c| c.mesh().face(face))
-            .map(|f| f.sides.clone())
+            .map(|f| (f.sides.clone(), f.plane))
             .ok_or_else(|| CommandError::Internal("face vanished".into()))?;
-        if !p.pins.is_empty() {
-            let (plane, local) = {
-                let doc = tx.document();
-                let f = doc
-                    .container(target.container)
-                    .and_then(|c| c.mesh().face(face))
-                    .ok_or_else(|| CommandError::Internal("face vanished".into()))?;
-                let pins: Vec<glam::DVec3> =
-                    p.pins.iter().map(|pin| target.to_local(pin.at)).collect();
-                (f.plane, pins)
-            };
+        // Positions are measured in the projection plane, else the face's.
+        let projection = p.project_from.map(|plane| plane.transformed(&target.local));
+        let plane = projection.unwrap_or(face_plane);
+        let wrap = |map: UvMap| match (projection, map) {
+            (Some(plane), UvMap::Affine(affine)) => UvMap::Projected { plane, affine },
+            (_, map) => map,
+        };
+        let front = matches!(p.side, Side::Front | Side::Both);
+        let back = matches!(p.side, Side::Back | Side::Both);
+        if p.pins.is_empty() {
+            // Plane millimeters → texture millimeters: the texture origin
+            // at the offset, turned and stretched.
+            let map = (!p.reset).then(|| {
+                let (sin, cos) = (
+                    libm::sin(p.rotation.to_radians()),
+                    libm::cos(p.rotation.to_radians()),
+                );
+                let unturn =
+                    glam::DMat2::from_cols(glam::DVec2::new(cos, -sin), glam::DVec2::new(sin, cos));
+                let unstretch =
+                    glam::DMat2::from_diagonal(glam::DVec2::new(1.0 / p.scale_u, 1.0 / p.scale_v));
+                let m = unstretch * unturn;
+                let offset = glam::DVec2::new(p.offset_u.as_mm(), p.offset_v.as_mm());
+                wrap(UvMap::Affine(glam::DAffine2::from_mat2_translation(
+                    m,
+                    -(m * offset),
+                )))
+            });
+            if front {
+                sides.uv_front = map.clone();
+            }
+            if back {
+                sides.uv_back = map;
+            }
+        } else {
             let frame = plane.frame();
-            let at: Vec<glam::DVec2> = local
+            let at: Vec<glam::DVec2> = p
+                .pins
                 .iter()
-                .map(|q| frame.to_2d(plane.project(*q)))
+                .map(|pin| frame.to_2d(plane.project(target.to_local(pin.at))))
                 .collect();
-            for (side, wanted) in [(Side::Front, true), (Side::Back, false)] {
-                if !(p.side == side || p.side == Side::Both) {
+            for (wanted, is_front) in [(front, true), (back, false)] {
+                if !wanted {
                     continue;
                 }
-                let (material, current) = if wanted {
+                let (material, current) = if is_front {
                     (sides.material_front, sides.uv_front.clone())
                 } else {
                     (sides.material_back, sides.uv_back.clone())
@@ -1016,46 +1144,32 @@ impl Command for TexturePosition {
                     .ok_or_else(|| {
                         CommandError::NotApplicable(format!(
                             "the {} side has no textured material to pin",
-                            if wanted { "front" } else { "back" }
+                            if is_front { "front" } else { "back" }
                         ))
                     })?;
-                let map = pinned(&p, &at, tile, current.as_ref())?;
-                if wanted {
+                let map = wrap(pinned(&p, &at, tile, current.as_ref())?);
+                if is_front {
                     sides.uv_front = Some(map);
                 } else {
                     sides.uv_back = Some(map);
                 }
             }
-            tx.with_mesh(target.container, |m, _, d| m.set_face_sides(face, sides, d))?;
-            return Ok(MaterialApplyOutput {
-                faces: 1,
-                occurrences: 0,
-            });
         }
-        // Face-frame millimeters → texture millimeters: the texture origin
-        // at the offset, turned and stretched.
-        let map = (!p.reset).then(|| {
-            let (sin, cos) = (
-                libm::sin(p.rotation.to_radians()),
-                libm::cos(p.rotation.to_radians()),
-            );
-            let unturn =
-                glam::DMat2::from_cols(glam::DVec2::new(cos, -sin), glam::DVec2::new(sin, cos));
-            let unstretch =
-                glam::DMat2::from_diagonal(glam::DVec2::new(1.0 / p.scale_u, 1.0 / p.scale_v));
-            let m = unstretch * unturn;
-            let offset = glam::DVec2::new(p.offset_u.as_mm(), p.offset_v.as_mm());
-            crate::document::UvMap::Affine(glam::DAffine2::from_mat2_translation(m, -(m * offset)))
-        });
-        if matches!(p.side, Side::Front | Side::Both) {
-            sides.uv_front = map.clone();
-        }
-        if matches!(p.side, Side::Back | Side::Both) {
-            sides.uv_back = map;
-        }
+        let placed = sides.clone();
         tx.with_mesh(target.container, |m, _, d| m.set_face_sides(face, sides, d))?;
+        let mut faces = 1;
+        if let Some(query) = &p.copy_to {
+            let copy = Continuation {
+                face,
+                plane: face_plane,
+                sides: &placed,
+                front,
+                back,
+            };
+            faces += copy.onto(tx, &target, query)?;
+        }
         Ok(MaterialApplyOutput {
-            faces: 1,
+            faces,
             occurrences: 0,
         })
     }

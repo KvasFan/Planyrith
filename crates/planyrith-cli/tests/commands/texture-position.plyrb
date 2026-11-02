@@ -7,3 +7,8 @@ texture-position --face '{face}' --side both --offset-u 250mm --rotation 30 --sc
 rectangle --corner-a 3000,0,0 --corner-b 6000,1000,0
 material-apply --targets 'face & area>2.5m2' --material Oak --side both
 texture-position --face '{face & area>2.5m2}' --side both --pins '{"uv":[0,0],"at":[3000,0,0]}' --pins '{"uv":[1,0],"at":[3600,200,0]}' --pins '{"uv":[0,1],"at":[3100,700,0]}'
+# A third face's texture projected from the ground and continued onto a fourth.
+rectangle --corner-a 7000,0,0 --corner-b 8000,1000,0
+rectangle --corner-a 8500,0,0 --corner-b 9000,1000,0
+material-apply --targets 'face & area>0.75m2 & area<1.5m2' --material Oak
+texture-position --face '{face & area>0.75m2 & area<1.5m2}' --project-from xy --offset-u 100mm --copy-to 'face & area<0.75m2'
