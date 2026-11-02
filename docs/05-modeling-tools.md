@@ -703,3 +703,16 @@ UI hints are generated from one source.
   and `axes-reset` move the drawing axes; inference uses the model's (origin snap, on-axis
   directions, axis locks). `text-3d` uses the bundled Inter (SIL OFL) or a font file read through
   the storage; `height` is the capital height; `placement` puts the baseline on local +X.
+- 2026-11-02 — **Texture pins** (§5.9). `texture-position` takes `pins`, one to four
+  `{ uv: [u, v], at: Point }`, instead of offset, rotation, scale and reset (giving both fails).
+  `uv` is in texture repeats, `[0, 0]` the texture's lower left corner, `[1, 1]` its upper
+  right; `at` is a world point, projected onto the face's plane. One pin moves the texture and
+  keeps its turn and stretch; two give the turn and uniform scale that put both in place;
+  three the affine placement through all three (this is the spec's fixed mode); four the
+  closest affine one, or with `projective` the perspective placement through all four (the free
+  mode). Each side uses its own material's tile size; a side without a textured material,
+  pins at one point or on one line, and `projective` without four pins fail before any change.
+  On the command line each pin is one `--pins '{"uv":[0,0],"at":[0,0,0]}'`. Solvers are in
+  `math::pins`, on centered and scaled coordinates; property tests recover random similarity,
+  affine and projective maps to 0.1 µm. The interactive pins of the GUI come later; the
+  Position Texture window keeps offset, rotation and scale.

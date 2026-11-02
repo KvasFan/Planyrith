@@ -10,6 +10,7 @@
 
 pub mod aabb;
 pub mod intersect;
+pub mod pins;
 pub mod plane;
 pub mod polygon;
 pub mod ray;

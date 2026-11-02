@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc a23e239789b5f19d4b5553bde48d048a1a801d52206f773ed13ba453b84698c5 # shrinks to pts = [DVec2(3654.142683966417, -3719.953058494201), DVec2(-4489.268635822392, 4987.086280827241), DVec2(-4416.620312185931, 4893.090587830749), DVec2(0.0, 0.0)], m = [-1.468109997157466, -2.6468700459477796, 0.0, 1.7301180391188813], shift = DVec2(0.0, 0.0)
+cc efa2e76ce25f11cf959682f364375aab7cb6f03b6b503a19b621b725a0e214c2 # shrinks to pts = [DVec2(-4752.284317704033, -4711.336280028675), DVec2(0.0, 3006.7994421658796), DVec2(-4765.837983605058, -4730.788623748725), DVec2(0.0, 0.0)], m = [0.0, -2.172784513446897, -2.986233835422869, 0.0], shift = DVec2(0.0, 0.0)

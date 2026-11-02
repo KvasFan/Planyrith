@@ -3,3 +3,7 @@ material-create --name Oak --color '#A0522D' --texture textures/oak.png --textur
 rectangle --corner-a 0,0,0 --corner-b 2000,1000,0
 material-apply --targets face --material Oak --side both
 texture-position --face '{face}' --side both --offset-u 250mm --rotation 30 --scale-u 2 --scale-v 2
+# A second face whose texture is pinned: corner, right edge and top edge.
+rectangle --corner-a 3000,0,0 --corner-b 6000,1000,0
+material-apply --targets 'face & area>2.5m2' --material Oak --side both
+texture-position --face '{face & area>2.5m2}' --side both --pins '{"uv":[0,0],"at":[3000,0,0]}' --pins '{"uv":[1,0],"at":[3600,200,0]}' --pins '{"uv":[0,1],"at":[3100,700,0]}'

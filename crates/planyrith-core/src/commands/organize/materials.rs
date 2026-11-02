@@ -801,7 +801,21 @@ impl Command for MaterialSample {
 
 // ----- texture-position ---------------------------------------------------------------------
 
-/// `texture-position` parameters (docs/05 §5.9, offset/rotation/scale form).
+/// A texture pin (docs/05 §5.9): this point of the texture goes there.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct TexturePin {
+    /// Point of the texture in repeats: `[0, 0]` is its lower left corner,
+    /// `[1, 1]` its upper right one.
+    #[schemars(with = "[f64; 2]")]
+    pub uv: glam::DVec2,
+    /// Where it goes (world, mm); points off the face's plane are projected
+    /// onto it.
+    #[schemars(with = "crate::commands::params::PointSchema")]
+    pub at: glam::DVec3,
+}
+
+/// `texture-position` parameters (docs/05 §5.9): offset, rotation and
+/// scale, or pins.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct TexturePositionParams {
     /// Common fields.
@@ -830,10 +844,63 @@ pub struct TexturePositionParams {
     /// Back to the default placement (the others are ignored).
     #[serde(default)]
     pub reset: bool,
+    /// One to four pins, instead of offset, rotation and scale: one moves
+    /// the texture, two also turn and scale it, three also skew it, four
+    /// give the closest such placement.
+    #[serde(default)]
+    pub pins: Vec<TexturePin>,
+    /// With four pins, a perspective placement through all of them.
+    #[serde(default)]
+    pub projective: bool,
 }
 
 fn unit_scale() -> f64 {
     1.0
+}
+
+/// The map from face-frame millimeters (`at`, one per pin) to texture
+/// millimeters putting each pin's texture point on its place. One pin keeps
+/// the turn and stretch of the `current` affine map (none: the default).
+fn pinned(
+    p: &TexturePositionParams,
+    at: &[glam::DVec2],
+    tile: glam::DVec2,
+    current: Option<&crate::document::UvMap>,
+) -> Result<crate::document::UvMap, CommandError> {
+    use crate::document::UvMap;
+    use crate::math::pins;
+    let uv: Vec<glam::DVec2> = p.pins.iter().map(|pin| pin.uv * tile).collect();
+    let pairs: Vec<(glam::DVec2, glam::DVec2)> =
+        at.iter().copied().zip(uv.iter().copied()).collect();
+    let degenerate = || {
+        CommandError::NotApplicable(
+            "the pins give no placement: pins on one line or at one point".into(),
+        )
+    };
+    match pairs.len() {
+        1 => {
+            let linear = match current {
+                Some(UvMap::Affine(a)) => a.matrix2,
+                _ => glam::DMat2::IDENTITY,
+            };
+            Ok(UvMap::Affine(glam::DAffine2::from_mat2_translation(
+                linear,
+                uv[0] - linear * at[0],
+            )))
+        }
+        2 => pins::similarity([at[0], at[1]], [uv[0], uv[1]])
+            .map(UvMap::Affine)
+            .ok_or_else(degenerate),
+        4 if p.projective => {
+            let four = [pairs[0], pairs[1], pairs[2], pairs[3]];
+            pins::homography(&four)
+                .map(UvMap::Projective)
+                .ok_or_else(degenerate)
+        }
+        _ => pins::affine_fit(&pairs)
+            .map(UvMap::Affine)
+            .ok_or_else(degenerate),
+    }
 }
 
 /// The `texture-position` command.
@@ -863,6 +930,33 @@ impl Command for TexturePosition {
         {
             return Err(CommandError::invalid_param("rotation", "must be finite"));
         }
+        if p.pins.len() > 4 {
+            return Err(CommandError::invalid_param("pins", "at most four pins"));
+        }
+        if p.pins
+            .iter()
+            .any(|pin| !pin.uv.is_finite() || !pin.at.is_finite())
+        {
+            return Err(CommandError::invalid_param("pins", "must be finite"));
+        }
+        let placed = p.offset_u.as_mm().abs() > 0.0
+            || p.offset_v.as_mm().abs() > 0.0
+            || p.rotation.abs() > 0.0
+            || (p.scale_u - 1.0).abs() > 0.0
+            || (p.scale_v - 1.0).abs() > 0.0
+            || p.reset;
+        if !p.pins.is_empty() && placed {
+            return Err(CommandError::invalid_param(
+                "pins",
+                "pins replace offset, rotation, scale and reset; give one or the other",
+            ));
+        }
+        if p.projective && p.pins.len() != 4 {
+            return Err(CommandError::invalid_param(
+                "projective",
+                "a perspective placement needs four pins",
+            ));
+        }
         Ok(())
     }
 
@@ -890,6 +984,54 @@ impl Command for TexturePosition {
             .and_then(|c| c.mesh().face(face))
             .map(|f| f.sides.clone())
             .ok_or_else(|| CommandError::Internal("face vanished".into()))?;
+        if !p.pins.is_empty() {
+            let (plane, local) = {
+                let doc = tx.document();
+                let f = doc
+                    .container(target.container)
+                    .and_then(|c| c.mesh().face(face))
+                    .ok_or_else(|| CommandError::Internal("face vanished".into()))?;
+                let pins: Vec<glam::DVec3> =
+                    p.pins.iter().map(|pin| target.to_local(pin.at)).collect();
+                (f.plane, pins)
+            };
+            let frame = plane.frame();
+            let at: Vec<glam::DVec2> = local
+                .iter()
+                .map(|q| frame.to_2d(plane.project(*q)))
+                .collect();
+            for (side, wanted) in [(Side::Front, true), (Side::Back, false)] {
+                if !(p.side == side || p.side == Side::Both) {
+                    continue;
+                }
+                let (material, current) = if wanted {
+                    (sides.material_front, sides.uv_front.clone())
+                } else {
+                    (sides.material_back, sides.uv_back.clone())
+                };
+                let tile = material
+                    .and_then(|m| tx.document().materials.get(m))
+                    .and_then(|m| m.texture.as_ref())
+                    .map(|t| t.size_mm)
+                    .ok_or_else(|| {
+                        CommandError::NotApplicable(format!(
+                            "the {} side has no textured material to pin",
+                            if wanted { "front" } else { "back" }
+                        ))
+                    })?;
+                let map = pinned(&p, &at, tile, current.as_ref())?;
+                if wanted {
+                    sides.uv_front = Some(map);
+                } else {
+                    sides.uv_back = Some(map);
+                }
+            }
+            tx.with_mesh(target.container, |m, _, d| m.set_face_sides(face, sides, d))?;
+            return Ok(MaterialApplyOutput {
+                faces: 1,
+                occurrences: 0,
+            });
+        }
         // Face-frame millimeters → texture millimeters: the texture origin
         // at the offset, turned and stretched.
         let map = (!p.reset).then(|| {

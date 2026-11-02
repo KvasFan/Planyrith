@@ -1204,3 +1204,146 @@ fn rays_find_image_entities() {
     assert!(ray_cast_images(e.document(), &down(600.0, 700.0), false).is_none());
     assert!(ray_cast_images(e.document(), &down(600.0, 700.0), true).is_some());
 }
+
+/// Pins place a texture so each pin's texture point lands on its place:
+/// one moves it, two turn and scale it, three skew it, four in perspective
+/// (docs/05 §5.9).
+#[test]
+fn texture_pins_place_textures() {
+    use crate::document::UvMap;
+    use glam::{DVec2, DVec3};
+    let (mut e, _storage) = engine_with_storage();
+    run(
+        &mut e,
+        "rectangle",
+        json!({ "corner_a": [0, 0, 0], "corner_b": [4000, 3000, 0] }),
+    );
+    run(
+        &mut e,
+        "material-create",
+        json!({ "name": "Tile", "color": "#C8C8D2", "texture": "textures/tile.png",
+                "texture_width": 500.0, "texture_height": 500.0 }),
+    );
+    run(
+        &mut e,
+        "material-apply",
+        json!({ "targets": "face", "material": "Tile", "side": "both" }),
+    );
+    let doc = e.document();
+    let pid = doc
+        .model
+        .pid_of(
+            doc.model
+                .order()
+                .iter()
+                .copied()
+                .find(|id| matches!(id, crate::ids::EntityId::Face(_)))
+                .unwrap(),
+        )
+        .unwrap();
+    // Texture millimeters at a world point of the face, on one side.
+    let mapped = |e: &Engine, p: DVec3, front: bool| {
+        let doc = e.document();
+        let (_, face) = doc.model.mesh().faces().next().unwrap();
+        let q = face.plane.frame().to_2d(p);
+        match if front {
+            &face.sides.uv_front
+        } else {
+            &face.sides.uv_back
+        } {
+            Some(UvMap::Affine(a)) => a.transform_point2(q),
+            Some(UvMap::Projective(m)) => {
+                let h = *m * q.extend(1.0);
+                h.truncate() / h.z
+            }
+            other => panic!("{other:?}"),
+        }
+    };
+    let pin = |uv: [f64; 2], at: [f64; 3]| json!({ "uv": uv, "at": at });
+    let cases = [
+        (vec![pin([0.0, 0.0], [300.0, 200.0, 0.0])], false),
+        (
+            vec![
+                pin([0.0, 0.0], [300.0, 200.0, 0.0]),
+                pin([2.0, 0.0], [1300.0, 1200.0, 0.0]),
+            ],
+            false,
+        ),
+        (
+            vec![
+                pin([0.0, 0.0], [300.0, 200.0, 0.0]),
+                pin([1.0, 0.0], [1300.0, 200.0, 0.0]),
+                pin([0.0, 1.0], [700.0, 900.0, 0.0]),
+            ],
+            false,
+        ),
+        (
+            vec![
+                pin([0.0, 0.0], [300.0, 200.0, 0.0]),
+                pin([1.0, 0.0], [1800.0, 300.0, 0.0]),
+                pin([1.0, 1.0], [1500.0, 1400.0, 0.0]),
+                pin([0.0, 1.0], [400.0, 1000.0, 0.0]),
+            ],
+            true,
+        ),
+    ];
+    for (pins, projective) in cases {
+        run(
+            &mut e,
+            "texture-position",
+            json!({ "face": { "Pid": pid.0 }, "side": "both", "pins": pins, "projective": projective }),
+        );
+        for pin in &pins {
+            let uv: [f64; 2] = serde_json::from_value(pin["uv"].clone()).unwrap();
+            let at: [f64; 3] = serde_json::from_value(pin["at"].clone()).unwrap();
+            for front in [true, false] {
+                let got = mapped(&e, DVec3::from(at), front);
+                let want = DVec2::from(uv) * 500.0;
+                assert!(
+                    got.distance(want) < 1e-6,
+                    "{} pins: {got} vs {want}",
+                    pins.len()
+                );
+            }
+        }
+    }
+    let doc = e.document();
+    let (_, face) = doc.model.mesh().faces().next().unwrap();
+    assert!(matches!(face.sides.uv_front, Some(UvMap::Projective(_))));
+    assert_valid(&e);
+
+    // Refusals change nothing.
+    let before = e
+        .document()
+        .model
+        .mesh()
+        .faces()
+        .next()
+        .unwrap()
+        .1
+        .sides
+        .clone();
+    for params in [
+        json!({ "face": { "Pid": pid.0 }, "pins": [pin([0.0, 0.0], [0.0, 0.0, 0.0])], "rotation": 30.0 }),
+        json!({ "face": { "Pid": pid.0 }, "pins": [pin([0.0, 0.0], [0.0, 0.0, 0.0])], "projective": true }),
+        json!({ "face": { "Pid": pid.0 }, "pins": [
+            pin([0.0, 0.0], [0.0, 0.0, 0.0]), pin([1.0, 0.0], [1000.0, 0.0, 0.0]),
+            pin([2.0, 0.0], [2000.0, 0.0, 0.0])] }),
+        json!({ "face": { "Pid": pid.0 }, "pins": vec![pin([0.0, 0.0], [0.0, 0.0, 0.0]); 5] }),
+    ] {
+        assert!(
+            e.execute_erased("texture-position", params.clone())
+                .is_err(),
+            "{params}"
+        );
+    }
+    assert_eq!(
+        e.document().model.mesh().faces().next().unwrap().1.sides,
+        before
+    );
+    // One undo step restores the previous placement.
+    e.undo().unwrap();
+    let doc = e.document();
+    let (_, face) = doc.model.mesh().faces().next().unwrap();
+    assert!(matches!(face.sides.uv_front, Some(UvMap::Affine(_))));
+}

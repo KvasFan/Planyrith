@@ -14,6 +14,9 @@ All notable changes to Planyrith are recorded here. Versions follow
   "From edges" is on in the Shadows window or `shadows-set --from-edges`.
 - Show distant textures smoothly: textures now have mipmaps, so floors, fabrics
   and tiles seen from afar no longer turn into speckled noise.
+- Place a texture with pins: `texture-position --pins` puts chosen points of
+  the texture on chosen points of the face. One pin moves it, two also turn
+  and scale it, three also skew it, four in perspective with `--projective`.
 - Select images by clicking them, as other entities; geometry in front of an
   image still takes the click.
 - glTF cameras import as scenes, and scenes export as glTF cameras, so views
