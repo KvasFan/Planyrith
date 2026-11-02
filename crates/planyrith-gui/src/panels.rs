@@ -10,6 +10,7 @@ use planyrith_core::document::{
 use planyrith_core::ids::EntityId;
 use serde_json::{Value, json};
 
+use crate::i18n::{en, t, t_args};
 use crate::icons::{self, Icon};
 use crate::session::Session;
 use crate::tools::{Cx, Tool};
@@ -57,15 +58,15 @@ fn swatch(ui: &mut egui::Ui, color: Rgba8) {
 
 fn kind_name(id: EntityId) -> &'static str {
     match id {
-        EntityId::Edge(_) => "Edge",
-        EntityId::Face(_) => "Face",
-        EntityId::Group(_) => "Group",
-        EntityId::Instance(_) => "Component",
-        EntityId::Guide(_) => "Guide",
-        EntityId::Dimension(_) => "Dimension",
-        EntityId::Text(_) => "Text",
-        EntityId::Image(_) => "Image",
-        EntityId::SectionPlane(_) => "Section Plane",
+        EntityId::Edge(_) => en("Edge"),
+        EntityId::Face(_) => en("Face"),
+        EntityId::Group(_) => en("Group"),
+        EntityId::Instance(_) => en("Component"),
+        EntityId::Guide(_) => en("Guide"),
+        EntityId::Dimension(_) => en("Dimension"),
+        EntityId::Text(_) => en("Text"),
+        EntityId::Image(_) => en("Image"),
+        EntityId::SectionPlane(_) => en("Section Plane"),
     }
 }
 
@@ -77,12 +78,17 @@ pub fn entity_info(ui: &mut egui::Ui, session: &mut Session, error: &mut Option<
     let doc = session.doc();
     let selection = session.engine.selection().clone();
     if selection.is_empty() {
-        ui.weak("No selection");
+        ui.weak(t("No selection"));
         ui.separator();
         let counts = doc.model.counts();
-        ui.label(format!(
-            "Model: {} faces, {} edges, {} groups, {} components",
-            counts.faces, counts.edges, counts.groups, counts.instances
+        ui.label(t_args(
+            "Model: { $faces } faces, { $edges } edges, { $groups } groups, { $components } components",
+            &[
+                ("faces", counts.faces.into()),
+                ("edges", counts.edges.into()),
+                ("groups", counts.groups.into()),
+                ("components", counts.instances.into()),
+            ],
         ));
         return;
     }
@@ -95,7 +101,7 @@ pub fn entity_info(ui: &mut egui::Ui, session: &mut Session, error: &mut Option<
             resolved.push((path.clone(), r));
         }
     }
-    let summary: Vec<String> = kinds.iter().map(|(k, n)| format!("{n} {k}")).collect();
+    let summary: Vec<String> = kinds.iter().map(|(k, n)| format!("{n} {}", t(k))).collect();
     ui.heading(summary.join(", "));
     ui.separator();
 
@@ -116,39 +122,39 @@ pub fn entity_info(ui: &mut egui::Ui, session: &mut Session, error: &mut Option<
         .num_columns(2)
         .show(ui, |ui| {
             if let [(path, r)] = resolved.as_slice() {
-                ui.label("Entity");
-                ui.label(format!("{} @{}", kind_name(r.entity), r.pid.0));
+                ui.label(t("Entity"));
+                ui.label(format!("{} @{}", t(kind_name(r.entity)), r.pid.0));
                 ui.end_row();
                 if let Some(entities) = doc.container(r.container) {
                     match entities.view(r.entity) {
                         Some(EntityView::Group(g)) => {
-                            ui.label("Name");
+                            ui.label(t("Name"));
                             ui.label(if g.name.is_empty() { "—" } else { &g.name });
                             ui.end_row();
                         }
                         Some(EntityView::Instance(i)) => {
                             let def = doc.definition(i.definition);
-                            ui.label("Definition");
+                            ui.label(t("Definition"));
                             ui.label(def.map_or("?", |d| d.name.as_str()));
                             ui.end_row();
-                            ui.label("Instances");
+                            ui.label(t("Instances"));
                             ui.label(def.map_or(0, |d| d.usage_count).to_string());
                             ui.end_row();
                         }
                         Some(EntityView::Face(face)) => {
                             for (label, id, side) in [
                                 (
-                                    "Front",
+                                    en(en("Front")),
                                     face.sides.material_front,
                                     planyrith_core::document::FrontOrBack::Front,
                                 ),
                                 (
-                                    "Back",
+                                    en(en("Back")),
                                     face.sides.material_back,
                                     planyrith_core::document::FrontOrBack::Back,
                                 ),
                             ] {
-                                ui.label(label);
+                                ui.label(t(label));
                                 ui.horizontal(|ui| {
                                     if let Some(m) =
                                         doc.materials.get(doc.materials.resolve(id, side))
@@ -166,17 +172,17 @@ pub fn entity_info(ui: &mut egui::Ui, session: &mut Session, error: &mut Option<
                 let _ = path;
             }
             if length > 0.0 {
-                ui.label("Length");
+                ui.label(t("Length"));
                 ui.label(format!("{length:.1} mm"));
                 ui.end_row();
             }
             if area > 0.0 {
-                ui.label("Area");
+                ui.label(t("Area"));
                 ui.label(format!("{:.4} m²", area / 1e6));
                 ui.end_row();
             }
             if volume > 0.0 {
-                ui.label("Volume");
+                ui.label(t("Volume"));
                 ui.label(format!("{:.4} m³", volume / 1e9));
                 ui.end_row();
             }
@@ -214,7 +220,7 @@ pub fn entity_info(ui: &mut egui::Ui, session: &mut Session, error: &mut Option<
     });
     let mut chosen = None;
     ui.horizontal(|ui| {
-        ui.label("Tag");
+        ui.label(t("Tag"));
         egui::ComboBox::from_id_salt("entity tag")
             .selected_text(current.clone().unwrap_or_else(|| "(mixed)".into()))
             .show_ui(ui, |ui| {
@@ -233,8 +239,8 @@ pub fn entity_info(ui: &mut egui::Ui, session: &mut Session, error: &mut Option<
     });
     let (mut hide, mut lock) = (hidden, locked);
     ui.horizontal(|ui| {
-        ui.checkbox(&mut hide, "Hidden");
-        ui.checkbox(&mut lock, "Locked");
+        ui.checkbox(&mut hide, t("Hidden"));
+        ui.checkbox(&mut lock, t("Locked"));
     });
     if let Some(tag) = chosen {
         run(
@@ -323,15 +329,15 @@ fn annotation_style(ui: &mut egui::Ui, session: &mut Session, error: &mut Option
     let mut apply = false;
     let mut reset = false;
     ui.collapsing("Annotation style", |ui| {
-        ui.label("Font family");
+        ui.label(t("Font family"));
         ui.text_edit_singleline(&mut draft.font.family);
         ui.horizontal(|ui| {
-            ui.checkbox(&mut draft.font.bold, "Bold");
-            ui.checkbox(&mut draft.font.italic, "Italic");
+            ui.checkbox(&mut draft.font.bold, t("Bold"));
+            ui.checkbox(&mut draft.font.italic, t("Italic"));
         });
         let mut model_sized = draft.font.model_height_mm.is_some();
         if ui
-            .checkbox(&mut model_sized, "Height in model units")
+            .checkbox(&mut model_sized, t("Height in model units"))
             .changed()
         {
             draft.font.model_height_mm = model_sized.then_some(100.0);
@@ -363,16 +369,16 @@ fn annotation_style(ui: &mut egui::Ui, session: &mut Session, error: &mut Option
                 }
             });
         ui.horizontal(|ui| {
-            ui.label("Color");
+            ui.label(t("Color"));
             ui.color_edit_button_srgba_unmultiplied(&mut draft.color);
         });
         if draft.text {
-            ui.checkbox(&mut draft.leader, "Show leader");
+            ui.checkbox(&mut draft.leader, t("Show leader"));
         }
-        ui.weak("Unavailable font faces use a substitute for display.");
+        ui.weak(t("Unavailable font faces use a substitute for display."));
         ui.horizontal(|ui| {
-            apply = ui.button("Apply style").clicked();
-            reset = ui.button("Reset appearance").clicked();
+            apply = ui.button(t("Apply style")).clicked();
+            reset = ui.button(t("Reset appearance")).clicked();
         });
     });
     ui.data_mut(|d| d.insert_temp(key, draft.clone()));
@@ -443,15 +449,15 @@ pub fn tags(
     ui.horizontal(|ui| {
         let edit = ui.add(
             egui::TextEdit::singleline(&mut state.new_tag)
-                .hint_text("New tag or folder")
+                .hint_text(t("New tag or folder"))
                 .desired_width(130.0),
         );
         let enter = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
         let name = state.new_tag.trim().to_string();
-        if (ui.button("Add tag").clicked() || enter) && !name.is_empty() {
+        if (ui.button(t("Add tag")).clicked() || enter) && !name.is_empty() {
             actions.push(("tag-create", json!({ "name": name })));
             state.new_tag.clear();
-        } else if ui.button("Add folder").clicked() && !name.is_empty() {
+        } else if ui.button(t("Add folder")).clicked() && !name.is_empty() {
             actions.push(("tag-folder-create", json!({ "name": name })));
             state.new_tag.clear();
         }
@@ -494,7 +500,7 @@ fn folder_tree(
         let mut v = *visible;
         if ui
             .checkbox(&mut v, "")
-            .on_hover_text("Folder visible")
+            .on_hover_text(t("Folder visible"))
             .changed()
         {
             actions.push((
@@ -514,7 +520,7 @@ fn folder_tree(
                 for (child, ..) in folders.iter().filter(|(_, _, _, p)| *p == Some(id)) {
                     folder_tree(ui, *child, folders, rows, folder_names, state, actions);
                 }
-                if empty && ui.small_button("Delete folder").clicked() {
+                if empty && ui.small_button(t("Delete folder")).clicked() {
                     actions.push(("tag-folder-delete", json!({ "name": name })));
                 }
             });
@@ -531,7 +537,11 @@ fn tag_row(
     let name = &row.name;
     ui.horizontal(|ui| {
         let mut v = row.visible;
-        if ui.checkbox(&mut v, "").on_hover_text("Visible").changed() {
+        if ui
+            .checkbox(&mut v, "")
+            .on_hover_text(t("Visible"))
+            .changed()
+        {
             actions.push(("tag-set-visible", json!({ "tag": name, "visible": v })));
         }
         swatch(ui, row.color);
@@ -556,19 +566,23 @@ fn tag_row(
         }
         if !row.untagged {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.small_button("🗑").on_hover_text("Delete tag").clicked() {
+                if ui
+                    .small_button("🗑")
+                    .on_hover_text(t("Delete tag"))
+                    .clicked()
+                {
                     actions.push(("tag-delete", json!({ "tag": name })));
                 }
                 if ui
                     .small_button("⮕")
-                    .on_hover_text("Assign the selection to this tag")
+                    .on_hover_text(t("Assign the selection to this tag"))
                     .clicked()
                 {
                     actions.push(("tag-assign", json!({ "targets": "selection", "tag": name })));
                 }
                 if !folder_names.is_empty() {
                     ui.menu_button("📁", |ui| {
-                        if ui.button("Top level").clicked() {
+                        if ui.button(t("Top level")).clicked() {
                             actions.push(("tag-move", json!({ "tag": name })));
                             ui.close();
                         }
@@ -580,7 +594,7 @@ fn tag_row(
                         }
                     })
                     .response
-                    .on_hover_text("Move to a folder");
+                    .on_hover_text(t("Move to a folder"));
                 }
             });
         }
@@ -637,15 +651,15 @@ pub fn scenes(
                 }
             }
             if names.is_empty() {
-                ui.weak("No scenes yet: add one to remember this view.");
+                ui.weak(t("No scenes yet: add one to remember this view."));
             }
         });
     ui.separator();
     ui.horizontal(|ui| {
-        ui.add(egui::TextEdit::singleline(&mut state.new_scene).hint_text("Scene name"));
+        ui.add(egui::TextEdit::singleline(&mut state.new_scene).hint_text(t("Scene name")));
         if ui
-            .button("Add")
-            .on_hover_text("Capture the current view")
+            .button(t("Add"))
+            .on_hover_text(t("Capture the current view"))
             .clicked()
         {
             let name = if state.new_scene.trim().is_empty() {
@@ -665,8 +679,8 @@ pub fn scenes(
         let index = names.iter().position(|n| *n == selected).unwrap_or(0);
         ui.horizontal(|ui| {
             if ui
-                .button("Update")
-                .on_hover_text("Capture the current view into it")
+                .button(t("Update"))
+                .on_hover_text(t("Capture the current view into it"))
                 .clicked()
             {
                 actions.push(("scene-update", json!({ "scene": selected })));
@@ -686,7 +700,7 @@ pub fn scenes(
                     json!({ "scene": selected, "index": index + 1 }),
                 ));
             }
-            if ui.button("Delete").clicked() {
+            if ui.button(t("Delete")).clicked() {
                 actions.push(("scene-delete", json!({ "scene": selected })));
                 state.selected_scene = None;
             }
@@ -701,7 +715,7 @@ pub fn scenes(
             let mut seconds = scene.transition_s;
             let mut include = scene.include_in_animation;
             ui.horizontal(|ui| {
-                ui.label("Transition");
+                ui.label(t("Transition"));
                 let drag = ui.add(
                     egui::DragValue::new(&mut seconds)
                         .range(0.0..=60.0)
@@ -715,7 +729,10 @@ pub fn scenes(
                     ));
                 }
             });
-            if ui.checkbox(&mut include, "Include in animation").changed() {
+            if ui
+                .checkbox(&mut include, t("Include in animation"))
+                .changed()
+            {
                 actions.push((
                     "scene-update",
                     json!({ "scene": selected, "properties_only": true, "include_in_animation": include }),
@@ -727,7 +744,8 @@ pub fn scenes(
             if editing.0 != selected {
                 *editing = (selected.clone(), scene.description.clone());
             }
-            let edit = ui.add(egui::TextEdit::singleline(&mut editing.1).hint_text("Description"));
+            let edit =
+                ui.add(egui::TextEdit::singleline(&mut editing.1).hint_text(t("Description")));
             if edit.lost_focus() && editing.1 != scene.description {
                 actions.push((
                     "scene-update",
@@ -762,7 +780,7 @@ pub fn outliner(ui: &mut egui::Ui, session: &mut Session, error: &mut Option<Str
         let doc = session.doc();
         let selection = session.engine.selection().clone();
         let context = session.engine.context().path.canonical(doc);
-        let model = ui.selectable_label(context.is_root(), "Model");
+        let model = ui.selectable_label(context.is_root(), t("Model"));
         if model.clicked() {
             actions.push(Outline::Context(InstancePath::root()));
         }
@@ -877,7 +895,7 @@ fn outline_level(
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui
                         .small_button(if locked { "🔒" } else { "🔓" })
-                        .on_hover_text(if locked { "Unlock" } else { "Lock" })
+                        .on_hover_text(if locked { t("Unlock") } else { t("Lock") })
                         .clicked()
                     {
                         actions.push(Outline::Command(
@@ -887,7 +905,7 @@ fn outline_level(
                     }
                     if ui
                         .small_button(if hidden { "◌" } else { "👁" })
-                        .on_hover_text(if hidden { "Unhide" } else { "Hide" })
+                        .on_hover_text(if hidden { t("Unhide") } else { t("Hide") })
                         .clicked()
                     {
                         actions.push(Outline::Command(
@@ -933,7 +951,7 @@ pub fn tool_options(ui: &mut egui::Ui, tool: &mut dyn Tool, cx: &Cx<'_>, prompt:
             let (rect, _) = ui.allocate_exact_size(egui::vec2(22.0, 22.0), egui::Sense::hover());
             icons::paint(ui.painter(), rect, icon, ui.visuals().strong_text_color());
         }
-        ui.heading(tool.label());
+        ui.heading(t(tool.label()));
     });
     if !prompt.is_empty() {
         ui.label(RichText::new(prompt).weak());
@@ -945,7 +963,7 @@ pub fn tool_options(ui: &mut egui::Ui, tool: &mut dyn Tool, cx: &Cx<'_>, prompt:
 /// Tool Help (docs/07 §4, §6): the active tool's steps from its command's
 /// metadata, the current one highlighted, and the shared keys.
 pub fn tool_help(ui: &mut egui::Ui, session: &Session, tool: &dyn Tool) {
-    ui.heading(tool.label());
+    ui.heading(t(tool.label()));
     if let Some(command) = session.engine.registry().get(tool.command()) {
         let meta = command.meta();
         ui.weak(format!("Command `{}`", meta.name));
@@ -974,12 +992,18 @@ pub fn tool_help(ui: &mut egui::Ui, session: &Session, tool: &dyn Tool) {
         }
     }
     ui.separator();
-    ui.label("Shift locks the current inference; arrow keys lock an axis (→ X, ← Y, ↑ Z, ↓ parallel/perpendicular).");
-    ui.label("Type a value and press Enter; right after a tool completes, a new value replaces the last one.");
-    ui.label("Esc cancels the step, then clears the selection, then leaves the open group.");
+    ui.label(t("Shift locks the current inference; arrow keys lock an axis (→ X, ← Y, ↑ Z, ↓ parallel/perpendicular)."));
+    ui.label(t("Type a value and press Enter; right after a tool completes, a new value replaces the last one."));
+    ui.label(t(
+        "Esc cancels the step, then clears the selection, then leaves the open group.",
+    ));
     ui.separator();
-    ui.heading("Navigate");
-    ui.label("Middle-drag orbits about the point under the cursor.");
-    ui.label("Shift + middle-drag pans; the wheel zooms toward the cursor.");
-    ui.label("Shift+Z fits the model; the Camera menu has the standard views.");
+    ui.heading(t("Navigate"));
+    ui.label(t("Middle-drag orbits about the point under the cursor."));
+    ui.label(t(
+        "Shift + middle-drag pans; the wheel zooms toward the cursor.",
+    ));
+    ui.label(t(
+        "Shift+Z fits the model; the Camera menu has the standard views.",
+    ));
 }

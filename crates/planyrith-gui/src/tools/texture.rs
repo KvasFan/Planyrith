@@ -12,6 +12,7 @@ use planyrith_core::math::Plane;
 use serde_json::{Value, json};
 
 use super::{Cx, Flow, Pointer, Shape, Tool};
+use crate::i18n::{en, t};
 
 /// Texture points of the pins, in repeats.
 const UV: [[f64; 2]; 4] = [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]];
@@ -134,7 +135,7 @@ impl Tool for TexturePinTool {
     }
 
     fn label(&self) -> &'static str {
-        "Texture Pins"
+        en("Texture Pins")
     }
 
     fn step(&self) -> usize {
@@ -216,8 +217,10 @@ impl Tool for TexturePinTool {
                  and scales it, blue and yellow skew it.",
             );
         }
-        ui.checkbox(&mut self.free, "Free pins (perspective)")
-            .on_hover_text("Each pin moves alone; four pins give a perspective placement");
-        ui.checkbox(&mut self.back, "Back side");
+        ui.checkbox(&mut self.free, t("Free pins (perspective)"))
+            .on_hover_text(t(
+                "Each pin moves alone; four pins give a perspective placement",
+            ));
+        ui.checkbox(&mut self.back, t("Back side"));
     }
 }

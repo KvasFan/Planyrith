@@ -1,6 +1,7 @@
 //! Implements docs/15 §4: a paper-space workspace. Every edit dispatches a
 //! sheet command; projection, measurement, layout and export live in the core.
 
+use crate::i18n::{en, t};
 use crate::{platform, session::Session};
 use egui::{Color32, Pos2, Sense, StrokeKind, Vec2};
 #[cfg(target_arch = "wasm32")]
@@ -27,17 +28,17 @@ enum Tool {
 impl Tool {
     fn label(self) -> &'static str {
         match self {
-            Self::Select => "Select / Move",
-            Self::View => "Model View",
-            Self::Dimension => "Dimension",
-            Self::Text => "Text",
-            Self::Table => "Table",
-            Self::Image => "Image",
-            Self::Rectangle => "Rectangle",
-            Self::Ellipse => "Ellipse",
-            Self::Polyline => "Polyline",
-            Self::TitleBlock => "Title Block",
-            Self::Label => "Bound Label",
+            Self::Select => en("Select / Move"),
+            Self::View => en("Model View"),
+            Self::Dimension => en("Dimension"),
+            Self::Text => en("Text"),
+            Self::Table => en("Table"),
+            Self::Image => en("Image"),
+            Self::Rectangle => en("Rectangle"),
+            Self::Ellipse => en("Ellipse"),
+            Self::Polyline => en("Polyline"),
+            Self::TitleBlock => en("Title Block"),
+            Self::Label => en("Bound Label"),
         }
     }
 }
@@ -127,12 +128,12 @@ fn color(c: [u8; 4]) -> Color32 {
 fn frame_ui(ui: &mut egui::Ui, r: &mut Rect) {
     egui::Grid::new("sheet-frame-fields").show(ui, |ui| {
         for (label, value) in [
-            ("X (mm)", &mut r.x),
-            ("Y (mm)", &mut r.y),
-            ("Width (mm)", &mut r.width),
-            ("Height (mm)", &mut r.height),
+            (en("X (mm)"), &mut r.x),
+            (en("Y (mm)"), &mut r.y),
+            (en("Width (mm)"), &mut r.width),
+            (en("Height (mm)"), &mut r.height),
         ] {
-            ui.label(label);
+            ui.label(t(label));
             ui.add(egui::DragValue::new(value).speed(0.5));
             ui.end_row();
         }
@@ -214,12 +215,12 @@ impl Sheets {
     /// Workspace tabs and the model-view camera editing transition.
     pub fn tabs(&mut self, ui: &mut egui::Ui, session: &mut Session) {
         ui.horizontal(|ui| {
-            ui.selectable_value(&mut self.open, false, "Model");
-            ui.selectable_value(&mut self.open, true, "Sheets");
+            ui.selectable_value(&mut self.open, false, t("Model"));
+            ui.selectable_value(&mut self.open, true, t("Sheets"));
             if let Some((page, id)) = self.editing.clone() {
                 ui.separator();
-                ui.label("Editing sheet view camera");
-                if ui.button("Use this view").clicked()
+                ui.label(t("Editing sheet view camera"));
+                if ui.button(t("Use this view")).clicked()
                     && let Some(mut entry) = session
                         .doc()
                         .sheets
@@ -250,7 +251,7 @@ impl Sheets {
                         self.open = true;
                     }
                 }
-                if ui.button("Cancel view edit").clicked() {
+                if ui.button(t("Cancel view edit")).clicked() {
                     self.editing = None;
                     self.open = true;
                 }
@@ -290,11 +291,11 @@ impl Sheets {
                         }
                     }
                 });
-            if ui.button("Add Page").clicked() {
+            if ui.button(t("Add Page")).clicked() {
                 self.add_page(session);
             }
             if ui
-                .add_enabled(!self.page.is_empty(), egui::Button::new("Remove Page"))
+                .add_enabled(!self.page.is_empty(), egui::Button::new(t("Remove Page")))
                 .clicked()
             {
                 let page = self.page.clone();
@@ -304,7 +305,7 @@ impl Sheets {
             }
             ui.separator();
             egui::ComboBox::from_id_salt("sheet-tool")
-                .selected_text(self.tool.label())
+                .selected_text(t(self.tool.label()))
                 .show_ui(ui, |ui| {
                     for tool in [
                         Tool::Select,
@@ -320,7 +321,7 @@ impl Sheets {
                         Tool::Label,
                     ] {
                         if ui
-                            .selectable_value(&mut self.tool, tool, tool.label())
+                            .selectable_value(&mut self.tool, tool, t(tool.label()))
                             .changed()
                         {
                             self.first = None;
@@ -328,11 +329,11 @@ impl Sheets {
                         }
                     }
                 });
-            if ui.button("Fit").clicked() {
+            if ui.button(t("Fit")).clicked() {
                 self.zoom = 1.0;
                 self.pan = Vec2::ZERO;
             }
-            ui.checkbox(&mut self.snap, "Snap");
+            ui.checkbox(&mut self.snap, t("Snap"));
             ui.add(
                 egui::DragValue::new(&mut self.grid)
                     .range(0.1..=100.0)
@@ -344,7 +345,9 @@ impl Sheets {
         }
         let page = session.doc().sheets.page(&self.page).cloned();
         let Some(page) = page else {
-            ui.label("Add a page or use File › Send to Sheets to place the current model view.");
+            ui.label(t(
+                "Add a page or use File › Send to Sheets to place the current model view.",
+            ));
             return;
         };
         ui.separator();
@@ -400,12 +403,12 @@ impl Sheets {
                 );
             self.paper_key = Some(paper_key);
         }
-        ui.strong("Page");
+        ui.strong(t("Page"));
         if self.rename.is_empty() {
             self.rename = page.name.clone();
         }
         ui.text_edit_singleline(&mut self.rename);
-        if ui.button("Rename Page").clicked() {
+        if ui.button(t("Rename Page")).clicked() {
             let name = self.rename.clone();
             if self
                 .execute(
@@ -427,7 +430,7 @@ impl Sheets {
                 .position(|p| p.name == page.name)
                 .unwrap_or(0);
             if ui
-                .add_enabled(index > 0, egui::Button::new("Earlier"))
+                .add_enabled(index > 0, egui::Button::new(t("Earlier")))
                 .clicked()
             {
                 self.execute(
@@ -439,7 +442,7 @@ impl Sheets {
             if ui
                 .add_enabled(
                     index + 1 < session.doc().sheets.pages.len(),
-                    egui::Button::new("Later"),
+                    egui::Button::new(t("Later")),
                 )
                 .clicked()
             {
@@ -450,9 +453,9 @@ impl Sheets {
                 );
             }
         });
-        ui.strong("Paper");
+        ui.strong(t("Paper"));
         ui.horizontal(|ui| {
-            ui.label("Size");
+            ui.label(t("Size"));
             egui::ComboBox::from_id_salt("sheet-paper")
                 .selected_text(&self.paper)
                 .show_ui(ui, |ui| {
@@ -462,14 +465,14 @@ impl Sheets {
                 });
         });
         ui.text_edit_singleline(&mut self.paper)
-            .on_hover_text("A0–A4, Letter, Tabloid or widthxheight in millimeters");
-        ui.checkbox(&mut self.landscape, "Landscape");
+            .on_hover_text(t("A0–A4, Letter, Tabloid or widthxheight in millimeters"));
+        ui.checkbox(&mut self.landscape, t("Landscape"));
         ui.add(
             egui::DragValue::new(&mut self.margin)
                 .range(0.0..=1000.0)
                 .suffix(" mm margin"),
         );
-        if ui.button("Apply Paper").clicked() {
+        if ui.button(t("Apply Paper")).clicked() {
             self.execute(
                 session,
                 "sheet-set-paper",
@@ -477,9 +480,9 @@ impl Sheets {
             );
         }
         ui.separator();
-        ui.strong("Place items");
-        ui.label("Drag a frame or pick two corners. Dimensions: pick two endpoints. Polyline: double-click to finish.");
-        ui.label("Scale");
+        ui.strong(t("Place items"));
+        ui.label(t("Drag a frame or pick two corners. Dimensions: pick two endpoints. Polyline: double-click to finish."));
+        ui.label(t("Scale"));
         ui.text_edit_singleline(&mut self.scale);
         egui::ComboBox::from_id_salt("sheet-scene")
             .selected_text(if self.scene.is_empty() {
@@ -488,18 +491,18 @@ impl Sheets {
                 &self.scene
             })
             .show_ui(ui, |ui| {
-                ui.selectable_value(&mut self.scene, String::new(), "Current camera");
+                ui.selectable_value(&mut self.scene, String::new(), t("Current camera"));
                 for (_, scene) in session.doc().scenes.iter() {
                     ui.selectable_value(&mut self.scene, scene.name.clone(), &scene.name);
                 }
             });
         render_ui(ui, &mut self.render);
-        ui.label("Text / label binding");
+        ui.label(t("Text / label binding"));
         ui.text_edit_multiline(&mut self.text);
         if self.tool == Tool::Image {
-            ui.label("Image");
+            ui.label(t("Image"));
             ui.text_edit_singleline(&mut self.image_path);
-            if ui.button("Choose Image…").clicked() {
+            if ui.button(t("Choose Image…")).clicked() {
                 #[cfg(not(target_arch = "wasm32"))]
                 {
                     let mut picker = platform::file_dialog();
@@ -511,13 +514,13 @@ impl Sheets {
             }
         }
         ui.separator();
-        ui.strong("Layers");
+        ui.strong(t("Layers"));
         for layer in &page.layers {
             let mut visible = layer.visible;
             let mut locked = layer.locked;
-            ui.horizontal(|ui|{let changed=ui.checkbox(&mut visible,&layer.name).changed()|ui.checkbox(&mut locked,"Lock").changed();if changed{self.execute(session,"sheet-layer-set",json!({"page":page.name,"layer":layer.name,"visible":visible,"locked":locked}));}});
+            ui.horizontal(|ui|{let changed=ui.checkbox(&mut visible,&layer.name).changed()|ui.checkbox(&mut locked,t("Lock")).changed();if changed{self.execute(session,"sheet-layer-set",json!({"page":page.name,"layer":layer.name,"visible":visible,"locked":locked}));}});
         }
-        if ui.button("Add Notes Layer").clicked() {
+        if ui.button(t("Add Notes Layer")).clicked() {
             self.execute(
                 session,
                 "sheet-layer-set",
@@ -547,24 +550,24 @@ impl Sheets {
                             }
                         });
                     edit_item(ui, session, &mut draft.item, page);
-                    if ui.button("Apply Properties").clicked() {
+                    if ui.button(t("Apply Properties")).clicked() {
                         let params=json!({"page":page.name,"id":id,"layer":draft.layer,"item":draft.item});
                         self.execute(session,"sheet-edit-item",params);
                     }
                     if matches!(draft.item,SheetItem::ModelView{..}) {
-                        if ui.button("Edit Camera in Model").clicked() {
+                        if ui.button(t("Edit Camera in Model")).clicked() {
                             self.begin_view_edit(session,page,&id,&draft.item);
                         }
                         ui.horizontal(|ui| {
-                            let freeze=ui.button("Freeze").clicked();
-                            let follow=ui.button("Follow Model").clicked();
+                            let freeze=ui.button(t("Freeze")).clicked();
+                            let follow=ui.button(t("Follow Model")).clicked();
                             if freeze||follow {
                                 self.execute(session,"sheet-freeze-view",json!({"page":page.name,"id":id,"frozen":freeze,"dpi":self.dpi}));
                             }
                         });
                     }
                     if let Ok(bounds)=layout::item_bounds(session.doc(),page,&entry.item) {
-                        ui.label("Align to printable area");
+                        ui.label(t("Align to printable area"));
                         ui.horizontal(|ui| {
                             for(label,x)in [("Left",page.paper.margin),("Center",(page.paper.width-bounds.width)/2.0),("Right",page.paper.width-page.paper.margin-bounds.width)] {
                                 if ui.button(label).clicked() {
@@ -574,10 +577,10 @@ impl Sheets {
                         });
                     }
                     ui.horizontal(|ui| {
-                        if ui.button("Send Back").clicked(){self.execute(session,"sheet-order-item",json!({"page":page.name,"id":id,"index":0}));}
-                        if ui.button("Bring Front").clicked(){self.execute(session,"sheet-order-item",json!({"page":page.name,"id":id,"index":page.items.len()-1}));}
+                        if ui.button(t("Send Back")).clicked(){self.execute(session,"sheet-order-item",json!({"page":page.name,"id":id,"index":0}));}
+                        if ui.button(t("Bring Front")).clicked(){self.execute(session,"sheet-order-item",json!({"page":page.name,"id":id,"index":page.items.len()-1}));}
                     });
-                    if ui.button("Delete Item").clicked() {
+                    if ui.button(t("Delete Item")).clicked() {
                         self.execute(session,"sheet-remove-item",json!({"page":page.name,"id":id}));
                         self.selected=None;
                     }
@@ -588,15 +591,15 @@ impl Sheets {
         ui.separator();
         self.settings(ui, session);
         ui.separator();
-        ui.strong("Export");
+        ui.strong(t("Export"));
         ui.text_edit_singleline(&mut self.output);
-        ui.checkbox(&mut self.all_pages, "All pages");
+        ui.checkbox(&mut self.all_pages, t("All pages"));
         ui.add(
             egui::DragValue::new(&mut self.dpi)
                 .range(36..=1200)
                 .suffix(" dpi"),
         );
-        if ui.button("Export PDF / SVG / DXF").clicked() {
+        if ui.button(t("Export PDF / SVG / DXF")).clicked() {
             let name = self.output.clone();
             let params = json!({"path":name,"page":if self.all_pages{None}else{Some(&page.name)},"dpi":self.dpi});
             if let Some(result) = self.execute(session, "sheet-export", params) {
@@ -642,9 +645,9 @@ impl Sheets {
                     });
                 }
                 let mut template=settings.title_block.is_some();
-                if ui.checkbox(&mut template,"Reusable title block").changed(){settings.title_block=template.then(||sheets::TitleBlockTemplate{fields:BTreeMap::from([("Project".into(),session.doc().info.title.clone()),("Author".into(),String::new()),("Revision".into(),String::new()),("Date".into(),String::new())])});}
+                if ui.checkbox(&mut template,t("Reusable title block")).changed(){settings.title_block=template.then(||sheets::TitleBlockTemplate{fields:BTreeMap::from([("Project".into(),session.doc().info.title.clone()),("Author".into(),String::new()),("Revision".into(),String::new()),("Date".into(),String::new())])});}
                 if let Some(template)=&mut settings.title_block{for(key,value)in &mut template.fields{ui.label(key);ui.text_edit_singleline(value);}}
-                if ui.button("Apply Sheet Defaults").clicked(){let params=json!({"styles":settings.styles,"title_block":settings.title_block,"clear_title_block":settings.title_block.is_none()});self.execute(session,"sheet-settings",params);}
+                if ui.button(t("Apply Sheet Defaults")).clicked(){let params=json!({"styles":settings.styles,"title_block":settings.title_block,"clear_title_block":settings.title_block.is_none()});self.execute(session,"sheet-settings",params);}
             });
             self.settings_draft = Some(settings);
         }
@@ -1119,7 +1122,7 @@ fn edit_item(ui: &mut egui::Ui, session: &Session, item: &mut SheetItem, page: &
         } => {
             frame_ui(ui, frame);
             ui.horizontal(|ui| {
-                ui.label("Scale");
+                ui.label(t("Scale"));
                 ui.add(egui::DragValue::new(&mut scale.numerator).range(1..=100000));
                 ui.label(":");
                 ui.add(egui::DragValue::new(&mut scale.denominator).range(1..=100000));
@@ -1132,13 +1135,16 @@ fn edit_item(ui: &mut egui::Ui, session: &Session, item: &mut SheetItem, page: &
                     &name
                 })
                 .show_ui(ui, |ui| {
-                    ui.selectable_value(&mut name, String::new(), "Camera snapshot");
+                    ui.selectable_value(&mut name, String::new(), t("Camera snapshot"));
                     for (_, s) in session.doc().scenes.iter() {
                         ui.selectable_value(&mut name, s.name.clone(), &s.name);
                     }
                 });
             *scene = (!name.is_empty()).then_some(name);
-            ui.checkbox(camera_override, "Use custom camera, keep scene appearance");
+            ui.checkbox(
+                camera_override,
+                t("Use custom camera, keep scene appearance"),
+            );
             render_ui(ui, render);
             ui.collapsing("Crop boundary (paper mm)", |ui| {
                 for (i, p) in clip.iter_mut().enumerate() {
@@ -1149,10 +1155,10 @@ fn edit_item(ui: &mut egui::Ui, session: &Session, item: &mut SheetItem, page: &
                         });
                     });
                 }
-                if ui.button("Start Rectangle Crop").clicked() {
+                if ui.button(t("Start Rectangle Crop")).clicked() {
                     *clip = layout::rectangle(*frame);
                 }
-                if ui.button("Clear Crop").clicked() {
+                if ui.button(t("Clear Crop")).clicked() {
                     clip.clear();
                 }
             });
@@ -1164,7 +1170,7 @@ fn edit_item(ui: &mut egui::Ui, session: &Session, item: &mut SheetItem, page: &
                     &name
                 })
                 .show_ui(ui, |ui| {
-                    ui.selectable_value(&mut name, String::new(), "Scene style");
+                    ui.selectable_value(&mut name, String::new(), t("Scene style"));
                     for (_, s) in session.doc().styles.iter() {
                         ui.selectable_value(&mut name, s.name.clone(), &s.name);
                     }
@@ -1189,7 +1195,7 @@ fn edit_item(ui: &mut egui::Ui, session: &Session, item: &mut SheetItem, page: &
                     ui.color_edit_button_srgba_unmultiplied(&mut run.color);
                 });
             }
-            if ui.button("Add Text Run").clicked() {
+            if ui.button(t("Add Text Run")).clicked() {
                 runs.push(sheets::TextRun {
                     text: String::new(),
                     height: 3.5,
@@ -1214,7 +1220,7 @@ fn edit_item(ui: &mut egui::Ui, session: &Session, item: &mut SheetItem, page: &
         } => {
             frame_ui(ui, frame);
             let mut q = query.clone().unwrap_or_default();
-            ui.label("Live query (empty = literal cells)");
+            ui.label(t("Live query (empty = literal cells)"));
             ui.text_edit_singleline(&mut q);
             *query = (!q.is_empty()).then_some(q);
             if query.is_some() {
@@ -1235,10 +1241,10 @@ fn edit_item(ui: &mut egui::Ui, session: &Session, item: &mut SheetItem, page: &
                         }
                     });
                 }
-                if ui.button("Add Row").clicked() {
+                if ui.button(t("Add Row")).clicked() {
                     rows.push(vec![String::new(); rows.first().map_or(2, Vec::len)]);
                 }
-                if ui.button("Add Column").clicked() {
+                if ui.button(t("Add Column")).clicked() {
                     for row in rows {
                         row.push(String::new());
                     }
@@ -1261,7 +1267,7 @@ fn edit_item(ui: &mut egui::Ui, session: &Session, item: &mut SheetItem, page: &
                     });
                 });
             }
-            ui.checkbox(closed, "Closed");
+            ui.checkbox(closed, t("Closed"));
             ui.add(
                 egui::DragValue::new(&mut stroke.width)
                     .range(0.05..=10.0)
@@ -1269,7 +1275,7 @@ fn edit_item(ui: &mut egui::Ui, session: &Session, item: &mut SheetItem, page: &
             );
             ui.color_edit_button_srgba_unmultiplied(&mut stroke.color);
             let mut filled = fill.is_some();
-            if ui.checkbox(&mut filled, "Fill").changed() {
+            if ui.checkbox(&mut filled, t("Fill")).changed() {
                 *fill = filled.then_some([210, 210, 210, 255]);
             }
             if let Some(c) = fill {
@@ -1282,10 +1288,10 @@ fn edit_item(ui: &mut egui::Ui, session: &Session, item: &mut SheetItem, page: &
                 ui.label(k);
                 ui.text_edit_singleline(v);
             }
-            if ui.button("Add Date Field").clicked() {
+            if ui.button(t("Add Date Field")).clicked() {
                 fields.entry("Date".into()).or_default();
             }
-            if ui.button("Add Author Field").clicked() {
+            if ui.button(t("Add Author Field")).clicked() {
                 fields.entry("Author".into()).or_default();
             }
         }
@@ -1295,7 +1301,7 @@ fn edit_item(ui: &mut egui::Ui, session: &Session, item: &mut SheetItem, page: &
             prefix,
         } => {
             frame_ui(ui, frame);
-            ui.label("title, author, scene:<view>, attr.dictionary.key");
+            ui.label(t("title, author, scene:<view>, attr.dictionary.key"));
             ui.text_edit_singleline(binding);
             ui.text_edit_singleline(prefix);
         }
@@ -1309,16 +1315,18 @@ fn edit_item(ui: &mut egui::Ui, session: &Session, item: &mut SheetItem, page: &
             frozen,
         } => {
             ui.horizontal(|ui| {
-                ui.label("Offset (mm)");
+                ui.label(t("Offset (mm)"));
                 ui.add(egui::DragValue::new(&mut offset[0]));
                 ui.add(egui::DragValue::new(&mut offset[1]));
             });
             if frozen.is_some() {
-                ui.weak("Frozen with its view. Choose Follow Model to update this measurement.");
+                ui.weak(t(
+                    "Frozen with its view. Choose Follow Model to update this measurement.",
+                ));
                 return;
             }
             let mut value = text.clone().unwrap_or_default();
-            ui.label("Text (<> = measured value)");
+            ui.label(t("Text (<> = measured value)"));
             ui.text_edit_singleline(&mut value);
             *text = (!value.is_empty()).then_some(value);
             egui::ComboBox::from_id_salt("sheet-dimension-kind")
@@ -1337,7 +1345,7 @@ fn edit_item(ui: &mut egui::Ui, session: &Session, item: &mut SheetItem, page: &
             egui::ComboBox::from_id_salt("sheet-dimension-view")
                 .selected_text(view.as_ref().map_or("Paper", ItemId::as_str))
                 .show_ui(ui, |ui| {
-                    ui.selectable_value(view, None, "Paper");
+                    ui.selectable_value(view, None, t("Paper"));
                     for e in &page.items {
                         if matches!(e.item, SheetItem::ModelView { .. }) {
                             ui.selectable_value(view, Some(e.id.clone()), e.id.as_str());
@@ -1354,7 +1362,7 @@ fn edit_item(ui: &mut egui::Ui, session: &Session, item: &mut SheetItem, page: &
                         });
                     }
                     SheetAnchor::Model { .. } => {
-                        ui.weak("Linked to model geometry");
+                        ui.weak(t("Linked to model geometry"));
                     }
                 }
             }

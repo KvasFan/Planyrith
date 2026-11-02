@@ -7,6 +7,7 @@ use egui::{Color32, RichText};
 use planyrith_core::document::{EdgeColorMode, FaceMode, Rgba8, WatermarkPlacement};
 use serde_json::{Value, json};
 
+use crate::i18n::{en, t};
 use crate::session::Session;
 
 /// A file a panel needs picked, and what it is for.
@@ -47,25 +48,39 @@ impl FileRequest {
     pub fn dialog(&self) -> (&'static str, &'static str, &'static [&'static str], bool) {
         const IMAGES: &[&str] = &["png", "jpg", "jpeg", "webp"];
         match self {
-            FileRequest::Texture(_) => ("Texture image", "Images", IMAGES, false),
-            FileRequest::Watermark(_) => ("Watermark image", "Images", IMAGES, false),
-            FileRequest::MaterialLibraryLoad => {
-                ("Load materials", "Material libraries", &["plyrm"], false)
+            FileRequest::Texture(_) => (en("Texture image"), en("Images"), IMAGES, false),
+            FileRequest::Watermark(_) => (en("Watermark image"), en("Images"), IMAGES, false),
+            FileRequest::MaterialLibraryLoad => (
+                en("Load materials"),
+                en("Material libraries"),
+                &["plyrm"],
+                false,
+            ),
+            FileRequest::MaterialLibrarySave => (
+                en("Save materials"),
+                en("Material libraries"),
+                &["plyrm"],
+                true,
+            ),
+            FileRequest::ComponentInsert => {
+                (en("Insert component"), en("Components"), &["plyrc"], false)
             }
-            FileRequest::MaterialLibrarySave => {
-                ("Save materials", "Material libraries", &["plyrm"], true)
+            FileRequest::ComponentSave(_) => {
+                (en("Save component"), en("Components"), &["plyrc"], true)
             }
-            FileRequest::ComponentInsert => ("Insert component", "Components", &["plyrc"], false),
-            FileRequest::ComponentSave(_) => ("Save component", "Components", &["plyrc"], true),
             FileRequest::ComponentReload(_) => {
-                ("Reload component", "Components", &["plyrc"], false)
+                (en("Reload component"), en("Components"), &["plyrc"], false)
             }
-            FileRequest::StyleLibraryLoad => ("Load styles", "Style libraries", &["plyrs"], false),
-            FileRequest::StyleLibrarySave => ("Save styles", "Style libraries", &["plyrs"], true),
-            FileRequest::Image => ("Insert image", "Images", IMAGES, false),
+            FileRequest::StyleLibraryLoad => {
+                (en("Load styles"), en("Style libraries"), &["plyrs"], false)
+            }
+            FileRequest::StyleLibrarySave => {
+                (en("Save styles"), en("Style libraries"), &["plyrs"], true)
+            }
+            FileRequest::Image => (en("Insert image"), en("Images"), IMAGES, false),
             FileRequest::Import => (
-                "Import",
-                "Importable files",
+                en("Import"),
+                en("Importable files"),
                 &[
                     "glb", "gltf", "obj", "stl", "dxf", "skp", "skb", "plyr", "plyrc", "png",
                     "jpg", "jpeg", "webp", "csv",
@@ -73,15 +88,20 @@ impl FileRequest {
                 false,
             ),
             FileRequest::Export => (
-                "Export 3D model",
-                "3D models",
+                en("Export 3D model"),
+                en("3D models"),
                 &["glb", "gltf", "obj", "stl", "dxf", "skp", "skb", "plyr"],
                 true,
             ),
-            FileRequest::Report => ("Export component report", "CSV files", &["csv"], true),
+            FileRequest::Report => (
+                en("Export component report"),
+                en("CSV files"),
+                &["csv"],
+                true,
+            ),
             FileRequest::Export2d => (
-                "Export 2D graphic",
-                "Drawings",
+                en("Export 2D graphic"),
+                en("Drawings"),
                 &["pdf", "svg", "dxf"],
                 true,
             ),
@@ -382,17 +402,17 @@ pub fn materials(
                     if label.double_clicked() {
                         state.activate = Some(ToolRequest::Paint(name.clone()));
                     }
-                    label.on_hover_text("Double-click to paint with it");
+                    label.on_hover_text(t("Double-click to paint with it"));
                 });
             }
         });
     ui.horizontal(|ui| {
         ui.add(
             egui::TextEdit::singleline(&mut state.new_material)
-                .hint_text("New material")
+                .hint_text(t("New material"))
                 .desired_width(120.0),
         );
-        if ui.button("Create").clicked() {
+        if ui.button(t("Create")).clicked() {
             let name = if state.new_material.trim().is_empty() {
                 (1..)
                     .map(|n| format!("Material {n}"))
@@ -410,21 +430,21 @@ pub fn materials(
         }
     });
     ui.horizontal(|ui| {
-        if ui.button("Load library…").clicked() {
+        if ui.button(t("Load library…")).clicked() {
             state.file = Some(FileRequest::MaterialLibraryLoad);
         }
-        if ui.button("Save library…").clicked() {
+        if ui.button(t("Save library…")).clicked() {
             state.file = Some(FileRequest::MaterialLibrarySave);
         }
         if ui
-            .button("Purge unused")
-            .on_hover_text("Delete the materials nothing uses")
+            .button(t("Purge unused"))
+            .on_hover_text(t("Delete the materials nothing uses"))
             .clicked()
         {
             actions.push(("material-purge", json!({})));
         }
     });
-    egui::CollapsingHeader::new("Bundled")
+    egui::CollapsingHeader::new(t("Bundled"))
         .default_open(true)
         .show(ui, |ui| {
             ui.horizontal_wrapped(|ui| {
@@ -484,27 +504,27 @@ pub fn materials(
             .num_columns(2)
             .spacing([8.0, 6.0])
             .show(ui, |ui| {
-                ui.label("Color");
+                ui.label(t("Color"));
                 if let Some(c) = color_field(ui, "material color", m.color) {
                     actions.push(("material-edit", json!({ "material": name, "color": c })));
                 }
                 ui.end_row();
-                ui.label("Opacity");
+                ui.label(t("Opacity"));
                 if let Some(o) =
                     number_field(ui, "opacity", f64::from(m.opacity), 0.0..=1.0, 0.01, "")
                 {
                     actions.push(("material-edit", json!({ "material": name, "opacity": o })));
                 }
                 ui.end_row();
-                ui.label("Texture");
+                ui.label(t("Texture"));
                 ui.horizontal(|ui| {
                     if ui
-                        .button(if m.texture.is_some() { "Replace…" } else { "Load…" })
+                        .button(if m.texture.is_some() { t("Replace…") } else { t("Load…") })
                         .clicked()
                     {
                         state.file = Some(FileRequest::Texture(name.clone()));
                     }
-                    if m.texture.is_some() && ui.button("Remove").clicked() {
+                    if m.texture.is_some() && ui.button(t("Remove")).clicked() {
                         actions.push((
                             "material-edit",
                             json!({ "material": name, "texture": "none" }),
@@ -512,13 +532,13 @@ pub fn materials(
                     }
                 });
                 ui.end_row();
-                if let Some(t) = &m.texture {
-                    ui.label("Tile");
+                if let Some(texture) = &m.texture {
+                    ui.label(t("Tile"));
                     ui.horizontal(|ui| {
                         if let Some(w) = number_field(
                             ui,
                             "tile width",
-                            t.size_mm.x,
+                            texture.size_mm.x,
                             1.0..=1.0e6,
                             5.0,
                             " mm",
@@ -532,20 +552,20 @@ pub fn materials(
                         if let Some(h) = number_field(
                             ui,
                             "tile height",
-                            t.size_mm.y,
+                            texture.size_mm.y,
                             1.0..=1.0e6,
                             5.0,
                             " mm",
                         ) {
                             actions.push((
                                 "material-edit",
-                                json!({ "material": name, "texture_width": t.size_mm.x, "texture_height": h }),
+                                json!({ "material": name, "texture_width": texture.size_mm.x, "texture_height": h }),
                             ));
                         }
                     });
                     ui.end_row();
-                    ui.label("Colorize");
-                    let current = match t.colorize {
+                    ui.label(t("Colorize"));
+                    let current = match texture.colorize {
                         None => "none",
                         Some(planyrith_core::document::ColorizeMode::Shift) => "shift",
                         Some(planyrith_core::document::ColorizeMode::Tint) => "tint",
@@ -568,10 +588,10 @@ pub fn materials(
                 }
             });
         ui.horizontal(|ui| {
-            if ui.button("Paint with it").clicked() {
+            if ui.button(t("Paint with it")).clicked() {
                 state.activate = Some(ToolRequest::Paint(name.clone()));
             }
-            if !is_default && ui.button("Delete").clicked() {
+            if !is_default && ui.button(t("Delete")).clicked() {
                 actions.push(("material-delete", json!({ "material": name })));
                 state.selected_material = None;
             }
@@ -601,7 +621,9 @@ pub fn components(
         .map(|d| (d.name.clone(), d.description.clone(), d.usage_count))
         .collect();
     if list.is_empty() {
-        ui.weak("No components yet: select geometry and use Edit › Make Component.");
+        ui.weak(t(
+            "No components yet: select geometry and use Edit › Make Component.",
+        ));
     }
     egui::ScrollArea::vertical()
         .id_salt("components")
@@ -618,23 +640,23 @@ pub fn components(
                     state.activate = Some(ToolRequest::Place(name.clone()));
                 }
                 let hover = if description.is_empty() {
-                    "Double-click to place it".to_string()
+                    t("Double-click to place it")
                 } else {
-                    format!("{description}\nDouble-click to place it")
+                    format!("{description}\n{}", t("Double-click to place it"))
                 };
                 label.on_hover_text(hover);
             }
         });
     ui.horizontal(|ui| {
-        if ui.button("Insert from file…").clicked() {
+        if ui.button(t("Insert from file…")).clicked() {
             state.file = Some(FileRequest::ComponentInsert);
         }
         if ui
             .add_enabled(
                 !session.engine.selection().is_empty(),
-                egui::Button::new("Make Unique"),
+                egui::Button::new(t("Make Unique")),
             )
-            .on_hover_text("Give the selected instances their own copy")
+            .on_hover_text(t("Give the selected instances their own copy"))
             .clicked()
         {
             actions.push(("make-unique", json!({ "targets": "selection" })));
@@ -671,7 +693,7 @@ pub fn components(
             _ => {
                 if ui
                     .heading(&name)
-                    .on_hover_text("Double-click to rename")
+                    .on_hover_text(t("Double-click to rename"))
                     .double_clicked()
                 {
                     state.renaming_component = Some((name.clone(), name.clone()));
@@ -679,25 +701,33 @@ pub fn components(
             }
         }
         let b = &def.behavior;
-        let glue = format!("{:?}", b.glue_to).to_lowercase();
+        let glue = match b.glue_to {
+            planyrith_core::document::GlueTo::None => en("nothing"),
+            planyrith_core::document::GlueTo::Any => en("any face"),
+            planyrith_core::document::GlueTo::Horizontal => en("horizontal faces"),
+            planyrith_core::document::GlueTo::Vertical => en("vertical faces"),
+            planyrith_core::document::GlueTo::Sloped => en("sloped faces"),
+        };
         ui.weak(format!(
-            "Glues to: {glue}{}{}",
+            "{}: {}{}{}",
+            t("Glues to"),
+            t(glue),
             if b.cuts_opening {
-                " · cuts an opening"
+                format!(" · {}", t("cuts an opening"))
             } else {
-                ""
+                String::new()
             },
             if b.always_face_camera {
-                " · faces the camera"
+                format!(" · {}", t("faces the camera"))
             } else {
-                ""
+                String::new()
             }
         ));
         ui.horizontal(|ui| {
-            if ui.button("Place").clicked() {
+            if ui.button(t("Place")).clicked() {
                 state.activate = Some(ToolRequest::Place(name.clone()));
             }
-            if ui.button("Select instances").clicked() {
+            if ui.button(t("Select instances")).clicked() {
                 actions.push((
                     "select",
                     json!({ "query": format!("definition:\"{name}\"") }),
@@ -705,12 +735,12 @@ pub fn components(
             }
         });
         ui.horizontal(|ui| {
-            if ui.button("Save as…").clicked() {
+            if ui.button(t("Save As…")).clicked() {
                 state.file = Some(FileRequest::ComponentSave(name.clone()));
             }
             if ui
-                .button("Reload…")
-                .on_hover_text("Replace its contents with a component file's")
+                .button(t("Reload…"))
+                .on_hover_text(t("Replace its contents with a component file's"))
                 .clicked()
             {
                 state.file = Some(FileRequest::ComponentReload(name.clone()));
@@ -726,12 +756,12 @@ pub fn components(
 /// user chose; a click places a file's component (docs/07 §6).
 #[cfg(not(target_arch = "wasm32"))]
 fn library(ui: &mut egui::Ui, state: &mut ResourceState) {
-    egui::CollapsingHeader::new("Library")
+    egui::CollapsingHeader::new(t("Library"))
         .default_open(true)
         .show(ui, |ui| {
             let Some(root) = state.library.clone() else {
-                ui.weak("Choose a folder of component files (.plyrc) to browse.");
-                if ui.button("Choose folder…").clicked() {
+                ui.weak(t("Choose a folder of component files (.plyrc) to browse."));
+                if ui.button(t("Choose folder…")).clicked() {
                     state.pick_library = true;
                 }
                 return;
@@ -748,13 +778,13 @@ fn library(ui: &mut egui::Ui, state: &mut ResourceState) {
                 );
                 ui.label(RichText::new(shown).strong())
                     .on_hover_text(at.display().to_string());
-                if at != root && ui.small_button("Up").clicked() {
+                if at != root && ui.small_button(t("Up")).clicked() {
                     state.library_at = at.parent().map(std::path::Path::to_path_buf);
                 }
-                if ui.small_button("Refresh").clicked() {
+                if ui.small_button(t("Refresh")).clicked() {
                     state.library_cache = None;
                 }
-                if ui.small_button("Change…").clicked() {
+                if ui.small_button(t("Change…")).clicked() {
                     state.pick_library = true;
                 }
             });
@@ -765,7 +795,7 @@ fn library(ui: &mut egui::Ui, state: &mut ResourceState) {
             let mut open = None;
             match state.library_cache.as_ref().map(|(_, e)| e) {
                 Some(Ok(entries)) if entries.is_empty() => {
-                    ui.weak("No component files here.");
+                    ui.weak(t("No component files here."));
                 }
                 Some(Ok(entries)) => {
                     egui::ScrollArea::vertical()
@@ -782,7 +812,7 @@ fn library(ui: &mut egui::Ui, state: &mut ResourceState) {
                                     }
                                 } else if ui
                                     .selectable_label(false, &entry.name)
-                                    .on_hover_text("Click, then click in the model to place it")
+                                    .on_hover_text(t("Click, then click in the model to place it"))
                                     .clicked()
                                 {
                                     state.activate = Some(ToolRequest::PlaceFile(
@@ -832,12 +862,12 @@ pub fn styles(
     ui.horizontal(|ui| {
         ui.add(
             egui::TextEdit::singleline(&mut state.new_style)
-                .hint_text("New style")
+                .hint_text(t("New style"))
                 .desired_width(120.0),
         );
         if ui
-            .button("Create")
-            .on_hover_text("A copy of the active style")
+            .button(t("Create"))
+            .on_hover_text(t("A copy of the active style"))
             .clicked()
         {
             let name = if state.new_style.trim().is_empty() {
@@ -853,10 +883,10 @@ pub fn styles(
         }
     });
     ui.horizontal(|ui| {
-        if ui.button("Load library…").clicked() {
+        if ui.button(t("Load library…")).clicked() {
             state.file = Some(FileRequest::StyleLibraryLoad);
         }
-        if ui.button("Save library…").clicked() {
+        if ui.button(t("Save library…")).clicked() {
             state.file = Some(FileRequest::StyleLibrarySave);
         }
     });
@@ -875,20 +905,20 @@ pub fn styles(
     egui::ScrollArea::vertical()
         .id_salt("style editor")
         .show(ui, |ui| {
-            egui::CollapsingHeader::new("Edges")
+            egui::CollapsingHeader::new(t("Edges"))
                 .default_open(true)
                 .show(ui, |ui| {
                     let e = &style.edges;
                     let mut show = e.show;
-                    if ui.checkbox(&mut show, "Edges").changed() {
+                    if ui.checkbox(&mut show, t("Edges")).changed() {
                         actions.push(edit(json!({ "edges": show })));
                     }
                     let mut back = e.back_edges;
-                    if ui.checkbox(&mut back, "Back edges (dashed)").changed() {
+                    if ui.checkbox(&mut back, t("Back edges (dashed)")).changed() {
                         actions.push(edit(json!({ "back_edges": back })));
                     }
                     ui.horizontal(|ui| {
-                        ui.label("Profiles");
+                        ui.label(t("Profiles"));
                         if let Some(w) = number_field(
                             ui,
                             "profiles",
@@ -902,12 +932,12 @@ pub fn styles(
                     });
                     // Effects in pixels; 0 turns one off (docs/06 §5).
                     for (label, key, value, max) in [
-                        ("Depth cue", "depth_cue", e.depth_cue, 10.0),
-                        ("Extension", "extension", e.extension, 30.0),
-                        ("Endpoints", "endpoints", e.endpoints, 30.0),
+                        (en("Depth cue"), "depth_cue", e.depth_cue, 10.0),
+                        (en("Extension"), "extension", e.extension, 30.0),
+                        (en("Endpoints"), "endpoints", e.endpoints, 30.0),
                     ] {
                         ui.horizontal(|ui| {
-                            ui.label(label);
+                            ui.label(t(label));
                             if let Some(v) = number_field(
                                 ui,
                                 key,
@@ -921,28 +951,28 @@ pub fn styles(
                         });
                     }
                     let mut jitter = e.jitter;
-                    if ui.checkbox(&mut jitter, "Jitter").changed() {
+                    if ui.checkbox(&mut jitter, t("Jitter")).changed() {
                         actions.push(edit(json!({ "jitter": jitter })));
                     }
                     ui.horizontal(|ui| {
-                        ui.label("Color");
+                        ui.label(t("Color"));
                         for (label, mode, key) in [
-                            ("One color", EdgeColorMode::All, "all"),
-                            ("By material", EdgeColorMode::ByMaterial, "by-material"),
-                            ("By axis", EdgeColorMode::ByAxis, "by-axis"),
+                            (en("One color"), EdgeColorMode::All, "all"),
+                            (en("By material"), EdgeColorMode::ByMaterial, "by-material"),
+                            (en("By axis"), EdgeColorMode::ByAxis, "by-axis"),
                         ] {
-                            if ui.radio(e.color == mode, label).clicked() && e.color != mode {
+                            if ui.radio(e.color == mode, t(label)).clicked() && e.color != mode {
                                 actions.push(edit(json!({ "edge_color": key })));
                             }
                         }
                     });
                 });
-            egui::CollapsingHeader::new("Faces")
+            egui::CollapsingHeader::new(t("Faces"))
                 .default_open(true)
                 .show(ui, |ui| {
                     let f = &style.faces;
                     egui::ComboBox::from_id_salt("face mode")
-                        .selected_text(face_mode_label(f.mode))
+                        .selected_text(t(face_mode_label(f.mode)))
                         .show_ui(ui, |ui| {
                             for (mode, key) in [
                                 (FaceMode::Wireframe, "wireframe"),
@@ -953,7 +983,7 @@ pub fn styles(
                                 (FaceMode::XRay, "x-ray"),
                             ] {
                                 if ui
-                                    .selectable_label(f.mode == mode, face_mode_label(mode))
+                                    .selectable_label(f.mode == mode, t(face_mode_label(mode)))
                                     .clicked()
                                     && f.mode != mode
                                 {
@@ -964,30 +994,30 @@ pub fn styles(
                     egui::Grid::new("face colors")
                         .num_columns(2)
                         .show(ui, |ui| {
-                            ui.label("Front");
+                            ui.label(t("Front"));
                             if let Some(c) = color_field(ui, "front", f.front_default) {
                                 actions.push(edit(json!({ "front_color": c })));
                             }
                             ui.end_row();
-                            ui.label("Back");
+                            ui.label(t("Back"));
                             if let Some(c) = color_field(ui, "back", f.back_default) {
                                 actions.push(edit(json!({ "back_color": c })));
                             }
                             ui.end_row();
                         });
                 });
-            egui::CollapsingHeader::new("Background")
+            egui::CollapsingHeader::new(t("Background"))
                 .default_open(true)
                 .show(ui, |ui| {
                     let b = &style.background;
                     egui::Grid::new("background").num_columns(2).show(ui, |ui| {
-                        ui.label("Color");
+                        ui.label(t("Color"));
                         if let Some(c) = color_field(ui, "background", b.color) {
                             actions.push(edit(json!({ "background": c })));
                         }
                         ui.end_row();
                         let mut sky = b.sky.is_some();
-                        if ui.checkbox(&mut sky, "Sky").changed() {
+                        if ui.checkbox(&mut sky, t("Sky")).changed() {
                             let value = if sky {
                                 "#CEE1F2".to_string()
                             } else {
@@ -1002,7 +1032,7 @@ pub fn styles(
                         }
                         ui.end_row();
                         let mut ground = b.ground.is_some();
-                        if ui.checkbox(&mut ground, "Ground").changed() {
+                        if ui.checkbox(&mut ground, t("Ground")).changed() {
                             let value = if ground {
                                 "#B8C4A8".to_string()
                             } else {
@@ -1030,7 +1060,7 @@ pub fn styles(
                         ui.end_row();
                     });
                 });
-            egui::CollapsingHeader::new("Watermarks").show(ui, |ui| {
+            egui::CollapsingHeader::new(t("Watermarks")).show(ui, |ui| {
                 for (i, w) in style.watermarks.iter().enumerate() {
                     ui.horizontal(|ui| {
                         let place = match w.placement {
@@ -1044,7 +1074,7 @@ pub fn styles(
                             i + 1,
                             if w.behind_model { " · behind" } else { "" }
                         ));
-                        if ui.small_button("Remove").clicked() {
+                        if ui.small_button(t("Remove")).clicked() {
                             actions.push((
                                 "style-watermark-remove",
                                 json!({ "style": name, "index": i }),
@@ -1052,27 +1082,27 @@ pub fn styles(
                         }
                     });
                 }
-                if ui.button("Add image…").clicked() {
+                if ui.button(t("Add image…")).clicked() {
                     state.file = Some(FileRequest::Watermark(name.clone()));
                 }
             });
-            egui::CollapsingHeader::new("Fog").show(ui, |ui| {
+            egui::CollapsingHeader::new(t("Fog")).show(ui, |ui| {
                 let on = session.doc().rendering.fog_enabled;
                 let mut enabled = on;
-                if ui.checkbox(&mut enabled, "Fog").changed() {
+                if ui.checkbox(&mut enabled, t("Fog")).changed() {
                     actions.push(("fog-set", json!({ "enabled": enabled })));
                 }
                 let (start, end) = style
                     .fog
                     .map_or((10_000.0, 100_000.0), |f| (f.start, f.end));
                 ui.horizontal(|ui| {
-                    ui.label("From");
+                    ui.label(t("From"));
                     if let Some(v) =
                         number_field(ui, "fog start", start / 1000.0, 0.0..=10_000.0, 0.1, " m")
                     {
                         actions.push(("fog-set", json!({ "start": v * 1000.0 })));
                     }
-                    ui.label("to");
+                    ui.label(t("to"));
                     if let Some(v) =
                         number_field(ui, "fog end", end / 1000.0, 0.01..=10_000.0, 0.1, " m")
                     {
@@ -1080,15 +1110,15 @@ pub fn styles(
                     }
                 });
             });
-            egui::CollapsingHeader::new("Modeling").show(ui, |ui| {
+            egui::CollapsingHeader::new(t("Modeling")).show(ui, |ui| {
                 let m = &style.modeling;
                 egui::Grid::new("modeling").num_columns(2).show(ui, |ui| {
-                    ui.label("Selection");
+                    ui.label(t("Selection"));
                     if let Some(c) = color_field(ui, "selection", m.selection_color) {
                         actions.push(edit(json!({ "selection_color": c })));
                     }
                     ui.end_row();
-                    ui.label("Fade outside group");
+                    ui.label(t("Fade outside group"));
                     if let Some(v) =
                         number_field(ui, "fade", f64::from(m.inactive_fade), 0.0..=1.0, 0.01, "")
                     {
@@ -1102,8 +1132,8 @@ pub fn styles(
                 ui.separator();
                 ui.horizontal(|ui| {
                     if ui
-                        .button("Delete style")
-                        .on_hover_text("Activates another style first")
+                        .button(t("Delete style"))
+                        .on_hover_text(t("Activates another style first"))
                         .clicked()
                         && let Some((other, _)) = names.iter().find(|(n, _)| *n != name)
                     {
@@ -1120,12 +1150,12 @@ pub fn styles(
 
 fn face_mode_label(mode: FaceMode) -> &'static str {
     match mode {
-        FaceMode::Wireframe => "Wireframe",
-        FaceMode::HiddenLine => "Hidden line",
-        FaceMode::Shaded => "Shaded",
-        FaceMode::ShadedTextured => "Shaded with textures",
-        FaceMode::Monochrome => "Monochrome",
-        FaceMode::XRay => "X-ray",
+        FaceMode::Wireframe => en("Wireframe"),
+        FaceMode::HiddenLine => en("Hidden Line"),
+        FaceMode::Shaded => en("Shaded"),
+        FaceMode::ShadedTextured => en("Shaded with Textures"),
+        FaceMode::Monochrome => en("Monochrome"),
+        FaceMode::XRay => en("X-Ray"),
     }
 }
 

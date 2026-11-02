@@ -14,6 +14,7 @@ high-frequency interaction**.
 | GUI toolkit (desktop + web) | **egui + eframe** | MIT/Apache-2.0 | Dioxus, iced, Slint | See §2.1. Immediate-mode fits tool/viewport interaction; first-class wgpu integration; mature wasm. |
 | GUI ↔ GPU integration | **egui-wgpu** (+ `egui-winit` via eframe) | MIT/Apache-2.0 | custom glue | Official, maintained with egui. |
 | Docking / panel layout | **egui_tiles** | MIT/Apache-2.0 | egui_dock | Simpler model (tree of tiles), maintained by egui's author; supports tabs, splits, drag. |
+| Interface translation | **fluent-bundle**, **unic-langid** (fluent-syntax in tests) | Apache-2.0/MIT | gettext bindings (C), own tables | docs/07 §12 names Fluent; pure Rust, plural rules and placeables. See docs/07 Decisions, 2026-11-02. |
 | File open/save dialogs | **egui-file-dialog** | MIT | rfd (native dialogs), own widget | Pure egui, so it renders identically on desktop and in the browser and needs no platform dialog bindings. |
 | 3D rendering | **wgpu** | MIT/Apache-2.0 | glow (OpenGL), vulkano, ash | Portable (Vulkan/Metal/DX12/GL/WebGPU/WebGL2), pure Rust, the standard. |
 | Windowing/input | **winit** (via eframe) | Apache-2.0 | sdl2 (C) | Pure Rust, wasm support. |

@@ -1,7 +1,8 @@
 //! Whole-window screenshots, headless (docs/12 §7): with
 //! `PLANYRITH_SCREENSHOTS=<dir>` (and optionally `PLANYRITH_SCREENSHOT_DOC=<file.plyr>`),
 //! `cargo test -p planyrith-gui screenshots` writes PNGs of the GUI rendered
-//! through wgpu, the 3D viewport included. Without the variable the test does
+//! through wgpu, the 3D viewport included; `PLANYRITH_SCREENSHOT_LANGUAGE=it`
+//! shows the interface in Italian. Without the variable the test does
 //! nothing.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
@@ -26,6 +27,10 @@ fn screenshots() {
         return;
     };
     std::fs::create_dir_all(&dir).expect("output directory");
+    // `PLANYRITH_SCREENSHOT_LANGUAGE=it` shows the interface in Italian.
+    if std::env::var("PLANYRITH_SCREENSHOT_LANGUAGE").is_ok_and(|l| l == "it") {
+        crate::i18n::set_language(crate::i18n::Language::Italian);
+    }
     let doc = std::env::var_os("PLANYRITH_SCREENSHOT_DOC").map(PathBuf::from);
     for (name, choice) in [("light", ThemeChoice::Light), ("dark", ThemeChoice::Dark)] {
         let mut harness = Harness::builder()
@@ -79,7 +84,7 @@ fn screenshots() {
     theme::apply(&harness.ctx, ThemeChoice::Light);
     harness.run_steps(2);
     for tab in ["Materials", "Components", "Styles"] {
-        harness.get_by_label(tab).click();
+        harness.get_by_label(&crate::i18n::t(tab)).click();
         harness.run_steps(2);
         // The documents used for review screenshots may lack these.
         if tab == "Materials"
@@ -176,6 +181,6 @@ fn screenshots() {
         .collect();
     harness.state_mut().run_for_screens(&refs);
     harness.run_steps(2);
-    harness.get_by_label("Materials").click();
+    harness.get_by_label(&crate::i18n::t("Materials")).click();
     save(&mut harness, &dir, "bundled-materials");
 }

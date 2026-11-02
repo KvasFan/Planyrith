@@ -1,5 +1,6 @@
 //! Implements docs/10 §2–§4: Console, Extension Manager and property forms.
 
+use crate::i18n::t;
 use crate::{platform, session::Session};
 use egui::{Context, Ui};
 use planyrith_core::commands::{CommandError, CommandRegistry, GroupToken};
@@ -106,12 +107,12 @@ impl Extensions {
     /// Extension menus are generated from installed manifests.
     pub fn menu(&mut self, ui: &mut Ui) {
         self.load();
-        ui.checkbox(&mut self.toolbars_open, "Extension toolbars");
-        if ui.button("Extension Manager…").clicked() {
+        ui.checkbox(&mut self.toolbars_open, t("Extension toolbars"));
+        if ui.button(t("Extension Manager…")).clicked() {
             self.manager_open = true;
             ui.close();
         }
-        if ui.button("Console").clicked() {
+        if ui.button(t("Console")).clicked() {
             self.console_open = true;
             ui.close();
         }
@@ -240,7 +241,7 @@ impl Extensions {
                         .open(&mut open)
                         .show(ctx, |ui| {
                             fields(ui, &form, &mut values, session);
-                            if ui.button("Apply").clicked()
+                            if ui.button(t("Apply")).clicked()
                                 && let Ok(source) = plugin.callback_source(&panel.on_change)
                             {
                                 self.callbacks.push((source, values.clone()));
@@ -253,18 +254,20 @@ impl Extensions {
             }
         }
         let mut open = self.console_open;
-        egui::Window::new("Console")
+        egui::Window::new(t("Console"))
             .open(&mut open)
             .default_width(600.0)
             .show(ctx, |ui| {
-                ui.weak("Lengths: mm. Angles: radians. Ctrl+Enter runs one undoable script.");
+                ui.weak(t(
+                    "Lengths: mm. Angles: radians. Ctrl+Enter runs one undoable script.",
+                ));
                 ui.add(
                     egui::TextEdit::multiline(&mut self.source)
                         .code_editor()
                         .desired_rows(8)
                         .desired_width(f32::INFINITY),
                 );
-                let run = ui.button("Run").clicked()
+                let run = ui.button(t("Run")).clicked()
                     || ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Enter));
                 if run {
                     match session.execute("script-eval", json!({"source":self.source,"args":{}})) {
@@ -293,11 +296,11 @@ impl Extensions {
             });
         self.console_open = open;
         let mut open = self.manager_open;
-        egui::Window::new("Extension Manager")
+        egui::Window::new(t("Extension Manager"))
             .open(&mut open)
             .default_width(500.0)
             .show(ctx, |ui| {
-                if ui.button("Install .plyrx…").clicked() {
+                if ui.button(t("Install .plyrx…")).clicked() {
                     #[cfg(not(target_arch = "wasm32"))]
                     {
                         let mut picker = platform::file_dialog()
@@ -318,7 +321,7 @@ impl Extensions {
                             let storage = platform::storage();
                             let key = StorageKey::new(format!("{}/{}.disabled", root(), info.id));
                             let mut enabled = !storage.exists(&key).unwrap_or(false);
-                            if ui.checkbox(&mut enabled, "Enabled").changed() {
+                            if ui.checkbox(&mut enabled, t("Enabled")).changed() {
                                 let result = if enabled {
                                     storage.delete(&key)
                                 } else {
@@ -345,17 +348,17 @@ impl Extensions {
                 }
                 #[cfg(not(target_arch = "wasm32"))]
                 ui.collapsing("Attach to local server", |ui| {
-                    ui.label("Local TCP port or Unix socket");
+                    ui.label(t("Local TCP port or Unix socket"));
                     ui.text_edit_singleline(&mut self.attach_fields.0);
-                    ui.label("Token (TCP)");
+                    ui.label(t("Token (TCP)"));
                     ui.add(egui::TextEdit::singleline(&mut self.attach_fields.1).password(true));
-                    ui.label("Document id (d1 for serve -f; empty creates a document)");
+                    ui.label(t("Document id (d1 for serve -f; empty creates a document)"));
                     ui.text_edit_singleline(&mut self.attach_fields.2);
                     if session.dirty() {
-                        ui.weak("Save the current document before attaching.");
+                        ui.weak(t("Save the current document before attaching."));
                     }
                     if ui
-                        .add_enabled(!session.dirty(), egui::Button::new("Attach"))
+                        .add_enabled(!session.dirty(), egui::Button::new(t("Attach")))
                         .clicked()
                     {
                         match Session::attach(
@@ -372,7 +375,9 @@ impl Extensions {
                         }
                     }
                     if session.is_attached() {
-                        ui.label("Connected. Commands, undo, redo and saving run on the server.");
+                        ui.label(t(
+                            "Connected. Commands, undo, redo and saving run on the server.",
+                        ));
                     }
                 });
             });
@@ -407,7 +412,7 @@ impl Extensions {
                         if let Some(form) = form {
                             fields(ui, &form, &mut params, session);
                         } else {
-                            ui.label("Parameters (JSON)");
+                            ui.label(t("Parameters (JSON)"));
                             let mut text = params.to_string();
                             if ui.text_edit_multiline(&mut text).changed() {
                                 match serde_json::from_str(&text) {
@@ -419,7 +424,7 @@ impl Extensions {
                         for step in &tool.steps {
                             ui.weak(&step.prompt);
                         }
-                        if ui.button("Apply").clicked() {
+                        if ui.button(t("Apply")).clicked() {
                             let name = format!("ext:{}/{}", plugin.manifest.plugin.id, tool.name);
                             if let Err(e) = session.execute(&name, params.clone()) {
                                 error = Some(e);
@@ -438,11 +443,11 @@ impl Extensions {
             }
         }
         let mut open = self.soften_open;
-        egui::Window::new("Soften / Smooth").open(&mut open).show(ctx,|ui| {
+        egui::Window::new(t("Soften / Smooth")).open(&mut open).show(ctx,|ui| {
             let response=ui.add(egui::Slider::new(&mut self.angle,0.0..=180.0).text("Angle (degrees)"));
-            let changed=response.changed() | ui.checkbox(&mut self.smooth,"Smooth shading").changed() | ui.checkbox(&mut self.coplanar,"Soften coplanar edges").changed();
-            ui.weak("Applies to selected edges and faces. Undo restores the previous flags.");
-            if (changed || ui.button("Apply to selection").clicked()) && !session.engine.selection().is_empty() {
+            let changed=response.changed() | ui.checkbox(&mut self.smooth,t("Smooth shading")).changed() | ui.checkbox(&mut self.coplanar,t("Soften coplanar edges")).changed();
+            ui.weak(t("Applies to selected edges and faces. Undo restores the previous flags."));
+            if (changed || ui.button(t("Apply to selection")).clicked()) && !session.engine.selection().is_empty() {
                 if self.soften_group.is_none() {self.soften_group=Some(session.engine.begin_group("Soften / Smooth"));}
                 if let Err(e)=session.execute("soften-smooth",json!({"targets":"selection","angle":self.angle.to_radians(),"smooth":self.smooth,"soften_coplanar":self.coplanar})) {self.error=Some(e);}
             }
@@ -596,7 +601,7 @@ fn fields(ui: &mut Ui, form: &Value, params: &mut Value, session: &Session) {
                 if ui.text_edit_singleline(&mut text).changed() {
                     params[key] = json!(text);
                 }
-                if ui.button("Use selection").clicked()
+                if ui.button(t("Use selection")).clicked()
                     && let Some(path) = session.engine.selection().iter().next()
                 {
                     params[key] = json!(path.to_string());

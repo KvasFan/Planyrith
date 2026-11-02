@@ -9,6 +9,7 @@ use planyrith_core::ids::EntityId;
 use serde_json::json;
 
 use super::{Cx, Drag, Flow, Pointer, Shape, Tool};
+use crate::i18n::en;
 
 /// The Select tool.
 #[derive(Debug, Default)]
@@ -115,7 +116,7 @@ impl Tool for SelectTool {
     }
 
     fn label(&self) -> &'static str {
-        "Select"
+        en("Select")
     }
 
     fn step(&self) -> usize {

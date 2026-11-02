@@ -419,3 +419,19 @@ collected by clicks: e.g. segments for Circle, array count, copy toggle).
   keeping red and green). "Free pins" sends all four with `projective`. Projected placements
   are refused, as the pins are measured on the face. Clicks land on whole pixels, so typed
   exact positions remain the command's job.
+- 2026-11-02 — **Interface languages (1.0, §12).** English and Italian. Code keeps the English
+  text: `t("Save As…")` translates it, `t_args` fills `{ $name }` placeholders, and `en("…")`
+  marks a text defined in a table or as a tool's label and translated where shown. A Fluent file
+  per language (`crates/planyrith-gui/i18n/it.ftl`) gives each text under an identifier made
+  from it (`i18n::id`: letters and digits in lower case, other runs as `-`, `…` as `-more`, a
+  `t-` prefix), so no separate English file has to be kept in step. A text without a translation
+  shows in English. `every_interface_text_is_translated` reads the GUI sources and fails on a
+  text without a translation, a translation no text uses, or two texts with one identifier (it
+  unified four menu and panel names that differed only in capital letters). View › Language
+  offers System, English and Italiano, saved with the other user settings; System follows
+  `LC_ALL`, `LC_MESSAGES` or `LANG` on the desktop and the browser's language on the web, and is
+  English where those say nothing (Windows, macOS apps started from the Finder), so choose
+  Italiano there. The language belongs to the thread that draws, so tests stay in English.
+  Translated now: menus, toolbars, panels, windows, dialogs, tool labels and options, the
+  context menu. Still English: texts that come from the core — each step's prompt, command
+  names in Undo, inference names and messages — and the Sheets editor's remaining labels.

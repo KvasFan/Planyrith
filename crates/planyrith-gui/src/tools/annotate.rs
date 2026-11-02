@@ -10,6 +10,7 @@ use planyrith_core::math::{Axis, Plane};
 use serde_json::{Value, json};
 
 use super::{BAND, Cx, Flow, Pointer, Shape, Tool, angle, length, parse, plane_json, pt};
+use crate::i18n::{en, t};
 
 const GUIDE: egui::Color32 = egui::Color32::from_rgb(90, 90, 90);
 const SECTION: egui::Color32 = egui::Color32::from_rgb(235, 120, 20);
@@ -61,7 +62,7 @@ impl Tool for DimensionTool {
     }
 
     fn label(&self) -> &'static str {
-        "Dimension"
+        en("Dimension")
     }
 
     fn step(&self) -> usize {
@@ -183,7 +184,7 @@ impl Tool for TextTool {
     }
 
     fn label(&self) -> &'static str {
-        "Text"
+        en("Text")
     }
 
     fn step(&self) -> usize {
@@ -244,7 +245,7 @@ impl Tool for TextTool {
     }
 
     fn options(&mut self, ui: &mut egui::Ui, _cx: &Cx<'_>) {
-        ui.label("Text (empty: what it points to measures)");
+        ui.label(t("Text (empty: what it points to measures)"));
         ui.text_edit_multiline(&mut self.text);
     }
 }
@@ -267,7 +268,7 @@ impl Tool for TapeMeasureTool {
     }
 
     fn label(&self) -> &'static str {
-        "Tape Measure"
+        en("Tape Measure")
     }
 
     fn step(&self) -> usize {
@@ -367,7 +368,7 @@ impl Tool for ProtractorTool {
     }
 
     fn label(&self) -> &'static str {
-        "Protractor"
+        en("Protractor")
     }
 
     fn step(&self) -> usize {
@@ -499,7 +500,7 @@ impl Tool for SectionPlaneTool {
     }
 
     fn label(&self) -> &'static str {
-        "Section Plane"
+        en("Section Plane")
     }
 
     fn step(&self) -> usize {
@@ -566,7 +567,7 @@ impl Tool for AxesTool {
     }
 
     fn label(&self) -> &'static str {
-        "Axes"
+        en("Axes")
     }
 
     fn step(&self) -> usize {
@@ -659,7 +660,7 @@ impl Tool for Text3dTool {
     }
 
     fn label(&self) -> &'static str {
-        "3D Text"
+        en("3D Text")
     }
 
     fn step(&self) -> usize {
@@ -706,14 +707,14 @@ impl Tool for Text3dTool {
     }
 
     fn options(&mut self, ui: &mut egui::Ui, _cx: &Cx<'_>) {
-        ui.label("Text");
+        ui.label(t("Text"));
         ui.text_edit_multiline(&mut self.text);
         ui.horizontal(|ui| {
-            ui.label("Height");
+            ui.label(t("Height"));
             ui.text_edit_singleline(&mut self.height);
         });
         ui.horizontal(|ui| {
-            ui.label("Extrusion");
+            ui.label(t("Extrusion"));
             ui.text_edit_singleline(&mut self.extrude);
         });
     }

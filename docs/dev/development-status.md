@@ -14,6 +14,13 @@ CI and the Release workflow's Windows and Linux package checks passed with
 it passes on the commit; do not rerun CI after a failure until the cause is
 understood. What only GitHub can catch is listed in docs/12 Decisions, 2026-11-02.
 
+**1.0 under way (2026-11-02, at the user's request):** the docs/00 §6 targets are
+measured (docs/12 Decisions, 2026-11-02) and met where measurable here; frame time on an
+integrated GPU and web startup are not measurable on this machine. The GUI speaks
+Italian (docs/07 Decisions); texts that come from the core are still English. Next 1.0
+items: core texts in Italian, accessibility pass, documentation site, installers
+(MSI/DMG/Flatpak), web deployment, format and API freeze.
+
 **After alpha.3 (unreleased, 2026-11-02):** the renderer draws the style's edge
 effects (depth cue, extension, endpoints, jitter) and shadows from edges without
 faces, both stored and imported from SKP before but not drawn; textures have

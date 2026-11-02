@@ -1,6 +1,7 @@
 //! Implements docs/05 §4.8 and §8: Sweep and two-click solid tools.
 
 use super::{Cx, Flow, Pointer, Tool};
+use crate::i18n::{en, t};
 use planyrith_core::document::EntityPath;
 use planyrith_core::ids::EntityId;
 use serde_json::{Value, json};
@@ -34,11 +35,12 @@ impl SolidTool {
             .definition_of(resolved.entity)
             .and_then(|d| cx.doc.definition(d))?;
         if !definition.entities.mesh().is_solid() {
-            self.hint = "Open boundary or wire edges: choose a closed solid".into();
+            self.hint = t("Open boundary or wire edges: choose a closed solid");
             return None;
         }
         self.hint = format!(
-            "Solid {} ({})",
+            "{} {} ({})",
+            t("Solid"),
             if self.first.is_some() { 2 } else { 1 },
             resolved.pid.0
         );
@@ -95,7 +97,7 @@ impl Tool for SolidTool {
         self.request.clone().map(|p| (self.name.into(), p))
     }
     fn options(&mut self, ui: &mut egui::Ui, _: &Cx<'_>) {
-        ui.label("Pick the cutter first, then the target. Union and intersection treat the two picks symmetrically.");
+        ui.label(t("Pick the cutter first, then the target. Union and intersection treat the two picks symmetrically."));
         ui.label(&self.hint);
     }
 }
@@ -138,7 +140,7 @@ impl Tool for SweepTool {
         "sweep"
     }
     fn label(&self) -> &'static str {
-        "Sweep"
+        en("Sweep")
     }
     fn step(&self) -> usize {
         usize::from(self.profile.is_some())

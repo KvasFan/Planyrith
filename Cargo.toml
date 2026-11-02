@@ -95,6 +95,8 @@ anyhow = "1.0"
 # ---- render / gui ------------------------------------------------------------
 wgpu = "30.0"
 egui = "0.36"
+fluent-bundle = "0.16"
+unic-langid = "0.9"
 eframe = { version = "0.36", features = ["persistence"] }
 egui-wgpu = "0.36"
 egui_tiles = "0.17"

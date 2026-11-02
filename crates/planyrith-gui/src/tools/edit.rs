@@ -12,6 +12,7 @@ use planyrith_core::units::ValueFieldInput;
 use serde_json::{Value, json};
 
 use super::{BAND, Cx, Drag, Flow, Pointer, Shape, Tool, along, angle, length, parse, pt, targets};
+use crate::i18n::{en, t};
 
 /// A face of the edit context's container under the cursor: its pid, world
 /// plane and world outer loop.
@@ -106,7 +107,7 @@ impl Tool for PushPullTool {
     }
 
     fn label(&self) -> &'static str {
-        "Push/Pull"
+        en("Push/Pull")
     }
 
     fn step(&self) -> usize {
@@ -174,7 +175,7 @@ impl Tool for PushPullTool {
     }
 
     fn options(&mut self, ui: &mut egui::Ui, _cx: &Cx<'_>) {
-        ui.checkbox(&mut self.keep, "Keep the start face (also Ctrl)");
+        ui.checkbox(&mut self.keep, t("Keep the start face (also Ctrl)"));
     }
 
     fn escape(&mut self) -> bool {
@@ -243,7 +244,7 @@ impl Tool for OffsetTool {
     }
 
     fn label(&self) -> &'static str {
-        "Offset"
+        en("Offset")
     }
 
     fn step(&self) -> usize {
@@ -358,7 +359,7 @@ impl Tool for MoveTool {
     }
 
     fn label(&self) -> &'static str {
-        "Move"
+        en("Move")
     }
 
     fn step(&self) -> usize {
@@ -431,7 +432,7 @@ impl Tool for MoveTool {
     }
 
     fn options(&mut self, ui: &mut egui::Ui, _cx: &Cx<'_>) {
-        ui.checkbox(&mut self.copy, "Copy (also Ctrl while clicking)");
+        ui.checkbox(&mut self.copy, t("Copy (also Ctrl while clicking)"));
     }
 
     fn escape(&mut self) -> bool {
@@ -490,7 +491,7 @@ impl Tool for RotateTool {
     }
 
     fn label(&self) -> &'static str {
-        "Rotate"
+        en("Rotate")
     }
 
     fn step(&self) -> usize {
@@ -593,7 +594,7 @@ impl Tool for RotateTool {
     }
 
     fn options(&mut self, ui: &mut egui::Ui, _cx: &Cx<'_>) {
-        ui.checkbox(&mut self.copy, "Copy (also Ctrl while clicking)");
+        ui.checkbox(&mut self.copy, t("Copy (also Ctrl while clicking)"));
     }
 
     fn escape(&mut self) -> bool {
@@ -708,7 +709,7 @@ impl Tool for ScaleTool {
     }
 
     fn label(&self) -> &'static str {
-        "Scale"
+        en("Scale")
     }
 
     fn step(&self) -> usize {
@@ -889,7 +890,7 @@ impl Tool for EraserTool {
     }
 
     fn label(&self) -> &'static str {
-        "Eraser"
+        en("Eraser")
     }
 
     fn step(&self) -> usize {
@@ -972,7 +973,7 @@ impl Tool for PaintTool {
     }
 
     fn label(&self) -> &'static str {
-        "Paint"
+        en("Paint")
     }
 
     fn step(&self) -> usize {
@@ -1043,7 +1044,7 @@ impl Tool for PaintTool {
     }
 
     fn options(&mut self, ui: &mut egui::Ui, cx: &Cx<'_>) {
-        ui.label("Material");
+        ui.label(t("Material"));
         for (_, m) in cx.doc.materials.iter() {
             ui.horizontal(|ui| {
                 let (rect, _) =

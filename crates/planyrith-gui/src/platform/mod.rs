@@ -24,6 +24,24 @@ pub fn storage() -> Arc<dyn Storage + Send + Sync> {
     }
 }
 
+/// The language tag the system asks for (`it_IT.UTF-8`, `it-IT`, …), if it
+/// says: the locale variables on the desktop, the browser's language on the
+/// web. Systems that do not set them (Windows, apps started from the macOS
+/// Finder) give `None`, and the interface stays English until chosen.
+pub fn system_language() -> Option<String> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        ["LC_ALL", "LC_MESSAGES", "LANG"]
+            .iter()
+            .filter_map(|k| std::env::var(k).ok())
+            .find(|v| !v.is_empty() && v != "C" && v != "POSIX")
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        web_sys::window().and_then(|w| w.navigator().language())
+    }
+}
+
 /// A file dialog browsing [`storage`].
 pub fn file_dialog() -> FileDialog {
     #[cfg(not(target_arch = "wasm32"))]

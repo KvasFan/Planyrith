@@ -12,6 +12,7 @@ mod sketch;
 mod solid;
 mod texture;
 
+use crate::i18n::en;
 use egui::Color32;
 use glam::DVec3;
 use planyrith_core::document::{Camera, DepthRange, Document, EditContext, EntityPath, Selection};
@@ -271,27 +272,33 @@ pub fn catalogue() -> Vec<(Box<dyn Tool>, Option<egui::Key>)> {
         (Box::new(TexturePinTool::default()), None),
         (Box::new(solid::SweepTool::default()), None),
         (
-            Box::new(solid::SolidTool::new("solid-union", "Solid Union")),
+            Box::new(solid::SolidTool::new("solid-union", en("Solid Union"))),
             None,
         ),
         (
-            Box::new(solid::SolidTool::new("solid-subtract", "Solid Subtract")),
+            Box::new(solid::SolidTool::new(
+                "solid-subtract",
+                en("Solid Subtract"),
+            )),
             None,
         ),
         (
-            Box::new(solid::SolidTool::new("solid-intersect", "Solid Intersect")),
+            Box::new(solid::SolidTool::new(
+                "solid-intersect",
+                en("Solid Intersect"),
+            )),
             None,
         ),
         (
-            Box::new(solid::SolidTool::new("solid-trim", "Solid Trim")),
+            Box::new(solid::SolidTool::new("solid-trim", en("Solid Trim"))),
             None,
         ),
         (
-            Box::new(solid::SolidTool::new("solid-split", "Solid Split")),
+            Box::new(solid::SolidTool::new("solid-split", en("Solid Split"))),
             None,
         ),
         (
-            Box::new(solid::SolidTool::new("outer-shell", "Outer Shell")),
+            Box::new(solid::SolidTool::new("outer-shell", en("Outer Shell"))),
             None,
         ),
     ]

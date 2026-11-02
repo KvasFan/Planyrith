@@ -11,6 +11,7 @@ use serde_json::{Value, json};
 use super::{
     BAND, Cx, Flow, Pointer, Shape, Tool, along, drawing_plane, length, parse, plane_json, pt,
 };
+use crate::i18n::{en, t, t_args};
 
 fn same(a: DVec3, b: DVec3) -> bool {
     a.distance(b) <= planyrith_core::Tolerances::default().length
@@ -59,7 +60,7 @@ impl Tool for LineTool {
     }
 
     fn label(&self) -> &'static str {
-        "Line"
+        en("Line")
     }
 
     fn step(&self) -> usize {
@@ -215,7 +216,7 @@ impl Tool for RectangleTool {
     }
 
     fn label(&self) -> &'static str {
-        "Rectangle"
+        en("Rectangle")
     }
 
     fn step(&self) -> usize {
@@ -373,7 +374,11 @@ impl Tool for RoundTool {
     }
 
     fn label(&self) -> &'static str {
-        if self.polygon { "Polygon" } else { "Circle" }
+        if self.polygon {
+            en("Polygon")
+        } else {
+            en("Circle")
+        }
     }
 
     fn step(&self) -> usize {
@@ -461,14 +466,18 @@ impl Tool for RoundTool {
     }
 
     fn options(&mut self, ui: &mut egui::Ui, _cx: &Cx<'_>) {
-        let label = if self.polygon { "Sides" } else { "Segments" };
+        let label = if self.polygon {
+            t("Sides")
+        } else {
+            t("Segments")
+        };
         ui.horizontal(|ui| {
             ui.label(label);
             ui.add(egui::DragValue::new(&mut self.count).range(3..=999));
         });
-        ui.weak(format!(
-            "Type `{}s` in the value field to set it.",
-            self.count
+        ui.weak(t_args(
+            "Type `{ $count }s` in the value field to set it.",
+            &[("count", self.count.into())],
         ));
     }
 
@@ -584,10 +593,10 @@ impl Tool for ArcTool {
 
     fn label(&self) -> &'static str {
         match self.kind {
-            ArcKind::Bulge => "Arc",
-            ArcKind::Center => "2 Point Arc",
-            ArcKind::ThreePoint => "3 Point Arc",
-            ArcKind::Pie => "Pie",
+            ArcKind::Bulge => en("Arc"),
+            ArcKind::Center => en("2 Point Arc"),
+            ArcKind::ThreePoint => en("3 Point Arc"),
+            ArcKind::Pie => en("Pie"),
         }
     }
 
@@ -718,12 +727,12 @@ impl Tool for ArcTool {
 
     fn options(&mut self, ui: &mut egui::Ui, _cx: &Cx<'_>) {
         ui.horizontal(|ui| {
-            ui.label("Segments");
+            ui.label(t("Segments"));
             ui.add(egui::DragValue::new(&mut self.segments).range(1..=999));
         });
-        ui.weak(format!(
-            "Type `{}s` in the value field to set it.",
-            self.segments
+        ui.weak(t_args(
+            "Type `{ $count }s` in the value field to set it.",
+            &[("count", self.segments.into())],
         ));
     }
 }

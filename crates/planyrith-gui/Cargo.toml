@@ -17,6 +17,8 @@ path = "src/main.rs"
 
 # Allowed dependencies are listed in docs/01-architecture.md §1.1.
 [dependencies]
+fluent-bundle = { workspace = true }
+unic-langid = { workspace = true }
 planyrith-core = { workspace = true, features = ["scripting", "brep"] }
 planyrith-render = { workspace = true }
 egui = { workspace = true }
@@ -51,6 +53,7 @@ web-sys = { version = "0.3", features = [
 wasm-bindgen-test = "0.3"
 
 [dev-dependencies]
+fluent-syntax = "0.12"
 # Whole-window screenshots of the GUI, headless (docs/12 §7).
 egui_kittest = { workspace = true, features = ["wgpu", "snapshot", "eframe"] }
 

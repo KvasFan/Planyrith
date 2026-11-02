@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use web_time::Instant;
 
+use crate::i18n::{en, t, t_args};
 use crate::icons::{self, Icon};
 use crate::panels::{self, PanelState};
 use crate::platform;
@@ -61,16 +62,16 @@ pub enum Pane {
 impl Pane {
     fn title(self) -> &'static str {
         match self {
-            Pane::Viewport => "Viewport",
-            Pane::EntityInfo => "Entity Info",
-            Pane::Tags => "Tags",
-            Pane::Scenes => "Scenes",
-            Pane::Outliner => "Outliner",
-            Pane::ToolOptions => "Tool Options",
-            Pane::ToolHelp => "Tool Help",
-            Pane::Materials => "Materials",
-            Pane::Components => "Components",
-            Pane::Styles => "Styles",
+            Pane::Viewport => en("Viewport"),
+            Pane::EntityInfo => en("Entity Info"),
+            Pane::Tags => en("Tags"),
+            Pane::Scenes => en("Scenes"),
+            Pane::Outliner => en("Outliner"),
+            Pane::ToolOptions => en("Tool Options"),
+            Pane::ToolHelp => en("Tool Help"),
+            Pane::Materials => en("Materials"),
+            Pane::Components => en("Components"),
+            Pane::Styles => en("Styles"),
         }
     }
 }
@@ -152,6 +153,8 @@ struct Settings {
     theme: ThemeChoice,
     /// The Components panel's library folder.
     component_library: Option<PathBuf>,
+    /// The interface language (docs/07 §12).
+    language: crate::i18n::LanguageChoice,
 }
 
 impl Default for Settings {
@@ -161,6 +164,7 @@ impl Default for Settings {
             show_axes: true,
             theme: ThemeChoice::System,
             component_library: None,
+            language: crate::i18n::LanguageChoice::System,
         }
     }
 }
@@ -325,6 +329,10 @@ impl App {
             .unwrap_or_default();
         let mut app = App::blank(tree, settings);
         app.resources.library = app.settings.component_library.clone();
+        // Tests read English labels, whatever the machine's language.
+        if !cfg!(test) {
+            crate::i18n::set_language(app.settings.language.resolve());
+        }
         theme::apply(&cc.egui_ctx, app.settings.theme);
         app.autosave = !cfg!(test);
         if app.autosave {
@@ -415,9 +423,9 @@ impl App {
         use planyrith_core::document::{Projection, StandardView};
         let doc = self.session.doc();
         let views = [
-            (StandardView::Top, "Top"),
-            (StandardView::Front, "Front"),
-            (StandardView::Right, "Right"),
+            (StandardView::Top, en("Top")),
+            (StandardView::Front, en("Front")),
+            (StandardView::Right, en("Right")),
         ];
         self.extra_viewports = views
             .iter()
@@ -517,7 +525,9 @@ impl App {
             });
             ui.label(format!("{seconds} s"));
             if seconds >= 5 {
-                ui.weak("The first conversion of a large model can take a minute.");
+                ui.weak(t(
+                    "The first conversion of a large model can take a minute.",
+                ));
             }
         });
         ctx.request_repaint_after(std::time::Duration::from_millis(100));
@@ -1128,24 +1138,24 @@ impl App {
 
     fn menu_bar(&mut self, ui: &mut egui::Ui) {
         egui::MenuBar::new().ui(ui, |ui| {
-            ui.menu_button("File", |ui| {
-                if ui.button("Send to Sheets").clicked() {
+            ui.menu_button(t("File"), |ui| {
+                if ui.button(t("Send to Sheets")).clicked() {
                     self.sheets.send_to_sheets(&mut self.session);
                     ui.close();
                 }
                 ui.separator();
-                if ui.button("New").clicked() {
+                if ui.button(t("New")).clicked() {
                     self.guarded(Pending::New);
                     ui.close();
                 }
-                if ui.button("Open…").clicked() {
+                if ui.button(t("Open…")).clicked() {
                     self.guarded(Pending::Open(None));
                     ui.close();
                 }
-                ui.menu_button("Open Recent", |ui| {
+                ui.menu_button(t("Open Recent"), |ui| {
                     let recent = self.settings.recent.clone();
                     if recent.is_empty() {
-                        ui.weak("Nothing yet");
+                        ui.weak(t("Nothing yet"));
                     }
                     for path in recent {
                         if ui.button(path.display().to_string()).clicked() {
@@ -1154,7 +1164,7 @@ impl App {
                         }
                     }
                 });
-                ui.menu_button("Open Example", |ui| {
+                ui.menu_button(t("Open Example"), |ui| {
                     for (i, sample) in crate::samples::catalogue().iter().enumerate() {
                         if ui.button(sample.name).clicked() {
                             self.guarded(Pending::Sample(i));
@@ -1163,36 +1173,36 @@ impl App {
                     }
                 });
                 ui.separator();
-                if ui.button("Save").clicked() {
+                if ui.button(t("Save")).clicked() {
                     self.save(None);
                     ui.close();
                 }
-                if ui.button("Save As…").clicked() {
+                if ui.button(t("Save As…")).clicked() {
                     self.save_as();
                     ui.close();
                 }
                 #[cfg(target_arch = "wasm32")]
                 self.web_file_menu(ui);
                 ui.separator();
-                if ui.button("Import…").clicked() {
+                if ui.button(t("Import…")).clicked() {
                     self.resources.file = Some(FileRequest::Import);
                     ui.close();
                 }
-                ui.menu_button("Export", |ui| {
-                    if ui.button("3D Model…").clicked() {
+                ui.menu_button(t("Export"), |ui| {
+                    if ui.button(t("3D Model…")).clicked() {
                         self.resources.file = Some(FileRequest::Export);
                         ui.close();
                     }
-                    if ui.button("2D Graphic…").clicked() {
+                    if ui.button(t("2D Graphic…")).clicked() {
                         self.resources.file = Some(FileRequest::Export2d);
                         ui.close();
                     }
-                    if ui.button("Component Report…").clicked() {
+                    if ui.button(t("Component Report…")).clicked() {
                         self.resources.file = Some(FileRequest::Report);
                         ui.close();
                     }
                 });
-                if ui.button("Insert Image…").clicked() {
+                if ui.button(t("Insert Image…")).clicked() {
                     self.resources.file = Some(FileRequest::Image);
                     ui.close();
                 }
@@ -1200,13 +1210,13 @@ impl App {
                 #[cfg(not(target_arch = "wasm32"))]
                 {
                     ui.separator();
-                    if ui.button("Quit").clicked() {
+                    if ui.button(t("Quit")).clicked() {
                         self.guarded(Pending::Quit);
                         ui.close();
                     }
                 }
             });
-            ui.menu_button("Edit", |ui| {
+            ui.menu_button(t("Edit"), |ui| {
                 let undo = self.session.undo_label().map(str::to_string);
                 let redo = self.session.redo_label().map(str::to_string);
                 let undo_text = undo.map_or_else(|| "Undo".into(), |l| format!("Undo {l}"));
@@ -1232,28 +1242,51 @@ impl App {
                 ui.separator();
                 let has_selection = !self.session.engine.selection().is_empty();
                 for (label, name, params, needs_selection) in [
-                    ("Select All", "select", json!({ "query": "all" }), false),
-                    ("Select None", "select", json!({ "query": "none" }), false),
-                    ("Delete", "delete", json!({ "targets": "selection" }), true),
-                    ("Hide", "hide", json!({ "targets": "selection" }), true),
-                    ("Unhide All", "unhide", json!({ "targets": "all" }), false),
-                    ("Lock", "lock", json!({ "targets": "selection" }), true),
-                    ("Unlock", "unlock", json!({ "targets": "selection" }), true),
+                    (en("Select All"), "select", json!({ "query": "all" }), false),
                     (
-                        "Make Group",
+                        en("Select None"),
+                        "select",
+                        json!({ "query": "none" }),
+                        false,
+                    ),
+                    (
+                        en("Delete"),
+                        "delete",
+                        json!({ "targets": "selection" }),
+                        true,
+                    ),
+                    (en("Hide"), "hide", json!({ "targets": "selection" }), true),
+                    (
+                        en("Unhide All"),
+                        "unhide",
+                        json!({ "targets": "all" }),
+                        false,
+                    ),
+                    (en("Lock"), "lock", json!({ "targets": "selection" }), true),
+                    (
+                        en("Unlock"),
+                        "unlock",
+                        json!({ "targets": "selection" }),
+                        true,
+                    ),
+                    (
+                        en("Make Group"),
                         "make-group",
                         json!({ "targets": "selection" }),
                         true,
                     ),
                     (
-                        "Explode",
+                        en("Explode"),
                         "explode",
                         json!({ "targets": "selection" }),
                         true,
                     ),
                 ] {
                     if ui
-                        .add_enabled(!needs_selection || has_selection, egui::Button::new(label))
+                        .add_enabled(
+                            !needs_selection || has_selection,
+                            egui::Button::new(t(label)),
+                        )
                         .clicked()
                     {
                         if label == "Select None" {
@@ -1267,7 +1300,7 @@ impl App {
                     }
                 }
                 if ui
-                    .add_enabled(has_selection, egui::Button::new("Make Component"))
+                    .add_enabled(has_selection, egui::Button::new(t("Make Component")))
                     .clicked()
                 {
                     let n = self.session.doc().definitions.len() + 1;
@@ -1279,34 +1312,34 @@ impl App {
                 }
                 let inside = !self.session.engine.context().path.is_root();
                 if ui
-                    .add_enabled(inside, egui::Button::new("Close Group/Component"))
+                    .add_enabled(inside, egui::Button::new(t("Close Group/Component")))
                     .clicked()
                 {
                     viewport::exit_context(&mut self.session);
                     ui.close();
                 }
             });
-            ui.menu_button("View", |ui| {
+            ui.menu_button(t("View"), |ui| {
                 let mode = self
                     .session
                     .doc()
                     .styles
                     .active_style()
                     .map(|s| s.faces.mode);
-                ui.menu_button("Face Style", |ui| {
+                ui.menu_button(t("Face Style"), |ui| {
                     for (label, m, key) in [
-                        ("Wireframe", FaceMode::Wireframe, "wireframe"),
-                        ("Hidden Line", FaceMode::HiddenLine, "hidden-line"),
-                        ("Shaded", FaceMode::Shaded, "shaded"),
+                        (en("Wireframe"), FaceMode::Wireframe, "wireframe"),
+                        (en("Hidden Line"), FaceMode::HiddenLine, "hidden-line"),
+                        (en("Shaded"), FaceMode::Shaded, "shaded"),
                         (
-                            "Shaded with Textures",
+                            en("Shaded with Textures"),
                             FaceMode::ShadedTextured,
                             "shaded-textured",
                         ),
-                        ("Monochrome", FaceMode::Monochrome, "monochrome"),
-                        ("X-Ray", FaceMode::XRay, "x-ray"),
+                        (en("Monochrome"), FaceMode::Monochrome, "monochrome"),
+                        (en("X-Ray"), FaceMode::XRay, "x-ray"),
                     ] {
-                        if ui.radio(mode == Some(m), label).clicked() {
+                        if ui.radio(mode == Some(m), t(label)).clicked() {
                             self.run("style-set", json!({ "faces": key }));
                             ui.close();
                         }
@@ -1320,26 +1353,26 @@ impl App {
                     .cloned()
                     .unwrap_or_default();
                 let mut edges = style.edges.show;
-                if ui.checkbox(&mut edges, "Edges").changed() {
+                if ui.checkbox(&mut edges, t("Edges")).changed() {
                     self.run("style-set", json!({ "edges": edges }));
                 }
                 let mut back = style.edges.back_edges;
-                if ui.checkbox(&mut back, "Back Edges").changed() {
+                if ui.checkbox(&mut back, t("Back Edges")).changed() {
                     self.run("style-set", json!({ "back_edges": back }));
                 }
                 let mut profiles = style.edges.profiles.is_some();
-                if ui.checkbox(&mut profiles, "Profiles").changed() {
+                if ui.checkbox(&mut profiles, t("Profiles")).changed() {
                     self.run(
                         "style-set",
                         json!({ "profiles": if profiles { 2 } else { 0 } }),
                     );
                 }
-                ui.checkbox(&mut self.viewport.show_hidden, "Hidden Geometry");
-                ui.checkbox(&mut self.settings.show_axes, "Axes");
-                ui.menu_button("Viewports", |ui| {
-                    for (label, count) in [("One", 0usize), ("Two", 1), ("Four", 3)] {
+                ui.checkbox(&mut self.viewport.show_hidden, t("Hidden Geometry"));
+                ui.checkbox(&mut self.settings.show_axes, t("Axes"));
+                ui.menu_button(t("Viewports"), |ui| {
+                    for (label, count) in [(en("One"), 0usize), (en("Two"), 1), (en("Four"), 3)] {
                         if ui
-                            .radio(self.extra_viewports.len() == count, label)
+                            .radio(self.extra_viewports.len() == count, t(label))
                             .clicked()
                         {
                             self.set_viewports(count);
@@ -1350,31 +1383,31 @@ impl App {
                 ui.separator();
                 let rendering = self.session.doc().rendering.clone();
                 let mut shadows = rendering.shadows.enabled;
-                if ui.checkbox(&mut shadows, "Shadows").changed() {
+                if ui.checkbox(&mut shadows, t("Shadows")).changed() {
                     self.run("shadows-set", json!({ "enabled": shadows }));
                 }
-                if ui.button("Shadow Settings…").clicked() {
+                if ui.button(t("Shadow Settings…")).clicked() {
                     self.shadows_open = true;
                     ui.close();
                 }
                 let section = rendering.section;
                 let mut planes = section.planes_visible;
-                if ui.checkbox(&mut planes, "Section Planes").changed() {
+                if ui.checkbox(&mut planes, t("Section Planes")).changed() {
                     self.run("section-display-set", json!({ "planes": planes }));
                 }
                 let mut cuts = section.cuts_visible;
-                if ui.checkbox(&mut cuts, "Section Cuts").changed() {
+                if ui.checkbox(&mut cuts, t("Section Cuts")).changed() {
                     self.run("section-display-set", json!({ "cuts": cuts }));
                 }
                 let mut fills = section.fills_visible;
-                if ui.checkbox(&mut fills, "Section Fill").changed() {
+                if ui.checkbox(&mut fills, t("Section Fill")).changed() {
                     self.run("section-display-set", json!({ "fills": fills }));
                 }
                 ui.separator();
-                ui.menu_button("Theme", |ui| {
+                ui.menu_button(t("Theme"), |ui| {
                     for choice in [ThemeChoice::System, ThemeChoice::Light, ThemeChoice::Dark] {
                         if ui
-                            .radio(self.settings.theme == choice, choice.label())
+                            .radio(self.settings.theme == choice, t(choice.label()))
                             .clicked()
                         {
                             self.settings.theme = choice;
@@ -1383,19 +1416,40 @@ impl App {
                         }
                     }
                 });
-            });
-            ui.menu_button("Camera", |ui| {
-                ui.menu_button("Standard Views", |ui| {
-                    for (label, view) in [
-                        ("Top", "top"),
-                        ("Bottom", "bottom"),
-                        ("Front", "front"),
-                        ("Back", "back"),
-                        ("Left", "left"),
-                        ("Right", "right"),
-                        ("Iso", "iso"),
+                // Each language in itself, so it can be found from any other.
+                ui.menu_button(t("Language"), |ui| {
+                    use crate::i18n::{Language, LanguageChoice};
+                    for (choice, name) in [
+                        (LanguageChoice::System, t("System")),
+                        (
+                            LanguageChoice::Fixed(Language::English),
+                            "English".to_string(),
+                        ),
+                        (
+                            LanguageChoice::Fixed(Language::Italian),
+                            "Italiano".to_string(),
+                        ),
                     ] {
-                        if ui.button(label).clicked() {
+                        if ui.radio(self.settings.language == choice, name).clicked() {
+                            self.settings.language = choice;
+                            crate::i18n::set_language(choice.resolve());
+                            ui.close();
+                        }
+                    }
+                });
+            });
+            ui.menu_button(t("Camera"), |ui| {
+                ui.menu_button(t("Standard Views"), |ui| {
+                    for (label, view) in [
+                        (en("Top"), "top"),
+                        (en("Bottom"), "bottom"),
+                        (en("Front"), "front"),
+                        (en("Back"), "back"),
+                        (en("Left"), "left"),
+                        (en("Right"), "right"),
+                        (en("Iso"), "iso"),
+                    ] {
+                        if ui.button(t(label)).clicked() {
                             self.run("camera-standard", json!({ "view": view }));
                             ui.close();
                         }
@@ -1403,43 +1457,46 @@ impl App {
                 });
                 ui.separator();
                 for (label, projection) in [
-                    ("Parallel Projection", "parallel"),
-                    ("Perspective", "perspective"),
-                    ("Two-Point Perspective", "two-point"),
+                    (en("Parallel Projection"), "parallel"),
+                    (en("Perspective"), "perspective"),
+                    (en("Two-Point Perspective"), "two-point"),
                 ] {
-                    if ui.button(label).clicked() {
+                    if ui.button(t(label)).clicked() {
                         self.run("camera-set", json!({ "projection": projection }));
                         ui.close();
                     }
                 }
                 ui.separator();
-                if ui.button("Zoom Extents\tShift+Z").clicked() {
+                if ui
+                    .add(egui::Button::new(t("Zoom Extents")).shortcut_text("Shift+Z"))
+                    .clicked()
+                {
                     self.run("zoom-extents", json!({}));
                     ui.close();
                 }
                 let has_selection = !self.session.engine.selection().is_empty();
                 if ui
-                    .add_enabled(has_selection, egui::Button::new("Zoom Selection"))
+                    .add_enabled(has_selection, egui::Button::new(t("Zoom Selection")))
                     .clicked()
                 {
                     self.run("zoom-extents", json!({ "targets": "selection" }));
                     ui.close();
                 }
             });
-            ui.menu_button("Draw", |ui| {
+            ui.menu_button(t("Draw"), |ui| {
                 self.tool_button(ui, "Line");
-                ui.menu_button("Arcs", |ui| {
+                ui.menu_button(t("Arcs"), |ui| {
                     for label in ["Arc", "2 Point Arc", "3 Point Arc", "Pie"] {
                         self.tool_button(ui, label);
                     }
                 });
-                ui.menu_button("Shapes", |ui| {
+                ui.menu_button(t("Shapes"), |ui| {
                     for label in ["Rectangle", "Circle", "Polygon"] {
                         self.tool_button(ui, label);
                     }
                 });
             });
-            ui.menu_button("Tools", |ui| {
+            ui.menu_button(t("Tools"), |ui| {
                 for label in [
                     "Select",
                     "Eraser",
@@ -1453,7 +1510,7 @@ impl App {
                     self.tool_button(ui, label);
                 }
                 ui.separator();
-                ui.menu_button("Solids", |ui| {
+                ui.menu_button(t("Solids"), |ui| {
                     for label in [
                         "Solid Union",
                         "Solid Subtract",
@@ -1466,7 +1523,7 @@ impl App {
                     }
                 });
                 self.tool_button(ui, "Sweep");
-                if ui.button("Soften / Smooth…").clicked() {
+                if ui.button(t("Soften / Smooth…")).clicked() {
                     self.extensions.soften_open = true;
                     ui.close();
                 }
@@ -1483,24 +1540,24 @@ impl App {
                     self.tool_button(ui, label);
                 }
             });
-            ui.menu_button("Window", |ui| {
-                if ui.button("Sheets").clicked() {
+            ui.menu_button(t("Window"), |ui| {
+                if ui.button(t("Sheets")).clicked() {
                     self.sheets.open = true;
                     ui.close();
                 }
-                if ui.button("Console").clicked() {
+                if ui.button(t("Console")).clicked() {
                     self.extensions.console_open = true;
                     ui.close();
                 }
-                if ui.button("Reset Layout").clicked() {
+                if ui.button(t("Reset Layout")).clicked() {
                     self.tree = default_layout();
                     ui.close();
                 }
             });
-            ui.menu_button("Extensions", |ui| self.extensions.menu(ui));
-            ui.menu_button("Help", |ui| {
+            ui.menu_button(t("Extensions"), |ui| self.extensions.menu(ui));
+            ui.menu_button(t("Help"), |ui| {
                 ui.label(format!("Planyrith {}", env!("CARGO_PKG_VERSION")));
-                ui.weak("Every tool is also a command: see `planyrith tool`.");
+                ui.weak(t("Every tool is also a command: see `planyrith tool`."));
             });
         });
     }
@@ -1510,7 +1567,7 @@ impl App {
         let Some(i) = self.tools.iter().position(|(t, _)| t.label() == label) else {
             return;
         };
-        let mut button = egui::Button::new(label).selected(i == self.active);
+        let mut button = egui::Button::new(t(label)).selected(i == self.active);
         if let Some(key) = self.tools[i].1 {
             button = button.shortcut_text(key.name());
         }
@@ -1530,23 +1587,23 @@ impl App {
                 ui.separator();
                 ui.add_space(4.0);
             };
-            if icons::button(ui, Icon::New, false, "New (Ctrl+N)").clicked() {
+            if icons::button(ui, Icon::New, false, &t("New (Ctrl+N)")).clicked() {
                 self.guarded(Pending::New);
             }
-            if icons::button(ui, Icon::Open, false, "Open… (Ctrl+O)").clicked() {
+            if icons::button(ui, Icon::Open, false, &t("Open… (Ctrl+O)")).clicked() {
                 self.guarded(Pending::Open(None));
             }
-            if icons::button(ui, Icon::Save, false, "Save (Ctrl+S)").clicked() {
+            if icons::button(ui, Icon::Save, false, &t("Save (Ctrl+S)")).clicked() {
                 self.save(None);
             }
             group_gap(ui);
             let undo = self.session.undo_label().map_or_else(
-                || "Undo (Ctrl+Z)".to_string(),
-                |l| format!("Undo {l} (Ctrl+Z)"),
+                || t("Undo (Ctrl+Z)"),
+                |l| t_args("Undo { $action } (Ctrl+Z)", &[("action", l.into())]),
             );
             let redo = self.session.redo_label().map_or_else(
-                || "Redo (Ctrl+Y)".to_string(),
-                |l| format!("Redo {l} (Ctrl+Y)"),
+                || t("Redo (Ctrl+Y)"),
+                |l| t_args("Redo { $action } (Ctrl+Y)", &[("action", l.into())]),
             );
             let (can_undo, can_redo) = (
                 self.session.undo_label().is_some(),
@@ -1602,8 +1659,8 @@ impl App {
                         continue;
                     };
                     let tip = match key {
-                        Some(k) => format!("{} ({})", tool.label(), k.name()),
-                        None => tool.label().to_string(),
+                        Some(k) => format!("{} ({})", t(tool.label()), k.name()),
+                        None => t(tool.label()),
                     };
                     if icons::button(ui, icon, i == self.active, &tip).clicked() {
                         self.activate(i);
@@ -1612,16 +1669,16 @@ impl App {
             }
             group_gap(ui);
             for (icon, view, tip) in [
-                (Icon::ViewIso, "iso", "Iso view"),
-                (Icon::ViewTop, "top", "Top view"),
-                (Icon::ViewFront, "front", "Front view"),
-                (Icon::ViewRight, "right", "Right view"),
+                (Icon::ViewIso, "iso", en("Iso view")),
+                (Icon::ViewTop, "top", en("Top view")),
+                (Icon::ViewFront, "front", en("Front view")),
+                (Icon::ViewRight, "right", en("Right view")),
             ] {
-                if icons::button(ui, icon, false, tip).clicked() {
+                if icons::button(ui, icon, false, &t(tip)).clicked() {
                     self.run("camera-standard", json!({ "view": view }));
                 }
             }
-            if icons::button(ui, Icon::ZoomExtents, false, "Zoom Extents (Shift+Z)").clicked() {
+            if icons::button(ui, Icon::ZoomExtents, false, &t("Zoom Extents (Shift+Z)")).clicked() {
                 self.run("zoom-extents", json!({}));
             }
             group_gap(ui);
@@ -1636,24 +1693,24 @@ impl App {
                     Icon::Wireframe,
                     FaceMode::Wireframe,
                     "wireframe",
-                    "Wireframe",
+                    en("Wireframe"),
                 ),
                 (
                     Icon::HiddenLine,
                     FaceMode::HiddenLine,
                     "hidden-line",
-                    "Hidden line",
+                    en("Hidden Line"),
                 ),
-                (Icon::Shaded, FaceMode::Shaded, "shaded", "Shaded"),
+                (Icon::Shaded, FaceMode::Shaded, "shaded", en("Shaded")),
                 (
                     Icon::Textured,
                     FaceMode::ShadedTextured,
                     "shaded-textured",
-                    "Shaded with textures",
+                    en("Shaded with Textures"),
                 ),
-                (Icon::XRay, FaceMode::XRay, "x-ray", "X-ray"),
+                (Icon::XRay, FaceMode::XRay, "x-ray", en("X-Ray")),
             ] {
-                if icons::button(ui, icon, mode == Some(m), tip).clicked() {
+                if icons::button(ui, icon, mode == Some(m), &t(tip)).clicked() {
                     self.run("style-set", json!({ "faces": key }));
                 }
             }
@@ -1701,7 +1758,7 @@ impl App {
                         ui.monospace(&self.value);
                     });
                 ui.label(if value_label.is_empty() {
-                    egui::RichText::new("Value").weak()
+                    egui::RichText::new(t("Value")).weak()
                 } else {
                     egui::RichText::new(&value_label)
                 });
@@ -1821,19 +1878,19 @@ impl App {
         };
         let mut open = true;
         let mut change: Option<Value> = None;
-        egui::Window::new("Shadows")
+        egui::Window::new(t("Shadows"))
             .open(&mut open)
             .resizable(false)
             .collapsible(false)
             .show(ctx, |ui| {
                 let mut enabled = shadows.enabled;
-                if ui.checkbox(&mut enabled, "Show shadows").changed() {
+                if ui.checkbox(&mut enabled, t("Show shadows")).changed() {
                     change = Some(json!({ "enabled": enabled }));
                 }
                 egui::Grid::new("shadow fields").num_columns(2).show(ui, |ui| {
                     let mut month = date.month;
                     let mut day = date.day;
-                    ui.label("Date");
+                    ui.label(t("Date"));
                     ui.horizontal(|ui| {
                         let m = ui.add(egui::DragValue::new(&mut month).range(1..=12).prefix("month "));
                         let d = ui.add(egui::DragValue::new(&mut day).range(1..=31).prefix("day "));
@@ -1848,7 +1905,7 @@ impl App {
                     });
                     ui.end_row();
                     let mut minutes = i32::from(time.hour) * 60 + i32::from(time.minute);
-                    ui.label("Time");
+                    ui.label(t("Time"));
                     if ui
                         .add(egui::Slider::new(&mut minutes, 0..=1439).custom_formatter(|m, _| {
                             format!("{:02}:{:02}", m as i32 / 60, m as i32 % 60)
@@ -1859,48 +1916,48 @@ impl App {
                     }
                     ui.end_row();
                     for (label, value, key, range) in [
-                        ("Latitude", lat, "latitude", -90.0..=90.0),
-                        ("Longitude", lon, "longitude", -180.0..=180.0),
-                        ("UTC offset", utc, "utc_offset", -14.0..=14.0),
+                        (en("Latitude"), lat, "latitude", -90.0..=90.0),
+                        (en("Longitude"), lon, "longitude", -180.0..=180.0),
+                        (en("UTC offset"), utc, "utc_offset", -14.0..=14.0),
                     ] {
                         let mut v = value;
-                        ui.label(label);
+                        ui.label(t(label));
                         if ui.add(egui::DragValue::new(&mut v).range(range).speed(0.1)).changed() {
                             change = Some(json!({ key: v }));
                         }
                         ui.end_row();
                     }
                     let mut n = north;
-                    ui.label("North angle");
+                    ui.label(t("North angle"));
                     if ui.add(egui::DragValue::new(&mut n).range(0.0..=360.0).suffix("°")).changed() {
                         change = Some(json!({ "north_angle": n.to_radians() }));
                     }
                     ui.end_row();
                     let mut light = shadows.light;
-                    ui.label("Light");
+                    ui.label(t("Light"));
                     if ui.add(egui::Slider::new(&mut light, 0..=100)).changed() {
                         change = Some(json!({ "light": light }));
                     }
                     ui.end_row();
                     let mut dark = shadows.dark;
-                    ui.label("Dark");
+                    ui.label(t("Dark"));
                     if ui.add(egui::Slider::new(&mut dark, 0..=100)).changed() {
                         change = Some(json!({ "dark": dark }));
                     }
                     ui.end_row();
                 });
                 let mut ground = shadows.on_ground;
-                if ui.checkbox(&mut ground, "On the ground").changed() {
+                if ui.checkbox(&mut ground, t("On the ground")).changed() {
                     change = Some(json!({ "on_ground": ground }));
                 }
                 let mut faces = shadows.on_faces;
-                if ui.checkbox(&mut faces, "On faces").changed() {
+                if ui.checkbox(&mut faces, t("On faces")).changed() {
                     change = Some(json!({ "on_faces": faces }));
                 }
                 let mut edges = shadows.from_edges;
                 if ui
-                    .checkbox(&mut edges, "From edges")
-                    .on_hover_text("Edges that bound no face cast shadows too")
+                    .checkbox(&mut edges, t("From edges"))
+                    .on_hover_text(t("Edges that bound no face cast shadows too"))
                     .changed()
                 {
                     change = Some(json!({ "from_edges": edges }));
@@ -1921,7 +1978,7 @@ impl App {
         let mut open = true;
         let mut apply = None;
         let mut pins = false;
-        egui::Window::new("Position Texture")
+        egui::Window::new(t("Position Texture"))
             .open(&mut open)
             .resizable(false)
             .collapsible(false)
@@ -1929,7 +1986,7 @@ impl App {
                 egui::Grid::new("texture fields")
                     .num_columns(2)
                     .show(ui, |ui| {
-                        ui.label("Offset");
+                        ui.label(t("Offset"));
                         ui.horizontal(|ui| {
                             ui.add(
                                 egui::DragValue::new(&mut fields.offset_u)
@@ -1943,7 +2000,7 @@ impl App {
                             );
                         });
                         ui.end_row();
-                        ui.label("Rotation");
+                        ui.label(t("Rotation"));
                         ui.add(
                             egui::DragValue::new(&mut fields.rotation)
                                 .speed(1.0)
@@ -1951,7 +2008,7 @@ impl App {
                                 .suffix("°"),
                         );
                         ui.end_row();
-                        ui.label("Scale");
+                        ui.label(t("Scale"));
                         ui.horizontal(|ui| {
                             ui.add(
                                 egui::DragValue::new(&mut fields.scale_u)
@@ -1966,12 +2023,12 @@ impl App {
                         });
                         ui.end_row();
                         ui.label("");
-                        ui.checkbox(&mut fields.both_sides, "Both sides");
+                        ui.checkbox(&mut fields.both_sides, t("Both sides"));
                         ui.end_row();
                     });
                 ui.horizontal(|ui| {
                     let side = if fields.both_sides { "both" } else { "front" };
-                    if ui.button("Apply").clicked() {
+                    if ui.button(t("Apply")).clicked() {
                         apply = Some(fields.request(face, false));
                     }
                     if ui
@@ -1986,12 +2043,12 @@ impl App {
                     }
                     if ui
                         .button("Pins…")
-                        .on_hover_text("Move the texture by its corner pins in the model")
+                        .on_hover_text(t("Move the texture by its corner pins in the model"))
                         .clicked()
                     {
                         pins = true;
                     }
-                    if ui.button("Reset").clicked() {
+                    if ui.button(t("Reset")).clicked() {
                         apply =
                             Some(json!({ "face": { "Path": face }, "side": side, "reset": true }));
                         *fields = TextureFields::default();
@@ -2020,10 +2077,11 @@ impl App {
             self.pick_from_computer(UploadPurpose::Resource(request));
             return;
         }
+        let kind = t(kind);
         self.dialog = platform::file_dialog()
-            .title(title)
-            .add_file_filter_extensions(kind, extensions.to_vec())
-            .default_file_filter(kind);
+            .title(&t(title))
+            .add_file_filter_extensions(&kind, extensions.to_vec())
+            .default_file_filter(&kind);
         if saves {
             self.dialog.save_file();
         } else {
@@ -2082,7 +2140,7 @@ impl App {
                     let (name, params) = request.command(&path.to_string_lossy());
                     match self.session.execute(name, params) {
                         Ok(_) => {
-                            self.info(format!("{} {}", request.dialog().0, file_name(&path)));
+                            self.info(format!("{} {}", t(request.dialog().0), file_name(&path)));
                             #[cfg(target_arch = "wasm32")]
                             if saves {
                                 self.download(&path);
@@ -2117,16 +2175,16 @@ impl App {
         };
         let mut choice = None;
         egui::Modal::new(egui::Id::new("unsaved changes")).show(ctx, |ui| {
-            ui.heading("Unsaved changes");
+            ui.heading(t("Unsaved changes"));
             ui.label(format!("Save the changes to {}?", self.session.title()));
             ui.horizontal(|ui| {
-                if ui.button("Save").clicked() {
+                if ui.button(t("Save")).clicked() {
                     choice = Some(0);
                 }
-                if ui.button("Discard").clicked() {
+                if ui.button(t("Discard")).clicked() {
                     choice = Some(1);
                 }
-                if ui.button("Cancel").clicked() {
+                if ui.button(t("Cancel")).clicked() {
                     choice = Some(2);
                 }
             });
@@ -2159,15 +2217,15 @@ impl App {
             .map_or_else(|| "an untitled document".to_string(), file_name);
         let mut choice = None;
         egui::Modal::new(egui::Id::new("recover")).show(ctx, |ui| {
-            ui.heading("Recover unsaved work");
+            ui.heading(t("Recover unsaved work"));
             ui.label(format!(
                 "Planyrith closed with unsaved changes to {name}. Recover them?"
             ));
             ui.horizontal(|ui| {
-                if ui.button("Recover").clicked() {
+                if ui.button(t("Recover")).clicked() {
                     choice = Some(true);
                 }
-                if ui.button("Discard").clicked() {
+                if ui.button(t("Discard")).clicked() {
                     choice = Some(false);
                 }
             });
@@ -2237,17 +2295,17 @@ impl App {
     #[cfg(target_arch = "wasm32")]
     fn web_file_menu(&mut self, ui: &mut egui::Ui) {
         ui.separator();
-        if ui.button("Open Stored in Browser…").clicked() {
+        if ui.button(t("Open Stored in Browser…")).clicked() {
             self.dialog = Self::document_dialog();
             self.dialog_purpose = Some(DialogPurpose::Open);
             self.dialog.pick_file();
             ui.close();
         }
-        if ui.button("Upload from Computer…").clicked() {
+        if ui.button(t("Upload from Computer…")).clicked() {
             self.pick_from_computer(UploadPurpose::Store);
             ui.close();
         }
-        if ui.button("Download This Document").clicked() {
+        if ui.button(t("Download This Document")).clicked() {
             let name = if self.session.title().ends_with(".plyr") {
                 self.session.title()
             } else {
@@ -2263,7 +2321,7 @@ impl App {
             }
             ui.close();
         }
-        if ui.button("Download a File…").clicked() {
+        if ui.button(t("Download a File…")).clicked() {
             self.dialog = platform::file_dialog();
             self.dialog_purpose = Some(DialogPurpose::Download);
             self.dialog.pick_file();
@@ -2311,7 +2369,7 @@ impl App {
                     self.upload_purpose = None;
                     let (command, params) = request.command(&key);
                     match self.session.execute(command, params) {
-                        Ok(_) => self.info(format!("{} {name}", request.dialog().0)),
+                        Ok(_) => self.info(format!("{} {name}", t(request.dialog().0))),
                         Err(e) => self.error(e),
                     }
                 }
@@ -2502,7 +2560,7 @@ impl egui_tiles::Behavior<Pane> for Docks<'_> {
     }
 
     fn tab_title_for_pane(&mut self, pane: &Pane) -> egui::WidgetText {
-        pane.title().into()
+        t(pane.title()).into()
     }
 
     fn tab_bar_color(&self, visuals: &egui::Visuals) -> egui::Color32 {

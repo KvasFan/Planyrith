@@ -25,9 +25,9 @@ impl ThemeChoice {
     /// Menu label.
     pub fn label(self) -> &'static str {
         match self {
-            ThemeChoice::System => "System",
-            ThemeChoice::Light => "Light",
-            ThemeChoice::Dark => "Dark",
+            ThemeChoice::System => crate::i18n::en("System"),
+            ThemeChoice::Light => crate::i18n::en("Light"),
+            ThemeChoice::Dark => crate::i18n::en("Dark"),
         }
     }
 }

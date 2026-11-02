@@ -13,6 +13,7 @@
 mod app;
 mod bundled;
 mod extensions;
+pub mod i18n;
 mod icons;
 mod panels;
 pub mod platform;

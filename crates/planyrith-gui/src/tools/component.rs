@@ -8,6 +8,7 @@ use planyrith_core::ids::EntityId;
 use serde_json::{Value, json};
 
 use super::{Cx, Flow, Pointer, Tool, pt};
+use crate::i18n::{en, t, t_args};
 
 /// The component placement tool.
 #[derive(Debug, Default)]
@@ -87,7 +88,7 @@ impl Tool for ComponentTool {
     }
 
     fn label(&self) -> &'static str {
-        "Component"
+        en("Component")
     }
 
     fn step(&self) -> usize {
@@ -122,18 +123,26 @@ impl Tool for ComponentTool {
     fn options(&mut self, ui: &mut egui::Ui, _cx: &Cx<'_>) {
         match (&self.definition, &self.file) {
             (Some(name), _) => {
-                ui.label(format!("Placing `{name}`"));
-                ui.weak("Click to place; gluing components lie on matching faces. Space ends.");
+                ui.label(t_args(
+                    "Placing `{ $name }`",
+                    &[("name", name.as_str().into())],
+                ));
+                ui.weak(t(
+                    "Click to place; gluing components lie on matching faces. Space ends.",
+                ));
             }
             (None, Some(path)) => {
                 let name = std::path::Path::new(path)
                     .file_stem()
                     .map_or_else(|| path.clone(), |s| s.to_string_lossy().into_owned());
-                ui.label(format!("Placing `{name}` from the library"));
-                ui.weak("Click to place. Space ends.");
+                ui.label(t_args(
+                    "Placing `{ $name }` from the library",
+                    &[("name", name.as_str().into())],
+                ));
+                ui.weak(t("Click to place. Space ends."));
             }
             (None, None) => {
-                ui.weak("Choose a component in the Components panel.");
+                ui.weak(t("Choose a component in the Components panel."));
             }
         }
     }

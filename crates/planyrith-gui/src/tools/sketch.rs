@@ -2,6 +2,7 @@
 use super::{
     BAND, Cx, Drag, Flow, Pointer, Setup, Shape, Tool, along, angle, drawing_plane, length, pt,
 };
+use crate::i18n::{en, t};
 use glam::DVec3;
 use planyrith_core::{
     inference::Constraint,
@@ -67,7 +68,7 @@ impl Tool for FreehandTool {
         "freehand"
     }
     fn label(&self) -> &'static str {
-        "Freehand"
+        en("Freehand")
     }
     fn step(&self) -> usize {
         0
@@ -144,7 +145,7 @@ impl Tool for FreehandTool {
         }
     }
     fn options(&mut self, ui: &mut egui::Ui, _: &Cx<'_>) {
-        ui.label("Simplification tolerance (mm)");
+        ui.label(t("Simplification tolerance (mm)"));
         ui.add(
             egui::DragValue::new(&mut self.tolerance)
                 .range(0.0..=10000.0)
@@ -199,7 +200,7 @@ impl Tool for RotatedRectangleTool {
         "rotated-rectangle"
     }
     fn label(&self) -> &'static str {
-        "Rotated Rectangle"
+        en("Rotated Rectangle")
     }
     fn step(&self) -> usize {
         if self.edge.is_some() {

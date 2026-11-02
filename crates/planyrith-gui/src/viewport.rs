@@ -24,6 +24,7 @@ use planyrith_core::math::{Aabb, Axis, Ray};
 use planyrith_core::spatial::HitFilter;
 use planyrith_render::{FrameRequest, PickKind, Renderer, RendererOptions};
 
+use crate::i18n::{en, t};
 use crate::icons::{self, Icon};
 use crate::session::Session;
 use crate::tools::{self, Cx, Flow, Pointer, Shape, Tool};
@@ -188,7 +189,7 @@ impl Viewport {
             }
             if ui
                 .small_button("+")
-                .on_hover_text("Add a scene from this view")
+                .on_hover_text(t("Add a scene from this view"))
                 .clicked()
             {
                 let n = (names.len() + 1..)
@@ -685,7 +686,7 @@ impl Viewport {
         if let Some(caption) = &self.caption {
             let at = rect.left_top() + Vec2::new(8.0, 6.0);
             let galley = painter.layout_no_wrap(
-                caption.clone(),
+                t(caption),
                 egui::FontId::proportional(12.0),
                 Color32::from_gray(40),
             );
@@ -1106,7 +1107,10 @@ fn context_menu(ui: &mut egui::Ui, session: &Session, flows: &mut Vec<Flow>) {
     let selection = serde_json::json!({ "targets": "selection" });
     let has_selection = !session.engine.selection().is_empty();
     let mut item = |ui: &mut egui::Ui, enabled: bool, label: &str, flow: Flow| {
-        if ui.add_enabled(enabled, egui::Button::new(label)).clicked() {
+        if ui
+            .add_enabled(enabled, egui::Button::new(t(label)))
+            .clicked()
+        {
             flows.push(flow);
             ui.close();
         }
@@ -1115,14 +1119,19 @@ fn context_menu(ui: &mut egui::Ui, session: &Session, flows: &mut Vec<Flow>) {
     item(
         ui,
         has_selection,
-        "Delete",
+        en("Delete"),
         run("delete", selection.clone()),
     );
-    item(ui, has_selection, "Hide", run("hide", selection.clone()));
     item(
         ui,
         has_selection,
-        "Intersect Faces",
+        en("Hide"),
+        run("hide", selection.clone()),
+    );
+    item(
+        ui,
+        has_selection,
+        en("Intersect Faces"),
         run(
             "intersect-faces",
             serde_json::json!({"targets":"selection","scope":"context"}),
@@ -1131,13 +1140,13 @@ fn context_menu(ui: &mut egui::Ui, session: &Session, flows: &mut Vec<Flow>) {
     item(
         ui,
         has_selection,
-        "Make Group",
+        en("Make Group"),
         run("make-group", selection.clone()),
     );
     item(
         ui,
         has_selection,
-        "Make Component",
+        en("Make Component"),
         run(
             "make-component",
             serde_json::json!({ "targets": "selection", "name": format!("Component {n}") }),
@@ -1146,7 +1155,7 @@ fn context_menu(ui: &mut egui::Ui, session: &Session, flows: &mut Vec<Flow>) {
     item(
         ui,
         has_selection,
-        "Explode",
+        en("Explode"),
         run("explode", selection.clone()),
     );
     // One face selected: its texture's placement.
@@ -1165,37 +1174,37 @@ fn context_menu(ui: &mut egui::Ui, session: &Session, flows: &mut Vec<Flow>) {
         }
     };
     if let Some(face) = single_face {
-        item(ui, true, "Position Texture…", Flow::Texture(face));
+        item(ui, true, en("Position Texture…"), Flow::Texture(face));
     }
     item(
         ui,
         has_selection,
-        "Zoom Selection",
+        en("Zoom Selection"),
         run("zoom-extents", selection),
     );
     ui.separator();
     item(
         ui,
         true,
-        "Select All",
+        en("Select All"),
         run("select", serde_json::json!({ "query": "all" })),
     );
     item(
         ui,
         has_selection,
-        "Select None",
+        en("Select None"),
         Flow::Select(Selection::new()),
     );
     item(
         ui,
         true,
-        "Unhide All",
+        en("Unhide All"),
         run("unhide", serde_json::json!({ "targets": "all" })),
     );
     item(
         ui,
         true,
-        "Zoom Extents",
+        en("Zoom Extents"),
         run("zoom-extents", serde_json::json!({})),
     );
 }
