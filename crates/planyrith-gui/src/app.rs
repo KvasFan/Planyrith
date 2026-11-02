@@ -2908,6 +2908,61 @@ mod tests {
     }
 
     #[test]
+    fn clicking_an_image_selects_it_unless_geometry_is_in_front() {
+        let mut shell = Shell::new();
+        let b = &crate::bundled::catalogue()[0];
+        let path = crate::bundled::texture_path(b).unwrap();
+        let session = &mut shell.app.session;
+        session
+            .execute(
+                "image-insert",
+                json!({ "path": path.to_string_lossy(), "position": [0, 0, 0], "width": 2000.0 }),
+            )
+            .unwrap();
+        // A face over the right half of the image, above it.
+        session
+            .execute(
+                "rectangle",
+                json!({ "corner_a": [1000, 0, 100], "corner_b": [2000, 400, 100] }),
+            )
+            .unwrap();
+        session
+            .execute("camera-standard", json!({ "view": "top", "extents": true }))
+            .unwrap();
+        shell.frame(Vec::new());
+        let click = |shell: &mut Shell, p: DVec3| {
+            let at = shell.screen(p);
+            shell.frame(vec![egui::Event::PointerMoved(at)]);
+            for pressed in [true, false] {
+                shell.frame(vec![egui::Event::PointerButton {
+                    pos: at,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                }]);
+            }
+            shell.frame(Vec::new());
+            let doc = shell.app.session.doc();
+            shell
+                .app
+                .session
+                .engine
+                .selection()
+                .iter()
+                .map(|p| doc.model.key_to_id(p.target).map(|id| id.kind()))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            click(&mut shell, DVec3::new(500.0, 200.0, 0.0)),
+            [Some(planyrith_core::ids::EntityKind::Image)]
+        );
+        assert_eq!(
+            click(&mut shell, DVec3::new(1500.0, 200.0, 100.0)),
+            [Some(planyrith_core::ids::EntityKind::Face)]
+        );
+    }
+
+    #[test]
     fn scenes_animate_their_transitions_and_play_in_turn() {
         let mut shell = Shell::new();
         let session = &mut shell.app.session;

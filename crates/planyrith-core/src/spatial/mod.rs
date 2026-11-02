@@ -1028,3 +1028,74 @@ fn lowest_incident_edge(mesh: &HalfEdgeMesh, v: VertexId) -> Option<EdgeId> {
         .filter_map(|he| mesh.half_edge(*he).map(|h| h.edge))
         .min()
 }
+
+/// An image entity under a ray (docs/04 §3.7, docs/06 §8).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImageHit {
+    /// The image's occurrence.
+    pub path: EntityPath,
+    /// Ray parameter (world units).
+    pub t: f64,
+    /// World-space point on the image.
+    pub point: DVec3,
+}
+
+/// The nearest image entity the ray passes through, from either side;
+/// hidden ones count only with `include_hidden`. Images have no faces, so
+/// the mesh index does not hold them and picking tests them here.
+pub fn ray_cast_images(doc: &Document, ray: &Ray, include_hidden: bool) -> Option<ImageHit> {
+    let tol = doc.tolerances().length;
+    let none = doc.model.images().next().is_none()
+        && doc
+            .definitions
+            .iter()
+            .all(|(_, d)| d.entities.images().next().is_none());
+    if none {
+        return None;
+    }
+    let mut best: Option<ImageHit> = None;
+    for occ in InstanceProvider::occurrences(doc) {
+        if occ.hidden && !include_hidden {
+            continue;
+        }
+        let Some(entities) = doc.container(occ.container) else {
+            continue;
+        };
+        for (i, image) in entities.images() {
+            let id = EntityId::Image(i);
+            if !include_hidden && doc.is_entity_hidden(occ.container, id) {
+                continue;
+            }
+            // The rectangle is [0, w] × [0, h] in its local XY plane.
+            let placed = occ.world * image.transform;
+            if placed.matrix3.determinant().abs() < 1e-12 {
+                continue;
+            }
+            let inverse = placed.inverse();
+            let (origin, dir) = (
+                inverse.transform_point3(ray.origin),
+                inverse.transform_vector3(ray.dir),
+            );
+            if dir.z.abs() < 1e-12 {
+                continue;
+            }
+            let s = -origin.z / dir.z;
+            let local = origin + dir * s;
+            let (w, h) = (image.width.as_mm(), image.height.as_mm());
+            if s < 0.0 || local.x < 0.0 || local.y < 0.0 || local.x > w || local.y > h {
+                continue;
+            }
+            let point = placed.transform_point3(local);
+            let t = ray.closest_param(point);
+            if t < -tol || best.as_ref().is_some_and(|b| b.t <= t) {
+                continue;
+            }
+            best = Some(ImageHit {
+                path: EntityPath::new(occ.path.clone(), EntityKey::Id(id)),
+                t,
+                point,
+            });
+        }
+    }
+    best
+}

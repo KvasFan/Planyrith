@@ -791,6 +791,8 @@ pub fn cx_for<'a>(
 }
 
 /// The nearest hit under a ray: the occurrence path and the hit point.
+/// Images have no faces, so they are tested apart; one wins when it is in
+/// front of the nearest geometry (docs/06 §8).
 fn cast(
     session: &mut Session,
     camera: &Camera,
@@ -802,11 +804,14 @@ fn cast(
         proximity,
         ..HitFilter::default()
     };
-    session
-        .ray_cast(ray, &filter)
-        .into_iter()
-        .next()
-        .map(|h| (h.path, h.point))
+    let mesh = session.ray_cast(ray, &filter).into_iter().next();
+    let image = planyrith_core::spatial::ray_cast_images(session.doc(), ray, false);
+    match (mesh, image) {
+        (Some(m), Some(i)) if i.t < m.t - proximity => Some((i.path, i.point)),
+        (Some(m), _) => Some((m.path, m.point)),
+        (None, Some(i)) => Some((i.path, i.point)),
+        (None, None) => None,
+    }
 }
 
 /// The center of the visible model, else the camera target.

@@ -341,3 +341,9 @@ exposes a frame-time overlay (`F11` panel).
   2 s with and without the chains. `distant_textures_blend_to_their_average` renders a floor
   of 2 cm black and white squares from far away; without mipmaps its middle has a standard
   deviation of 28 levels, with them under 12.
+- 2026-11-02 — **Picking images** (§8). Image entities have no faces, so the mesh index does
+  not hold them: `spatial::ray_cast_images` tests every visible image occurrence's rectangle,
+  from either side, and returns the nearest. The viewport takes it when it is in front of the
+  nearest mesh hit by more than the pick distance, else the mesh hit. A document without
+  images returns at once, and only image lists are walked, so hovering costs nothing on models
+  without them. This closes "picking image entities by clicking", deferred in docs/13 (0.4).

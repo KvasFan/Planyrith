@@ -14,6 +14,8 @@ All notable changes to Planyrith are recorded here. Versions follow
   "From edges" is on in the Shadows window or `shadows-set --from-edges`.
 - Show distant textures smoothly: textures now have mipmaps, so floors, fabrics
   and tiles seen from afar no longer turn into speckled noise.
+- Select images by clicking them, as other entities; geometry in front of an
+  image still takes the click.
 - glTF cameras import as scenes, and scenes export as glTF cameras, so views
   survive a round trip through glTF.
 - `planyrith render --shadows` now draws the sun's shadows, from the document's

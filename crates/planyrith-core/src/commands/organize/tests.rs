@@ -1161,3 +1161,46 @@ fn component_rename_keeps_identity_and_refuses_a_used_name() {
         );
     }
 }
+
+/// Clicking an image finds it, also inside a group, and not when hidden
+/// (docs/06 §8).
+#[test]
+fn rays_find_image_entities() {
+    use crate::math::Ray;
+    use crate::spatial::ray_cast_images;
+    use glam::DVec3;
+    let (mut e, _storage) = engine_with_storage();
+    run(
+        &mut e,
+        "image-insert",
+        json!({ "path": "textures/oak.png", "position": [100, 200, 0], "width": 2000.0 }),
+    );
+    let down = |x: f64, y: f64| Ray {
+        origin: DVec3::new(x, y, 5000.0),
+        dir: -DVec3::Z,
+    };
+    let hit = ray_cast_images(e.document(), &down(600.0, 700.0), false).expect("a hit");
+    assert!(hit.point.distance(DVec3::new(600.0, 700.0, 0.0)) < 1e-6);
+    assert!((hit.t - 5000.0).abs() < 1e-6);
+    // From below too, and not past its 2 m × 1 m rectangle.
+    let up = Ray {
+        origin: DVec3::new(600.0, 700.0, -10.0),
+        dir: DVec3::Z,
+    };
+    assert!(ray_cast_images(e.document(), &up, false).is_some());
+    assert!(ray_cast_images(e.document(), &down(600.0, 1300.0), false).is_none());
+
+    run(&mut e, "make-group", json!({ "targets": "image" }));
+    run(
+        &mut e,
+        "move",
+        json!({ "targets": "group", "delta": [0, 0, 300] }),
+    );
+    let hit = ray_cast_images(e.document(), &down(600.0, 700.0), false).expect("in the group");
+    assert_eq!(hit.path.instances.depth(), 1);
+    assert!((hit.point.z - 300.0).abs() < 1e-6);
+
+    run(&mut e, "hide", json!({ "targets": "group" }));
+    assert!(ray_cast_images(e.document(), &down(600.0, 700.0), false).is_none());
+    assert!(ray_cast_images(e.document(), &down(600.0, 700.0), true).is_some());
+}
