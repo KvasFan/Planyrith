@@ -18,7 +18,11 @@ understood. What only GitHub can catch is listed in docs/12 Decisions, 2026-11-0
 effects (depth cue, extension, endpoints, jitter) and shadows from edges without
 faces, both stored and imported from SKP before but not drawn; textures have
 mipmaps; `render --shadows` works. The Styles panel and Shadows window expose
-the new settings. Deliberately not done: writing tag line styles to SKP, which
+the new settings. Later the same day: glTF cameras import as scenes and scenes
+export as cameras; clicking selects image entities; `texture-position` takes one
+to four pins (affine or perspective). Still open from earlier milestones: the
+GUI's interactive texture pins, `project_from`/`copy_to`, component folder
+browsing and a user library, two shadow cascades. Deliberately not done: writing tag line styles to SKP, which
 needs a line-style field the writing library lacks and cannot be verified
 without the target application. See docs/06 Decisions, 2026-11-02.
 
