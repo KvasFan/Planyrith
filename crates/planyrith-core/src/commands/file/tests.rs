@@ -7,7 +7,7 @@ use glam::DVec3;
 use serde_json::json;
 
 use crate::commands::{CommandRegistry, Engine};
-use crate::document::{ContainerRef, Document, EntityView};
+use crate::document::{ContainerRef, Document, EntityView, Projection};
 use crate::io::import::stl::read_triangles;
 use crate::io::{MemoryStorage, Storage, StorageKey};
 
@@ -1455,4 +1455,82 @@ fn shared_shading_normals_make_soft_edges() {
             .collect::<Vec<_>>();
         assert_eq!(shared, vec![soft], "smooth source: {soft}");
     }
+}
+
+/// Scenes export as glTF cameras and import back as scenes with the same
+/// views (docs/09 §6); a second import gets unique names.
+#[test]
+fn gltf_cameras_round_trip_as_scenes() {
+    let (mut e, storage) = engine();
+    chairs_and_box(&mut e, &storage);
+    run(
+        &mut e,
+        "camera-set",
+        json!({ "projection": "perspective", "eye": [3000, -2500, 1800],
+                "target": [500, 400, 300], "up": [0, 0, 1], "fov": 0.6981317 }),
+    );
+    run(&mut e, "scene-add", json!({ "name": "Corner" }));
+    run(
+        &mut e,
+        "camera-set",
+        json!({ "projection": "parallel", "eye": [400, 300, 5000],
+                "target": [400, 300, 0], "up": [0, 1, 0], "height": 2400.0 }),
+    );
+    run(&mut e, "scene-add", json!({ "name": "Plan" }));
+    let views: Vec<(String, crate::document::Camera)> = e
+        .document()
+        .scenes
+        .iter()
+        .map(|(_, s)| (s.name.clone(), s.camera.unwrap()))
+        .collect();
+    assert_eq!(views.len(), 2);
+
+    run(&mut e, "export", json!({ "path": "out/scene.glb" }));
+    let glb = storage.read(&StorageKey::new("out/scene.glb")).unwrap();
+    let parsed = gltf::Gltf::from_slice(&glb).expect("a valid GLB");
+    assert_eq!(parsed.document.cameras().count(), 2);
+
+    let (mut back, back_storage) = engine();
+    back_storage
+        .write(&StorageKey::new("scene.glb"), &glb)
+        .unwrap();
+    let out = run(&mut back, "import", json!({ "path": "scene.glb" }));
+    assert_eq!(out["scenes"], 2, "{out}");
+    let doc = back.document();
+    let frame = |c: &crate::document::Camera| {
+        let forward = (c.target - c.eye).normalize();
+        let right = forward.cross(c.up).normalize();
+        (forward, right.cross(forward))
+    };
+    for (name, view) in &views {
+        let scene = doc
+            .scenes
+            .by_name(name)
+            .and_then(|id| doc.scenes.get(id))
+            .unwrap_or_else(|| panic!("scene {name}"));
+        let camera = scene.camera.unwrap();
+        // glTF stores f32 meters.
+        assert!(
+            camera.eye.distance(view.eye) < 1.0,
+            "{name}: {}",
+            camera.eye
+        );
+        let ((f0, u0), (f1, u1)) = (frame(view), frame(&camera));
+        assert!(f0.dot(f1) > 0.99999 && u0.dot(u1) > 0.99999, "{name}");
+        match (view.projection, camera.projection) {
+            (
+                Projection::Perspective { fov_y_deg: a },
+                Projection::Perspective { fov_y_deg: b },
+            ) => {
+                assert!((a - b).abs() < 1e-3, "{name}: {a} {b}");
+            }
+            (Projection::Parallel { height_mm: a }, Projection::Parallel { height_mm: b }) => {
+                assert!((a - b).abs() < 1e-2, "{name}: {a} {b}");
+            }
+            other => panic!("{name}: {other:?}"),
+        }
+    }
+    let out = run(&mut back, "import", json!({ "path": "scene.glb" }));
+    assert_eq!(out["scenes"], 2);
+    assert!(back.document().scenes.by_name("Corner (2)").is_some());
 }

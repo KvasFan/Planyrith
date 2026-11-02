@@ -172,8 +172,15 @@ pub struct ImportReport {
     pub edges: usize,
     /// Unsupported entities skipped (`W2004` details in `warnings`).
     pub skipped: usize,
+    /// Scenes made from the source's cameras.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub scenes: usize,
     /// Warnings.
     pub warnings: Vec<Warning>,
+}
+
+fn is_zero(n: &usize) -> bool {
+    *n == 0
 }
 
 /// An importer (docs/09 §6).

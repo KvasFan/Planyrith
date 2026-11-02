@@ -15,7 +15,8 @@ use crate::commands::params::Target;
 use crate::diagnostics::{Warning, WarningCode};
 use crate::document::Rgba8;
 use crate::io::import::build::{
-    ImportedMaterial, ImportedMesh, ImportedNode, ImportedScene, build_scene,
+    ImportedCamera, ImportedMaterial, ImportedMesh, ImportedNode, ImportedProjection,
+    ImportedScene, build_scene,
 };
 use crate::io::import::{
     Confidence, ImportFormat, ImportOptions, ImportReport, Importer, sibling, source_stem,
@@ -343,6 +344,7 @@ impl Importer for GltfImporter {
 
         // Nodes of the default (or first) scene, with world transforms.
         let mut nodes = Vec::new();
+        let mut cameras = Vec::new();
         let roots: Vec<gltf::Node<'_>> = match doc.default_scene().or_else(|| doc.scenes().next()) {
             Some(scene) => scene.nodes().collect(),
             None => doc.nodes().collect(),
@@ -369,8 +371,24 @@ impl Importer for GltfImporter {
                     mesh: mesh.index(),
                 });
             }
-            if node.camera().is_some() {
-                skipped += 1;
+            if let Some(camera) = node.camera() {
+                let projection = match camera.projection() {
+                    gltf::camera::Projection::Perspective(p) => ImportedProjection::Perspective {
+                        yfov: f64::from(p.yfov()),
+                    },
+                    gltf::camera::Projection::Orthographic(o) => ImportedProjection::Parallel {
+                        height: 2.0 * f64::from(o.ymag()),
+                    },
+                };
+                cameras.push(ImportedCamera {
+                    name: node
+                        .name()
+                        .or(camera.name())
+                        .unwrap_or_default()
+                        .to_string(),
+                    transform: world,
+                    projection,
+                });
             }
             for child in node.children().collect::<Vec<_>>().into_iter().rev() {
                 stack.push((child, world, depth + 1));
@@ -379,7 +397,7 @@ impl Importer for GltfImporter {
         if skipped > 0 {
             warnings.push(Warning::new(
                 WarningCode::W2004,
-                format!("{skipped} primitive(s) or camera(s) without triangles skipped"),
+                format!("{skipped} primitive(s) without triangles skipped"),
             ));
         }
         drop(buffers);
@@ -394,6 +412,7 @@ impl Importer for GltfImporter {
                 nodes,
                 y_up: true,
                 units: Some(LengthUnit::Meter),
+                cameras,
             },
             opts,
         )?;

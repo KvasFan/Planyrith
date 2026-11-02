@@ -513,3 +513,14 @@ save unless `--no-thumbnail`. `manifest.json` carries `title`, `author`, `descri
   smooth by the source and becomes `SOFT | SMOOTH` whatever the angle between its faces; other
   edges follow `soften` (20°). Low-poly cylinders and spheres therefore import without hard
   lines between their facets, while models with flat normals keep their edges.
+- 2026-11-02 — **glTF cameras and scenes** (§6), replacing "cameras are skipped". Each camera node
+  imports as a scene named after the node (or its camera, or `Camera N`), made unique as
+  `Name (2)`. Its view uses the node's world transform with the geometry's unit and Y-up
+  conversion and the offset `at`, looking along −Z with +Y up. Perspective cameras keep `yfov`;
+  orthographic cameras become parallel views as high as twice `ymag`. The look-at point is at the
+  depth of the imported geometry's center, or 1 m ahead when that is behind the camera. A camera
+  without a direction or with an unusable field of view is skipped with `W2004`. The report
+  counts `scenes`, omitted at zero. Export writes each scene with a camera as a camera node:
+  perspective (two-point too) with its `yfov`, parallel as orthographic with `ymag` half the
+  height and `xmag` from the camera's aspect. `gltf_cameras_round_trip_as_scenes` exports two
+  scenes to GLB and imports them back with the same eye, direction, up and projection.

@@ -10,7 +10,7 @@ use std::io::Write;
 
 use serde_json::{Value, json};
 
-use crate::document::{ContainerRef, Document, FrontOrBack};
+use crate::document::{ContainerRef, Document, FrontOrBack, Projection};
 use crate::ids::MaterialId;
 use crate::io::export::scene::{ExportedMesh, collect};
 use crate::io::export::{ExportFormat, ExportOptions, ExportReport, ExportScope, Exporter};
@@ -226,6 +226,49 @@ impl Exporter for GltfExporter {
             let name = meshes[index]["name"].clone();
             nodes.push(json!({ "name": name, "mesh": index, "matrix": matrix }));
         }
+        // Scenes with a camera become camera nodes (docs/09 §6), which look
+        // along their −Z with +Y up.
+        let mut cameras: Vec<Value> = Vec::new();
+        for (_, s) in doc.scenes.iter() {
+            let Some(camera) = s.camera else { continue };
+            let Some(forward) = (camera.target - camera.eye).try_normalize() else {
+                continue;
+            };
+            let Some(right) = forward.cross(camera.up).try_normalize() else {
+                continue;
+            };
+            let up = right.cross(forward);
+            let axis = |v: glam::DVec3| out.transform_vector3(v).normalize_or_zero();
+            let (x, y, z) = (axis(right), axis(up), axis(-forward));
+            let t = out.transform_point3(camera.eye);
+            let matrix: Vec<f64> = [x.extend(0.0), y.extend(0.0), z.extend(0.0), t.extend(1.0)]
+                .iter()
+                .flat_map(|c| c.to_array())
+                .map(round6)
+                .collect();
+            let projection = match camera.projection {
+                Projection::Perspective { fov_y_deg } | Projection::TwoPoint { fov_y_deg } => {
+                    json!({
+                        "type": "perspective",
+                        "perspective": { "yfov": round6(fov_y_deg.to_radians()), "znear": 0.01 },
+                    })
+                }
+                Projection::Parallel { height_mm } => {
+                    let ymag = round6(height_mm / 2000.0);
+                    json!({
+                        "type": "orthographic",
+                        "orthographic": {
+                            "xmag": round6(ymag * camera.aspect), "ymag": ymag,
+                            "znear": 0.0, "zfar": 100000.0,
+                        },
+                    })
+                }
+            };
+            let mut value = projection;
+            value["name"] = json!(s.name);
+            cameras.push(value);
+            nodes.push(json!({ "name": s.name, "camera": cameras.len() - 1, "matrix": matrix }));
+        }
         progress.report(0.7, "writing glTF");
         buffer.align();
         let stem = source_stem(&opts.destination, "model");
@@ -245,6 +288,9 @@ impl Exporter for GltfExporter {
         });
         if !buffer.bytes.is_empty() {
             root["buffers"] = json!([buffer_json]);
+        }
+        if !cameras.is_empty() {
+            root["cameras"] = json!(cameras);
         }
         if !images.is_empty() {
             root["images"] = json!(images);

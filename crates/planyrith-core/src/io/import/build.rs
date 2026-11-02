@@ -14,8 +14,8 @@ use crate::commands::params::Target;
 use crate::commands::{CommandError, Transaction};
 use crate::diagnostics::{Warning, WarningCode};
 use crate::document::{
-    ComponentDefinition, ComponentInstance, ContainerRef, Document, Entities, EntityRecord,
-    FrontOrBack, Group, Material, Rgba8, Texture, UvMap,
+    Camera, ComponentDefinition, ComponentInstance, ContainerRef, Document, Entities, EntityRecord,
+    FrontOrBack, Group, Material, Projection, Rgba8, Scene, Texture, UvMap,
 };
 use crate::geom::mesh::TriangleMergeOptions;
 use crate::geom::{FaceSides, HalfEdgeMesh};
@@ -68,6 +68,33 @@ pub struct ImportedNode {
     pub mesh: usize,
 }
 
+/// How a source camera projects.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ImportedProjection {
+    /// Perspective with this vertical field of view (radians).
+    Perspective {
+        /// Vertical field of view, radians.
+        yfov: f64,
+    },
+    /// Parallel, showing this height (source units).
+    Parallel {
+        /// View height, source units.
+        height: f64,
+    },
+}
+
+/// A camera of the source. It looks along its local −Z with +Y up, as
+/// glTF cameras do; the transform is camera-to-world in source units.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImportedCamera {
+    /// Name in the file (may be empty).
+    pub name: String,
+    /// Camera-to-world transform.
+    pub transform: DAffine3,
+    /// Projection.
+    pub projection: ImportedProjection,
+}
+
 /// What a mesh importer read.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ImportedScene {
@@ -83,6 +110,8 @@ pub struct ImportedScene {
     pub y_up: bool,
     /// The file's own length unit, if it declares one.
     pub units: Option<LengthUnit>,
+    /// Cameras; each becomes a scene (docs/09 §6).
+    pub cameras: Vec<ImportedCamera>,
 }
 
 /// Size of one texture repeat for imported texture coordinates, mm. Any
@@ -485,7 +514,107 @@ pub fn build_scene(
     };
     let pid = place(tx, target, top, opts, &scene.name)?;
     report.created.push(pid);
+    let center = imported_center(&scene, &nodes, convert, opts.at);
+    report.scenes = scenes_from_cameras(tx, &scene.cameras, convert, opts.at, center, &mut report)?;
     Ok(report)
+}
+
+/// The center of the imported geometry in world coordinates, if any.
+fn imported_center(
+    scene: &ImportedScene,
+    nodes: &[ImportedNode],
+    convert: DAffine3,
+    at: DVec3,
+) -> Option<DVec3> {
+    let (mut lo, mut hi) = (DVec3::splat(f64::INFINITY), DVec3::splat(f64::NEG_INFINITY));
+    for node in nodes {
+        for p in scene
+            .meshes
+            .get(node.mesh)
+            .map_or(&[][..], |m| &m.positions)
+        {
+            let w = at + convert.transform_point3(node.transform.transform_point3(*p));
+            lo = lo.min(w);
+            hi = hi.max(w);
+        }
+    }
+    (lo.x <= hi.x).then(|| (lo + hi) * 0.5)
+}
+
+/// One scene per source camera, named after it (made unique). The camera
+/// looks at the depth of the imported geometry's center, or 1 m ahead when
+/// that center is behind it or there is no geometry.
+fn scenes_from_cameras(
+    tx: &mut Transaction<'_>,
+    cameras: &[ImportedCamera],
+    convert: DAffine3,
+    at: DVec3,
+    center: Option<DVec3>,
+    report: &mut ImportReport,
+) -> Result<usize, IoError> {
+    let mut made = 0;
+    for (i, source) in cameras.iter().enumerate() {
+        let m = source.transform;
+        let eye = at + convert.transform_point3(m.translation);
+        let forward = convert.transform_vector3(m.transform_vector3(-DVec3::Z));
+        let up = convert.transform_vector3(m.transform_vector3(DVec3::Y));
+        let projection = match source.projection {
+            ImportedProjection::Perspective { yfov } => Projection::Perspective {
+                fov_y_deg: yfov.to_degrees(),
+            },
+            ImportedProjection::Parallel { height } => Projection::Parallel {
+                height_mm: height * convert.matrix3.x_axis.length(),
+            },
+        };
+        let usable = match projection {
+            Projection::Perspective { fov_y_deg } | Projection::TwoPoint { fov_y_deg } => {
+                fov_y_deg > 0.5 && fov_y_deg < 179.5
+            }
+            Projection::Parallel { height_mm } => height_mm.is_finite() && height_mm > 0.0,
+        };
+        let (Some(forward), Some(up)) = (forward.try_normalize(), up.try_normalize()) else {
+            report.warnings.push(Warning::new(
+                WarningCode::W2004,
+                format!("camera {} has no direction; skipped", i + 1),
+            ));
+            continue;
+        };
+        if !usable || !eye.is_finite() {
+            report.warnings.push(Warning::new(
+                WarningCode::W2004,
+                format!("camera {} has an unusable projection; skipped", i + 1),
+            ));
+            continue;
+        }
+        let depth = center
+            .map(|c| (c - eye).dot(forward))
+            .filter(|d| *d > 1.0)
+            .unwrap_or(1000.0);
+        let camera = Camera {
+            eye,
+            target: eye + forward * depth,
+            up,
+            projection,
+            ..Camera::default()
+        };
+        let base = match source.name.trim() {
+            "" => format!("Camera {}", i + 1),
+            name => name.to_string(),
+        };
+        let mut name = base.clone();
+        let mut n = 2;
+        while tx.document().scenes.by_name(&name).is_some() {
+            name = format!("{base} ({n})");
+            n += 1;
+        }
+        tx.insert_scene(Scene {
+            camera: Some(camera),
+            ..Scene::named(name)
+        })
+        .map_err(io)?;
+        made += 1;
+    }
+    Ok(made)
 }
 
 /// The name of a new top-level definition: the component's (unique) name,

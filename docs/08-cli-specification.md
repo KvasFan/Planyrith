@@ -88,7 +88,7 @@ planyrith tool scene-add -f house.plyr --name "Plan" --capture camera,tags
 
 ### `planyrith import -f model.plyr <input> [--format obj|stl|gltf|dxf|step|image|csv|plyr] [--as group|component:<name>|image|texture] [--units <u>] [--merge-coplanar] [--soften <deg>] [--scale <f>] [--swap-yz] [--at x,y,z]`
 Imports into the current context as a group (default) or component. Format autodetected from the
-extension. Options are per format (`docs/09 §6`). Output lists created entities and warnings. The verb
+extension. Options are per format (`docs/09 §6`). Output lists created entities, warnings and, for glTF, the number of `scenes` made from cameras. The verb
 runs the `import` command (`planyrith tool import --help` lists its options); `--units` is the
 file's unit (`file_units`) and `--z-up` keeps a Y-up format's axes as they are (`--no-swap-yz`).
 
