@@ -333,3 +333,11 @@ exposes a frame-time overlay (`F11` panel).
   shadow-map texels (1 to 16): at a fixed texel width a wire's shadow is far thinner than a
   pixel on large models and shows as dots. `edges_cast_shadows` renders a wire over the ground
   with the setting off and on; only the second darkens it.
+- 2026-11-02 — **Texture mipmaps** (§2, §13). Material textures carry a full mip chain, built on
+  the CPU when a texture is first used: each level halves the one above (rounding down, to
+  1 × 1) and averages 2 × 2 blocks in linear light, weighted by alpha. Averaging sRGB values
+  darkens distant textures, and transparent texels darken the borders of cutouts. The sampler
+  is trilinear. On a 160 MB model with 171 textures a 1920 × 1080 headless render took about
+  2 s with and without the chains. `distant_textures_blend_to_their_average` renders a floor
+  of 2 cm black and white squares from far away; without mipmaps its middle has a standard
+  deviation of 28 levels, with them under 12.

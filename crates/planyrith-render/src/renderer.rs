@@ -471,12 +471,14 @@ impl Renderer {
         });
         let shadow_view = shadow_texture(&device, 1);
         let shadow_group = shadow_group(&device, &shadow_layout, &shadow_view, &shadow_sampler);
+        // Trilinear, so distant textures blend their mip levels.
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("material"),
             address_mode_u: wgpu::AddressMode::Repeat,
             address_mode_v: wgpu::AddressMode::Repeat,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
             ..Default::default()
         });
         let white = texture_group(
@@ -484,9 +486,8 @@ impl Renderer {
             &queue,
             &texture_layout,
             &sampler,
-            1,
-            1,
-            &[255, 255, 255, 255],
+            &image::RgbaImage::from_pixel(1, 1, image::Rgba([255; 4])),
+            &[],
         );
         let uniform_capacity = 64 * UNIFORM_STRIDE;
         let uniforms = uniform_buffer(&device, uniform_capacity);
@@ -734,9 +735,8 @@ impl Renderer {
             &self.queue,
             &self.texture_layout,
             &self.sampler,
-            rgba.width(),
-            rgba.height(),
-            rgba.as_raw(),
+            &rgba,
+            &mip_chain(&rgba),
         );
         self.textures.insert(image, group);
         true
@@ -2364,25 +2364,29 @@ fn uniform_group(
     })
 }
 
+/// Level 0 and its mip chain as one texture (docs/06 §13).
 fn texture_group(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     layout: &wgpu::BindGroupLayout,
     sampler: &wgpu::Sampler,
-    width: u32,
-    height: u32,
-    rgba: &[u8],
+    level0: &image::RgbaImage,
+    mips: &[image::RgbaImage],
 ) -> wgpu::BindGroup {
+    let mut data = level0.as_raw().clone();
+    for level in mips {
+        data.extend_from_slice(level.as_raw());
+    }
     let texture = device.create_texture_with_data(
         queue,
         &wgpu::TextureDescriptor {
             label: Some("material texture"),
             size: wgpu::Extent3d {
-                width,
-                height,
+                width: level0.width(),
+                height: level0.height(),
                 depth_or_array_layers: 1,
             },
-            mip_level_count: 1,
+            mip_level_count: 1 + mips.len() as u32,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba8UnormSrgb,
@@ -2390,7 +2394,7 @@ fn texture_group(
             view_formats: &[],
         },
         wgpu::util::TextureDataOrder::LayerMajor,
-        rgba,
+        &data,
     );
     let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
     device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -2407,6 +2411,65 @@ fn texture_group(
             },
         ],
     })
+}
+
+/// The mip levels below `level0`, down to 1 × 1 (docs/06 §13). Each halves
+/// the one above, rounding down, and averages its 2 × 2 blocks in linear
+/// light weighted by alpha: averaging sRGB values would darken distant
+/// textures, and transparent texels would darken the edges of cutouts.
+fn mip_chain(level0: &image::RgbaImage) -> Vec<image::RgbaImage> {
+    let to_linear: Vec<f32> = (0..=255u8)
+        .map(|v| {
+            let c = f32::from(v) / 255.0;
+            if c <= 0.04045 {
+                c / 12.92
+            } else {
+                ((c + 0.055) / 1.055).powf(2.4)
+            }
+        })
+        .collect();
+    let to_srgb = |c: f32| {
+        let c = c.clamp(0.0, 1.0);
+        let s = if c <= 0.003_130_8 {
+            c * 12.92
+        } else {
+            1.055 * c.powf(1.0 / 2.4) - 0.055
+        };
+        (s * 255.0).round() as u8
+    };
+    let mut levels: Vec<image::RgbaImage> = Vec::new();
+    let mut current: Option<image::RgbaImage> = None;
+    loop {
+        let above = current.as_ref().unwrap_or(level0);
+        if above.width() <= 1 && above.height() <= 1 {
+            break;
+        }
+        let (w, h) = ((above.width() / 2).max(1), (above.height() / 2).max(1));
+        let level = image::RgbaImage::from_fn(w, h, |x, y| {
+            let (mut rgb, mut alpha) = ([0.0f32; 3], 0.0f32);
+            for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+                let p = above.get_pixel(
+                    (x * 2 + dx).min(above.width() - 1),
+                    (y * 2 + dy).min(above.height() - 1),
+                );
+                let a = f32::from(p.0[3]) / 255.0;
+                for (sum, &v) in rgb.iter_mut().zip(&p.0[..3]) {
+                    *sum += to_linear[usize::from(v)] * a;
+                }
+                alpha += a;
+            }
+            let color = |c: f32| if alpha > 0.0 { to_srgb(c / alpha) } else { 0 };
+            image::Rgba([
+                color(rgb[0]),
+                color(rgb[1]),
+                color(rgb[2]),
+                (alpha / 4.0 * 255.0).round() as u8,
+            ])
+        });
+        levels.push(level.clone());
+        current = Some(level);
+    }
+    levels
 }
 
 fn build_pipelines(
@@ -2818,6 +2881,32 @@ fn display_pipeline(device: &wgpu::Device) -> (wgpu::BindGroupLayout, wgpu::Rend
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mip_levels_halve_and_average_in_linear_light() {
+        let odd = image::RgbaImage::new(5, 3);
+        let sizes: Vec<_> = mip_chain(&odd).iter().map(|l| l.dimensions()).collect();
+        assert_eq!(sizes, [(2, 1), (1, 1)]);
+
+        // Black and white average to linear half gray, sRGB 188, not 128.
+        let checker = image::RgbaImage::from_fn(2, 2, |x, y| {
+            image::Rgba(if (x + y) % 2 == 0 {
+                [0, 0, 0, 255]
+            } else {
+                [255; 4]
+            })
+        });
+        assert_eq!(
+            mip_chain(&checker)[0].get_pixel(0, 0).0,
+            [188, 188, 188, 255]
+        );
+
+        // Transparent texels lower the alpha, not the color.
+        let cutout = image::RgbaImage::from_fn(2, 2, |x, y| {
+            image::Rgba(if x + y == 0 { [255, 0, 0, 255] } else { [0; 4] })
+        });
+        assert_eq!(mip_chain(&cutout)[0].get_pixel(0, 0).0, [255, 0, 0, 64]);
+    }
 
     #[test]
     fn billboards_turn_their_front_to_the_eye() {

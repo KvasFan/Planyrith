@@ -12,6 +12,8 @@ All notable changes to Planyrith are recorded here. Versions follow
   that use them now look as styled.
 - Cast shadows from edges that bound no face, such as wires and lines, when
   "From edges" is on in the Shadows window or `shadows-set --from-edges`.
+- Show distant textures smoothly: textures now have mipmaps, so floors, fabrics
+  and tiles seen from afar no longer turn into speckled noise.
 
 ## 0.11.0-alpha.3 — Real models and verified exchange (2026-11-01)
 

@@ -494,6 +494,75 @@ fn fog_ground_and_watermarks() {
     check("room-fog-ground-watermark", &image);
 }
 
+/// Distant textures blend their mip levels (docs/06 §13): a floor of
+/// 2 cm black and white squares seen from far away is an even gray, not
+/// noise, and keeps its brightness.
+#[test]
+fn distant_textures_blend_to_their_average() {
+    use planyrith_core::io::{MemoryStorage, Storage, StorageKey};
+    let Some(gpu) = gpu() else { return };
+    let checker = image::RgbaImage::from_fn(64, 64, |x, y| {
+        if (x + y) % 2 == 0 {
+            image::Rgba([0, 0, 0, 255])
+        } else {
+            image::Rgba([255, 255, 255, 255])
+        }
+    });
+    let mut png = Vec::new();
+    checker
+        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .unwrap();
+    let storage = Arc::new(MemoryStorage::new());
+    storage
+        .write(&StorageKey::new("checker.png"), &png)
+        .unwrap();
+    let mut e = Engine::new(Document::new(), Arc::new(CommandRegistry::with_builtins()));
+    e.set_storage(storage);
+    rect(&mut e, [0.0, 0.0, 0.0], [20000.0, 20000.0, 0.0]);
+    run(
+        &mut e,
+        "material-create",
+        json!({ "name": "Checker", "color": "#FFFFFF", "texture": "checker.png",
+                "texture_width": 1280.0, "texture_height": 1280.0 }),
+    );
+    run(
+        &mut e,
+        "material-apply",
+        json!({ "targets": "face", "material": "Checker" }),
+    );
+    run(
+        &mut e,
+        "camera-standard",
+        json!({ "view": "iso", "extents": true }),
+    );
+    let doc = e.document();
+    let mut renderer = Renderer::new(
+        gpu.device.clone(),
+        gpu.queue.clone(),
+        RendererOptions::default(),
+    );
+    let image = frame(
+        &mut renderer,
+        doc,
+        &Selection::new(),
+        &EditContext::model(),
+        &doc.camera,
+        &Style::default(),
+        false,
+    );
+    // The middle of the frame is all floor.
+    let values: Vec<f64> = (WIDTH * 2 / 5..WIDTH * 3 / 5)
+        .flat_map(|x| (HEIGHT * 2 / 5..HEIGHT * 3 / 5).map(move |y| (x, y)))
+        .map(|(x, y)| f64::from(image.get_pixel(x, y).0[1]))
+        .collect();
+    let mean = values.iter().sum::<f64>() / values.len() as f64;
+    let spread =
+        (values.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / values.len() as f64).sqrt();
+    assert!(spread < 12.0, "noise: standard deviation {spread:.1}");
+    // Lit linear 50 % gray, well above an sRGB average's darkening.
+    assert!((90.0..230.0).contains(&mean), "mean {mean:.1}");
+}
+
 /// Edges that bound no face cast shadows when the settings ask for it
 /// (docs/06 §6): a wire above the ground darkens it only then.
 #[test]
