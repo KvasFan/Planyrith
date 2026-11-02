@@ -26,11 +26,11 @@ pub struct EdgeStyle {
     pub show: bool,
     /// Profile (silhouette) edge width.
     pub profiles: Option<u8>,
-    /// Depth cue strength.
+    /// Depth cue: edge width in pixels at the nearest point of the model.
     pub depth_cue: Option<u8>,
-    /// Extension length past vertices.
+    /// Extension length past vertices, in pixels.
     pub extension: Option<u8>,
-    /// Endpoint emphasis width.
+    /// Endpoint emphasis: length in pixels of the thicker cap over each end.
     pub endpoints: Option<u8>,
     /// Sketchy jitter.
     pub jitter: bool,

@@ -751,6 +751,30 @@ pub fn styles(
                             actions.push(edit(json!({ "profiles": w.round() as u8 })));
                         }
                     });
+                    // Effects in pixels; 0 turns one off (docs/06 §5).
+                    for (label, key, value, max) in [
+                        ("Depth cue", "depth_cue", e.depth_cue, 10.0),
+                        ("Extension", "extension", e.extension, 30.0),
+                        ("Endpoints", "endpoints", e.endpoints, 30.0),
+                    ] {
+                        ui.horizontal(|ui| {
+                            ui.label(label);
+                            if let Some(v) = number_field(
+                                ui,
+                                key,
+                                f64::from(value.unwrap_or(0)),
+                                0.0..=max,
+                                0.05,
+                                " px",
+                            ) {
+                                actions.push(edit(json!({ key: v.round() as u8 })));
+                            }
+                        });
+                    }
+                    let mut jitter = e.jitter;
+                    if ui.checkbox(&mut jitter, "Jitter").changed() {
+                        actions.push(edit(json!({ "jitter": jitter })));
+                    }
                     ui.horizontal(|ui| {
                         ui.label("Color");
                         for (label, mode, key) in [
@@ -953,5 +977,39 @@ fn face_mode_label(mode: FaceMode) -> &'static str {
         FaceMode::ShadedTextured => "Shaded with textures",
         FaceMode::Monochrome => "Monochrome",
         FaceMode::XRay => "X-ray",
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use egui_kittest::Harness;
+    use egui_kittest::kittest::Queryable;
+
+    #[derive(Default)]
+    struct Panel {
+        session: Session,
+        state: ResourceState,
+        error: Option<String>,
+    }
+
+    /// The style editor offers every edge effect and edits the active style.
+    #[test]
+    fn style_editor_sets_edge_effects() {
+        let mut harness = Harness::new_ui_state(
+            |ui, p: &mut Panel| styles(ui, &mut p.session, &mut p.state, &mut p.error),
+            Panel::default(),
+        );
+        harness.run();
+        for label in ["Depth cue", "Extension", "Endpoints"] {
+            harness.get_by_label(label);
+        }
+        harness.get_by_label("Jitter").click();
+        harness.run();
+        let p = harness.state();
+        assert_eq!(p.error, None);
+        let style = p.session.doc().styles.active_style().unwrap();
+        assert!(style.edges.jitter);
     }
 }

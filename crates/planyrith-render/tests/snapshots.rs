@@ -258,6 +258,68 @@ fn face_styles() {
     }
 }
 
+/// Pixels darker than mid-gray: the edges of a hidden-line frame.
+fn ink(image: &image::RgbaImage) -> usize {
+    image
+        .pixels()
+        .filter(|p| u32::from(p.0[0]) + u32::from(p.0[1]) + u32::from(p.0[2]) < 384)
+        .count()
+}
+
+/// Extension, endpoints, depth cue and jitter (docs/06 §5) each add ink to
+/// a hidden-line frame; jitter moves edges the same way in every frame.
+#[test]
+fn edge_effects() {
+    let Some(gpu) = gpu() else { return };
+    let e = room();
+    let doc = e.document();
+    let mut renderer = Renderer::new(
+        gpu.device.clone(),
+        gpu.queue.clone(),
+        RendererOptions::default(),
+    );
+    let mut draw = |edit: &dyn Fn(&mut Style)| {
+        let mut style = Style::default();
+        style.faces.mode = FaceMode::HiddenLine;
+        style.edges.profiles = None;
+        edit(&mut style);
+        frame(
+            &mut renderer,
+            doc,
+            &Selection::new(),
+            &EditContext::model(),
+            &doc.camera,
+            &style,
+            false,
+        )
+    };
+    let plain = ink(&draw(&|_| {}));
+    for (name, edit) in [
+        (
+            "room-edges-extension",
+            &(|s: &mut Style| s.edges.extension = Some(8)) as &dyn Fn(&mut Style),
+        ),
+        ("room-edges-endpoints", &|s: &mut Style| {
+            s.edges.endpoints = Some(10)
+        }),
+        ("room-edges-depth-cue", &|s: &mut Style| {
+            s.edges.depth_cue = Some(5)
+        }),
+        ("room-edges-jitter", &|s: &mut Style| s.edges.jitter = true),
+    ] {
+        let image = draw(edit);
+        let more = ink(&image);
+        assert!(
+            more > plain + plain / 20,
+            "{name}: {more} ink pixels, plain {plain}"
+        );
+        // Software, Metal and Direct3D adapters rasterize thin lines a
+        // little differently; the ink counts above carry the exact check.
+        check_within(name, &image, 24, 100);
+        assert_eq!(draw(edit), image, "{name}: the same frame twice");
+    }
+}
+
 #[test]
 fn projections_selection_and_picking() {
     let Some(gpu) = gpu() else { return };

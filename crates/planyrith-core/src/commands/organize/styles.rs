@@ -227,7 +227,7 @@ pub struct StyleEditParams {
     /// Edge extension in pixels (0 = none).
     #[serde(default)]
     pub extension: Option<u8>,
-    /// Endpoint emphasis in pixels (0 = none).
+    /// Endpoint emphasis: cap length in pixels (0 = none).
     #[serde(default)]
     pub endpoints: Option<u8>,
     /// Sketchy jitter.

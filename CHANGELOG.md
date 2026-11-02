@@ -7,6 +7,9 @@ All notable changes to Planyrith are recorded here. Versions follow
 ## Unreleased
 
 - Keep the window responsive while saving to SKP, with a progress dialog.
+- Draw the style's edge effects: depth cue, extensions past the ends, endpoint
+  emphasis and jitter, set in the Styles panel or with `style-edit`. SKP models
+  that use them now look as styled.
 
 ## 0.11.0-alpha.3 — Real models and verified exchange (2026-11-01)
 

@@ -36,6 +36,12 @@ struct Draw {
     light_clip: mat4x4<f32>,
     // x: shadows on; y: lit intensity; z: shadowed intensity; w: depth bias.
     shadow: vec4<f32>,
+    // Edge effects in pixels (docs/06 §5): x extension past both ends,
+    // y endpoint length, z jitter amplitude, w depth cue width (0 = off).
+    edge_style: vec4<f32>,
+    // x, y: nearest and farthest model depth (mm along the view); z: how
+    // much wider endpoint caps are than their edge (px).
+    edge_depth: vec4<f32>,
 };
 
 // Distance along the view of a clip position (fog).
@@ -240,6 +246,19 @@ fn axis_color(direction: vec3<f32>, fallback: vec4<f32>) -> vec4<f32> {
     return fallback;
 }
 
+// A deterministic value in [-1, 1] (jitter): an integer hash, so each edge
+// keeps its wobble from frame to frame and machine to machine.
+fn wobble(seed: u32) -> f32 {
+    var h = seed * 747796405u + 2891336453u;
+    h = ((h >> ((h >> 28u) + 4u)) ^ h) * 277803737u;
+    h = (h >> 22u) ^ h;
+    return f32(h >> 8u) / 8388607.5 - 1.0;
+}
+
+// An edge is three screen-space quads of six vertices each: the edge itself
+// (corners 0–5), then short caps over each end (6–11 at a, 12–17 at b) that
+// draws with endpoints enabled emit. Within a quad, corners are 0 (start, -),
+// 1 (start, +), 2 (end, +), 3 (start, -), 4 (end, +), 5 (end, -).
 @vertex
 fn vs_edge(input: EdgeIn) -> EdgeOut {
     var out: EdgeOut;
@@ -264,6 +283,14 @@ fn vs_edge(input: EdgeIn) -> EdgeOut {
     if (profile && draw.viewport.w > 0.0) {
         width = max(width, draw.viewport.w);
     }
+    // Depth cue: the style's width at the model's nearest depth, narrowing
+    // to the plain width at its farthest.
+    if (draw.edge_style.w > 0.0) {
+        let span = max(draw.edge_depth.y - draw.edge_depth.x, 1e-3);
+        let depth = view_depth(draw.clip_from_local * vec4<f32>(mid, 1.0));
+        let t = clamp((depth - draw.edge_depth.x) / span, 0.0, 1.0);
+        width = max(width, mix(draw.edge_style.w, draw.viewport.z, t));
+    }
     if (soft && !profile && (draw.ids.y & HIDE_SOFT) != 0u) {
         width = 0.0;
     }
@@ -286,30 +313,75 @@ fn vs_edge(input: EdgeIn) -> EdgeOut {
     }
     let perp = vec2<f32>(-dir.y, dir.x);
 
-    // Corners: 0 (a, -), 1 (a, +), 2 (b, +), 3 (a, -), 4 (b, +), 5 (b, -).
-    let at_b = input.corner == 2u || input.corner == 4u || input.corner == 5u;
+    // Jitter moves each end sideways and past the vertex, by its own amount.
+    let jitter = draw.edge_style.z;
+    let seed = input.index * 4u;
+    let shift_a = perp * wobble(seed) * jitter;
+    let shift_b = perp * wobble(seed + 1u) * jitter;
+    let over_a = (wobble(seed + 2u) * 0.5 + 0.5) * jitter;
+    let over_b = (wobble(seed + 3u) * 0.5 + 0.5) * jitter;
+    // Half a pixel past each end so joints close, plus the extension.
+    let close = 0.5 * min(width, 1.0);
+    let extension = select(0.0, draw.edge_style.x, width > 0.0);
+
+    let quad = input.corner / 6u;
+    let corner = input.corner % 6u;
+    let at_end = corner == 2u || corner == 4u || corner == 5u;
     var side = -1.0;
-    if (input.corner == 1u || input.corner == 2u || input.corner == 4u) {
+    if (corner == 1u || corner == 2u || corner == 4u) {
         side = 1.0;
     }
+    var quad_width = width;
     var base = p;
     var along = 0.0;
-    var extend = -0.5;
+    var shift = shift_a;
     out.local = input.a;
-    if (at_b) {
-        base = q;
-        along = length_px;
-        extend = 0.5;
-        out.local = input.b;
+    if (quad == 0u) {
+        // Extensions continue the edge's own line in clip space, so depth
+        // stays that of the line; a screen offset would tilt it into the
+        // faces beside the edge. The half pixel closing joints is too
+        // short for that to matter.
+        let reach = 1.0 / max(length_px, 1e-3);
+        base = p + (p - q) * ((extension + over_a) * reach);
+        along = -(extension + over_a);
+        shift = shift_a - dir * close;
+        if (at_end) {
+            base = q + (q - p) * ((extension + over_b) * reach);
+            along = length_px + extension + over_b;
+            shift = shift_b + dir * close;
+            out.local = input.b;
+        }
+    } else {
+        // Caps reach at most halfway along a short edge.
+        let cap = min(draw.edge_style.y, length_px * 0.5);
+        quad_width = select(0.0, width + draw.edge_depth.z, width > 0.0 && cap > 0.0);
+        // The inner end of a cap is on the edge's line, as extensions are.
+        let inner = cap / max(length_px, 1e-3);
+        if (quad == 1u) {
+            if (at_end) {
+                base = mix(p, q, inner);
+                along = cap;
+            }
+        } else {
+            base = q;
+            along = length_px;
+            shift = shift_b;
+            out.local = input.b;
+            if (!at_end) {
+                base = mix(q, p, inner);
+                along = length_px - cap;
+            }
+        }
     }
-    // Half a pixel past each end so joints close.
-    let offset_px = perp * side * width * 0.5 + dir * extend * min(width, 1.0);
+    let offset_px = perp * side * quad_width * 0.5 + shift;
     let offset_ndc = offset_px / half_size;
     var clip = base + vec4<f32>(offset_ndc * base.w, 0.0, 0.0);
     // Edges sit on their faces (docs/06 §3.1 step 5): a small pull toward
-    // the eye in reversed Z.
+    // the eye in reversed Z. Jitter moves edges sideways onto the faces
+    // beside them, so it pulls ten times as far (0.4 % of the distance).
     out.depth = view_depth(clip);
-    clip.z = clip.z * 1.0004 + 1e-7 * clip.w;
+    let pull = select(1.0004, 1.004, jitter > 0.0);
+    clip.z = clip.z * pull + 1e-7 * clip.w;
     out.clip = clip;
     out.along = along;
 

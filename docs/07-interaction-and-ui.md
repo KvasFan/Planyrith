@@ -393,3 +393,6 @@ collected by clicks: e.g. segments for Circle, array count, copy toggle).
 - 2026-10-28 — **Web error box.** When the web application stops (a Rust panic, a WebAssembly
   trap, an unhandled error), the page shows the message in a box at the bottom instead of
   leaving a blank page, so a user can report it without the browser's console.
+- 2026-11-02 — The Styles panel's Edges section sets depth cue, extension and endpoints in
+  pixels (0 turns one off) and switches jitter, next to profiles and back edges; each change
+  is one `style-edit`.

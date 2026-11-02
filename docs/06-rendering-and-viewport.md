@@ -314,3 +314,16 @@ exposes a frame-time overlay (`F11` panel).
   lack view formats (wgpu's `VIEW_FORMATS` downlevel flag), and the web build showed a black page.
   `renders_within_webgl2_limits` renders and picks on the GL backend with WebGL2's limits, where
   a GL adapter exists.
+- 2026-11-02 — **Edge effects** (§5). The edge vertex shader draws the style's effects; nothing
+  runs per frame on the CPU. *Extension* continues each edge past both ends by its pixel count.
+  *Endpoints* is the length in pixels of a cap over each end, 2 px wider than the edge; these
+  draws emit 18 vertices per edge instead of 6. *Depth cue* is the width in pixels at the
+  model's nearest depth, narrowing to the plain width at its farthest; the range is the model's
+  bounds along the view, not the view's depth range. *Jitter* moves each end of an edge sideways
+  and past the vertex by up to 1.5 px, from an integer hash of the edge's index, so a model
+  wobbles the same way in every frame and on every machine. Extensions and cap ends are placed
+  along the edge's line in clip space, so their depth stays that of the line: a screen-space
+  offset tilted the depth, and the faces beside the edge hid parts of it. Jitter does move
+  edges off their line, so jittered edges are pulled toward the eye ten times as far (0.4 % of
+  the distance). `edge_effects` checks that each effect adds ink to a hidden-line frame and
+  that jitter is repeatable; its images allow adapter differences of 1 % of the pixels.

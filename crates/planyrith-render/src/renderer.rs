@@ -18,8 +18,8 @@ use bytemuck::{Pod, Zeroable};
 use glam::{DAffine3, DMat3, DVec3};
 use planyrith_core::commands::Delta;
 use planyrith_core::document::{
-    Camera, ContainerRef, Document, EdgeColorMode, FaceMode, FrontOrBack, ImageRef, Projection,
-    Rgba8, Style, Watermark, WatermarkPlacement,
+    Camera, ContainerRef, Document, EdgeColorMode, EdgeStyle, FaceMode, FrontOrBack, ImageRef,
+    Projection, Rgba8, Style, Watermark, WatermarkPlacement,
 };
 use planyrith_core::geom::HalfEdgeMesh;
 use planyrith_core::ids::{EdgeId, FaceId, MaterialId};
@@ -150,7 +150,7 @@ struct EdgeInstance {
     material_color: [f32; 4],
 }
 
-/// The per-draw uniform block (`Draw` in `scene.wgsl`, 320 bytes).
+/// The per-draw uniform block (`Draw` in `scene.wgsl`, 352 bytes).
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]
 struct DrawUniform {
@@ -175,6 +175,10 @@ struct DrawUniform {
     light_clip: [[f32; 4]; 4],
     /// Shadows on, lit and shadowed intensities, depth bias.
     shadow: [f32; 4],
+    /// Edge extension, endpoint length, jitter and depth cue width (px).
+    edge_style: [f32; 4],
+    /// Nearest and farthest model depth (mm), endpoint thickening (px).
+    edge_depth: [f32; 4],
 }
 
 const TEXTURED: u32 = 1;
@@ -269,6 +273,8 @@ enum Draw {
         pipeline: Stage,
         uniform: u32,
         container: ContainerRef,
+        /// Vertices per edge: 6, or 18 with endpoint caps.
+        vertices: u32,
     },
     /// Edges drawn from a transient instance buffer (selected edges, axes).
     EdgeList {
@@ -800,6 +806,30 @@ impl Renderer {
         let ppp = self.options.pixels_per_point;
         let edge_width = ppp;
         let profile_width = style.edges.profiles.map_or(0.0, |w| f32::from(w) * ppp);
+        let edge_style = edge_style(&style.edges, ppp);
+        let edge_vertices = if style.edges.endpoints.is_some() {
+            18
+        } else {
+            6
+        };
+        // Depth cue spans the model's own depth, not the view's depth range.
+        let (cue_near, cue_far) = if model_bounds.is_empty() {
+            (depth.near, depth.near)
+        } else {
+            model_bounds
+                .corners()
+                .iter()
+                .map(|&c| camera.depth_of(c))
+                .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), d| {
+                    (lo.min(d), hi.max(d))
+                })
+        };
+        let edge_depth = [
+            cue_near.max(depth.near) as f32,
+            cue_far.max(depth.near) as f32,
+            ENDPOINT_EXTRA_PX * ppp,
+            0.0,
+        ];
         let fade_amount = style.modeling.inactive_fade.clamp(0.0, 1.0);
 
         // The sun (docs/06 §6): its direction lights the faces; its depth
@@ -829,7 +859,8 @@ impl Renderer {
         let mut transparent: Vec<(f64, Draw)> = Vec::new();
         let mut edges: Vec<Draw> = Vec::new();
         let mut overlay: Vec<Draw> = Vec::new();
-        let mut id_draws: Vec<(u32, ContainerRef, Range<u32>, bool)> = Vec::new();
+        // Faces have 0 vertices per edge.
+        let mut id_draws: Vec<(u32, ContainerRef, Range<u32>, u32)> = Vec::new();
         self.last_items = req
             .items
             .iter()
@@ -935,7 +966,7 @@ impl Renderer {
                 } else {
                     opaque.push(draw);
                 }
-                id_draws.push((slot, item.container, range.clone(), false));
+                id_draws.push((slot, item.container, range.clone(), 0));
             }
 
             // Edges.
@@ -965,6 +996,8 @@ impl Renderer {
                     fade,
                     viewport: [req.width as f32, req.height as f32, width, profile_width],
                     ids: [item_id, flags, 0, 0],
+                    edge_style,
+                    edge_depth,
                     ..base
                 };
                 let slot = push(&mut uniforms, u);
@@ -972,8 +1005,9 @@ impl Renderer {
                     pipeline: Stage::Edge,
                     uniform: slot,
                     container: item.container,
+                    vertices: edge_vertices,
                 });
-                id_draws.push((slot, item.container, 0..mesh.edge_count, true));
+                id_draws.push((slot, item.container, 0..mesh.edge_count, edge_vertices));
                 if style.edges.back_edges || mode == FaceMode::Wireframe || mode == FaceMode::XRay {
                     let u = DrawUniform {
                         ids: [item_id, flags | DASHED, 0, 0],
@@ -985,6 +1019,7 @@ impl Renderer {
                         pipeline: Stage::BackEdge,
                         uniform: slot,
                         container: item.container,
+                        vertices: edge_vertices,
                     });
                 }
             }
@@ -1556,17 +1591,17 @@ impl Renderer {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
-            for (slot, container, range, is_edges) in &id_draws {
+            for (slot, container, range, vertices) in &id_draws {
                 let Some(mesh) = self.meshes.get(container) else {
                     continue;
                 };
                 let offset = [*slot * UNIFORM_STRIDE as u32];
-                if *is_edges {
+                if *vertices > 0 {
                     let Some(buffer) = &mesh.edges else { continue };
                     pass.set_pipeline(&self.pipelines.edge_id);
                     pass.set_bind_group(0, &self.uniform_group, &offset);
                     pass.set_vertex_buffer(0, buffer.slice(..));
-                    pass.draw(0..6, range.clone());
+                    pass.draw(0..*vertices, range.clone());
                 } else {
                     let (Some(vb), Some(ib)) = (&mesh.vertices, &mesh.indices) else {
                         continue;
@@ -1674,6 +1709,7 @@ impl Renderer {
                 pipeline,
                 uniform,
                 container,
+                vertices,
             } => {
                 let Some(mesh) = self.meshes.get(container) else {
                     return;
@@ -1686,7 +1722,7 @@ impl Renderer {
                 });
                 pass.set_bind_group(0, &self.uniform_group, &[uniform * UNIFORM_STRIDE as u32]);
                 pass.set_vertex_buffer(0, buffer.slice(..));
-                pass.draw(0..6, 0..mesh.edge_count);
+                pass.draw(0..*vertices, 0..mesh.edge_count);
             }
             Draw::EdgeList {
                 uniform,
@@ -1993,6 +2029,23 @@ fn push(uniforms: &mut Vec<DrawUniform>, u: DrawUniform) -> u32 {
 }
 
 /// The uniform fields that depend on the occurrence and camera only.
+/// Endpoint caps are this much wider than their edge (docs/06 §5).
+const ENDPOINT_EXTRA_PX: f32 = 2.0;
+/// The largest sideways and lengthwise wobble of a jittered edge end.
+const JITTER_PX: f32 = 1.5;
+
+/// The style's edge effects in device pixels: extension, endpoint length,
+/// jitter amplitude and depth cue width (`Draw.edge_style`).
+fn edge_style(edges: &EdgeStyle, ppp: f32) -> [f32; 4] {
+    let px = |v: Option<u8>| v.map_or(0.0, |v| f32::from(v) * ppp);
+    [
+        px(edges.extension),
+        px(edges.endpoints),
+        if edges.jitter { JITTER_PX * ppp } else { 0.0 },
+        px(edges.depth_cue),
+    ]
+}
+
 fn make_uniform(clip: &[[f32; 4]; 4], world: &DAffine3, camera: &Camera) -> DrawUniform {
     // Inverse transpose of the linear part (normals under non-uniform scale).
     let linear = world.matrix3;
@@ -2025,6 +2078,8 @@ fn make_uniform(clip: &[[f32; 4]; 4], world: &DAffine3, camera: &Camera) -> Draw
         section: [0.0; 4],
         light_clip: [[0.0; 4]; 4],
         shadow: [0.0; 4],
+        edge_style: [0.0; 4],
+        edge_depth: [0.0; 4],
     }
 }
 
