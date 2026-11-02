@@ -14,6 +14,14 @@ CI and the Release workflow's Windows and Linux package checks passed with
 it passes on the commit; do not rerun CI after a failure until the cause is
 understood. What only GitHub can catch is listed in docs/12 Decisions, 2026-11-02.
 
+**After alpha.3 (unreleased, 2026-11-02):** the renderer draws the style's edge
+effects (depth cue, extension, endpoints, jitter) and shadows from edges without
+faces, both stored and imported from SKP before but not drawn; textures have
+mipmaps; `render --shadows` works. The Styles panel and Shadows window expose
+the new settings. Deliberately not done: writing tag line styles to SKP, which
+needs a line-style field the writing library lacks and cannot be verified
+without the target application. See docs/06 Decisions, 2026-11-02.
+
 **Alpha.3:** a survey of public SKP files found and fixed
 ten models that would not open and five that would not save. All 680 surveyed
 files pass the exchange chain with both writers, including deletion and renames,
