@@ -295,5 +295,16 @@ humans or GUI automation before releases, with expected screenshots.
   listed each neighbouring face's cycles for every corner and recomputed the same smoothing
   group from every face. Corners are now found in the vertex star and each group's normal is
   cached per vertex (`SmoothNormals`); extraction went from 3.8 to 1.2 s and the first frame
-  to 1.2 s. Still to measure: startup (GUI) and memory; the house's 12 ms worst move is not
-  explained yet.
+  to 1.2 s.
+
+  `memory_benchmark` (core, ignored, Linux) compares the resident memory a loaded document adds
+  with the uncompressed size of its native file's parts: the terrain takes 423 MB for 233 MB
+  (1.82×), the house 596 MB for 353 MB (1.69×), within "≤ 2×". Resident memory includes the
+  allocator's slack, so it overstates the document. The desktop application prints the time from
+  launch to its second frame (the first is on screen and input is taken) and closes when
+  `PLANYRITH_STARTUP_PROBE` is set: 140 to 860 ms over five launches, the slowest the first,
+  within "< 1.5 s". Web startup is not measured yet. The house's slowest move (13 to 22 ms)
+  has 10,477 snap candidates within the 8-pixel tolerance: 6,143 distinct points of three
+  finely detailed objects seen from afar. Its cost follows those candidates, not the model;
+  building each candidate in full could be avoided, but the order that picks the winner must
+  stay deterministic, so it is left as a known case.

@@ -1641,6 +1641,7 @@ fn quality_targets_benchmark() {
     let mut camera = doc.camera;
     camera.zoom_extents(&doc.aabb(), 0.05);
     let view = ViewMetrics::for_camera(&camera, 1080.0);
+    let mut slowest: Vec<(f64, usize, String)> = Vec::new();
     let mut times: Vec<f64> = (0..400)
         .filter_map(|i| {
             let (x, y) = (
@@ -1658,11 +1659,41 @@ fn quality_targets_benchmark() {
             let t = Instant::now();
             let found = engine.infer(doc, &index, &req);
             let secs = t.elapsed().as_secs_f64();
+            if std::env::var_os("PLANYRITH_BENCH_PARTS").is_some() {
+                let all = engine.candidates(doc, &index, &req);
+                let n = all.len();
+                let mut points: Vec<[i64; 3]> = all
+                    .iter()
+                    .map(|c| (c.point * 10.0).round().as_i64vec3().to_array())
+                    .collect();
+                points.sort_unstable();
+                points.dedup();
+                let mut paths: Vec<String> = all
+                    .iter()
+                    .filter_map(|c| c.on.as_ref().map(|p| format!("{:?}", p.instances)))
+                    .collect();
+                paths.sort_unstable();
+                paths.dedup();
+                slowest.push((
+                    secs,
+                    n,
+                    format!(
+                        "{:?}; {} distinct points, {} occurrences",
+                        found.kind,
+                        points.len(),
+                        paths.len()
+                    ),
+                ));
+            }
             // Moves over the model only: a ray past it costs nothing.
             (found.kind != crate::inference::InferenceKind::Free).then_some(secs)
         })
         .collect();
     times.sort_by(f64::total_cmp);
+    slowest.sort_by(|a, b| b.0.total_cmp(&a.0));
+    for (secs, n, kind) in slowest.iter().take(3) {
+        eprintln!("  slow move: {:.2} ms, {n} candidates, {kind}", secs * 1e3);
+    }
     if std::env::var_os("PLANYRITH_BENCH_PARTS").is_some() {
         let t = Instant::now();
         for _ in 0..20 {
@@ -1743,4 +1774,77 @@ fn quality_targets_benchmark() {
         times[times.len() * 95 / 100] * 1e3,
         times[times.len() - 1] * 1e3
     );
+}
+
+/// docs/00 §6 "core document memory ≤ 2× the on-disk uncompressed size":
+/// the resident memory a loaded document adds, against the uncompressed
+/// size of its native file's parts. Linux (reads `/proc/self/statm`); the
+/// same model variables as [`quality_targets_benchmark`]. Run alone:
+/// `cargo test --release -p planyrith-core memory_benchmark -- --ignored
+/// --nocapture --test-threads 1`.
+#[cfg(target_os = "linux")]
+#[test]
+#[ignore = "benchmark"]
+fn memory_benchmark() {
+    use crate::io::NoProgress;
+    use crate::io::native::{WriteOptions, read_document, write_document};
+    let resident = || {
+        let statm = crate::io::storage::NativeFs::new()
+            .read(&StorageKey::new("/proc/self/statm"))
+            .unwrap();
+        let pages: u64 = String::from_utf8_lossy(&statm)
+            .split_whitespace()
+            .nth(1)
+            .and_then(|v| v.parse().ok())
+            .unwrap();
+        pages * 4096
+    };
+    let bytes = match std::env::var_os("PLANYRITH_BENCH_FILE") {
+        Some(path) => crate::io::storage::NativeFs::new()
+            .read(&StorageKey::new(path.to_string_lossy()))
+            .unwrap(),
+        None => {
+            let n = std::env::var("PLANYRITH_BENCH_CELLS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(707);
+            let (mut e, storage) = engine();
+            storage
+                .write(&StorageKey::new("t.glb"), &terrain_glb(n))
+                .unwrap();
+            run(&mut e, "import", json!({ "path": "t.glb" }));
+            write_document(e.document(), &[], &WriteOptions::default(), &NoProgress).unwrap()
+        }
+    };
+    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(&bytes[..])).unwrap();
+    let mut uncompressed = 0u64;
+    let mut parts = Vec::new();
+    for i in 0..archive.len() {
+        let entry = archive.by_index(i).unwrap();
+        uncompressed += entry.size();
+        parts.push((
+            entry.name().map(|n| n.into_owned()).unwrap_or_default(),
+            entry.size(),
+        ));
+    }
+    parts.sort_by_key(|p| std::cmp::Reverse(p.1));
+    let before = resident();
+    let loaded = read_document(&bytes, &NoProgress).unwrap();
+    let after = resident();
+    let used = after.saturating_sub(before);
+    eprintln!(
+        "file {:.1} MB, uncompressed {:.1} MB; document adds {:.1} MB resident = {:.2}× \
+         (target ≤ 2×); largest parts: {}",
+        bytes.len() as f64 / 1e6,
+        uncompressed as f64 / 1e6,
+        used as f64 / 1e6,
+        used as f64 / uncompressed as f64,
+        parts
+            .iter()
+            .take(3)
+            .map(|(n, s)| format!("{n} {:.1} MB", *s as f64 / 1e6))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    std::hint::black_box(&loaded);
 }

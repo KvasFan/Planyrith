@@ -28,9 +28,15 @@ mod viewport;
 #[cfg(test)]
 mod screens;
 
+/// When the desktop application started, for the startup probe (docs/12
+/// Decisions, 2026-11-02).
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) static STARTED: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+
 /// Runs the desktop application, opening `file` if given.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn run_native(file: Option<std::path::PathBuf>) -> eframe::Result {
+    let _ = STARTED.set(std::time::Instant::now());
     let mut viewport = egui::ViewportBuilder::default()
         .with_title("Planyrith")
         .with_app_id("org.planyrith.Planyrith")

@@ -242,6 +242,9 @@ pub struct App {
     animation: Option<(Vec<String>, usize, f64)>,
     /// Materials, Components and Styles panels.
     resources: ResourceState,
+    /// Frames seen by the startup probe.
+    #[cfg(not(target_arch = "wasm32"))]
+    probe_frames: u32,
     /// The texture placement window: the face and the fields.
     texture: Option<(planyrith_core::document::EntityPath, TextureFields)>,
     /// The Shadows window is open (docs/07 §6).
@@ -368,6 +371,8 @@ impl App {
             tabs: 0,
             animation: None,
             resources: ResourceState::default(),
+            #[cfg(not(target_arch = "wasm32"))]
+            probe_frames: 0,
             texture: None,
             shadows_open: false,
             extensions: Default::default(),
@@ -2631,6 +2636,27 @@ impl App {
     }
 }
 
+impl App {
+    /// With `PLANYRITH_STARTUP_PROBE` set, prints the time from launch to
+    /// the second frame (the first is on screen and input is taken), then
+    /// closes: docs/00 §6 "startup to first interaction".
+    #[cfg(not(target_arch = "wasm32"))]
+    fn probe_startup(&mut self, ctx: &egui::Context) {
+        if std::env::var_os("PLANYRITH_STARTUP_PROBE").is_none() {
+            return;
+        }
+        self.probe_frames += 1;
+        if self.probe_frames == 2 {
+            if let Some(started) = crate::STARTED.get() {
+                println!("startup: {:.0} ms", started.elapsed().as_secs_f64() * 1e3);
+            }
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        } else {
+            ctx.request_repaint();
+        }
+    }
+}
+
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         #[cfg(not(target_arch = "wasm32"))]
@@ -2638,6 +2664,8 @@ impl eframe::App for App {
         #[cfg(not(target_arch = "wasm32"))]
         self.poll_saving(ui.ctx());
         self.shell(ui, frame.wgpu_render_state());
+        #[cfg(not(target_arch = "wasm32"))]
+        self.probe_startup(ui.ctx());
     }
 
     /// `Tab` cycles inference candidates while no text field has focus
