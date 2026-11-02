@@ -20,7 +20,9 @@ use crate::document::{
     ContainerRef, Document, EditContext, Entities, EntityKey, EntityView, FrontOrBack,
     InstancePath, Selection, UvMap,
 };
-use crate::geom::tessellate::{tessellate_face, tessellate_face_with_openings, vertex_normals};
+use crate::geom::tessellate::{
+    tessellate_face, tessellate_face_with_openings, vertex_normals_cached,
+};
 use crate::geom::{EdgeFlags, GeometryError};
 use crate::ids::{EdgeId, EntityId, FaceId, MaterialId};
 use crate::math::Aabb;
@@ -273,6 +275,7 @@ pub fn extract(
     let mut bounds = Aabb::EMPTY;
 
     let openings = openings(doc, entities);
+    let mut smooth = crate::geom::tessellate::SmoothNormals::default();
     let mut face_index: BTreeMap<FaceId, u32> = BTreeMap::new();
     for &id in entities.order() {
         let EntityId::Face(f) = id else { continue };
@@ -293,7 +296,7 @@ pub fn extract(
         };
         let normal = mesh.face_normal(f)?;
         let normals = if opts.smooth_normals && cut.is_none() {
-            vertex_normals(mesh, f, &tess)?
+            vertex_normals_cached(mesh, f, &tess, &mut smooth)?
         } else {
             vec![normal; tess.vertices.len()]
         };

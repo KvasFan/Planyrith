@@ -17,6 +17,8 @@ All notable changes to Planyrith are recorded here. Versions follow
 - Place a texture with pins: `texture-position --pins` puts chosen points of
   the texture on chosen points of the face. One pin moves it, two also turn
   and scale it, three also skew it, four in perspective with `--projective`.
+- Show large models sooner after opening: preparing a million-triangle model
+  for display went from about 5 s to about 1 s.
 - Hover, snap and click much faster in large models: on a 160 MB house the
   typical cursor move went from 2.4 ms to 0.1 ms. Finding the active section
   plane walked every face and edge of each container on every move.

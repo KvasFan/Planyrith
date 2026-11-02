@@ -184,20 +184,49 @@ pub fn vertex_normals(
     f: FaceId,
     tess: &FaceTessellation,
 ) -> Result<Vec<DVec3>, GeometryError> {
+    vertex_normals_cached(mesh, f, tess, &mut SmoothNormals::default())
+}
+
+/// Shading normals already computed, by vertex and face: every face of a
+/// smoothing group shares its normal at the vertex, so a whole mesh needs
+/// one computation per group and vertex instead of one per face corner.
+/// Indexed by vertex, with the few faces around it in a short list.
+#[derive(Debug, Default)]
+pub struct SmoothNormals(slotmap::SecondaryMap<VertexId, Vec<(FaceId, DVec3)>>);
+
+/// [`vertex_normals`] for many faces of one mesh, sharing `cache`.
+pub fn vertex_normals_cached(
+    mesh: &HalfEdgeMesh,
+    f: FaceId,
+    tess: &FaceTessellation,
+    cache: &mut SmoothNormals,
+) -> Result<Vec<DVec3>, GeometryError> {
     let n = mesh.face_normal(f)?;
     tess.vertices
         .iter()
-        .map(|&v| smooth_normal(mesh, f, v, n))
+        .map(|&v| {
+            if let Some((_, normal)) = cache.0.get(v).and_then(|l| l.iter().find(|(g, _)| *g == f))
+            {
+                return Ok(*normal);
+            }
+            let (normal, group) = smooth_normal(mesh, f, v, n)?;
+            if let Some(list) = cache.0.entry(v).map(|e| e.or_default()) {
+                list.extend(group.into_iter().map(|g| (g, normal)));
+            }
+            Ok(normal)
+        })
         .collect()
 }
 
-/// The shading normal of face `f` at vertex `v` (see [`vertex_normals`]).
+/// The shading normal of face `f` at vertex `v` (see [`vertex_normals`])
+/// and the faces sharing it there (`f` alone when the vertex is not on a
+/// soft edge).
 fn smooth_normal(
     mesh: &HalfEdgeMesh,
     f: FaceId,
     v: VertexId,
     face_normal: DVec3,
-) -> Result<DVec3, GeometryError> {
+) -> Result<(DVec3, Vec<FaceId>), GeometryError> {
     let mut soft = Vec::new();
     for &h in mesh.vertex_star(v) {
         let e = mesh.he(h)?.edge;
@@ -209,7 +238,7 @@ fn smooth_normal(
         }
     }
     if soft.is_empty() {
-        return Ok(face_normal);
+        return Ok((face_normal, vec![f]));
     }
     let mut group = vec![f];
     let mut grown = true;
@@ -227,28 +256,34 @@ fn smooth_normal(
         }
     }
     if group.len() == 1 {
-        return Ok(face_normal);
+        return Ok((face_normal, group));
     }
     let mut sum = DVec3::ZERO;
-    for g in group {
+    for &g in &group {
         sum += mesh.face_normal(g)? * corner_angle(mesh, g, v)?;
     }
-    Ok(sum.try_normalize().unwrap_or(face_normal))
+    // A degenerate sum falls back to this face's own normal, which the
+    // others in the group do not share.
+    Ok(match sum.try_normalize() {
+        Some(normal) => (normal, group),
+        None => (face_normal, vec![f]),
+    })
 }
 
 /// The interior angle of face `f` at vertex `v` (0 when `v` is not on `f`).
+/// The corner's half-edge leaves `v` with `f` on its left, so it is in the
+/// vertex's star: listing the face's cycles to find it allocated for every
+/// corner of every smoothed face and dominated mesh extraction.
 fn corner_angle(mesh: &HalfEdgeMesh, f: FaceId, v: VertexId) -> Result<f64, GeometryError> {
-    for cycle in mesh.face_cycles(f)? {
-        for h in cycle {
-            let he = mesh.he(h)?;
-            if he.origin != v {
-                continue;
-            }
-            let p = mesh.position(v)?;
-            let a = mesh.position(mesh.he(he.prev)?.origin)? - p;
-            let b = mesh.position(mesh.dest(h)?)? - p;
-            return Ok(libm::atan2(a.cross(b).length(), a.dot(b)));
+    for &h in mesh.vertex_star(v) {
+        let he = mesh.he(h)?;
+        if he.face != Some(f) {
+            continue;
         }
+        let p = mesh.position(v)?;
+        let a = mesh.position(mesh.he(he.prev)?.origin)? - p;
+        let b = mesh.position(mesh.dest(h)?)? - p;
+        return Ok(libm::atan2(a.cross(b).length(), a.dot(b)));
     }
     Ok(0.0)
 }

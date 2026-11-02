@@ -1672,6 +1672,28 @@ fn quality_targets_benchmark() {
             "  doc.aabb: {:.2} ms",
             t.elapsed().as_secs_f64() * 1e3 / 20.0
         );
+        for (d, _) in doc.definitions.iter() {
+            let c = crate::document::ContainerRef::Definition(d);
+            let Some(entities) = doc.container(c) else {
+                continue;
+            };
+            let mesh = entities.mesh();
+            let t = Instant::now();
+            let mut n = 0;
+            for (f, _) in mesh.faces() {
+                if crate::geom::tessellate::tessellate_face(mesh, f, doc.tolerances()).is_ok() {
+                    n += 1;
+                }
+            }
+            let tess = t.elapsed().as_secs_f64();
+            let t = Instant::now();
+            let _ = crate::io::render_mesh::extract(doc, c, Default::default());
+            eprintln!(
+                "  {n} faces: tessellation {:.0} ms, whole extraction {:.0} ms",
+                tess * 1e3,
+                t.elapsed().as_secs_f64() * 1e3
+            );
+        }
         let ray = camera.ray_through_ndc(glam::DVec2::ZERO);
         for (d, _) in doc.definitions.iter() {
             let c = crate::document::ContainerRef::Definition(d);

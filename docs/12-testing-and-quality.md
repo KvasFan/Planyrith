@@ -283,5 +283,17 @@ humans or GUI automation before releases, with expected screenshots.
   at 15 ms median on the terrain: every ray cast looked for the active section plane by walking
   all entities of each container, and inference recomputed the model's bounds from every
   vertex. Both are now constant time (`Entities::section_planes`, `DocumentIndex::bounds`);
-  the house went from 2.4 to 0.12 ms median. Still to measure: frame time (renderer), startup
-  (GUI) and memory; the house's 12 ms worst move is not explained yet.
+  the house went from 2.4 to 0.12 ms median. `PLANYRITH_BENCH_PARTS` also times the parts
+  (bounds, ray casts, tessellation, mesh extraction).
+
+  `frame_time_benchmark` (render, ignored; `cargo test --release -p planyrith-render --test
+  frame_time -- --ignored --nocapture`, same variables) renders 1920 × 1080 frames headless. On
+  the development machine's discrete GPU the terrain draws in 1.2 ms median (3.4 ms worst) and
+  the house, with 1,938 draw items, in 5.1 ms median; the target names an integrated GPU, which
+  is not available here, so frame time stays unverified for that class. The first frame,
+  which extracts and uploads every mesh, took 4.8 s on the terrain: smooth shading normals
+  listed each neighbouring face's cycles for every corner and recomputed the same smoothing
+  group from every face. Corners are now found in the vertex star and each group's normal is
+  cached per vertex (`SmoothNormals`); extraction went from 3.8 to 1.2 s and the first frame
+  to 1.2 s. Still to measure: startup (GUI) and memory; the house's 12 ms worst move is not
+  explained yet.
