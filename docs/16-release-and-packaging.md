@@ -13,6 +13,7 @@ the application binaries. `.plyr` remains the default working format.
 | Windows 10/11 x64 | `*-setup.exe` | Per-user installer, Start menu and optional desktop shortcut/native file association; no administrator privileges |
 | Windows 10/11 x64 | `*.msi` | Windows Installer package for managed or scripted installs: per-user, Start menu shortcut, native file association, removable format-module feature; no administrator privileges |
 | Windows x64 | `*-portable.zip` | Extract and run `planyrith-gui.exe` |
+| macOS 11 or later (Apple silicon and Intel) | `*-macos.dmg` | Drag Planyrith to Applications; unsigned, so the first start is Open from the context menu. The CLI is `Planyrith.app/Contents/MacOS/planyrith` |
 | Linux x86_64 | `*.AppImage` | Make executable, then run; `--appimage-extract-and-run` works without FUSE |
 | Debian 12 / Ubuntu 22.04 or later | `*_amd64.deb` | `sudo apt install ./planyrith_*_amd64.deb` |
 | Linux x86_64 with Flatpak | `*.flatpak` | `flatpak install --user Planyrith-*.flatpak` (the Freedesktop runtime comes from Flathub); sandboxed with access to the home folder |
@@ -38,6 +39,9 @@ packaging/linux/verify.sh
 ```
 
 Linux requires GNU tar, zstd, dpkg-deb and desktop-file-utils.
+On macOS, `cargo xtask macos --bin-dir DIR` makes the application bundle and
+disk image from universal binaries (joined with `lipo`); on other systems it
+stops after the bundle.
 `cargo xtask flatpak` builds the Flatpak bundle from the same binaries with
 `flatpak` and the Freedesktop 26.08 Platform and SDK installed; before finishing
 it runs the CLI and opens a historical model through the format module inside
@@ -113,6 +117,14 @@ taken by running the workflow, never a side effect of a push.
 
 ## Decisions
 
+- 2026-11-03 — The 1.0 macOS package is a disk image with one universal
+  application bundle (both architectures, `lipo`), macOS 11 or later, holding the
+  three programs side by side in `Contents/MacOS` as on other platforms. The
+  bundle, property list (`.plyr` document type `org.planyrith.model`) and icon
+  are written by `xtask` (an `.icns` is a container of PNGs, so no image tool);
+  only `hdiutil` needs macOS. It is unsigned and not notarized: that needs a paid
+  developer account, a decision for the user. The Release workflow mounts it and
+  exercises both architectures' binaries, the format module and a native save.
 - 2026-11-03 — The 1.0 Flatpak is a single-file bundle of the release binaries
   (glibc 2.35 baseline, so they run on the newer Freedesktop runtime), built with
   `flatpak build-init`/`build-finish`/`build-export`/`build-bundle` instead of

@@ -230,6 +230,45 @@ jobs:
           if-no-files-found: error
           path: dist/release/*.msi
 
+  macos:
+    needs: prepare
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-macos-universal
+          cache-on-failure: true
+      - name: Build all desktop programs for both architectures, joined
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "11.0"
+        run: |
+          set -euo pipefail
+          for target in aarch64-apple-darwin x86_64-apple-darwin; do
+            cargo build --workspace --release --locked --target "$target" --features planyrith-cli/render
+          done
+          mkdir -p target/universal
+          for program in planyrith planyrith-gui planyrith-skp; do
+            lipo -create -output "target/universal/$program" \
+              "target/aarch64-apple-darwin/release/$program" "target/x86_64-apple-darwin/release/$program"
+          done
+      - name: Application bundle and disk image
+        run: cargo xtask macos --bin-dir target/universal
+      - name: Mount, check architectures, exercise format module, save and validate
+        env:
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+        run: packaging/macos/verify.sh "dist/release/Planyrith-$RELEASE_VERSION-macos.dmg" crates/planyrith-skp/tests/fixtures/legacy/box-2013.skp "$RELEASE_VERSION"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-macos
+          if-no-files-found: error
+          path: dist/release/*.dmg
+
   source:
     needs: prepare
     runs-on: ubuntu-22.04
@@ -261,7 +300,7 @@ jobs:
             dist/release/*-source.tar.gz
 
   publish:
-    needs: [prepare, linux, flatpak, windows, msi-verify, source]
+    needs: [prepare, linux, flatpak, windows, msi-verify, macos, source]
     if: ${{ inputs.publish }}
     runs-on: ubuntu-22.04
     permissions:
@@ -302,6 +341,7 @@ jobs:
           test -f "Planyrith-$RELEASE_VERSION-windows-x86_64.msi"
           test -f "Planyrith-$RELEASE_VERSION-x86_64.AppImage"
           test -f "Planyrith-$RELEASE_VERSION-x86_64.flatpak"
+          test -f "Planyrith-$RELEASE_VERSION-macos.dmg"
           test -f "planyrith_$RELEASE_VERSION"_amd64.deb
           test -f "planyrith-$RELEASE_VERSION-linux-x86_64.tar.gz"
           test -f "planyrith-$RELEASE_VERSION-source.tar.gz"

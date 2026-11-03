@@ -6,6 +6,8 @@ All notable changes to Planyrith are recorded here. Versions follow
 
 ## Unreleased
 
+- A macOS disk image: one application for Apple silicon and Intel Macs, macOS 11
+  or later, opening `.plyr` files from the Finder. `cargo xtask macos` builds it.
 - A Flatpak bundle for Linux, sandboxed on the Freedesktop runtime, with the
   description software centers show. `cargo xtask flatpak` builds it.
 - A documentation site: `cargo xtask site` turns the README, install notes,

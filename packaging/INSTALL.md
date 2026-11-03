@@ -9,6 +9,9 @@ The native and default working format is `.plyr`.
   module can be deselected. The installer is unsigned. For scripted or managed
   installs use the MSI: `msiexec /i Planyrith-*.msi /qn`; add
   `ADDLOCAL=Core` to leave out the format module.
+- macOS 11 or later: open the disk image and drag Planyrith to Applications. The
+  app is unsigned: the first time, Control-click it and choose Open. The CLI is
+  `/Applications/Planyrith.app/Contents/MacOS/planyrith`.
 - AppImage x86_64: make the file executable and run it. `--cli` selects the CLI.
   `--appimage-extract-and-run` is available on systems that prohibit FUSE mounts.
 - Debian 12 / Ubuntu 22.04 or newer, amd64: `sudo apt install ./planyrith_*.deb`.

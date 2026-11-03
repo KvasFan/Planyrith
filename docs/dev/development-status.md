@@ -24,8 +24,10 @@ Decisions), the `.plyr` freeze at version 1 (docs/09 Decisions), the API freeze
 at `schema_version` 1 (docs/08 Decisions), the documentation site and Pages
 workflow (docs/16 §4; publishing needs the user to set Pages to GitHub Actions
 and run the workflow). The Flatpak bundle (docs/16 Decisions) is built and
-tried locally; its install check runs in the Release workflow. Still open: DMG
-(needs a macOS runner).
+tried locally; its install check runs in the Release workflow. The DMG (docs/16
+Decisions) is laid out and tested here; `hdiutil` and its checks run only in the
+Release workflow's macOS job. All 1.0 installers now exist; none has been through
+a Release run yet.
 
 **After alpha.3 (unreleased, 2026-11-02):** the renderer draws the style's edge
 effects (depth cue, extension, endpoints, jitter) and shadows from edges without
