@@ -73,6 +73,8 @@ pub struct Viewport {
     pub show_axes: bool,
     /// Larger, thicker snap marks on a dark halo (docs/07 §12).
     pub high_contrast: bool,
+    /// The axes' colors (docs/07 §12).
+    pub axis_palette: AxisPalette,
     nav: Option<NavDrag>,
     last_hover: Option<egui::Pos2>,
     /// What the pointer is over, for the status bar.
@@ -256,6 +258,7 @@ impl Viewport {
         let (rect, response) = ui.allocate_exact_size(ui.available_size(), Sense::click_and_drag());
         self.rect = Some(rect);
         let ppp = ui.ctx().pixels_per_point();
+        PALETTE.with(|p| p.set(self.axis_palette));
         let width = (rect.width() * ppp).round().max(1.0) as u32;
         let height = (rect.height() * ppp).round().max(1.0) as u32;
         let aspect = f64::from(width) / f64::from(height);
@@ -560,10 +563,13 @@ impl Viewport {
                 RendererOptions {
                     msaa: 4,
                     pixels_per_point: ppp,
+                    ..RendererOptions::default()
                 },
             )
         });
         renderer.set_pixels_per_point(ppp);
+        renderer.set_axis_colors(self.axis_palette.linear());
+        PALETTE.with(|p| p.set(self.axis_palette));
         renderer.apply_deltas(&session.take_deltas());
         if session.is_attached() && self.remote_generation != session.engine.generation() {
             for container in session.doc().containers() {
@@ -834,11 +840,58 @@ fn visible_center(session: &Session, camera: &Camera) -> DVec3 {
     }
 }
 
+/// The axes' colors: the usual red, green and blue, or a palette that stays
+/// apart for the common color-vision deficiencies (docs/07 §12; the
+/// Okabe–Ito vermilion, bluish green and blue).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub enum AxisPalette {
+    /// Red, green, blue.
+    #[default]
+    Standard,
+    /// Vermilion, bluish green, blue.
+    ColorBlind,
+}
+
+impl AxisPalette {
+    /// The X, Y and Z colors on screen (sRGB).
+    pub fn srgb(self) -> [Color32; 3] {
+        match self {
+            AxisPalette::Standard => [
+                Color32::from_rgb(220, 30, 30),
+                Color32::from_rgb(30, 160, 30),
+                Color32::from_rgb(40, 70, 230),
+            ],
+            AxisPalette::ColorBlind => [
+                Color32::from_rgb(0xD5, 0x5E, 0x00),
+                Color32::from_rgb(0x00, 0x9E, 0x73),
+                Color32::from_rgb(0x00, 0x72, 0xB2),
+            ],
+        }
+    }
+
+    /// The same colors in linear light, for the renderer.
+    pub fn linear(self) -> [[f32; 4]; 3] {
+        match self {
+            AxisPalette::Standard => planyrith_render::AXIS_COLORS,
+            AxisPalette::ColorBlind => self.srgb().map(|c| {
+                let l = egui::Rgba::from(c);
+                [l.r(), l.g(), l.b(), 1.0]
+            }),
+        }
+    }
+}
+
+thread_local! {
+    // The palette of the frame being drawn, for the overlay's free functions.
+    static PALETTE: std::cell::Cell<AxisPalette> = const { std::cell::Cell::new(AxisPalette::Standard) };
+}
+
 fn axis_color(axis: Option<Axis>) -> Color32 {
+    let [x, y, z] = PALETTE.with(std::cell::Cell::get).srgb();
     match axis {
-        Some(Axis::X) => Color32::from_rgb(220, 30, 30),
-        Some(Axis::Y) => Color32::from_rgb(30, 160, 30),
-        Some(Axis::Z) => Color32::from_rgb(40, 70, 230),
+        Some(Axis::X) => x,
+        Some(Axis::Y) => y,
+        Some(Axis::Z) => z,
         None => Color32::from_rgb(200, 0, 200),
     }
 }

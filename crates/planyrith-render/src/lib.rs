@@ -30,7 +30,7 @@ mod renderer;
 pub use gpu::Gpu;
 pub use headless::{HeadlessOptions, render_image};
 pub use labels::draw_labels;
-pub use renderer::{FrameRequest, PickHit, PickKind, Renderer, RendererOptions};
+pub use renderer::{AXIS_COLORS, FrameRequest, PickHit, PickKind, Renderer, RendererOptions};
 
 /// Rendering failures.
 #[derive(Debug, thiserror::Error)]

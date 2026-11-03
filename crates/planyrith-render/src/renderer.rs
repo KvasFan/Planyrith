@@ -52,6 +52,9 @@ pub struct RendererOptions {
     pub msaa: u32,
     /// Physical pixels per logical pixel: edge widths scale with it.
     pub pixels_per_point: f32,
+    /// Colors of the red, green and blue axes (linear RGBA): the drawing
+    /// axes and edges colored by axis.
+    pub axis_colors: [[f32; 4]; 3],
 }
 
 impl Default for RendererOptions {
@@ -59,6 +62,7 @@ impl Default for RendererOptions {
         RendererOptions {
             msaa: 4,
             pixels_per_point: 1.0,
+            axis_colors: AXIS_COLORS,
         }
     }
 }
@@ -152,7 +156,7 @@ struct EdgeInstance {
     material_color: [f32; 4],
 }
 
-/// The per-draw uniform block (`Draw` in `scene.wgsl`, 352 bytes).
+/// The per-draw uniform block (`Draw` in `scene.wgsl`, 400 bytes).
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]
 struct DrawUniform {
@@ -181,6 +185,10 @@ struct DrawUniform {
     edge_style: [f32; 4],
     /// Nearest and farthest model depth (mm), endpoint thickening (px).
     edge_depth: [f32; 4],
+    /// Colors of the red, green and blue axes (linear).
+    axis_x: [f32; 4],
+    axis_y: [f32; 4],
+    axis_z: [f32; 4],
 }
 
 const TEXTURED: u32 = 1;
@@ -529,6 +537,11 @@ impl Renderer {
     /// Changes how many physical pixels a logical pixel has.
     pub fn set_pixels_per_point(&mut self, pixels_per_point: f32) {
         self.options.pixels_per_point = pixels_per_point.max(0.25);
+    }
+
+    /// Colors the red, green and blue axes (linear RGBA) from the next frame.
+    pub fn set_axis_colors(&mut self, colors: [[f32; 4]; 3]) {
+        self.options.axis_colors = colors;
     }
 
     /// Drops the GPU buffers of the containers `deltas` touch (docs/01 §5);
@@ -1517,6 +1530,10 @@ impl Renderer {
                 &self.shadow_sampler,
             );
         }
+        let [x, y, z] = self.options.axis_colors;
+        for u in &mut uniforms {
+            (u.axis_x, u.axis_y, u.axis_z) = (x, y, z);
+        }
         self.upload_uniforms(&uniforms);
         let Some(targets) = self.targets.as_ref() else {
             return Ok(());
@@ -2073,6 +2090,14 @@ fn push(uniforms: &mut Vec<DrawUniform>, u: DrawUniform) -> u32 {
 }
 
 /// The uniform fields that depend on the occurrence and camera only.
+/// The red, green and blue axes' colors (linear) unless a palette replaces
+/// them (docs/07 §12).
+pub const AXIS_COLORS: [[f32; 4]; 3] = [
+    [0.8, 0.05, 0.05, 1.0],
+    [0.05, 0.6, 0.05, 1.0],
+    [0.05, 0.1, 0.8, 1.0],
+];
+
 /// Endpoint caps are this much wider than their edge (docs/06 §5).
 const ENDPOINT_EXTRA_PX: f32 = 2.0;
 /// The largest sideways and lengthwise wobble of a jittered edge end.
@@ -2124,6 +2149,9 @@ fn make_uniform(clip: &[[f32; 4]; 4], world: &DAffine3, camera: &Camera) -> Draw
         shadow: [0.0; 4],
         edge_style: [0.0; 4],
         edge_depth: [0.0; 4],
+        axis_x: AXIS_COLORS[0],
+        axis_y: AXIS_COLORS[1],
+        axis_z: AXIS_COLORS[2],
     }
 }
 

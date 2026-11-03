@@ -60,6 +60,7 @@ pub fn render_image(
         RendererOptions {
             msaa: options.msaa,
             pixels_per_point: 1.0,
+            ..RendererOptions::default()
         },
     );
     let items = draw_list(

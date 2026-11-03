@@ -461,3 +461,12 @@ collected by clicks: e.g. segments for Circle, array count, copy toggle).
   by color), intersection a cross, center a ring with a dot, on-edge a square, on-face a diamond.
   View › High-Contrast Snap Marks draws them 60 % larger with thicker lines on a dark halo, in
   every viewport; the choice is a user setting.
+- 2026-11-03 — **Color-blind safe axes (§12).** View › Color-Blind Safe Axis Colors replaces the
+  red, green and blue of the axes with vermilion (#D55E00), bluish green (#009E73) and blue
+  (#0072B2), a palette that stays apart for the common color-vision deficiencies. It applies to
+  the drawn axes, edges colored by axis, axis snap marks and their guide lines, in every
+  viewport. The renderer takes the colors as `RendererOptions::axis_colors` /
+  `set_axis_colors`; the defaults are unchanged, so headless renders and their golden images
+  are too. The selection color stays a property of the document's style. Together with the
+  mark shapes, high-contrast marks and the interface size, this completes §12's accessibility
+  list except customizing every individual color, which the presets cover.

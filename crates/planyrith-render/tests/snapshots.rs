@@ -563,6 +563,59 @@ fn distant_textures_blend_to_their_average() {
     assert!((90.0..230.0).contains(&mean), "mean {mean:.1}");
 }
 
+/// The axes take the renderer's palette (docs/07 §12): with vermilion
+/// for the red axis, the axes show vermilion and no longer the usual red.
+#[test]
+fn axes_follow_the_palette() {
+    let Some(gpu) = gpu() else { return };
+    let e = room();
+    let doc = e.document();
+    let mut renderer = Renderer::new(
+        gpu.device.clone(),
+        gpu.queue.clone(),
+        RendererOptions::default(),
+    );
+    let near =
+        |p: &image::Rgba<u8>, c: [u8; 3]| p.0[..3].iter().zip(c).all(|(a, b)| a.abs_diff(b) <= 12);
+    let count =
+        |image: &image::RgbaImage, c: [u8; 3]| image.pixels().filter(|p| near(p, c)).count();
+    let draw = |renderer: &mut Renderer| {
+        frame_with_axes(
+            renderer,
+            doc,
+            &Selection::new(),
+            &EditContext::model(),
+            &doc.camera,
+            &Style::default(),
+            false,
+            true,
+        )
+    };
+    // The default red axis, 0.8 linear, is sRGB 231.
+    let red = [231, 63, 63];
+    let standard = draw(&mut renderer);
+    let vermilion = [0xD5, 0x5E, 0x00];
+    let lin = |v: u8| {
+        let c = f32::from(v) / 255.0;
+        if c <= 0.04045 {
+            c / 12.92
+        } else {
+            ((c + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    let mut colors = planyrith_render::AXIS_COLORS;
+    colors[0] = [lin(vermilion[0]), lin(vermilion[1]), lin(vermilion[2]), 1.0];
+    renderer.set_axis_colors(colors);
+    let safe = draw(&mut renderer);
+    assert!(
+        count(&safe, vermilion) > 20,
+        "vermilion pixels: {}",
+        count(&safe, vermilion)
+    );
+    assert!(count(&safe, vermilion) > count(&standard, vermilion));
+    assert!(count(&safe, red) < count(&standard, red).max(1));
+}
+
 /// Edges that bound no face cast shadows when the settings ask for it
 /// (docs/06 §6): a wire above the ground darkens it only then.
 #[test]

@@ -42,6 +42,10 @@ struct Draw {
     // x, y: nearest and farthest model depth (mm along the view); z: how
     // much wider endpoint caps are than their edge (px).
     edge_depth: vec4<f32>,
+    // Colors of the red, green and blue axes (a palette may replace them).
+    axis_x: vec4<f32>,
+    axis_y: vec4<f32>,
+    axis_z: vec4<f32>,
 };
 
 // Distance along the view of a clip position (fog).
@@ -237,13 +241,13 @@ fn in_front(p: vec4<f32>, q: vec4<f32>) -> vec4<f32> {
 fn axis_color(direction: vec3<f32>, fallback: vec4<f32>) -> vec4<f32> {
     let d = abs(normalize(direction));
     if (d.x > 0.9999) {
-        return vec4<f32>(0.8, 0.05, 0.05, 1.0);
+        return draw.axis_x;
     }
     if (d.y > 0.9999) {
-        return vec4<f32>(0.05, 0.6, 0.05, 1.0);
+        return draw.axis_y;
     }
     if (d.z > 0.9999) {
-        return vec4<f32>(0.05, 0.1, 0.8, 1.0);
+        return draw.axis_z;
     }
     return fallback;
 }
