@@ -6,6 +6,9 @@ All notable changes to Planyrith are recorded here. Versions follow
 
 ## Unreleased
 
+- Commands, their parameters and outputs, and the server's methods are frozen at
+  `schema_version` 1: scripts and remote clients written now keep working in
+  every later 1.x, which may only add to them.
 - The `.plyr` format is frozen at version 1: later versions may add to it but
   never drop or change what it holds, so files saved now open unchanged in every
   later 1.x. A corpus written by every command checks this on each build.

@@ -268,6 +268,13 @@ On failure: `{"ok": false, "error": {"code": "E1002", "message": "...", "param":
 
 ## Decisions
 
+- 2026-11-03 — **API frozen at `schema_version` 1 (1.0).** Scripts and remote clients
+  depend on command names, parameters, outputs and server methods, so these follow the
+  compatibility rule in docs/10 §6. A test compares the registry and the server with the
+  schemas frozen in `tests/golden/api-v1.json` (descriptions excluded) and fails on any
+  breaking change; `PLANYRITH_FREEZE_API=1` adds new commands to the file, never changes
+  frozen ones. A breaking change needs `schema_version` 2 and the deprecation shim of
+  docs/10 §6. Error codes (§9) were already stable.
 - 2026-10-31 — **SKB and historical native defaults (alpha.2).** `-f old.skp`
   and `-f backup.skb` open through the same format module; 2013 is the minimum
   import target. With no `-o`, a modifying invocation writes the sibling

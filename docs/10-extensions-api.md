@@ -150,6 +150,11 @@ same form as options.
 
 - Scripting API follows the command `schema_version`; breaking changes bump the major version and
   ship a deprecation shim for one minor release.
+- Within `schema_version` 1 (from 1.0), a command keeps its name; its parameters keep accepting
+  every value they accepted (new parameters are optional, value lists and ranges only widen) and
+  its output keeps every field with the same type (fields and enum values may be added; readers
+  ignore what they do not know). Server methods and event kinds are not removed. The frozen
+  schemas are in `crates/planyrith-cli/tests/golden/api-v1.json`, checked on every build.
 - `planyrith ext check <plugin>` validates a manifest and dry-runs all declared tools' schemas.
 
 ## 7. Native WASM plugins (post-1.0, desktop)
