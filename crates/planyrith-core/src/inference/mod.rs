@@ -362,6 +362,30 @@ fn lines_closest(o1: DVec3, d1: DVec3, o2: DVec3, d2: DVec3) -> Option<(DVec3, D
 }
 
 /// The label of a drawing axis line.
+/// Every status label an inference can carry (docs/07 §5), for interfaces
+/// that translate them: the kinds' own and the composed ones.
+pub fn status_labels() -> Vec<String> {
+    let mut out: Vec<String> = InferenceKind::ALL
+        .iter()
+        .map(|k| k.label().to_string())
+        .filter(|l| !l.is_empty())
+        .collect();
+    for fixed in [
+        "Origin",
+        "Perpendicular from Point",
+        "Parallel to Edge",
+        "Perpendicular to Edge",
+        "Tangent at Vertex",
+    ] {
+        out.push(fixed.into());
+    }
+    for axis in [Axis::X, Axis::Y, Axis::Z] {
+        out.push(format!("On {}", axis_label(axis)));
+        out.push(format!("Intersection with {}", axis_label(axis)));
+    }
+    out
+}
+
 fn axis_label(axis: Axis) -> &'static str {
     match axis {
         Axis::X => "Red Axis",

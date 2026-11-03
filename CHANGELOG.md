@@ -20,8 +20,9 @@ All notable changes to Planyrith are recorded here. Versions follow
 - A new look: flat controls on neutral grey surfaces, rounded corners and one
   blue accent, dark by default (View › Theme switches to light or the system's).
 - The interface speaks Italian: View › Language › Italiano, or automatically on
-  an Italian system. Menus, panels, windows, tools and dialogs are translated;
-  tool step prompts and some messages are still in English.
+  an Italian system. Menus, panels, windows, tools, dialogs, step prompts,
+  inference labels and command names are translated; error messages are still
+  in English.
 - Show large models sooner after opening: preparing a million-triangle model
   for display went from about 5 s to about 1 s.
 - Hover, snap and click much faster in large models: on a 160 MB house the

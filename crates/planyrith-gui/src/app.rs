@@ -1219,7 +1219,10 @@ impl App {
             ui.menu_button(t("Edit"), |ui| {
                 let undo = self.session.undo_label().map(str::to_string);
                 let redo = self.session.redo_label().map(str::to_string);
-                let undo_text = undo.map_or_else(|| "Undo".into(), |l| format!("Undo {l}"));
+                let undo_text = undo.map_or_else(
+                    || t("Undo"),
+                    |l| t_args("Undo { $action }", &[("action", t(&l).into())]),
+                );
                 if ui
                     .add_enabled(
                         self.session.undo_label().is_some(),
@@ -1230,7 +1233,10 @@ impl App {
                     self.undo();
                     ui.close();
                 }
-                let redo_text = redo.map_or_else(|| "Redo".into(), |l| format!("Redo {l}"));
+                let redo_text = redo.map_or_else(
+                    || t("Redo"),
+                    |l| t_args("Redo { $action }", &[("action", t(&l).into())]),
+                );
                 let can_redo = self.session.redo_label().is_some();
                 if ui
                     .add_enabled(can_redo, egui::Button::new(redo_text))
@@ -1599,11 +1605,11 @@ impl App {
             group_gap(ui);
             let undo = self.session.undo_label().map_or_else(
                 || t("Undo (Ctrl+Z)"),
-                |l| t_args("Undo { $action } (Ctrl+Z)", &[("action", l.into())]),
+                |l| t_args("Undo { $action } (Ctrl+Z)", &[("action", t(l).into())]),
             );
             let redo = self.session.redo_label().map_or_else(
                 || t("Redo (Ctrl+Y)"),
-                |l| t_args("Redo { $action } (Ctrl+Y)", &[("action", l.into())]),
+                |l| t_args("Redo { $action } (Ctrl+Y)", &[("action", t(l).into())]),
             );
             let (can_undo, can_redo) = (
                 self.session.undo_label().is_some(),
@@ -1729,11 +1735,11 @@ impl App {
             .map(|s| (s.prompt, s.value_field))
             .unwrap_or_default();
         let label = if self.revalue_open && self.last_run.is_some() && tool.step() == 0 {
-            "Value".to_string()
+            t("Value")
         } else {
-            value_field
+            t(&value_field)
         };
-        (prompt, label)
+        (t(&prompt), label)
     }
 
     fn status_bar(&mut self, ui: &mut egui::Ui) {
@@ -1778,7 +1784,7 @@ impl App {
         let doc = self.session.doc();
         let context = self.session.engine.context().path.canonical(doc);
         let mut target: Option<InstancePath> = None;
-        if ui.link("Model").clicked() {
+        if ui.link(t("Model")).clicked() {
             target = Some(InstancePath::root());
         }
         let mut prefix = InstancePath::root();
@@ -2540,7 +2546,7 @@ impl egui_tiles::Behavior<Pane> for Docks<'_> {
                                 .map(|s| s.prompt)
                                 .unwrap_or_default();
                             let cx = self.viewport.cx(self.session);
-                            panels::tool_options(ui, self.tool, &cx, &prompt);
+                            panels::tool_options(ui, self.tool, &cx, &t(&prompt));
                         }
                         Pane::ToolHelp => panels::tool_help(ui, self.session, self.tool),
                         Pane::Materials => {

@@ -24,7 +24,7 @@ use planyrith_core::math::{Aabb, Axis, Ray};
 use planyrith_core::spatial::HitFilter;
 use planyrith_render::{FrameRequest, PickKind, Renderer, RendererOptions};
 
-use crate::i18n::{en, t};
+use crate::i18n::{en, t, t_args};
 use crate::icons::{self, Icon};
 use crate::session::Session;
 use crate::tools::{self, Cx, Flow, Pointer, Shape, Tool};
@@ -1082,12 +1082,16 @@ fn paint_inference(
             painter.circle_filled(s, 2.5, axis_color(inf.axis));
         }
     }
-    let mut label = inf.label.clone();
+    let mut label = if inf.label.is_empty() {
+        String::new()
+    } else {
+        t(&inf.label)
+    };
     if inf.locked {
         label = if label.is_empty() {
-            "Locked".into()
+            t("Locked")
         } else {
-            format!("{label} (locked)")
+            t_args("{ $label } (locked)", &[("label", label.into())])
         };
     }
     if show_label && !label.is_empty() {

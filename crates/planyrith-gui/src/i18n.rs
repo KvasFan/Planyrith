@@ -209,6 +209,26 @@ mod tests {
                 }
             }
         }
+        // Texts the core gives the interface: command names (Undo), step
+        // prompts and value fields, and inference labels.
+        let registry = planyrith_core::CommandRegistry::with_builtins();
+        let mut core: Vec<String> = planyrith_core::inference::status_labels();
+        for name in registry.names() {
+            if let Some(command) = registry.get(name) {
+                let meta = command.meta();
+                core.push(meta.label.clone());
+                for step in &meta.steps {
+                    core.push(step.prompt.clone());
+                    core.push(step.value_field.clone());
+                }
+            }
+        }
+        // A core text may differ from an interface text only in capitals or
+        // punctuation ("Insert Component", "length"): one identifier, one
+        // translation, as intended.
+        for english in core.into_iter().filter(|e| !e.is_empty()) {
+            used.entry(id(&english)).or_insert(english);
+        }
         assert!(
             clashes.is_empty(),
             "texts sharing an identifier:\n{}",

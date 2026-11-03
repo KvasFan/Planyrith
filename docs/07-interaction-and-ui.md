@@ -444,3 +444,11 @@ collected by clicks: e.g. segments for Circle, array count, copy toggle).
   button is filled with it. Windows and menus cast soft shadows. New installations start in
   Dark; a saved choice is kept, and View › Theme still offers System, Light and Dark. The
   document's style still decides the 3D view's background.
+- 2026-11-03 — **Core texts in Italian.** The texts the core hands the interface are now
+  translated where shown: each step's prompt and value field (status bar, Tool Options, Tool
+  Help), command names in Undo and Redo, and inference labels by the cursor
+  (`inference::status_labels` lists every one, the composed axis labels included). The coverage
+  test reads them from the command registry at run time, so a new command without a translation
+  fails it. A core text that differs from an interface text only in capitals or punctuation
+  shares its translation. Error messages and the Sheets editor's remaining labels are still
+  English.

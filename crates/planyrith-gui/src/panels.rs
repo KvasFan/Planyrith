@@ -968,13 +968,17 @@ pub fn tool_help(ui: &mut egui::Ui, session: &Session, tool: &dyn Tool) {
         let meta = command.meta();
         ui.weak(format!("Command `{}`", meta.name));
         for (i, step) in meta.steps.iter().enumerate() {
-            let mut text = RichText::new(format!("{}. {}", i + 1, step.prompt));
+            let mut text = RichText::new(format!("{}. {}", i + 1, t(&step.prompt)));
             if i == tool.step() {
                 text = text.strong();
             }
             ui.label(text);
             if !step.value_field.is_empty() {
-                ui.weak(format!("    Value field: {}", step.value_field));
+                ui.weak(format!(
+                    "    {}: {}",
+                    t("Value field"),
+                    t(&step.value_field)
+                ));
             }
             if !step.inference.is_empty() {
                 let kinds: Vec<String> = step
