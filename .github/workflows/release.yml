@@ -93,7 +93,7 @@ jobs:
 
   flatpak:
     # The glibc 2.35 Linux binaries in a Flatpak bundle on the Freedesktop
-    # runtime; a newer host carries a flatpak that knows the runtime.
+    # runtime, built and installed with a current flatpak.
     needs: [prepare, linux]
     runs-on: ubuntu-24.04
     steps:
@@ -103,7 +103,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Flatpak and the Freedesktop runtime
         run: |
+          sudo add-apt-repository -y ppa:flatpak/stable
           sudo apt-get update && sudo apt-get install -y flatpak
+          # Ubuntu 24.04 restricts the unprivileged user namespaces that the
+          # sandbox (bubblewrap) needs; this runner is disposable.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          flatpak --version
           flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
           flatpak install --user -y --noninteractive flathub org.freedesktop.Platform//26.08 org.freedesktop.Sdk//26.08
       - uses: actions/download-artifact@v4
