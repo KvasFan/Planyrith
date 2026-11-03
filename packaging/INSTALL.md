@@ -13,6 +13,9 @@ The native and default working format is `.plyr`.
   `--appimage-extract-and-run` is available on systems that prohibit FUSE mounts.
 - Debian 12 / Ubuntu 22.04 or newer, amd64: `sudo apt install ./planyrith_*.deb`.
 - Arch Linux x86_64: `sudo pacman -U ./planyrith-*.pkg.tar.zst`.
+- Flatpak x86_64: `flatpak install --user ./Planyrith-*.flatpak`, then start
+  Planyrith from the menu; `flatpak run --command=planyrith org.planyrith.Planyrith`
+  is the CLI. The Freedesktop runtime is fetched from Flathub.
 - Portable Linux x86_64: extract the archive and run `./Planyrith`, or
   `./Planyrith --cli --help`. The build requires glibc 2.35 or newer and a working
   Vulkan driver. Wayland and X11 are supported.

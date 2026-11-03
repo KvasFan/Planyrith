@@ -6,6 +6,8 @@ All notable changes to Planyrith are recorded here. Versions follow
 
 ## Unreleased
 
+- A Flatpak bundle for Linux, sandboxed on the Freedesktop runtime, with the
+  description software centers show. `cargo xtask flatpak` builds it.
 - A documentation site: `cargo xtask site` turns the README, install notes,
   guide, changelog and specification into web pages, and the Pages workflow
   publishes them with the browser edition under `app/`.

@@ -222,3 +222,97 @@ pub(super) fn windows(options: &Options) -> Result<()> {
     }
     Ok(())
 }
+
+/// The Flatpak application id, also the desktop id (docs/16 §1).
+const APP_ID: &str = "org.planyrith.Planyrith";
+/// Freedesktop runtime the bundle runs on.
+const FLATPAK_RUNTIME: (&str, &str, &str) =
+    ("org.freedesktop.Platform", "org.freedesktop.Sdk", "26.08");
+
+/// `cargo xtask flatpak`: the Linux payload as a single-file Flatpak bundle,
+/// built with the `flatpak` command's own build steps from the release
+/// binaries (no rebuild inside the SDK). The installed programs are tried in
+/// the sandbox before the build is finished.
+pub(super) fn flatpak(options: &Options) -> Result<()> {
+    let stage = stage(options, false)?;
+    let build = options.out.join("flatpak-build");
+    let repo = options.out.join("flatpak-repo");
+    for dir in [&build, &repo] {
+        if dir.exists() {
+            std::fs::remove_dir_all(dir)?;
+        }
+    }
+    let (runtime, sdk, branch) = FLATPAK_RUNTIME;
+    run(Command::new("flatpak")
+        .args(["build-init"])
+        .arg(&build)
+        .args([APP_ID, sdk, runtime, branch]))?;
+    let usr = options.out.join("flatpak-prefix");
+    prefix(options, &stage, &usr)?;
+    copy_tree(&usr.join("usr"), &build.join("files"))?;
+    std::fs::remove_dir_all(&usr)?;
+    copy(
+        &options
+            .root
+            .join("packaging/linux/org.planyrith.Planyrith.metainfo.xml"),
+        &build.join("files/share/metainfo/org.planyrith.Planyrith.metainfo.xml"),
+    )?;
+    let smoke = output(
+        Command::new("flatpak")
+            .arg("build")
+            .arg(&build)
+            .args(["/app/bin/planyrith", "--version"]),
+    )?;
+    if !String::from_utf8_lossy(&smoke).contains(VERSION) {
+        return Err("Flatpak version smoke failed".into());
+    }
+    // The format module beside the programs opens a historical model.
+    let fixtures = options
+        .root
+        .join("crates/planyrith-skp/tests/fixtures/legacy");
+    let info: serde_json::Value = serde_json::from_slice(&output(
+        Command::new("flatpak")
+            .arg("build")
+            .arg(format!("--filesystem={}:ro", fixtures.display()))
+            .arg(&build)
+            .args(["/app/bin/planyrith", "--json", "-f"])
+            .arg(fixtures.join("box-2013.skp"))
+            .arg("info"),
+    )?)?;
+    if info["ok"] != true
+        || info["output"]["problems"] != 0
+        || info["output"]["counts"]["model"]["faces"] != 6
+    {
+        return Err(format!("Flatpak format module smoke failed: {info}").into());
+    }
+    run(Command::new("flatpak")
+        .arg("build-finish")
+        .arg(&build)
+        .args([
+            "--command=planyrith-gui",
+            "--share=ipc",
+            "--socket=wayland",
+            "--socket=fallback-x11",
+            "--device=dri",
+            // The interface's own file dialog reads and writes where the user
+            // chooses, so the home folder is reachable.
+            "--filesystem=home",
+        ]))?;
+    run(Command::new("flatpak")
+        .arg("build-export")
+        .arg(&repo)
+        .arg(&build))?;
+    run(Command::new("flatpak")
+        .arg("build-bundle")
+        .arg(&repo)
+        .arg(
+            options
+                .out
+                .join(format!("Planyrith-{VERSION}-x86_64.flatpak")),
+        )
+        .args([
+            APP_ID,
+            "--runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo",
+        ]))?;
+    Ok(())
+}

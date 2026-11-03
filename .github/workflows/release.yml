@@ -82,6 +82,49 @@ jobs:
             dist/release/*.deb
             dist/release/*.pkg.tar.zst
             dist/release/*-linux-x86_64.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bins-linux
+          if-no-files-found: error
+          path: |
+            target/release/planyrith
+            target/release/planyrith-gui
+            target/release/planyrith-skp
+
+  flatpak:
+    # The glibc 2.35 Linux binaries in a Flatpak bundle on the Freedesktop
+    # runtime; a newer host carries a flatpak that knows the runtime.
+    needs: [prepare, linux]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Flatpak and the Freedesktop runtime
+        run: |
+          sudo apt-get update && sudo apt-get install -y flatpak
+          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user -y --noninteractive flathub org.freedesktop.Platform//26.08 org.freedesktop.Sdk//26.08
+      - uses: actions/download-artifact@v4
+        with:
+          name: bins-linux
+          path: target/linux-bins
+      - name: Build the bundle, trying the programs and format module in the sandbox
+        run: cargo xtask flatpak --bin-dir target/linux-bins
+      - name: Install, run and uninstall the bundle
+        env:
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          flatpak install --user -y --noninteractive "dist/release/Planyrith-$RELEASE_VERSION-x86_64.flatpak"
+          flatpak run --command=planyrith org.planyrith.Planyrith --version | grep -F "$RELEASE_VERSION"
+          flatpak uninstall --user -y --noninteractive org.planyrith.Planyrith
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-flatpak
+          if-no-files-found: error
+          path: dist/release/*.flatpak
 
   windows:
     needs: prepare
@@ -218,7 +261,7 @@ jobs:
             dist/release/*-source.tar.gz
 
   publish:
-    needs: [prepare, linux, windows, msi-verify, source]
+    needs: [prepare, linux, flatpak, windows, msi-verify, source]
     if: ${{ inputs.publish }}
     runs-on: ubuntu-22.04
     permissions:
@@ -258,6 +301,7 @@ jobs:
           test -f "planyrith-$RELEASE_VERSION-windows-x86_64-portable.zip"
           test -f "Planyrith-$RELEASE_VERSION-windows-x86_64.msi"
           test -f "Planyrith-$RELEASE_VERSION-x86_64.AppImage"
+          test -f "Planyrith-$RELEASE_VERSION-x86_64.flatpak"
           test -f "planyrith_$RELEASE_VERSION"_amd64.deb
           test -f "planyrith-$RELEASE_VERSION-linux-x86_64.tar.gz"
           test -f "planyrith-$RELEASE_VERSION-source.tar.gz"

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- AppStream description for software centers (docs/16 §1). -->
+<component type="desktop-application">
+  <id>org.planyrith.Planyrith</id>
+  <name>Planyrith</name>
+  <summary>Precise 3D modeling, drawings and automation</summary>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT OR Apache-2.0</project_license>
+  <developer id="io.github.kvasfan">
+    <name>KvasFan</name>
+  </developer>
+  <description>
+    <p>Draw edges and faces, shape solids, organize reusable components and turn
+    a model into scaled drawings. The same tools run in the desktop interface,
+    from the command line, in scripts and over JSON-RPC.</p>
+    <p>The native working format is .plyr. SKP and SKB models open through a
+    separate, optional GPL-3.0-only module.</p>
+  </description>
+  <launchable type="desktop-id">org.planyrith.Planyrith.desktop</launchable>
+  <url type="homepage">https://github.com/KvasFan/Planyrith</url>
+  <url type="bugtracker">https://github.com/KvasFan/Planyrith/issues</url>
+  <categories>
+    <category>Graphics</category>
+    <category>3DGraphics</category>
+    <category>Engineering</category>
+  </categories>
+  <provides>
+    <binary>planyrith</binary>
+    <binary>planyrith-gui</binary>
+    <mediatype>application/x-planyrith</mediatype>
+  </provides>
+  <content_rating type="oars-1.1"/>
+</component>
