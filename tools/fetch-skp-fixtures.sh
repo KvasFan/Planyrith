@@ -6,13 +6,13 @@ out="$root/crates/planyrith-skp/tests/fixtures"
 revision=a6788afa6386cfd4bc781998dca99c591b3fb069
 mkdir -p "$out"
 for version in 2017 2026; do
-  curl --fail --location --silent --show-error \
+  curl --fail --location --silent --show-error --retry 5 --retry-delay 5 --retry-all-errors --connect-timeout 30 \
     "https://raw.githubusercontent.com/hew3d/openskp/$revision/corpus/$version/blank-template-box.skp" \
     --output "$out/box-$version.skp"
 done
 mkdir -p "$out/legacy"
 for version in 2013 2014 2015 2016; do
-  curl --fail --location --silent --show-error \
+  curl --fail --location --silent --show-error --retry 5 --retry-delay 5 --retry-all-errors --connect-timeout 30 \
     "https://raw.githubusercontent.com/hew3d/openskp/$revision/corpus/legacy/box-v$version.skp" \
     --output "$out/legacy/box-$version.skp"
 done
@@ -32,14 +32,14 @@ mkdir -p "$out/intermediate"
 for name in sdk_saved_2019.skp sdk_saved_2020.skp arcs_2021.skp nesting_2021.skp nesting_2013.skp legacy_v2014_synthetic.skp \
   arcs_2017.skp arcs_2020.skp nesting_2020.skp sdk_saved_sections_2019.skp sdk_saved_sections_2020.skp legacy_v2019_synthetic.skp legacy_v2020_textured.skp legacy_text_arrows_2017.skp \
   zero_material_custom_layer_v18.skp capilla_quiroz_v17.skp Untitled.skp nesting_v6.skp; do
-  curl --fail --location --silent --show-error \
+  curl --fail --location --silent --show-error --retry 5 --retry-delay 5 --retry-all-errors --connect-timeout 30 \
     "https://raw.githubusercontent.com/iamahsanmehmood/openskp/$revision/packages/python/tests/fixtures/$name" \
     --output "$out/intermediate/$name"
 done
-curl --fail --location --silent --show-error \
+curl --fail --location --silent --show-error --retry 5 --retry-delay 5 --retry-all-errors --connect-timeout 30 \
   "https://raw.githubusercontent.com/iamahsanmehmood/openskp/$revision/packages/cpp/tests/fixtures/style_watermark.skp" \
   --output "$out/intermediate/style_watermark.skp"
-curl --fail --location --silent --show-error \
+curl --fail --location --silent --show-error --retry 5 --retry-delay 5 --retry-all-errors --connect-timeout 30 \
   "https://raw.githubusercontent.com/iamahsanmehmood/openskp/$revision/LICENSE" \
   --output "$out/intermediate/LICENSE"
 cd "$out/intermediate"
@@ -71,7 +71,7 @@ HASHES
 # its files need no path; see tests/fixtures/release/README.md.
 mkdir -p "$out/release"
 blob() {
-  curl --fail --location --silent --show-error \
+  curl --fail --location --silent --show-error --retry 5 --retry-delay 5 --retry-all-errors --connect-timeout 30 \
     --header 'Accept: application/vnd.github.raw' \
     "https://api.github.com/repositories/15951247/git/blobs/$1" --output "$out/release/$2"
 }
@@ -82,7 +82,7 @@ blob 49f85895e28098f18a738c134475b77e40f073fd missing_material.skp
 blob 76281e755cf6447dd7dd0b7dbd12bb8bcdb9a497 uv_tile_at.skp
 blob 32ad38d532b79da8b83d29d7e284968be1bf697b LICENSE-test-suite
 raw() {
-  curl --fail --location --silent --show-error "https://raw.githubusercontent.com/$1" --output "$out/release/$2"
+  curl --fail --location --silent --show-error --retry 5 --retry-delay 5 --retry-all-errors --connect-timeout 30 "https://raw.githubusercontent.com/$1" --output "$out/release/$2"
 }
 quad=thomthom/quadface-tools/481e6951e1a9da67a1aaa6bffd4768a7818f5a09
 raw "$quad/Test%20Models/HexCrater.skp" HexCrater.skp

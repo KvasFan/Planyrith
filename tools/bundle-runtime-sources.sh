@@ -7,13 +7,13 @@ mkdir -p "$out"
 out="$(cd "$out" && pwd)"
 stage="$out/appimage-runtime-sources"
 mkdir -p "$stage"
-curl --fail --location --silent --show-error \
+curl --fail --location --silent --show-error --retry 5 --retry-delay 5 --retry-all-errors --connect-timeout 30 \
   https://codeload.github.com/AppImage/type2-runtime/tar.gz/fedfad51acc2860b2916a1eef32ba4a500ff31ef \
   --output "$stage/type2-runtime-fedfad51.tar.gz"
-curl --fail --location --silent --show-error \
+curl --fail --location --silent --show-error --retry 5 --retry-delay 5 --retry-all-errors --connect-timeout 30 \
   https://github.com/libfuse/libfuse/releases/download/fuse-3.15.0/fuse-3.15.0.tar.xz \
   --output "$stage/fuse-3.15.0.tar.xz"
-curl --fail --location --silent --show-error \
+curl --fail --location --silent --show-error --retry 5 --retry-delay 5 --retry-all-errors --connect-timeout 30 \
   https://codeload.github.com/vasi/squashfuse/tar.gz/refs/tags/0.5.2 \
   --output "$stage/squashfuse-0.5.2.tar.gz"
 cd "$stage"
