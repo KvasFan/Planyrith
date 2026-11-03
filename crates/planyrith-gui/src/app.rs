@@ -2876,7 +2876,9 @@ impl egui_tiles::Behavior<Pane> for Docks<'_> {
                         Pane::Scenes => {
                             panels::scenes(ui, self.session, self.panels, &mut self.error)
                         }
-                        Pane::Outliner => panels::outliner(ui, self.session, &mut self.error),
+                        Pane::Outliner => {
+                            panels::outliner(ui, self.session, self.panels, &mut self.error)
+                        }
                         Pane::ToolOptions => {
                             let prompt = self
                                 .session

@@ -6,6 +6,8 @@ All notable changes to Planyrith are recorded here. Versions follow
 
 ## Unreleased
 
+- Search the Materials, Components and Outliner panels by name; the Outliner
+  opens the groups that hold a match.
 - Window › Layout Presets: Modeling, Organizing (outliner and tags beside the
   model) and Viewport Only.
 - Window › Preferences… (Ctrl+,) gathers the interface settings in one place:

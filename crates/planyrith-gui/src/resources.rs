@@ -223,6 +223,33 @@ pub struct ResourceState {
     library_cache: Option<(std::path::PathBuf, Result<Vec<LibraryEntry>, String>)>,
     /// The application should ask for a library folder.
     pub pick_library: bool,
+    /// The Materials panel's search text.
+    material_search: String,
+    /// The Components panel's search text (model and library).
+    component_search: String,
+}
+
+/// A search box above a list (docs/07 §6).
+pub(crate) fn search_field(ui: &mut egui::Ui, text: &mut String) {
+    ui.horizontal(|ui| {
+        ui.add(
+            egui::TextEdit::singleline(text)
+                .hint_text(t("Search"))
+                .desired_width(ui.available_width() - 28.0),
+        );
+        if !text.is_empty() && ui.small_button("✕").on_hover_text(t("Clear")).clicked() {
+            text.clear();
+        }
+    });
+}
+
+/// Whether `name` matches the search `query`: every word of the query occurs
+/// in the name, ignoring case.
+pub(crate) fn matches(query: &str, name: &str) -> bool {
+    let name = name.to_lowercase();
+    query
+        .split_whitespace()
+        .all(|word| name.contains(&word.to_lowercase()))
 }
 
 /// Runs a command; a failure goes to `error`.
@@ -382,11 +409,17 @@ pub fn materials(
         .map(|i| i.and_then(|i| image_thumbnail(ui, state, session, i)))
         .collect();
     let doc = session.doc();
+    search_field(ui, &mut state.material_search);
+    let query = state.material_search.clone();
     egui::ScrollArea::vertical()
         .id_salt("materials")
         .max_height(ui.available_height() * 0.45)
         .show(ui, |ui| {
-            for ((name, color, textured, _), thumb) in list.iter().zip(&thumbs) {
+            for ((name, color, textured, _), thumb) in list
+                .iter()
+                .zip(&thumbs)
+                .filter(|((name, ..), _)| matches(&query, name))
+            {
                 ui.horizontal(|ui| {
                     match thumb {
                         Some(t) => {
@@ -448,7 +481,10 @@ pub fn materials(
         .default_open(true)
         .show(ui, |ui| {
             ui.horizontal_wrapped(|ui| {
-                for b in crate::bundled::catalogue() {
+                for b in crate::bundled::catalogue()
+                    .iter()
+                    .filter(|b| matches(&query, b.name))
+                {
                     let key = format!("bundled:{}", b.name);
                     let thumb = state
                         .thumbnails
@@ -465,7 +501,7 @@ pub fn materials(
                     {
                         let existing = list.iter().any(|(m, ..)| m == b.name);
                         if !existing {
-                            match crate::bundled::texture_path(&b) {
+                            match crate::bundled::texture_path(b) {
                                 Ok(path) => actions.push((
                                     "material-create",
                                     json!({
@@ -625,13 +661,21 @@ pub fn components(
             "No components yet: select geometry and use Edit › Make Component.",
         ));
     }
+    search_field(ui, &mut state.component_search);
+    let query = state.component_search.clone();
     egui::ScrollArea::vertical()
         .id_salt("components")
         .max_height(ui.available_height() * 0.5)
         .show(ui, |ui| {
-            for (name, description, count) in &list {
+            for (name, description, count) in list.iter().filter(|(n, ..)| matches(&query, n)) {
                 let selected = state.selected_component.as_deref() == Some(name.as_str());
-                let text = RichText::new(format!("{name}  ·  {count} in model"));
+                let text = RichText::new(crate::i18n::t_args(
+                    "{ $name }  ·  { $count } in model",
+                    &[
+                        ("name", name.clone().into()),
+                        ("count", count.to_string().into()),
+                    ],
+                ));
                 let label = ui.selectable_label(selected, text);
                 if label.clicked() {
                     state.selected_component = Some(name.clone());
@@ -802,7 +846,11 @@ fn library(ui: &mut egui::Ui, state: &mut ResourceState) {
                         .id_salt("component library")
                         .max_height(ui.available_height() * 0.5)
                         .show(ui, |ui| {
-                            for entry in entries {
+                            let query = state.component_search.clone();
+                            for entry in entries
+                                .iter()
+                                .filter(|e| e.folder || matches(&query, &e.name))
+                            {
                                 if entry.folder {
                                     if ui
                                         .selectable_label(false, format!("▸ {}", entry.name))
@@ -1166,6 +1214,15 @@ fn face_mode_label(mode: FaceMode) -> &'static str {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn search_matches_every_word_ignoring_case() {
+        assert!(matches("", "Oak"));
+        assert!(matches("oak", "Light Oak"));
+        assert!(matches("light OAK", "Light Oak floor"));
+        assert!(!matches("oak walnut", "Light Oak"));
+        assert!(matches("città", "CITTÀ vecchia"));
+    }
     use egui_kittest::Harness;
     use egui_kittest::kittest::Queryable;
 

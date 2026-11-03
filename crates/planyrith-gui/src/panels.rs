@@ -28,6 +28,8 @@ pub struct PanelState {
     pub play: Option<bool>,
     /// Whether the animation is playing (set by the app each frame).
     pub playing: bool,
+    /// The Outliner's search text.
+    outline_search: String,
 }
 
 /// Runs a command; a failure goes to `error`.
@@ -774,8 +776,15 @@ pub fn scenes(
 
 /// Outliner (docs/07 §6): the tree of groups and components; click selects,
 /// double-click opens for editing, eye and lock toggle.
-pub fn outliner(ui: &mut egui::Ui, session: &mut Session, error: &mut Option<String>) {
+pub fn outliner(
+    ui: &mut egui::Ui,
+    session: &mut Session,
+    state: &mut PanelState,
+    error: &mut Option<String>,
+) {
     let mut actions: Vec<Outline> = Vec::new();
+    crate::resources::search_field(ui, &mut state.outline_search);
+    let query = state.outline_search.trim().to_string();
     egui::ScrollArea::vertical().show(ui, |ui| {
         let doc = session.doc();
         let selection = session.engine.selection().clone();
@@ -784,12 +793,16 @@ pub fn outliner(ui: &mut egui::Ui, session: &mut Session, error: &mut Option<Str
         if model.clicked() {
             actions.push(Outline::Context(InstancePath::root()));
         }
+        let cx = OutlineCx {
+            doc,
+            selection: &selection,
+            query: &query,
+        };
         outline_level(
             ui,
-            doc,
+            &cx,
             ContainerRef::Model,
             &InstancePath::root(),
-            &selection,
             &mut actions,
             0,
         );
@@ -828,49 +841,42 @@ enum Outline {
     Command(&'static str, EntityPath),
 }
 
+/// What every level of the Outliner tree reads.
+#[derive(Clone, Copy)]
+struct OutlineCx<'a> {
+    doc: &'a Document,
+    selection: &'a Selection,
+    /// The search text; empty shows everything.
+    query: &'a str,
+}
+
 fn outline_level(
     ui: &mut egui::Ui,
-    doc: &Document,
+    cx: &OutlineCx<'_>,
     container: ContainerRef,
     path: &InstancePath,
-    selection: &Selection,
     actions: &mut Vec<Outline>,
     depth: usize,
 ) {
+    let OutlineCx {
+        doc,
+        selection,
+        query,
+    } = *cx;
     let Some(entities) = doc.container(container) else {
         return;
     };
     if depth > 32 {
         return;
     }
-    for id in entities.iter().filter(|id| id.is_container_instance()) {
-        let Some(pid) = entities.pid_of(id) else {
+    for (id, pid, label, def) in outline_rows(doc, container) {
+        // While searching, a row shows when it or something inside matches.
+        let inside_matches = !query.is_empty() && subtree_matches(doc, def, query, depth + 1);
+        if !query.is_empty() && !crate::resources::matches(query, &label) && !inside_matches {
             continue;
-        };
+        }
         let key = EntityKey::Pid(pid);
         let item = EntityPath::new(path.clone(), key);
-        let (label, def) = match entities.view(id) {
-            Some(EntityView::Group(g)) => (
-                if g.name.is_empty() {
-                    t_args("Group @{ $pid }", &[("pid", pid.0.to_string().into())])
-                } else {
-                    g.name.clone()
-                },
-                g.definition,
-            ),
-            Some(EntityView::Instance(i)) => {
-                let def_name = doc
-                    .definition(i.definition)
-                    .map_or("?", |d| d.name.as_str());
-                (
-                    i.name
-                        .clone()
-                        .unwrap_or_else(|| format!("{def_name} @{}", pid.0)),
-                    i.definition,
-                )
-            }
-            _ => continue,
-        };
         let hidden = entities.is_hidden(id);
         let locked = entities.is_locked(id);
         let selected = selection.iter().any(|p| p.canonical(doc) == item);
@@ -918,19 +924,20 @@ fn outline_level(
         };
         if has_children {
             let id_salt = ui.make_persistent_id(("outline", format!("{child_path}")));
-            egui::collapsing_header::CollapsingState::load_with_default_open(
+            let mut state = egui::collapsing_header::CollapsingState::load_with_default_open(
                 ui.ctx(),
                 id_salt,
                 false,
-            )
-            .show_header(ui, |ui| row(ui, actions))
-            .body(|ui| {
+            );
+            if inside_matches {
+                state.set_open(true);
+            }
+            state.show_header(ui, |ui| row(ui, actions)).body(|ui| {
                 outline_level(
                     ui,
-                    doc,
+                    cx,
                     ContainerRef::Definition(def),
                     &child_path,
-                    selection,
                     actions,
                     depth + 1,
                 );
@@ -939,6 +946,71 @@ fn outline_level(
             row(ui, actions);
         }
     }
+}
+
+/// The groups and instances directly in `container`, with their Outliner
+/// labels (an unnamed group or instance is named by its id).
+fn outline_rows(
+    doc: &Document,
+    container: ContainerRef,
+) -> Vec<(
+    EntityId,
+    planyrith_core::ids::Pid,
+    String,
+    planyrith_core::ids::DefinitionId,
+)> {
+    let Some(entities) = doc.container(container) else {
+        return Vec::new();
+    };
+    entities
+        .iter()
+        .filter(|id| id.is_container_instance())
+        .filter_map(|id| {
+            let pid = entities.pid_of(id)?;
+            match entities.view(id)? {
+                EntityView::Group(g) => Some((
+                    id,
+                    pid,
+                    if g.name.is_empty() {
+                        t_args("Group @{ $pid }", &[("pid", pid.0.to_string().into())])
+                    } else {
+                        g.name.clone()
+                    },
+                    g.definition,
+                )),
+                EntityView::Instance(i) => {
+                    let def_name = doc
+                        .definition(i.definition)
+                        .map_or("?", |d| d.name.as_str());
+                    Some((
+                        id,
+                        pid,
+                        i.name
+                            .clone()
+                            .unwrap_or_else(|| format!("{def_name} @{}", pid.0)),
+                        i.definition,
+                    ))
+                }
+                _ => None,
+            }
+        })
+        .collect()
+}
+
+/// Whether anything inside `def` has a label matching `query`.
+fn subtree_matches(
+    doc: &Document,
+    def: planyrith_core::ids::DefinitionId,
+    query: &str,
+    depth: usize,
+) -> bool {
+    depth <= 32
+        && outline_rows(doc, ContainerRef::Definition(def))
+            .into_iter()
+            .any(|(_, _, label, inner)| {
+                crate::resources::matches(query, &label)
+                    || subtree_matches(doc, inner, query, depth + 1)
+            })
 }
 
 // ----- Tool Options -------------------------------------------------------------------------
@@ -1013,4 +1085,42 @@ pub fn tool_help(ui: &mut egui::Ui, session: &Session, tool: &dyn Tool) {
     ui.label(t(
         "Shift+Z fits the model; the Camera menu has the standard views.",
     ));
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    /// A search finds a component inside a group, and the group shows
+    /// because of it.
+    #[test]
+    fn outliner_search_reaches_inside_groups() {
+        let mut session = Session::new();
+        for (name, params) in [
+            (
+                "rectangle",
+                json!({ "corner_a": [0, 0, 0], "corner_b": [500, 500, 0] }),
+            ),
+            (
+                "push-pull",
+                json!({ "face": { "Query": "face & last" }, "distance": 450 }),
+            ),
+            (
+                "make-component",
+                json!({ "targets": "all", "name": "Chair" }),
+            ),
+            ("make-group", json!({ "targets": "all", "name": "Kitchen" })),
+        ] {
+            session.execute(name, params).unwrap();
+        }
+        let doc = session.doc();
+        let rows = outline_rows(doc, ContainerRef::Model);
+        assert_eq!(rows.len(), 1);
+        let (_, _, label, kitchen) = &rows[0];
+        assert_eq!(label, "Kitchen");
+        assert!(subtree_matches(doc, *kitchen, "chair", 0));
+        assert!(!subtree_matches(doc, *kitchen, "table", 0));
+        assert!(!crate::resources::matches("chair", label));
+    }
 }

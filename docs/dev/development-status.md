@@ -38,7 +38,7 @@ mipmaps; `render --shadows` works. The Styles panel and Shadows window expose
 the new settings. Later the same day: glTF cameras import as scenes and scenes
 export as cameras; clicking selects image entities; `texture-position` takes one
 to four pins (affine or perspective). Still open from earlier milestones: the
-two shadow cascades, library thumbnails and search. The GUI has interactive
+two shadow cascades and library thumbnails (search exists since 2026-11-03). The GUI has interactive
 texture pins (Position Texture › Pins…). `texture-position` gained `project_from` and `copy_to`. Deliberately not done: writing tag line styles to SKP, which
 needs a line-style field the writing library lacks and cannot be verified
 without the target application. See docs/06 Decisions, 2026-11-02.
@@ -236,7 +236,7 @@ Frontends:
    images, CSV and `.plyr` import; STL, OBJ, glTF/GLB, DXF (3D and 2D), `.plyr`, CSV report,
    SVG and PDF export; File › Import… / Export ► in the GUI. External validators pass
    (docs/12 Decisions); a 100 MB glTF imports in about 11 s. Released as 0.5.0 after the user
-   tried it. Known limits (docs/09 Decisions): glTF cameras are skipped; DXF text and
+   tried it. Known limits (docs/09 Decisions): DXF text and
    dimensions are skipped; the 2D export does not split edges where they pierce faces.
    **Milestone 0.6** (sections, annotations, shadows) is implemented on `main` (docs/13
    Decisions "0.6 as built"); released as 0.6.0 after the user tried it.

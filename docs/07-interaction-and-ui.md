@@ -208,6 +208,13 @@ collected by clicks: e.g. segments for Circle, array count, copy toggle).
 
 ## Decisions
 
+- 2026-11-03 — **Search in panels** (§6). Materials (model and bundled),
+  Components (model and library folder) and the Outliner have a search field: a
+  name matches when it contains every word typed, ignoring case. Library folders
+  stay listed so the search can continue inside them. In the Outliner a group or
+  instance shows when it or anything inside it matches, and branches holding a
+  match open. Library thumbnails remain to do.
+
 - 2026-11-03 — **Semi-transparent previews stay deferred.** The renderer can fade
   whole containers, and a preview knows which containers it changed, but most
   drawing happens in the model root, so ghosting changed containers would make the
@@ -444,7 +451,7 @@ collected by clicks: e.g. segments for Circle, array count, copy toggle).
   file activates placement from that file: each click runs `component-insert { path, position }`,
   so the first loads the component and the others reuse it by UUID, leaving nothing at the
   origin. Gluing applies once the component is in the model and placed from the model's list.
-  Thumbnails, search and drag into the viewport remain to do; the browser build has no folders
+  Thumbnails and drag into the viewport remain to do (search exists since 2026-11-03); the browser build has no folders
   and shows no Library.
 - 2026-11-02 — **Texture pins** (docs/05 §5.9 interactive). Position Texture › Pins… activates
   the Texture Pins tool on the face: four pins at the corners of the texture's first repeat on
