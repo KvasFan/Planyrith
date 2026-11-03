@@ -47,6 +47,24 @@ fn screenshots() {
         save(&mut harness, &dir, &format!("line-tool-{name}"));
     }
 
+    // Preferences, opened with its shortcut.
+    let mut harness = Harness::builder()
+        .with_size(egui::vec2(1400.0, 900.0))
+        .wgpu()
+        .build_eframe(|cc| App::new(cc, doc.clone()));
+    theme::apply(&harness.ctx, ThemeChoice::Dark);
+    for pressed in [true, false] {
+        harness.event(egui::Event::Key {
+            key: egui::Key::Comma,
+            physical_key: None,
+            pressed,
+            repeat: false,
+            modifiers: egui::Modifiers::COMMAND,
+        });
+        harness.step();
+    }
+    save(&mut harness, &dir, "preferences-dark");
+
     // Four viewports: the document's camera, top, front and right.
     let mut harness = Harness::builder()
         .with_size(egui::vec2(1400.0, 900.0))

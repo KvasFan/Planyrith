@@ -262,6 +262,8 @@ pub struct App {
     texture: Option<(planyrith_core::document::EntityPath, TextureFields)>,
     /// The Shadows window is open (docs/07 §6).
     shadows_open: bool,
+    /// The Preferences window (docs/07 §8).
+    preferences_open: bool,
     extensions: crate::extensions::Extensions,
     sheets: crate::sheets::Sheets,
     /// Journal and snapshot the documents (off in tests).
@@ -394,6 +396,7 @@ impl App {
             probe_frames: 0,
             texture: None,
             shadows_open: false,
+            preferences_open: false,
             extensions: Default::default(),
             sheets: Default::default(),
             autosave: false,
@@ -1168,6 +1171,9 @@ impl App {
         if pressed(Modifiers::COMMAND, Key::N) {
             self.guarded(Pending::New);
         }
+        if pressed(Modifiers::COMMAND, Key::Comma) {
+            self.preferences_open = !self.preferences_open;
+        }
         if ctx.memory(|m| m.focused().is_some()) {
             // A text field is being edited (docs/07 §2 focus rules).
             return;
@@ -1460,8 +1466,7 @@ impl App {
                             .radio(self.settings.theme == choice, t(choice.label()))
                             .clicked()
                         {
-                            self.settings.theme = choice;
-                            theme::apply(ui.ctx(), choice);
+                            self.set_theme(ui.ctx(), choice);
                             ui.close();
                         }
                     }
@@ -1470,52 +1475,17 @@ impl App {
                     &mut self.settings.high_contrast,
                     t("High-Contrast Snap Marks"),
                 );
-                let mut safe =
-                    self.settings.axis_palette == crate::viewport::AxisPalette::ColorBlind;
-                if ui
-                    .checkbox(&mut safe, t("Color-Blind Safe Axis Colors"))
-                    .on_hover_text(t(
-                        "Vermilion, bluish green and blue instead of red, green and blue",
-                    ))
-                    .changed()
-                {
-                    self.settings.axis_palette = if safe {
-                        crate::viewport::AxisPalette::ColorBlind
-                    } else {
-                        crate::viewport::AxisPalette::Standard
-                    };
-                }
+                self.axis_palette_checkbox(ui);
                 ui.menu_button(t("Interface Size"), |ui| {
-                    for scale in [0.75f32, 1.0, 1.25, 1.5, 1.75, 2.0] {
-                        let label = format!("{:.0} %", scale * 100.0);
-                        let current = (self.settings.ui_scale - scale).abs() < 0.01;
-                        if ui.radio(current, label).clicked() {
-                            self.settings.ui_scale = scale;
-                            ui.ctx().set_zoom_factor(scale);
-                            ui.close();
-                        }
+                    if self.ui_scale_radios(ui) {
+                        ui.close();
                     }
                     ui.weak(t("Ctrl+plus and Ctrl+minus change it too."));
                 });
                 // Each language in itself, so it can be found from any other.
                 ui.menu_button(t("Language"), |ui| {
-                    use crate::i18n::{Language, LanguageChoice};
-                    for (choice, name) in [
-                        (LanguageChoice::System, t("System")),
-                        (
-                            LanguageChoice::Fixed(Language::English),
-                            "English".to_string(),
-                        ),
-                        (
-                            LanguageChoice::Fixed(Language::Italian),
-                            "Italiano".to_string(),
-                        ),
-                    ] {
-                        if ui.radio(self.settings.language == choice, name).clicked() {
-                            self.settings.language = choice;
-                            crate::i18n::set_language(choice.resolve());
-                            ui.close();
-                        }
+                    if self.language_radios(ui) {
+                        ui.close();
                     }
                 });
             });
@@ -1632,6 +1602,14 @@ impl App {
                 }
                 if ui.button(t("Reset Layout")).clicked() {
                     self.tree = default_layout();
+                    ui.close();
+                }
+                ui.separator();
+                if ui
+                    .add(egui::Button::new(t("Preferences…")).shortcut_text("Ctrl+,"))
+                    .clicked()
+                {
+                    self.preferences_open = true;
                     ui.close();
                 }
             });
@@ -1921,6 +1899,143 @@ impl App {
                     .unwrap_or_default(),
             );
         }
+    }
+
+    fn set_theme(&mut self, ctx: &egui::Context, choice: ThemeChoice) {
+        self.settings.theme = choice;
+        theme::apply(ctx, choice);
+    }
+
+    /// The interface sizes as radio buttons; `true` when one was chosen.
+    fn ui_scale_radios(&mut self, ui: &mut egui::Ui) -> bool {
+        let mut chosen = false;
+        for scale in [0.75f32, 1.0, 1.25, 1.5, 1.75, 2.0] {
+            let label = format!("{:.0} %", scale * 100.0);
+            let current = (self.settings.ui_scale - scale).abs() < 0.01;
+            if ui.radio(current, label).clicked() {
+                self.settings.ui_scale = scale;
+                ui.ctx().set_zoom_factor(scale);
+                chosen = true;
+            }
+        }
+        chosen
+    }
+
+    /// The languages, each named in itself so it can be found from any
+    /// other; `true` when one was chosen.
+    fn language_radios(&mut self, ui: &mut egui::Ui) -> bool {
+        use crate::i18n::{Language, LanguageChoice};
+        let mut chosen = false;
+        for (choice, name) in [
+            (LanguageChoice::System, t("System")),
+            (
+                LanguageChoice::Fixed(Language::English),
+                "English".to_string(),
+            ),
+            (
+                LanguageChoice::Fixed(Language::Italian),
+                "Italiano".to_string(),
+            ),
+        ] {
+            if ui.radio(self.settings.language == choice, name).clicked() {
+                self.settings.language = choice;
+                crate::i18n::set_language(choice.resolve());
+                chosen = true;
+            }
+        }
+        chosen
+    }
+
+    fn axis_palette_checkbox(&mut self, ui: &mut egui::Ui) {
+        let mut safe = self.settings.axis_palette == crate::viewport::AxisPalette::ColorBlind;
+        if ui
+            .checkbox(&mut safe, t("Color-Blind Safe Axis Colors"))
+            .on_hover_text(t(
+                "Vermilion, bluish green and blue instead of red, green and blue",
+            ))
+            .changed()
+        {
+            self.settings.axis_palette = if safe {
+                crate::viewport::AxisPalette::ColorBlind
+            } else {
+                crate::viewport::AxisPalette::Standard
+            };
+        }
+    }
+
+    /// The Preferences window (docs/07 §8): the per-user settings in one
+    /// place, the same ones the View menu offers. Each change applies and is
+    /// saved at once.
+    fn preferences_window(&mut self, ctx: &egui::Context) {
+        if !self.preferences_open {
+            return;
+        }
+        let mut open = true;
+        egui::Window::new(t("Preferences"))
+            .open(&mut open)
+            .resizable(false)
+            .collapsible(false)
+            .pivot(egui::Align2::CENTER_CENTER)
+            .default_pos(ctx.content_rect().center())
+            .show(ctx, |ui| {
+                ui.heading(t("General"));
+                egui::Grid::new("preferences-general")
+                    .num_columns(2)
+                    .spacing([24.0, 6.0])
+                    .show(ui, |ui| {
+                        ui.label(t("Language"));
+                        ui.horizontal(|ui| {
+                            self.language_radios(ui);
+                        });
+                        ui.end_row();
+                        ui.label(t("Theme"));
+                        ui.horizontal(|ui| {
+                            for choice in
+                                [ThemeChoice::System, ThemeChoice::Light, ThemeChoice::Dark]
+                            {
+                                if ui
+                                    .radio(self.settings.theme == choice, t(choice.label()))
+                                    .clicked()
+                                {
+                                    self.set_theme(ui.ctx(), choice);
+                                }
+                            }
+                        });
+                        ui.end_row();
+                        ui.label(t("Interface Size"));
+                        egui::ComboBox::from_id_salt("preferences-ui-scale")
+                            .selected_text(format!("{:.0} %", self.settings.ui_scale * 100.0))
+                            .show_ui(ui, |ui| {
+                                self.ui_scale_radios(ui);
+                            });
+                        ui.end_row();
+                    });
+                ui.add_space(8.0);
+                ui.heading(t("Accessibility"));
+                ui.checkbox(
+                    &mut self.settings.high_contrast,
+                    t("High-Contrast Snap Marks"),
+                );
+                self.axis_palette_checkbox(ui);
+                ui.add_space(8.0);
+                ui.heading(t("Files"));
+                ui.horizontal(|ui| {
+                    ui.label(t_args(
+                        "Recent files: { $count }",
+                        &[("count", self.settings.recent.len().to_string().into())],
+                    ));
+                    if ui
+                        .add_enabled(
+                            !self.settings.recent.is_empty(),
+                            egui::Button::new(t("Clear")),
+                        )
+                        .clicked()
+                    {
+                        self.settings.recent.clear();
+                    }
+                });
+            });
+        self.preferences_open = open && self.preferences_open;
     }
 
     /// The Shadows window (docs/04 §7, docs/07 §6): on/off, the date and
@@ -2823,6 +2938,7 @@ impl App {
         }
         self.texture_window(&ctx);
         self.shadows_window(&ctx);
+        self.preferences_window(&ctx);
         self.extensions.ui(&ctx, &mut self.session);
         self.file_dialog(&ctx);
         self.discard_prompt(&ctx);
@@ -2983,6 +3099,36 @@ mod tests {
         assert_eq!(shell.app.session.path.as_deref(), Some(exported.as_path()));
         assert_eq!(&std::fs::read(&exported).unwrap()[..3], [255, 254, 255]);
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn preferences_open_with_the_shortcut_in_either_language() {
+        let mut shell = Shell::new();
+        let shortcut = |pressed| egui::Event::Key {
+            key: Key::Comma,
+            physical_key: None,
+            pressed,
+            repeat: false,
+            modifiers: egui::Modifiers::COMMAND,
+        };
+        shell.frame(vec![shortcut(true), shortcut(false)]);
+        assert!(shell.app.preferences_open);
+        for language in [
+            crate::i18n::Language::Italian,
+            crate::i18n::Language::English,
+        ] {
+            crate::i18n::set_language(language);
+            shell.frame(Vec::new());
+            shell.frame(Vec::new());
+        }
+        assert!(shell.ctx.memory(|m| {
+            m.areas()
+                .visible_layer_ids()
+                .iter()
+                .any(|layer| layer.order == egui::Order::Middle)
+        }));
+        shell.frame(vec![shortcut(true), shortcut(false)]);
+        assert!(!shell.app.preferences_open);
     }
 
     /// The whole window driven by synthetic input, headless.

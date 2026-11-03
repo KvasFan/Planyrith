@@ -208,6 +208,14 @@ collected by clicks: e.g. segments for Circle, array count, copy toggle).
 
 ## Decisions
 
+- 2026-11-03 — **Preferences (1.0, first part).** Window › Preferences… (Ctrl+,)
+  gathers the per-user settings that exist: General (language, theme, interface
+  size), Accessibility (high-contrast snap marks, color-blind safe axes) and Files
+  (clear the recent list). The View menu keeps the same entries for quick access;
+  both use the same setters, and every change applies and is saved at once. The
+  other §8 groups (click style, default folders, autosave interval, MSAA,
+  shortcut remapping, image editor) are added with the settings themselves.
+
 - 2026-11-03 — **Errors and the remaining texts in the interface language.** The
   core's errors carry English details (reasons, names, positions) written where
   they arise; translating each would put interface text in the core. The GUI
