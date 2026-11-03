@@ -18,8 +18,8 @@ understood. What only GitHub can catch is listed in docs/12 Decisions, 2026-11-0
 measured (docs/12 Decisions, 2026-11-02) and met where measurable here; frame time on an
 integrated GPU and web startup are not measurable on this machine. The GUI speaks
 Italian (docs/07 Decisions); texts that come from the core are still English. Next 1.0
-items: core texts in Italian, accessibility pass, documentation site, installers
-(MSI/DMG/Flatpak), web deployment, format and API freeze.
+items: documentation site, installers (DMG/Flatpak; the MSI is done, docs/16
+Decisions 2026-11-03), web deployment, format and API freeze.
 
 **After alpha.3 (unreleased, 2026-11-02):** the renderer draws the style's edge
 effects (depth cue, extension, endpoints, jitter) and shadows from edges without

@@ -6,6 +6,9 @@ All notable changes to Planyrith are recorded here. Versions follow
 
 ## Unreleased
 
+- A Windows Installer package (`.msi`) alongside the setup program, for scripted
+  and managed installs: per-user, no administrator rights, the format module as
+  a removable feature. `cargo xtask msi` builds it.
 - Keep the window responsive while saving to SKP, with a progress dialog.
 - Draw the style's edge effects: depth cue, extensions past the ends, endpoint
   emphasis and jitter, set in the Styles panel or with `style-edit`. SKP models

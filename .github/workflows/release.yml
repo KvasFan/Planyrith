@@ -132,6 +132,60 @@ jobs:
           path: |
             dist/release/*-setup.exe
             dist/release/*-portable.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bins-windows
+          if-no-files-found: error
+          path: |
+            target/x86_64-pc-windows-msvc/release/planyrith.exe
+            target/x86_64-pc-windows-msvc/release/planyrith-gui.exe
+            target/x86_64-pc-windows-msvc/release/planyrith-skp.exe
+
+  msi:
+    # The verified Windows binaries, packaged by wixl (msitools) on Linux.
+    needs: [prepare, windows]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Installer tool
+        run: sudo apt-get update && sudo apt-get install -y msitools
+      - uses: actions/download-artifact@v4
+        with:
+          name: bins-windows
+          path: target/windows-bins
+      - name: Build the per-user Windows Installer package
+        run: cargo xtask msi --bin-dir target/windows-bins
+      - uses: actions/upload-artifact@v4
+        with:
+          name: msi-unverified
+          if-no-files-found: error
+          path: dist/release/*.msi
+
+  msi-verify:
+    needs: [prepare, msi]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: msi-unverified
+          path: dist/release
+      - name: Install, exercise, open association and uninstall
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          & packaging/windows/verify-msi.ps1 -Package "$PWD/dist/release/Planyrith-$env:RELEASE_VERSION-windows-x86_64.msi" -Fixture "$PWD/crates/planyrith-skp/tests/fixtures/legacy/box-2013.skp"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-msi
+          if-no-files-found: error
+          path: dist/release/*.msi
 
   source:
     needs: prepare
@@ -164,7 +218,7 @@ jobs:
             dist/release/*-source.tar.gz
 
   publish:
-    needs: [prepare, linux, windows, source]
+    needs: [prepare, linux, windows, msi-verify, source]
     if: ${{ inputs.publish }}
     runs-on: ubuntu-22.04
     permissions:
@@ -202,6 +256,7 @@ jobs:
           cd dist/publish
           test -f "Planyrith-$RELEASE_VERSION-windows-x86_64-setup.exe"
           test -f "planyrith-$RELEASE_VERSION-windows-x86_64-portable.zip"
+          test -f "Planyrith-$RELEASE_VERSION-windows-x86_64.msi"
           test -f "Planyrith-$RELEASE_VERSION-x86_64.AppImage"
           test -f "planyrith_$RELEASE_VERSION"_amd64.deb
           test -f "planyrith-$RELEASE_VERSION-linux-x86_64.tar.gz"

@@ -6,7 +6,9 @@ The native and default working format is `.plyr`.
 
 - Windows x86_64: run the setup executable, or extract the portable ZIP and
   start `planyrith-gui.exe`. Installation is per-user; the optional GPL format
-  module can be deselected. The installer is unsigned.
+  module can be deselected. The installer is unsigned. For scripted or managed
+  installs use the MSI: `msiexec /i Planyrith-*.msi /qn`; add
+  `ADDLOCAL=Core` to leave out the format module.
 - AppImage x86_64: make the file executable and run it. `--cli` selects the CLI.
   `--appimage-extract-and-run` is available on systems that prohibit FUSE mounts.
 - Debian 12 / Ubuntu 22.04 or newer, amd64: `sudo apt install ./planyrith_*.deb`.
