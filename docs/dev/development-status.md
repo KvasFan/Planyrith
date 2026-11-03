@@ -225,8 +225,8 @@ Frontends:
    2026-10-25: the engine works very well, the GUI looks basic. A first polish pass followed
    (themes, icon toolbar, axes and sky, cursors, context menu, scene tabs, status bar; docs/07
    Decisions "Look (after 0.3)"); review it with `PLANYRITH_SCREENSHOTS` (docs/12 Decisions).
-   Still open from docs/07: semi-transparent previews (Preferences and layout presets
-   exist since 2026-11-03).
+   Still open from docs/07: semi-transparent previews, deferred (docs/07 Decisions,
+   2026-11-03); Preferences and layout presets exist since 2026-11-03.
    **Milestone 0.4** (organization and materials) is implemented on `main` (docs/13 Decisions
    "0.4 scope"; acceptance `textured_cabinet_acceptance`); released as 0.4.0 after the user
    confirmed textures apply (bundled materials, visible-side painting).

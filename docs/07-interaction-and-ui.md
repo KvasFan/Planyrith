@@ -208,6 +208,14 @@ collected by clicks: e.g. segments for Circle, array count, copy toggle).
 
 ## Decisions
 
+- 2026-11-03 — **Semi-transparent previews stay deferred.** The renderer can fade
+  whole containers, and a preview knows which containers it changed, but most
+  drawing happens in the model root, so ghosting changed containers would make the
+  whole model translucent at every preview. It needs per-face differences between
+  the document and its preview copy; until then previews draw with the active
+  style (as in 0.3). The accessibility pass found a tooltip on every icon and
+  symbol button.
+
 - 2026-11-03 — **Layout presets.** Window › Layout Presets ► offers Modeling (the
   default layout, also what Reset Layout restores), Organizing (outliner and tags
   in a tall left column; entity details, components and materials on the right)
