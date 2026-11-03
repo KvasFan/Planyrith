@@ -8,6 +8,8 @@ publish = false
 
 [dependencies]
 serde_json.workspace = true
+# Documentation site (docs/16 §4); build tool only, never shipped.
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
 
 [lints]
 workspace = true

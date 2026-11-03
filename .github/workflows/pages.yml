@@ -1,0 +1,54 @@
+# Publishes the documentation site with the web application under app/
+# (docs/16 §4). Run by hand, like a release: publishing is a decision.
+name: Pages
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Commit, branch or tag to publish
+        default: main
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      # The CLI must match the `wasm-bindgen` crate in Cargo.lock.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen@0.2.129
+      - name: Documentation site
+        run: cargo xtask site --out dist/pages
+      - name: Web application, within its size budget (docs/11 §4)
+        run: tools/build-web.sh dist/pages/site/app
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist/pages/site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

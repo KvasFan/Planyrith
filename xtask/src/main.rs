@@ -2,6 +2,7 @@
 mod licenses;
 mod msi;
 mod packages;
+mod site;
 mod source;
 
 use std::{
@@ -172,12 +173,13 @@ fn stage(options: &Options, windows: bool) -> Result<PathBuf> {
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let result = (|| -> Result<()> {
-        let action = args.first().ok_or("usage: cargo xtask linux|windows|msi|source|licenses [--bin-dir PATH] [--out PATH] [--appimagetool PATH] [--runtime PATH]")?;
+        let action = args.first().ok_or("usage: cargo xtask linux|windows|msi|site|source|licenses [--bin-dir PATH] [--out PATH] [--appimagetool PATH] [--runtime PATH]")?;
         let options = Options::parse(&args[1..])?;
         match action.as_str() {
             "linux" => packages::linux(&options),
             "windows" => packages::windows(&options),
             "msi" => msi::build(&options),
+            "site" => site::build(&options),
             "source" => source::bundle(&options),
             "licenses" => licenses::collect(&options.root, &options.out.join("licenses")),
             _ => Err(format!("unknown action {action}").into()),

@@ -16,11 +16,15 @@ understood. What only GitHub can catch is listed in docs/12 Decisions, 2026-11-0
 
 **1.0 under way (2026-11-02, at the user's request):** the docs/00 §6 targets are
 measured (docs/12 Decisions, 2026-11-02) and met where measurable here; frame time on an
-integrated GPU and web startup are not measurable on this machine. The GUI speaks
-Italian (docs/07 Decisions); texts that come from the core are still English. Next 1.0
-items: documentation site, installers (DMG/Flatpak; the MSI is done, docs/16
-Decisions 2026-11-03), web deployment, API freeze. The `.plyr` format is
-frozen at version 1 (docs/09 Decisions, 2026-11-03).
+integrated GPU and web startup are not measurable on this machine. The interface
+speaks Italian, core prompts included; error messages and some Sheets labels are
+still English (docs/07 Decisions). Accessibility: interface size, high-contrast
+snap marks, color-blind safe axes. Done on 2026-11-03: the MSI (docs/16
+Decisions), the `.plyr` freeze at version 1 (docs/09 Decisions), the API freeze
+at `schema_version` 1 (docs/08 Decisions), the documentation site and Pages
+workflow (docs/16 §4; publishing needs the user to set Pages to GitHub Actions
+and run the workflow). Still open: DMG and Flatpak (not buildable on this
+machine), remaining English texts.
 
 **After alpha.3 (unreleased, 2026-11-02):** the renderer draws the style's edge
 effects (depth cue, extension, endpoints, jitter) and shadows from edges without

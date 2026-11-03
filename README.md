@@ -20,7 +20,7 @@
   <img alt="Written in Rust" src="https://img.shields.io/badge/written%20in-Rust-2f3a45?style=flat-square&amp;logo=rust">
   <img alt="Windows and Linux downloads" src="https://img.shields.io/badge/downloads-Windows%20%C2%B7%20Linux-2f3a45?style=flat-square">
   <a href="#license-and-credits"><img alt="Applications: MIT or Apache-2.0" src="https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-2f3a45?style=flat-square"></a>
-  <a href="https://github.com/KvasFan/Planyrith/releases/tag/v0.11.0-alpha.3"><img alt="Preview 0.11.0-alpha.3" src="https://img.shields.io/badge/preview-0.11.0--alpha.2-e0a458?style=flat-square"></a>
+  <a href="https://github.com/KvasFan/Planyrith/releases/tag/v0.11.0-alpha.3"><img alt="Preview 0.11.0-alpha.3" src="https://img.shields.io/badge/preview-0.11.0--alpha.3-e0a458?style=flat-square"></a>
 </p>
 
 <p align="center">

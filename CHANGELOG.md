@@ -6,6 +6,9 @@ All notable changes to Planyrith are recorded here. Versions follow
 
 ## Unreleased
 
+- A documentation site: `cargo xtask site` turns the README, install notes,
+  guide, changelog and specification into web pages, and the Pages workflow
+  publishes them with the browser edition under `app/`.
 - Commands, their parameters and outputs, and the server's methods are frozen at
   `schema_version` 1: scripts and remote clients written now keep working in
   every later 1.x, which may only add to them.
