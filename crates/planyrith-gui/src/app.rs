@@ -462,7 +462,7 @@ impl App {
     #[cfg(not(target_arch = "wasm32"))]
     fn open(&mut self, path: &std::path::Path) {
         if self.opening.is_some() {
-            self.info("Another document is still opening".to_string());
+            self.info(t("Another document is still opening"));
             return;
         }
         let (sender, result) = std::sync::mpsc::channel();
@@ -481,7 +481,13 @@ impl App {
                     result,
                 });
             }
-            Err(e) => self.error(format!("Could not open {}: {e}", path.display())),
+            Err(e) => self.error(t_args(
+                "Could not open { $path }: { $error }",
+                &[
+                    ("path", path.display().to_string().into()),
+                    ("error", e.to_string().into()),
+                ],
+            )),
         }
     }
 
@@ -503,9 +509,18 @@ impl App {
                     self.recovery = Some(Some(path.to_path_buf()));
                 }
                 self.remember(path.to_path_buf());
-                self.info(format!("Opened {}", file_name(path)));
+                self.info(t_args(
+                    "Opened { $name }",
+                    &[("name", file_name(path).into())],
+                ));
             }
-            Err(e) => self.error(format!("Could not open {}: {e}", path.display())),
+            Err(e) => self.error(t_args(
+                "Could not open { $path }: { $error }",
+                &[
+                    ("path", path.display().to_string().into()),
+                    ("error", e.to_string().into()),
+                ],
+            )),
         }
     }
 
@@ -532,7 +547,10 @@ impl App {
         egui::Modal::new(egui::Id::new("opening document")).show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.spinner();
-                ui.heading(format!("Opening {name}"));
+                ui.heading(t_args(
+                    "Opening { $name }",
+                    &[("name", name.to_string().into())],
+                ));
             });
             ui.label(format!("{seconds} s"));
             if seconds >= 5 {
@@ -566,7 +584,7 @@ impl App {
         }
         #[cfg(not(target_arch = "wasm32"))]
         if self.saving.is_some() {
-            self.info("The document is still saving".to_string());
+            self.info(t("The document is still saving"));
             return;
         }
         #[cfg(not(target_arch = "wasm32"))]
@@ -599,9 +617,15 @@ impl App {
         match result {
             Ok(path) => {
                 self.remember(path.clone());
-                self.info(format!("Saved {}", file_name(&path)));
+                self.info(t_args(
+                    "Saved { $name }",
+                    &[("name", file_name(&path).into())],
+                ));
             }
-            Err(e) => self.error(format!("Could not save: {e}")),
+            Err(e) => self.error(t_args(
+                "Could not save: { $error }",
+                &[("error", e.to_string().into())],
+            )),
         }
     }
 
@@ -623,7 +647,10 @@ impl App {
                     result,
                 });
             }
-            Err(e) => self.error(format!("Could not save: {e}")),
+            Err(e) => self.error(t_args(
+                "Could not save: { $error }",
+                &[("error", e.to_string().into())],
+            )),
         }
     }
 
@@ -650,7 +677,10 @@ impl App {
         egui::Modal::new(egui::Id::new("saving document")).show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.spinner();
-                ui.heading(format!("Saving {name}"));
+                ui.heading(t_args(
+                    "Saving { $name }",
+                    &[("name", name.to_string().into())],
+                ));
             });
             ui.label(format!("{seconds} s"));
         });
@@ -712,7 +742,10 @@ impl App {
                 }
                 session.mark_saved();
                 self.adopt(session);
-                self.info(format!("Opened the example {}", sample.name));
+                self.info(t_args(
+                    "Opened the example { $name }",
+                    &[("name", sample.name.to_string().into())],
+                ));
             }
             Pending::Open(Some(path)) => self.open(&path),
             // In the browser, documents come from the computer.
@@ -2224,7 +2257,10 @@ impl App {
         let mut choice = None;
         egui::Modal::new(egui::Id::new("unsaved changes")).show(ctx, |ui| {
             ui.heading(t("Unsaved changes"));
-            ui.label(format!("Save the changes to {}?", self.session.title()));
+            ui.label(t_args(
+                "Save the changes to { $name }?",
+                &[("name", self.session.title().to_string().into())],
+            ));
             ui.horizontal(|ui| {
                 if ui.button(t("Save")).clicked() {
                     choice = Some(0);
@@ -2291,9 +2327,18 @@ impl App {
         match Session::recover(path.as_deref()) {
             Ok(session) => {
                 self.adopt(session);
-                self.info(format!("Recovered the unsaved changes to {name}"));
+                self.info(t_args(
+                    "Recovered the unsaved changes to { $name }",
+                    &[("name", name.to_string().into())],
+                ));
             }
-            Err(e) => self.error(format!("Could not recover {name}: {e}")),
+            Err(e) => self.error(t_args(
+                "Could not recover { $name }: { $error }",
+                &[
+                    ("name", name.to_string().into()),
+                    ("error", e.to_string().into()),
+                ],
+            )),
         }
     }
 
@@ -2331,11 +2376,17 @@ impl App {
         } else if FileRequest::Import.dialog().2.contains(&extension.as_str()) {
             let (name, params) = FileRequest::Import.command(&path.to_string_lossy());
             match self.session.execute(name, params) {
-                Ok(_) => self.info(format!("Imported {}", file_name(&path))),
+                Ok(_) => self.info(t_args(
+                    "Imported { $name }",
+                    &[("name", file_name(&path).into())],
+                )),
                 Err(e) => self.error(e),
             }
         } else {
-            self.info(format!("Stored {}", file_name(&path)));
+            self.info(t_args(
+                "Stored { $name }",
+                &[("name", file_name(&path).into())],
+            ));
         }
     }
 
@@ -2364,8 +2415,14 @@ impl App {
                 .to_bytes()
                 .and_then(|bytes| platform::web::download(&name, &bytes))
             {
-                Ok(()) => self.info(format!("Downloading {name}")),
-                Err(e) => self.error(format!("Could not download: {e}")),
+                Ok(()) => self.info(t_args(
+                    "Downloading { $name }",
+                    &[("name", name.to_string().into())],
+                )),
+                Err(e) => self.error(t_args(
+                    "Could not download: { $error }",
+                    &[("error", e.to_string().into())],
+                )),
             }
             ui.close();
         }
@@ -2405,7 +2462,13 @@ impl App {
             let path = PathBuf::from(format!("/{name}"));
             let key = path.to_string_lossy().to_string();
             if let Err(e) = platform::storage().write(&key.as_str().into(), &bytes) {
-                self.error(format!("Could not store {name}: {e}"));
+                self.error(t_args(
+                    "Could not store { $name }: { $error }",
+                    &[
+                        ("name", name.to_string().into()),
+                        ("error", e.to_string().into()),
+                    ],
+                ));
                 continue;
             }
             match self.upload_purpose.clone() {
@@ -2421,7 +2484,10 @@ impl App {
                         Err(e) => self.error(e),
                     }
                 }
-                Some(UploadPurpose::Store) => self.info(format!("Stored {name} in this browser")),
+                Some(UploadPurpose::Store) => self.info(t_args(
+                    "Stored { $name } in this browser",
+                    &[("name", name.to_string().into())],
+                )),
                 // Dropped on the page.
                 None => self.take_file(path),
             }
@@ -2437,7 +2503,13 @@ impl App {
             .map_err(|e| e.to_string())
             .and_then(|bytes| platform::web::download(&file_name(path), &bytes));
         if let Err(e) = result {
-            self.error(format!("Could not download {}: {e}", file_name(path)));
+            self.error(t_args(
+                "Could not download { $name }: { $error }",
+                &[
+                    ("name", file_name(path).into()),
+                    ("error", e.to_string().into()),
+                ],
+            ));
         }
     }
 }

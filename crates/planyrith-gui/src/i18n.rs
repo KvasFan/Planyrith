@@ -9,6 +9,9 @@ use std::sync::OnceLock;
 
 use fluent_bundle::concurrent::FluentBundle;
 use fluent_bundle::{FluentArgs, FluentResource, FluentValue};
+use planyrith_core::commands::CommandError;
+use planyrith_core::geom::GeometryError;
+use planyrith_core::io::IoError;
 use serde::{Deserialize, Serialize};
 
 /// The interface languages.
@@ -140,6 +143,97 @@ pub fn t_args(english: &str, args: &[(&str, FluentValue<'_>)]) -> String {
         .into_owned()
 }
 
+/// A command error in the interface language: each kind's frame is
+/// translated; details written by the core (reasons, names) stay as they are.
+pub fn command_error(e: &CommandError) -> String {
+    let s = |v: &str| FluentValue::from(v.to_owned());
+    match e {
+        CommandError::InvalidParam { name, reason } => t_args(
+            "invalid parameter `{ $name }`: { $reason }",
+            &[("name", s(name)), ("reason", s(reason))],
+        ),
+        CommandError::OutOfRange { name, reason } => t_args(
+            "parameter `{ $name }` out of range: { $reason }",
+            &[("name", s(name)), ("reason", s(reason))],
+        ),
+        CommandError::NotFound(entity) => t_args(
+            "entity not found: { $entity }",
+            &[("entity", s(&entity.to_string()))],
+        ),
+        CommandError::Ambiguous { query, matched } => t_args(
+            "ambiguous selection: `{ $query }` matched { $matched } entities",
+            &[
+                ("query", s(&query.to_string())),
+                ("matched", s(&matched.to_string())),
+            ],
+        ),
+        CommandError::NotApplicable(reason) => t_args(
+            "operation not applicable: { $reason }",
+            &[("reason", s(reason))],
+        ),
+        CommandError::Geometry(e) => geometry_error(e),
+        CommandError::Cancelled => t("cancelled"),
+        CommandError::Io(e) => io_error(e),
+        CommandError::Script { line, col, message } => t_args(
+            "script error at { $line }:{ $col }: { $message }",
+            &[
+                ("line", s(&line.to_string())),
+                ("col", s(&col.to_string())),
+                ("message", s(message)),
+            ],
+        ),
+        CommandError::Internal(reason) => {
+            t_args("internal error: { $reason }", &[("reason", s(reason))])
+        }
+    }
+}
+
+/// A geometry error in the interface language (see [`command_error`]).
+pub fn geometry_error(e: &GeometryError) -> String {
+    let r = |v: &str| [("reason", FluentValue::from(v.to_owned()))];
+    match e {
+        GeometryError::Degenerate(v) => t_args("degenerate geometry: { $reason }", &r(v)),
+        GeometryError::NonRobust(v) => t_args("non-robust geometry: { $reason }", &r(v)),
+        GeometryError::OutOfRange => t("coordinate out of the supported range (±1e9 mm)"),
+        GeometryError::NotFound(v) => t_args("mesh element not found: { $reason }", &r(v)),
+        GeometryError::NotApplicable(v) => t_args("operation not applicable: { $reason }", &r(v)),
+        GeometryError::Invariant(v) => t_args("mesh invariant violated: { $reason }", &r(v)),
+    }
+}
+
+/// A file or storage error in the interface language (see [`command_error`]).
+pub fn io_error(e: &IoError) -> String {
+    let s = |v: &str| FluentValue::from(v.to_owned());
+    match e {
+        IoError::UnsupportedVersion { found, max } => t_args(
+            "document format version { $found } is newer than the supported { $max }",
+            &[
+                ("found", s(&found.to_string())),
+                ("max", s(&max.to_string())),
+            ],
+        ),
+        IoError::UnsupportedFormat(r) => {
+            t_args("unsupported format: { $reason }", &[("reason", s(r))])
+        }
+        IoError::Corrupt { part, reason } => t_args(
+            "corrupt container: { $part }: { $reason }",
+            &[("part", s(part)), ("reason", s(reason))],
+        ),
+        IoError::Conversion { format, reason } => t_args(
+            "{ $format } conversion failed: { $reason }",
+            &[("format", s(format)), ("reason", s(reason))],
+        ),
+        IoError::Storage { key, reason } => t_args(
+            "storage error on `{ $key }`: { $reason }",
+            &[("key", s(key)), ("reason", s(reason))],
+        ),
+        IoError::NotFound(r) => t_args("not found: { $reason }", &[("reason", s(r))]),
+        IoError::ReadOnly(r) => t_args("read-only: { $reason }", &[("reason", s(r))]),
+        IoError::LimitExceeded(r) => t_args("limit exceeded: { $reason }", &[("reason", s(r))]),
+        IoError::Cancelled => t("cancelled"),
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::expect_used)]
 mod tests {
@@ -150,24 +244,34 @@ mod tests {
     /// an identifier.
     #[test]
     fn every_interface_text_is_translated() {
-        let sources: Vec<&str> = vec![
-            include_str!("app.rs"),
-            include_str!("resources.rs"),
-            include_str!("viewport.rs"),
-            include_str!("sheets.rs"),
-            include_str!("extensions.rs"),
-            include_str!("panels.rs"),
-            include_str!("theme.rs"),
-            include_str!("tools/mod.rs"),
-            include_str!("tools/annotate.rs"),
-            include_str!("tools/component.rs"),
-            include_str!("tools/draw.rs"),
-            include_str!("tools/edit.rs"),
-            include_str!("tools/select.rs"),
-            include_str!("tools/sketch.rs"),
-            include_str!("tools/solid.rs"),
-            include_str!("tools/texture.rs"),
-        ];
+        // Every source file; this one only up to its tests, which hold
+        // sample texts.
+        #[allow(clippy::unwrap_used)]
+        fn walk(dir: &std::path::Path, out: &mut Vec<String>) {
+            let mut entries: Vec<_> = std::fs::read_dir(dir)
+                .unwrap()
+                .map(|e| e.unwrap().path())
+                .collect();
+            entries.sort();
+            for path in entries {
+                if path.is_dir() {
+                    walk(&path, out);
+                } else if path.extension().is_some_and(|e| e == "rs") {
+                    let text = std::fs::read_to_string(&path).unwrap();
+                    out.push(if path.ends_with("src/i18n.rs") {
+                        text.split("#[cfg(test)]").next().unwrap_or("").to_string()
+                    } else {
+                        text
+                    });
+                }
+            }
+        }
+        let mut files = Vec::new();
+        walk(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
+            &mut files,
+        );
+        let sources: Vec<&str> = files.iter().map(String::as_str).collect();
         let mut used: std::collections::BTreeMap<String, String> = Default::default();
         let mut clashes: Vec<String> = Vec::new();
         for source in sources {
@@ -280,6 +384,22 @@ mod tests {
             t("Not a text of the interface"),
             "Not a text of the interface"
         );
+        // Error frames are translated; the core's details are kept.
+        let e = CommandError::InvalidParam {
+            name: "distance".into(),
+            reason: "must be positive".into(),
+        };
+        assert_eq!(
+            command_error(&e),
+            "parametro `distance` non valido: must be positive"
+        );
         set_language(Language::English);
+        assert_eq!(command_error(&e), e.to_string());
+        let io = IoError::Corrupt {
+            part: "manifest.json".into(),
+            reason: "bad".into(),
+        };
+        assert_eq!(command_error(&CommandError::Io(io.clone())), io_error(&io));
+        assert_eq!(io_error(&io), io.to_string());
     }
 }

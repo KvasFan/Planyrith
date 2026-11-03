@@ -208,6 +208,16 @@ collected by clicks: e.g. segments for Circle, array count, copy toggle).
 
 ## Decisions
 
+- 2026-11-03 — **Errors and the remaining texts in the interface language.** The
+  core's errors carry English details (reasons, names, positions) written where
+  they arise; translating each would put interface text in the core. The GUI
+  translates each error kind's frame by variant (`i18n::command_error`,
+  `io_error`, `geometry_error`, exhaustive matches, so a new kind fails to build
+  until translated) and keeps the details. Names saved into the model ("Scene 1",
+  "Material 1") stay English so files do not depend on the interface language.
+  The coverage test now scans every GUI source file instead of a list, which had
+  missed some.
+
 - 2026-10-31 — **Direct historical/backup workflows (alpha.2).** Open and
   Import list `.skp` and `.skb`; dropping either opens it directly. Open's
   default model filter shows native models and both external extensions.

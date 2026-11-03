@@ -852,7 +852,7 @@ fn outline_level(
         let (label, def) = match entities.view(id) {
             Some(EntityView::Group(g)) => (
                 if g.name.is_empty() {
-                    format!("Group @{}", pid.0)
+                    t_args("Group @{ $pid }", &[("pid", pid.0.to_string().into())])
                 } else {
                     g.name.clone()
                 },
@@ -966,7 +966,10 @@ pub fn tool_help(ui: &mut egui::Ui, session: &Session, tool: &dyn Tool) {
     ui.heading(t(tool.label()));
     if let Some(command) = session.engine.registry().get(tool.command()) {
         let meta = command.meta();
-        ui.weak(format!("Command `{}`", meta.name));
+        ui.weak(t_args(
+            "Command `{ $name }`",
+            &[("name", meta.name.to_string().into())],
+        ));
         for (i, step) in meta.steps.iter().enumerate() {
             let mut text = RichText::new(format!("{}. {}", i + 1, t(&step.prompt)));
             if i == tool.step() {

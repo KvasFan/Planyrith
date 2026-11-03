@@ -83,7 +83,7 @@ impl Tool for SolidTool {
         Flow::run(self.name, params)
     }
     fn value(&mut self, _: &str, _: &Cx<'_>) -> Result<Flow, String> {
-        Err("Pick two solid groups or components".into())
+        Err(t("Pick two solid groups or components"))
     }
     fn escape(&mut self) -> bool {
         let active = self.first.take().is_some();
@@ -160,7 +160,9 @@ impl Tool for SweepTool {
         Flow::Continue
     }
     fn value(&mut self, _: &str, _: &Cx<'_>) -> Result<Flow, String> {
-        Err("Preselect path edges and click the profile, or pick profile then path face".into())
+        Err(t(
+            "Preselect path edges and click the profile, or pick profile then path face",
+        ))
     }
     fn escape(&mut self) -> bool {
         self.request = None;

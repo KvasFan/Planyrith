@@ -62,7 +62,7 @@ impl Remote {
             }
             #[cfg(not(unix))]
             {
-                return Err("Use the local TCP port on this platform".into());
+                return Err(crate::i18n::t("Use the local TCP port on this platform"));
             }
         };
         let mut remote = Self {
@@ -79,7 +79,9 @@ impl Remote {
             .as_array()
             .is_some_and(|methods| methods.iter().any(|m| m == "document.snapshot"))
         {
-            return Err("The server needs Planyrith 0.8 or newer for GUI attachment".into());
+            return Err(crate::i18n::t(
+                "The server needs Planyrith 0.8 or newer for GUI attachment",
+            ));
         }
         if doc_id.is_empty() {
             let opened = remote.call("session.new", json!({}))?;

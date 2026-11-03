@@ -825,7 +825,10 @@ fn library(ui: &mut egui::Ui, state: &mut ResourceState) {
                 Some(Err(e)) => {
                     ui.colored_label(
                         Color32::from_rgb(200, 60, 60),
-                        format!("Cannot read it: {e}"),
+                        crate::i18n::t_args(
+                            "Cannot read it: { $error }",
+                            &[("error", e.to_string().into())],
+                        ),
                     );
                 }
                 None => {}

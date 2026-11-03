@@ -1036,7 +1036,7 @@ impl Tool for PaintTool {
     }
 
     fn value(&mut self, _text: &str, _cx: &Cx<'_>) -> Result<Flow, String> {
-        Err("Paint takes no value".into())
+        Err(t("Paint takes no value"))
     }
 
     fn escape(&mut self) -> bool {

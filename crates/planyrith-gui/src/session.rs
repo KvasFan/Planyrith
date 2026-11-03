@@ -87,10 +87,10 @@ impl SaveJob {
             &self.target.to_string_lossy(),
             self.storage.as_ref(),
         )
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| crate::i18n::io_error(&e))?;
         self.storage
             .write(&key(&self.target), &converted.bytes)
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| crate::i18n::io_error(&e))?;
         Ok(FinishedSave {
             target: self.target,
             generation: self.generation,
@@ -115,13 +115,13 @@ impl Session {
     pub fn read(path: &Path) -> Result<LoadedDocument, String> {
         let bytes = platform::storage()
             .read(&key(path))
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| crate::i18n::io_error(&e))?;
         planyrith_core::io::model_file::read(
             &bytes,
             &path.to_string_lossy(),
             platform::storage().as_ref(),
         )
-        .map_err(|e| e.to_string())
+        .map_err(|e| crate::i18n::io_error(&e))
     }
 
     /// The session of a document [`Session::read`] returned.
@@ -239,7 +239,7 @@ impl Session {
     /// Drops the unsaved work of the document at `path`.
     pub fn discard_recovery(path: Option<&Path>) -> Result<(), String> {
         autosave::discard(platform::storage().as_ref(), &Session::autosave_key(path))
-            .map_err(|e| e.to_string())
+            .map_err(|e| crate::i18n::io_error(&e))
     }
 
     /// The document at `path` (`None`: untitled) with its unsaved work
@@ -403,7 +403,7 @@ impl Session {
         } else {
             self.engine
                 .execute_erased(name, params.clone())
-                .map_err(|e| format!("{name}: {e} [{}]", e.code()))?
+                .map_err(|e| format!("{name}: {} [{}]", crate::i18n::command_error(&e), e.code()))?
         };
         // Scenes animate the camera unless asked not to.
         if name == "scene-activate"

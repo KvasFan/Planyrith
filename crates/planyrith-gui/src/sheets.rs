@@ -285,9 +285,9 @@ impl Sheets {
             }
             egui::ComboBox::from_id_salt("sheet-pages")
                 .selected_text(if self.page.is_empty() {
-                    "No pages"
+                    t("No pages")
                 } else {
-                    &self.page
+                    self.page.clone()
                 })
                 .show_ui(ui, |ui| {
                     for name in names {
@@ -495,9 +495,9 @@ impl Sheets {
         ui.text_edit_singleline(&mut self.scale);
         egui::ComboBox::from_id_salt("sheet-scene")
             .selected_text(if self.scene.is_empty() {
-                "Current camera"
+                t("Current camera")
             } else {
-                &self.scene
+                self.scene.clone()
             })
             .show_ui(ui, |ui| {
                 ui.selectable_value(&mut self.scene, String::new(), t("Current camera"));
@@ -540,7 +540,10 @@ impl Sheets {
         if let Some(id) = self.selected.clone()
             && let Some(entry) = page.items.iter().find(|e| e.id == id)
         {
-            ui.strong(format!("Item {}", id.as_str()));
+            ui.strong(crate::i18n::t_args(
+                "Item { $id }",
+                &[("id", id.as_str().to_string().into())],
+            ));
             let key = (page.name.clone(), id.clone(), session.engine.generation());
             if self.draft_key.as_ref() != Some(&key) {
                 self.draft = Some(entry.clone());
@@ -578,7 +581,7 @@ impl Sheets {
                     if let Ok(bounds)=layout::item_bounds(session.doc(),page,&entry.item) {
                         ui.label(t("Align to printable area"));
                         ui.horizontal(|ui| {
-                            for(label,x)in [("Left",page.paper.margin),("Center",(page.paper.width-bounds.width)/2.0),("Right",page.paper.width-page.paper.margin-bounds.width)] {
+                            for(label,x)in [(t("Left"),page.paper.margin),(t("Center"),(page.paper.width-bounds.width)/2.0),(t("Right"),page.paper.width-page.paper.margin-bounds.width)] {
                                 if ui.button(label).clicked() {
                                     self.execute(session,"sheet-move-item",json!({"page":page.name,"id":id,"delta":[x-bounds.x,0]}));
                                 }
@@ -642,14 +645,14 @@ impl Sheets {
             self.settings_key = Some(current);
         }
         if let Some(mut settings) = self.settings_draft.take() {
-            ui.collapsing("Sheet pens and title template",|ui|{
-                ui.add(egui::DragValue::new(&mut settings.styles.text_height).range(0.5..=100.0).suffix(" mm default text"));
-                ui.collapsing("Edges",|ui|stroke_ui(ui,&mut settings.styles.edge));
-                ui.collapsing("Profiles",|ui|stroke_ui(ui,&mut settings.styles.profile));
+            ui.collapsing(t("Sheet pens and title template"),|ui|{
+                ui.add(egui::DragValue::new(&mut settings.styles.text_height).range(0.5..=100.0).suffix(format!(" {}", t("mm default text"))));
+                ui.collapsing(t("Edges"),|ui|stroke_ui(ui,&mut settings.styles.edge));
+                ui.collapsing(t("Profiles"),|ui|stroke_ui(ui,&mut settings.styles.profile));
                 for(id,tag)in session.doc().tags.iter(){if id==session.doc().tags.untagged(){continue;}
                     ui.push_id(&tag.name,|ui|{
                         let mut custom=settings.styles.pens.contains_key(&tag.name);
-                        if ui.checkbox(&mut custom,format!("Pen: {}",tag.name)).changed(){if custom{settings.styles.pens.insert(tag.name.clone(),settings.styles.edge.clone());}else{settings.styles.pens.remove(&tag.name);}}
+                        if ui.checkbox(&mut custom,crate::i18n::t_args("Pen: { $tag }", &[("tag", tag.name.clone().into())])).changed(){if custom{settings.styles.pens.insert(tag.name.clone(),settings.styles.edge.clone());}else{settings.styles.pens.remove(&tag.name);}}
                         if let Some(pen)=settings.styles.pens.get_mut(&tag.name){stroke_ui(ui,pen);}
                     });
                 }
@@ -1090,13 +1093,18 @@ fn stroke_ui(ui: &mut egui::Ui, stroke: &mut sheets::Stroke) {
     } else {
         3
     };
-    let names = ["Solid", "Dashed", "Dotted", "Dash-dot"];
+    let names = [
+        t("Solid line"),
+        t("Dashed line"),
+        t("Dotted line"),
+        t("Dash-dot line"),
+    ];
     let mut changed = false;
     egui::ComboBox::from_id_salt("pen-pattern")
-        .selected_text(names[pattern])
+        .selected_text(names[pattern].clone())
         .show_ui(ui, |ui| {
             for (i, name) in names.iter().enumerate() {
-                changed |= ui.selectable_value(&mut pattern, i, *name).changed();
+                changed |= ui.selectable_value(&mut pattern, i, name).changed();
             }
         });
     if changed {
@@ -1139,9 +1147,9 @@ fn edit_item(ui: &mut egui::Ui, session: &Session, item: &mut SheetItem, page: &
             let mut name = scene.clone().unwrap_or_default();
             egui::ComboBox::from_id_salt("sheet-view-link")
                 .selected_text(if name.is_empty() {
-                    "Camera snapshot"
+                    t("Camera snapshot")
                 } else {
-                    &name
+                    name.clone()
                 })
                 .show_ui(ui, |ui| {
                     ui.selectable_value(&mut name, String::new(), t("Camera snapshot"));
@@ -1155,7 +1163,7 @@ fn edit_item(ui: &mut egui::Ui, session: &Session, item: &mut SheetItem, page: &
                 t("Use custom camera, keep scene appearance"),
             );
             render_ui(ui, render);
-            ui.collapsing("Crop boundary (paper mm)", |ui| {
+            ui.collapsing(t("Crop boundary (paper mm)"), |ui| {
                 for (i, p) in clip.iter_mut().enumerate() {
                     ui.push_id(i, |ui| {
                         ui.horizontal(|ui| {
@@ -1174,9 +1182,9 @@ fn edit_item(ui: &mut egui::Ui, session: &Session, item: &mut SheetItem, page: &
             let mut name = style.clone().unwrap_or_default();
             egui::ComboBox::from_id_salt("sheet-view-style")
                 .selected_text(if name.is_empty() {
-                    "Scene style"
+                    t("Scene style")
                 } else {
-                    &name
+                    name.clone()
                 })
                 .show_ui(ui, |ui| {
                     ui.selectable_value(&mut name, String::new(), t("Scene style"));
@@ -1339,7 +1347,7 @@ fn edit_item(ui: &mut egui::Ui, session: &Session, item: &mut SheetItem, page: &
             ui.text_edit_singleline(&mut value);
             *text = (!value.is_empty()).then_some(value);
             egui::ComboBox::from_id_salt("sheet-dimension-kind")
-                .selected_text(format!("{dimension_kind:?}"))
+                .selected_text(dimension_kind_label(*dimension_kind))
                 .show_ui(ui, |ui| {
                     for kind in [
                         sheets::DimensionKind::Aligned,
@@ -1348,11 +1356,14 @@ fn edit_item(ui: &mut egui::Ui, session: &Session, item: &mut SheetItem, page: &
                         sheets::DimensionKind::Radius,
                         sheets::DimensionKind::Diameter,
                     ] {
-                        ui.selectable_value(dimension_kind, kind, format!("{kind:?}"));
+                        ui.selectable_value(dimension_kind, kind, dimension_kind_label(kind));
                     }
                 });
             egui::ComboBox::from_id_salt("sheet-dimension-view")
-                .selected_text(view.as_ref().map_or("Paper", ItemId::as_str))
+                .selected_text(
+                    view.as_ref()
+                        .map_or_else(|| t("Paper"), |v| v.as_str().to_owned()),
+                )
                 .show_ui(ui, |ui| {
                     ui.selectable_value(view, None, t("Paper"));
                     for e in &page.items {
@@ -1361,7 +1372,7 @@ fn edit_item(ui: &mut egui::Ui, session: &Session, item: &mut SheetItem, page: &
                         }
                     }
                 });
-            for (label, anchor) in [("Start", start), ("End", end)] {
+            for (label, anchor) in [(t("Start"), start), (t("End"), end)] {
                 ui.label(label);
                 match anchor {
                     SheetAnchor::Paper { point } => {
@@ -1376,6 +1387,17 @@ fn edit_item(ui: &mut egui::Ui, session: &Session, item: &mut SheetItem, page: &
                 }
             }
         }
+    }
+}
+
+/// A dimension kind's name in the interface language.
+fn dimension_kind_label(kind: sheets::DimensionKind) -> String {
+    match kind {
+        sheets::DimensionKind::Aligned => t("Aligned"),
+        sheets::DimensionKind::Horizontal => t("Horizontal"),
+        sheets::DimensionKind::Vertical => t("Vertical"),
+        sheets::DimensionKind::Radius => t("Radial"),
+        sheets::DimensionKind::Diameter => t("Diameter"),
     }
 }
 
