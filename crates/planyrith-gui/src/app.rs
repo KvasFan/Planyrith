@@ -106,6 +106,67 @@ fn default_layout() -> Tree<Pane> {
     Tree::new("planyrith-docks", root, tiles)
 }
 
+/// The arrangements Window › Layout Presets offers (docs/07 §7).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LayoutPreset {
+    /// Tool options, the viewport and the panels (the default).
+    Modeling,
+    /// The outliner and tags beside the viewport, with the entity's details
+    /// and the libraries, for organizing a model.
+    Organizing,
+    /// The viewport alone, for presenting.
+    ViewportOnly,
+}
+
+impl LayoutPreset {
+    const ALL: [LayoutPreset; 3] = [
+        LayoutPreset::Modeling,
+        LayoutPreset::Organizing,
+        LayoutPreset::ViewportOnly,
+    ];
+
+    fn label(self) -> String {
+        match self {
+            LayoutPreset::Modeling => t("Modeling"),
+            LayoutPreset::Organizing => t("Organizing"),
+            LayoutPreset::ViewportOnly => t("Viewport Only"),
+        }
+    }
+
+    fn layout(self) -> Tree<Pane> {
+        match self {
+            LayoutPreset::Modeling => default_layout(),
+            LayoutPreset::Organizing => {
+                let mut tiles = Tiles::default();
+                let view = tiles.insert_pane(Pane::Viewport);
+                let outliner = tiles.insert_pane(Pane::Outliner);
+                let tags = tiles.insert_pane(Pane::Tags);
+                let info = tiles.insert_pane(Pane::EntityInfo);
+                let components = tiles.insert_pane(Pane::Components);
+                let materials = tiles.insert_pane(Pane::Materials);
+                let scenes = tiles.insert_pane(Pane::Scenes);
+                let tools = tiles.insert_pane(Pane::ToolOptions);
+                let left = tiles.insert_vertical_tile(vec![outliner, tags]);
+                let details = tiles.insert_tab_tile(vec![info, components, materials]);
+                let lower = tiles.insert_tab_tile(vec![scenes, tools]);
+                let right = tiles.insert_vertical_tile(vec![details, lower]);
+                let root = tiles.insert_horizontal_tile(vec![left, view, right]);
+                if let Some(Tile::Container(Container::Linear(linear))) = tiles.get_mut(root) {
+                    linear.shares.set_share(left, 0.26);
+                    linear.shares.set_share(view, 0.52);
+                    linear.shares.set_share(right, 0.22);
+                }
+                Tree::new("planyrith-docks", root, tiles)
+            }
+            LayoutPreset::ViewportOnly => {
+                let mut tiles = Tiles::default();
+                let view = tiles.insert_pane(Pane::Viewport);
+                Tree::new("planyrith-docks", view, tiles)
+            }
+        }
+    }
+}
+
 /// Something that waits for the user to accept losing unsaved changes.
 #[derive(Debug, Clone)]
 enum Pending {
@@ -1600,6 +1661,14 @@ impl App {
                     self.extensions.console_open = true;
                     ui.close();
                 }
+                ui.menu_button(t("Layout Presets"), |ui| {
+                    for preset in LayoutPreset::ALL {
+                        if ui.button(preset.label()).clicked() {
+                            self.tree = preset.layout();
+                            ui.close();
+                        }
+                    }
+                });
                 if ui.button(t("Reset Layout")).clicked() {
                     self.tree = default_layout();
                     ui.close();
@@ -3099,6 +3168,42 @@ mod tests {
         assert_eq!(shell.app.session.path.as_deref(), Some(exported.as_path()));
         assert_eq!(&std::fs::read(&exported).unwrap()[..3], [255, 254, 255]);
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn layout_presets_hold_the_viewport_once() {
+        for preset in LayoutPreset::ALL {
+            let tree = preset.layout();
+            let panes: Vec<Pane> = tree
+                .tiles
+                .iter()
+                .filter_map(|(_, tile)| match tile {
+                    Tile::Pane(pane) => Some(*pane),
+                    Tile::Container(_) => None,
+                })
+                .collect();
+            assert_eq!(
+                panes.iter().filter(|p| **p == Pane::Viewport).count(),
+                1,
+                "{preset:?}"
+            );
+            let unique: std::collections::BTreeSet<String> =
+                panes.iter().map(|p| format!("{p:?}")).collect();
+            assert_eq!(unique.len(), panes.len(), "{preset:?} repeats a panel");
+        }
+        assert!(
+            LayoutPreset::Organizing
+                .layout()
+                .tiles
+                .iter()
+                .any(|(_, t)| matches!(t, Tile::Pane(Pane::Outliner)))
+        );
+        // Every preset draws.
+        let mut shell = Shell::new();
+        for preset in LayoutPreset::ALL {
+            shell.app.tree = preset.layout();
+            shell.frame(Vec::new());
+        }
     }
 
     #[test]

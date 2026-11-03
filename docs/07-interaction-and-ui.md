@@ -208,6 +208,12 @@ collected by clicks: e.g. segments for Circle, array count, copy toggle).
 
 ## Decisions
 
+- 2026-11-03 — **Layout presets.** Window › Layout Presets ► offers Modeling (the
+  default layout, also what Reset Layout restores), Organizing (outliner and tags
+  in a tall left column; entity details, components and materials on the right)
+  and Viewport Only (for presenting). A preset replaces the current arrangement;
+  the result is saved like any layout.
+
 - 2026-11-03 — **Preferences (1.0, first part).** Window › Preferences… (Ctrl+,)
   gathers the per-user settings that exist: General (language, theme, interface
   size), Accessibility (high-contrast snap marks, color-blind safe axes) and Files

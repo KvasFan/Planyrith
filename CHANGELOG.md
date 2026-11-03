@@ -6,6 +6,8 @@ All notable changes to Planyrith are recorded here. Versions follow
 
 ## Unreleased
 
+- Window › Layout Presets: Modeling, Organizing (outliner and tags beside the
+  model) and Viewport Only.
 - Window › Preferences… (Ctrl+,) gathers the interface settings in one place:
   language, theme, interface size, accessibility options and the recent list.
 - A macOS disk image: one application for Apple silicon and Intel Macs, macOS 11
