@@ -2,6 +2,8 @@ param([Parameter(Mandatory=$true)][string]$Package, [Parameter(Mandatory=$true)]
 # Installs the per-user MSI silently, exercises the installed programs and
 # association, then uninstalls it and checks nothing is left (docs/16).
 $ErrorActionPreference = 'Stop'
+# msiexec refuses paths that mix / and \ (error 1619).
+$Package = (Resolve-Path -LiteralPath $Package).Path
 $log = Join-Path $env:RUNNER_TEMP 'planyrith-msi.log'
 $process = Start-Process -FilePath msiexec.exe -ArgumentList @('/i', "`"$Package`"", '/qn', '/l*v', "`"$log`"") -Wait -PassThru
 if ($process.ExitCode -ne 0) { Get-Content $log -Tail 60; throw "MSI install failed: $($process.ExitCode)" }
