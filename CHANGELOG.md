@@ -6,6 +6,9 @@ All notable changes to Planyrith are recorded here. Versions follow
 
 ## Unreleased
 
+- The `.plyr` format is frozen at version 1: later versions may add to it but
+  never drop or change what it holds, so files saved now open unchanged in every
+  later 1.x. A corpus written by every command checks this on each build.
 - A Windows Installer package (`.msi`) alongside the setup program, for scripted
   and managed installs: per-user, no administrator rights, the format module as
   a removable feature. `cargo xtask msi` builds it.

@@ -592,6 +592,10 @@ fn textured_cabinet_acceptance() {
 /// `tests/commands/<name>.plyrb` whose result validates clean and whose
 /// canonical export matches `tests/golden/commands/<name>.json`
 /// (`PLANYRITH_UPDATE_GOLDEN=1` accepts changes).
+///
+/// `PLANYRITH_NATIVE_FIXTURES=<dir>` also copies each resulting `.plyr` to
+/// `<dir>/<name>.plyr` unless it exists: the frozen format corpus
+/// (`tools/native-fixtures.sh`, docs/09 §9) only ever gains files.
 #[test]
 fn every_command_matches_its_golden_file() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
@@ -622,6 +626,7 @@ fn every_command_matches_its_golden_file() {
     assert_eq!(batches, expected, "one batch per registered command");
 
     let update = std::env::var_os("PLANYRITH_UPDATE_GOLDEN").is_some();
+    let fixtures = std::env::var_os("PLANYRITH_NATIVE_FIXTURES").map(PathBuf::from);
     let dir = scratch("commands");
     // Batches run in the scratch directory, where these textures are.
     std::fs::create_dir_all(dir.join("textures")).unwrap();
@@ -652,6 +657,13 @@ fn every_command_matches_its_golden_file() {
             .assert()
             .success();
         planyrith().args(["validate", "-f", d]).assert().success();
+        if let Some(fixtures) = &fixtures {
+            let frozen = fixtures.join(format!("{name}.plyr"));
+            if !frozen.exists() {
+                std::fs::create_dir_all(fixtures).unwrap();
+                std::fs::copy(&doc, &frozen).unwrap();
+            }
+        }
         planyrith()
             .args([
                 "export",

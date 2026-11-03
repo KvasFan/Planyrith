@@ -641,17 +641,26 @@ fn decode_document(bytes: &[u8], format_version: u32) -> Result<Document, IoErro
     let mut document: Document = if format_version >= FORMAT_VERSION {
         rmp_serde::from_slice(bytes).map_err(undecodable)?
     } else {
-        let tree: serde_json::Value = rmp_serde::from_slice(bytes).map_err(undecodable)?;
-        let tree = migrate::migrate(tree, format_version)?;
-        serde_json::from_value(tree).map_err(|e| {
-            IoError::corrupt(
-                parts::DOCUMENT,
-                format!("migrated document is invalid: {e}"),
-            )
-        })?
+        decode_migrated(bytes, format_version)?
     };
     document.info.format_version = FORMAT_VERSION;
     Ok(document)
+}
+
+/// Decodes `document.msgpack` written at an older `format_version` through
+/// the migration tree, re-encoded so it decodes exactly like a current part.
+fn decode_migrated(bytes: &[u8], format_version: u32) -> Result<Document, IoError> {
+    let invalid = |e: String| {
+        IoError::corrupt(
+            parts::DOCUMENT,
+            format!("migrated document is invalid: {e}"),
+        )
+    };
+    let tree = migrate::decode_tree(bytes)
+        .map_err(|e| IoError::corrupt(parts::DOCUMENT, format!("undecodable document: {e}")))?;
+    let tree = migrate::migrate(tree, format_version)?;
+    let bytes = migrate::encode_tree(&tree).map_err(|e| invalid(e.to_string()))?;
+    rmp_serde::from_slice(&bytes).map_err(|e| invalid(e.to_string()))
 }
 
 /// Decodes the header of an image part and enforces the pixel cap

@@ -80,6 +80,11 @@ control via `planyrith export --format json`. It is **not** required to load the
 - Migrations live in `io::native::migrate::vN_to_vN+1` and are pure functions on the deserialized
   intermediate (`serde_value`-like tree) applied in sequence; every migration has a fixture pair.
 - Policy: readers support all versions since 0.1; writers always write the latest.
+- Frozen versions (1.0 and later): once released, a version's schema only grows. A
+  writer of that version may add a field (absent means its default) but never
+  removes, renames, retypes or reinterprets one, and never adds an enum variant an
+  older reader would meet. Anything else needs the next `format_version`, a
+  migration, and `min_reader_version` raised when older readers cannot ignore it.
 
 ## 5. Interchange formats — scope
 
@@ -137,13 +142,23 @@ save unless `--no-thumbnail`. `manifest.json` carries `title`, `author`, `descri
 
 ## 9. Compatibility tests
 
-- Golden `.plyr` fixtures for every `format_version` since 0.1 under
-  `crates/planyrith-core/tests/fixtures/native/`.
+- Golden `.plyr` fixtures for every frozen `format_version` under
+  `crates/planyrith-core/tests/fixtures/native/v<N>/`: one per command, written by
+  that command's CLI batch (`tools/native-fixtures.sh`, which only adds missing
+  files). Each must load without warnings, and saving it again must keep every
+  stored key and value of `document.msgpack` and `sheets.msgpack`; unknown fields
+  must be ignored.
 - Round-trip tests per interchange format: import → export → import ⇒ same topology counts and
   bounds within tolerance; glTF/OBJ validated with external validators in CI when available.
 
 ## Decisions
 
+- 2026-11-03 — **`format_version` 1 frozen (1.0).** Files written since 0.1
+  kept version 1 because every change was an added, defaulted field. The 1.0
+  freeze makes that the rule (§4) and checks it on a corpus written by every
+  command (§9). Earlier releases' files were not kept as a corpus, so it starts
+  with what this revision writes; the older `.plyr` test files elsewhere under
+  `tests/fixtures/` still load.
 - 2026-10-31 — **Historical models and native-default saves (alpha.2).** The
   user expanded the minimum import target to 2013. Parse pre-2017 preambles
   without pid masks, use stable object-map identities for references, read the
