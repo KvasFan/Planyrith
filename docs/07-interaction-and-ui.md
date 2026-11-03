@@ -226,9 +226,13 @@ collected by clicks: e.g. segments for Circle, array count, copy toggle).
   gathers the per-user settings that exist: General (language, theme, interface
   size), Accessibility (high-contrast snap marks, color-blind safe axes) and Files
   (clear the recent list). The View menu keeps the same entries for quick access;
-  both use the same setters, and every change applies and is saved at once. The
-  other §8 groups (click style, default folders, autosave interval, MSAA,
-  shortcut remapping, image editor) are added with the settings themselves.
+  both use the same setters, and every change applies and is saved at once.
+  Later the same day: Drawing (snap distance 4–24 px, default 8, the §4 pixel
+  tolerance; "Scrolling up zooms out" for the Compatibility wheel direction) and
+  Graphics (antialiasing: 4× multisampling or none, for slow hardware; changing
+  it makes a new renderer, which rebuilds its meshes). Still to come with the
+  settings themselves: click style, default folders, autosave interval, shortcut
+  remapping, image editor.
 
 - 2026-11-03 — **Errors and the remaining texts in the interface language.** The
   core's errors carry English details (reasons, names, positions) written where

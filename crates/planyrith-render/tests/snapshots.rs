@@ -565,6 +565,58 @@ fn distant_textures_blend_to_their_average() {
 
 /// The axes take the renderer's palette (docs/07 §12): with vermilion
 /// for the red axis, the axes show vermilion and no longer the usual red.
+/// Without multisampling (Preferences › Graphics) the same scene draws,
+/// with hard instead of blended edges.
+#[test]
+fn single_sample_draws_the_same_scene() {
+    let Some(gpu) = gpu() else { return };
+    let e = room();
+    let doc = e.document();
+    let draw = |msaa: u32| {
+        let mut renderer = Renderer::new(
+            gpu.device.clone(),
+            gpu.queue.clone(),
+            RendererOptions {
+                msaa,
+                ..RendererOptions::default()
+            },
+        );
+        frame(
+            &mut renderer,
+            doc,
+            &Selection::new(),
+            &EditContext::model(),
+            &doc.camera,
+            &Style::default(),
+            true,
+        )
+    };
+    let (smooth, hard) = (draw(4), draw(1));
+    // Mostly the same pixels; they differ only along edges.
+    let differing = smooth
+        .pixels()
+        .zip(hard.pixels())
+        .filter(|(a, b)| a.0.iter().zip(b.0).any(|(x, y)| x.abs_diff(y) > 24))
+        .count();
+    let total = (WIDTH * HEIGHT) as usize;
+    let drawn = |image: &image::RgbaImage| {
+        image
+            .pixels()
+            .filter(|p| p.0[..3].iter().any(|c| *c < 235))
+            .count()
+    };
+    assert!(
+        drawn(&hard) > total / 5,
+        "the room is drawn: {}",
+        drawn(&hard)
+    );
+    assert!(drawn(&hard).abs_diff(drawn(&smooth)) < total / 50);
+    assert!(
+        differing < total / 10,
+        "{differing} of {total} pixels differ"
+    );
+}
+
 #[test]
 fn axes_follow_the_palette() {
     let Some(gpu) = gpu() else { return };

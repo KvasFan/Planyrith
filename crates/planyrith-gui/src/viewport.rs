@@ -75,6 +75,15 @@ pub struct Viewport {
     pub high_contrast: bool,
     /// The axes' colors (docs/07 §12).
     pub axis_palette: AxisPalette,
+    /// Preferences › Graphics: draw without multisampling.
+    pub antialiasing_off: bool,
+    /// Preferences › Drawing: snap distance in pixels (`None`: the default,
+    /// docs/07 §4).
+    pub snap_px: Option<f64>,
+    /// Preferences › Compatibility: the wheel zooms the other way.
+    pub invert_wheel: bool,
+    /// The multisampling the current renderer was made with.
+    renderer_msaa: u32,
     nav: Option<NavDrag>,
     last_hover: Option<egui::Pos2>,
     /// What the pointer is over, for the status bar.
@@ -337,7 +346,8 @@ impl Viewport {
             self.nav = None;
         }
         if response.hovered() {
-            let scroll = ui.input(|i| i.smooth_scroll_delta.y);
+            let scroll =
+                ui.input(|i| i.smooth_scroll_delta.y) * if self.invert_wheel { -1.0 } else { 1.0 };
             if scroll.abs() > 0.0
                 && let Some(pos) = response.hover_pos()
             {
@@ -403,7 +413,9 @@ impl Viewport {
             };
             let req = InferenceRequest {
                 ray,
-                pixel_tolerance: InferenceRequest::DEFAULT_PIXEL_TOLERANCE,
+                pixel_tolerance: self
+                    .snap_px
+                    .unwrap_or(InferenceRequest::DEFAULT_PIXEL_TOLERANCE),
                 view: ViewMetrics::for_camera(&camera, f64::from(rect.height())),
                 constraint: setup.constraint,
                 reference_point: setup.reference,
@@ -556,12 +568,19 @@ impl Viewport {
         let Some(render_state) = render_state else {
             return flows;
         };
+        let msaa = if self.antialiasing_off { 1 } else { 4 };
+        if self.renderer_msaa != msaa {
+            // Multisampling is fixed per renderer: a new one rebuilds its
+            // meshes from the document.
+            self.renderer = None;
+            self.renderer_msaa = msaa;
+        }
         let renderer = self.renderer.get_or_insert_with(|| {
             Renderer::new(
                 render_state.device.clone(),
                 render_state.queue.clone(),
                 RendererOptions {
-                    msaa: 4,
+                    msaa,
                     pixels_per_point: ppp,
                     ..RendererOptions::default()
                 },

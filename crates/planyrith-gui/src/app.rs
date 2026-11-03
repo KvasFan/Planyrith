@@ -222,6 +222,12 @@ struct Settings {
     high_contrast: bool,
     /// The axes' colors (docs/07 §12).
     axis_palette: crate::viewport::AxisPalette,
+    /// Preferences › Graphics: multisampling.
+    antialiasing: bool,
+    /// Preferences › Drawing: snap distance in pixels (docs/07 §4).
+    snap_px: f32,
+    /// Preferences › Compatibility: the wheel zooms the other way.
+    invert_wheel: bool,
 }
 
 impl Default for Settings {
@@ -235,9 +241,15 @@ impl Default for Settings {
             ui_scale: 1.0,
             high_contrast: false,
             axis_palette: crate::viewport::AxisPalette::Standard,
+            antialiasing: true,
+            snap_px: DEFAULT_SNAP_PX,
+            invert_wheel: false,
         }
     }
 }
+
+/// The inference engine's pick radius (docs/07 §4).
+const DEFAULT_SNAP_PX: f32 = 8.0;
 
 const LAYOUT_KEY: &str = "planyrith.layout.v3";
 const SETTINGS_KEY: &str = "planyrith.settings";
@@ -2087,6 +2099,32 @@ impl App {
                 );
                 self.axis_palette_checkbox(ui);
                 ui.add_space(8.0);
+                ui.heading(t("Drawing"));
+                ui.horizontal(|ui| {
+                    ui.label(t("Snap distance"));
+                    ui.add(
+                        egui::Slider::new(&mut self.settings.snap_px, 4.0..=24.0)
+                            .step_by(1.0)
+                            .suffix(" px"),
+                    )
+                    .on_hover_text(t(
+                        "How close the pointer must come to snap to a point or edge",
+                    ));
+                    if (self.settings.snap_px - DEFAULT_SNAP_PX).abs() > 0.1
+                        && ui.small_button(t("Default")).clicked()
+                    {
+                        self.settings.snap_px = DEFAULT_SNAP_PX;
+                    }
+                });
+                ui.checkbox(&mut self.settings.invert_wheel, t("Scrolling up zooms out"));
+                ui.add_space(8.0);
+                ui.heading(t("Graphics"));
+                ui.checkbox(
+                    &mut self.settings.antialiasing,
+                    t("Smooth edges (antialiasing)"),
+                )
+                .on_hover_text(t("Turn off on slow graphics hardware"));
+                ui.add_space(8.0);
                 ui.heading(t("Files"));
                 ui.horizontal(|ui| {
                     ui.label(t_args(
@@ -2775,6 +2813,9 @@ impl egui_tiles::Behavior<Pane> for Docks<'_> {
                         v.show_axes = self.viewport.show_axes;
                         v.high_contrast = self.viewport.high_contrast;
                         v.axis_palette = self.viewport.axis_palette;
+                        v.antialiasing_off = self.viewport.antialiasing_off;
+                        v.snap_px = self.viewport.snap_px;
+                        v.invert_wheel = self.viewport.invert_wheel;
                     }
                     let full = ui.available_rect_before_wrap();
                     let gap = 2.0;
@@ -2938,6 +2979,9 @@ impl App {
         self.viewport.show_axes = self.settings.show_axes;
         self.viewport.high_contrast = self.settings.high_contrast;
         self.viewport.axis_palette = self.settings.axis_palette;
+        self.viewport.antialiasing_off = !self.settings.antialiasing;
+        self.viewport.snap_px = Some(f64::from(self.settings.snap_px.clamp(4.0, 24.0)));
+        self.viewport.invert_wheel = self.settings.invert_wheel;
         // The header band: menus and toolbar share one surface, as does the
         // status bar below (docs/07 Decisions, 2026-11-03).
         let header = theme::header(ui.visuals());
@@ -3698,6 +3742,25 @@ mod tests {
         assert!((old.ui_scale - 1.0).abs() < 1e-6);
         assert_eq!(old.language, crate::i18n::LanguageChoice::System);
         assert_eq!(old.theme, ThemeChoice::Dark);
+        assert!(old.antialiasing && !old.invert_wheel);
+        assert!((old.snap_px - DEFAULT_SNAP_PX).abs() < 1e-6);
+    }
+
+    /// Preferences reach every viewport: the wheel direction, the snap
+    /// distance and multisampling.
+    #[test]
+    fn drawing_and_graphics_preferences_reach_the_viewport() {
+        let mut shell = Shell::new();
+        shell.app.settings.invert_wheel = true;
+        shell.app.settings.snap_px = 16.0;
+        shell.app.settings.antialiasing = false;
+        shell.frame(Vec::new());
+        assert!(shell.app.viewport.invert_wheel && shell.app.viewport.antialiasing_off);
+        assert_eq!(shell.app.viewport.snap_px, Some(16.0));
+        // Out-of-range values from a hand-edited file are clamped.
+        shell.app.settings.snap_px = 1000.0;
+        shell.frame(Vec::new());
+        assert_eq!(shell.app.viewport.snap_px, Some(24.0));
     }
 
     #[test]
