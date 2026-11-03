@@ -23,6 +23,8 @@ mod resources;
 pub mod samples;
 pub mod session;
 mod theme;
+#[cfg(not(target_arch = "wasm32"))]
+mod thumbnails;
 mod tools;
 mod viewport;
 

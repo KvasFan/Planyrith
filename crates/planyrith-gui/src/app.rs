@@ -3031,6 +3031,13 @@ impl App {
                     error: None,
                 };
                 self.tree.ui(&mut docks, ui);
+                // One library picture per frame, after the panels asked.
+                #[cfg(not(target_arch = "wasm32"))]
+                if let Some(render_state) = render_state {
+                    docks.resources
+                        .library_thumbnails
+                        .draw_next(ui.ctx(), render_state);
+                }
                 let flows = std::mem::take(&mut docks.flows);
                 if let Some(e) = docks.error.take() {
                     self.message = Some((e, true));

@@ -227,6 +227,9 @@ pub struct ResourceState {
     material_search: String,
     /// The Components panel's search text (model and library).
     component_search: String,
+    /// Pictures of the library's component files, drawn by the application.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub library_thumbnails: crate::thumbnails::Thumbnails,
 }
 
 /// A search box above a list (docs/07 §6).
@@ -827,6 +830,7 @@ fn library(ui: &mut egui::Ui, state: &mut ResourceState) {
                 }
                 if ui.small_button(t("Refresh")).clicked() {
                     state.library_cache = None;
+                    state.library_thumbnails.clear();
                 }
                 if ui.small_button(t("Change…")).clicked() {
                     state.pick_library = true;
@@ -859,7 +863,21 @@ fn library(ui: &mut egui::Ui, state: &mut ResourceState) {
                                         open = Some(entry.path.clone());
                                     }
                                 } else if ui
-                                    .selectable_label(false, &entry.name)
+                                    .horizontal(|ui| {
+                                        match state.library_thumbnails.get(&entry.path) {
+                                            Some(picture) => {
+                                                ui.add(
+                                                    egui::Image::new(&picture)
+                                                        .fit_to_exact_size(egui::vec2(48.0, 48.0)),
+                                                );
+                                            }
+                                            None => {
+                                                ui.allocate_space(egui::vec2(48.0, 48.0));
+                                            }
+                                        }
+                                        ui.selectable_label(false, &entry.name)
+                                    })
+                                    .inner
                                     .on_hover_text(t("Click, then click in the model to place it"))
                                     .clicked()
                                 {
