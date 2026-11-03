@@ -10,7 +10,17 @@
 #
 # Usage: tools/ci-local.sh [commit]     (default: HEAD)
 # Needs podman, cargo-deny, chromium and chromedriver. State is in target/ci-local.
+#
+# It shares the machine with editors and other builds, so it stays modest:
+# PLANYRITH_CI_JOBS parallel compilations (8), containers capped at
+# PLANYRITH_CI_MEMORY without swap (24g), and a low priority. A build over
+# the cap stops alone instead of pushing the system out of memory.
 set -euo pipefail
+
+jobs="${PLANYRITH_CI_JOBS:-8}"
+memory="${PLANYRITH_CI_MEMORY:-24g}"
+export CARGO_BUILD_JOBS="$jobs"
+renice -n 10 -p $$ >/dev/null 2>&1 || true
 
 root="$(git rev-parse --show-toplevel)"
 sha="$(git -C "$root" rev-parse --verify "${1:-HEAD}^{commit}")"
@@ -49,9 +59,10 @@ container() {
     shift
   fi
   podman run --rm --init --userns=keep-id -w /work "${options[@]}" \
+    --memory="$memory" --memory-swap="$memory" \
     -v "$tree:/work" -v "$state/cargo:/opt/cargo" -v "$state/rustup:/opt/rustup" \
     -e HOME=/tmp -e CARGO_HOME=/opt/cargo -e RUSTUP_HOME=/opt/rustup \
-    -e PATH=/opt/cargo/bin:/usr/bin:/bin -e CI=true \
+    -e PATH=/opt/cargo/bin:/usr/bin:/bin -e CI=true -e CARGO_BUILD_JOBS="$jobs" \
     "$image" "$@"
 }
 

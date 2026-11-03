@@ -308,3 +308,9 @@ humans or GUI automation before releases, with expected screenshots.
   finely detailed objects seen from afar. Its cost follows those candidates, not the model;
   building each candidate in full could be avoided, but the order that picks the winner must
   stay deterministic, so it is left as a known case.
+- 2026-11-03 — **The local check stays modest.** The editor was closed twice by the system's
+  out-of-memory killer while several builds ran at once from it: everything a session starts
+  counts as the editor's memory, about 60 GB with 40 GB of swap at the time. `tools/ci-local.sh`
+  now runs at most `PLANYRITH_CI_JOBS` compilations at once (8), caps each container at
+  `PLANYRITH_CI_MEMORY` with no swap (24g), so a build over the cap stops alone, and runs at a
+  lower priority.
