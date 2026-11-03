@@ -208,6 +208,14 @@ collected by clicks: e.g. segments for Circle, array count, copy toggle).
 
 ## Decisions
 
+- 2026-11-03 — **Drag from panels.** A material (Materials), a component (Components)
+  or a component file (library) can be dragged into the viewport. Starting the drag
+  activates the tool the item already had (Paint with that material, placement of
+  that component), so the tool follows the pointer over the viewport with its
+  inference and preview; releasing there is that tool's click. Gluing, the painted
+  side and modifiers therefore behave as with the tool, and the tool stays active
+  afterwards. Dropping elsewhere does nothing.
+
 - 2026-11-03 — **Search in panels** (§6). Materials (model and bundled),
   Components (model and library folder) and the Outliner have a search field: a
   name matches when it contains every word typed, ignoring case. Library folders
@@ -455,7 +463,7 @@ collected by clicks: e.g. segments for Circle, array count, copy toggle).
   file activates placement from that file: each click runs `component-insert { path, position }`,
   so the first loads the component and the others reuse it by UUID, leaving nothing at the
   origin. Gluing applies once the component is in the model and placed from the model's list.
-  Drag into the viewport remains to do (search and thumbnails exist since 2026-11-03); the browser build has no folders
+  Search, thumbnails and dragging into the viewport exist since 2026-11-03; the browser build has no folders
   and shows no Library.
 - 2026-11-02 — **Texture pins** (docs/05 §5.9 interactive). Position Texture › Pins… activates
   the Texture Pins tool on the face: four pins at the corners of the texture's first repeat on

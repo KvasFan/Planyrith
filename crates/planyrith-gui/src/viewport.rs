@@ -59,6 +59,12 @@ pub struct Preview {
     pub serial: u64,
 }
 
+/// A component or material dragged from a panel (docs/07 §6). Starting the
+/// drag activates the tool that places or paints it; releasing over the
+/// viewport is that tool's click there.
+#[derive(Debug, Clone, Copy)]
+pub struct PanelDrop;
+
 /// Viewport state.
 #[derive(Default)]
 pub struct Viewport {
@@ -402,9 +408,18 @@ impl Viewport {
         // The pointer, through the inference engine (docs/03 §7).
         let unit = session.doc().info.display_units;
         let depth = camera.fit_depth(&session.doc().aabb());
+        // A drag from a panel does not hover the viewport, but its tool
+        // follows the pointer all the same.
+        let panel_drag = egui::DragAndDrop::has_payload_of_type::<PanelDrop>(ui.ctx())
+            && response.contains_pointer();
         let pointer_pos = response
             .hover_pos()
-            .or_else(|| response.interact_pointer_pos());
+            .or_else(|| response.interact_pointer_pos())
+            .or_else(|| {
+                panel_drag
+                    .then(|| ui.input(|i| i.pointer.latest_pos()))
+                    .flatten()
+            });
         let pointer = pointer_pos.filter(|_| self.nav.is_none()).map(|pos| {
             let ray = camera.ray_through_ndc(to_ndc(pos));
             let setup = {
@@ -514,7 +529,9 @@ impl Viewport {
                 self.tool_dragging = false;
                 flows.push(tool.drag(tools::Drag::End, p, p.screen, &cx));
             }
-            if response.clicked_by(PointerButton::Primary) {
+            if response.clicked_by(PointerButton::Primary)
+                || response.dnd_release_payload::<PanelDrop>().is_some()
+            {
                 flows.push(tool.click(p, &cx));
             }
             if response.double_clicked_by(PointerButton::Primary) {

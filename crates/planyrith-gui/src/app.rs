@@ -3976,6 +3976,80 @@ mod tests {
 
     /// docs/qa/model-a-room.md, automated: the same ten steps with synthetic
     /// mouse and keyboard input (docs/13 0.3 acceptance).
+    /// Dragging a material from its panel onto a face paints the face; the
+    /// drag activates Paint, and the release is its click (docs/07 §6).
+    #[test]
+    fn dragging_a_material_onto_a_face_paints_it() {
+        let mut shell = Shell::new();
+        let mut tiles = Tiles::default();
+        let view = tiles.insert_pane(Pane::Viewport);
+        let materials = tiles.insert_pane(Pane::Materials);
+        let root = tiles.insert_horizontal_tile(vec![view, materials]);
+        shell.app.tree = Tree::new("drag-test", root, tiles);
+        for (name, params) in [
+            (
+                "rectangle",
+                json!({ "corner_a": [0, 0, 0], "corner_b": [2000, 2000, 0] }),
+            ),
+            (
+                "push-pull",
+                json!({ "face": { "Query": "face & last" }, "distance": 1000 }),
+            ),
+            (
+                "material-create",
+                json!({ "name": "Red", "color": "#C03030" }),
+            ),
+            (
+                "position-camera",
+                json!({ "eye": [-3000, -4000, 5000], "target": [1000, 1000, 500] }),
+            ),
+        ] {
+            shell.app.session.execute(name, params).unwrap();
+        }
+        shell.frame(Vec::new());
+        shell.frame(Vec::new());
+        let label = shell
+            .ctx
+            .read_response(egui::Id::new(("drag material", "Red")))
+            .expect("the material is listed")
+            .rect
+            .center();
+        let target = shell.screen(DVec3::new(1000.0, 1000.0, 1000.0));
+        let button = |pos, pressed| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        shell.frame(vec![egui::Event::PointerMoved(label)]);
+        shell.frame(vec![button(label, true)]);
+        for i in 1..=10 {
+            let pos = label + (target - label) * (i as f32 / 10.0);
+            shell.frame(vec![egui::Event::PointerMoved(pos)]);
+        }
+        eprintln!(
+            "DBG tool {} payload {} label {label:?} target {target:?}",
+            shell.app.tools[shell.app.active].0.command(),
+            egui::DragAndDrop::has_payload_of_type::<crate::viewport::PanelDrop>(&shell.ctx)
+        );
+        shell.frame(vec![button(target, false)]);
+        shell.frame(Vec::new());
+        eprintln!(
+            "DBG after tool {} msg {:?}",
+            shell.app.tools[shell.app.active].0.command(),
+            shell.app.message
+        );
+        let doc = shell.app.session.doc();
+        let red = doc.materials.by_name("Red").unwrap();
+        let painted = doc
+            .model
+            .mesh()
+            .faces()
+            .filter(|(_, f)| f.sides.material_front == Some(red))
+            .count();
+        assert_eq!(painted, 1, "the top face is red");
+    }
+
     #[test]
     fn qa_model_a_room_in_ten_steps() {
         let mut shell = Shell::new();

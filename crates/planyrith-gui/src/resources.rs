@@ -227,6 +227,8 @@ pub struct ResourceState {
     material_search: String,
     /// The Components panel's search text (model and library).
     component_search: String,
+    /// The panel item being dragged, whose tool is already active.
+    dragging: Option<egui::Id>,
     /// Pictures of the library's component files, drawn by the application.
     #[cfg(not(target_arch = "wasm32"))]
     pub library_thumbnails: crate::thumbnails::Thumbnails,
@@ -244,6 +246,19 @@ pub(crate) fn search_field(ui: &mut egui::Ui, text: &mut String) {
             text.clear();
         }
     });
+}
+
+/// `true` once, when the drag of the item `id` begins (its tool should
+/// activate then and stay active for the rest of the drag).
+fn drag_began(ui: &egui::Ui, dragging: &mut Option<egui::Id>, id: egui::Id) -> bool {
+    if ui.ctx().dragged_id().is_none() {
+        *dragging = None;
+    }
+    if ui.ctx().is_being_dragged(id) && *dragging != Some(id) {
+        *dragging = Some(id);
+        return true;
+    }
+    false
 }
 
 /// Whether `name` matches the search `query`: every word of the query occurs
@@ -431,14 +446,18 @@ pub fn materials(
                         None => swatch(ui, *color, *textured),
                     }
                     let selected = state.selected_material.as_deref() == Some(name.as_str());
-                    let label = ui.selectable_label(selected, name);
+                    let id = egui::Id::new(("drag material", name));
+                    let drag = ui.dnd_drag_source(id, crate::viewport::PanelDrop, |ui| {
+                        ui.selectable_label(selected, name)
+                    });
+                    let label = drag.inner;
                     if label.clicked() {
                         state.selected_material = Some(name.clone());
                     }
-                    if label.double_clicked() {
+                    if label.double_clicked() || drag_began(ui, &mut state.dragging, id) {
                         state.activate = Some(ToolRequest::Paint(name.clone()));
                     }
-                    label.on_hover_text(t("Double-click to paint with it"));
+                    label.on_hover_text(t("Double-click to paint with it, or drag it onto a face"));
                 });
             }
         });
@@ -679,17 +698,24 @@ pub fn components(
                         ("count", count.to_string().into()),
                     ],
                 ));
-                let label = ui.selectable_label(selected, text);
+                let id = egui::Id::new(("drag component", name));
+                let drag = ui.dnd_drag_source(id, crate::viewport::PanelDrop, |ui| {
+                    ui.selectable_label(selected, text)
+                });
+                let label = drag.inner;
                 if label.clicked() {
                     state.selected_component = Some(name.clone());
                 }
-                if label.double_clicked() {
+                if label.double_clicked() || drag_began(ui, &mut state.dragging, id) {
                     state.activate = Some(ToolRequest::Place(name.clone()));
                 }
                 let hover = if description.is_empty() {
-                    t("Double-click to place it")
+                    t("Double-click to place it, or drag it into the model")
                 } else {
-                    format!("{description}\n{}", t("Double-click to place it"))
+                    format!(
+                        "{description}\n{}",
+                        t("Double-click to place it, or drag it into the model")
+                    )
                 };
                 label.on_hover_text(hover);
             }
@@ -862,28 +888,40 @@ fn library(ui: &mut egui::Ui, state: &mut ResourceState) {
                                     {
                                         open = Some(entry.path.clone());
                                     }
-                                } else if ui
-                                    .horizontal(|ui| {
-                                        match state.library_thumbnails.get(&entry.path) {
-                                            Some(picture) => {
-                                                ui.add(
-                                                    egui::Image::new(&picture)
-                                                        .fit_to_exact_size(egui::vec2(48.0, 48.0)),
-                                                );
-                                            }
-                                            None => {
-                                                ui.allocate_space(egui::vec2(48.0, 48.0));
-                                            }
-                                        }
-                                        ui.selectable_label(false, &entry.name)
-                                    })
-                                    .inner
-                                    .on_hover_text(t("Click, then click in the model to place it"))
-                                    .clicked()
-                                {
-                                    state.activate = Some(ToolRequest::PlaceFile(
-                                        entry.path.to_string_lossy().into_owned(),
+                                } else {
+                                    let picture = state.library_thumbnails.get(&entry.path);
+                                    let id = egui::Id::new(("drag library", &entry.path));
+                                    let drag = ui.dnd_drag_source(
+                                        id,
+                                        crate::viewport::PanelDrop,
+                                        |ui| {
+                                            ui.horizontal(|ui| {
+                                                match &picture {
+                                                    Some(picture) => {
+                                                        ui.add(
+                                                            egui::Image::new(picture)
+                                                                .fit_to_exact_size(egui::vec2(
+                                                                    48.0, 48.0,
+                                                                )),
+                                                        );
+                                                    }
+                                                    None => {
+                                                        ui.allocate_space(egui::vec2(48.0, 48.0));
+                                                    }
+                                                }
+                                                ui.selectable_label(false, &entry.name)
+                                            })
+                                            .inner
+                                        },
+                                    );
+                                    let label = drag.inner.on_hover_text(t(
+                                        "Click, then click in the model to place it, or drag it there",
                                     ));
+                                    if label.clicked() || drag_began(ui, &mut state.dragging, id) {
+                                        state.activate = Some(ToolRequest::PlaceFile(
+                                            entry.path.to_string_lossy().into_owned(),
+                                        ));
+                                    }
                                 }
                             }
                         });
