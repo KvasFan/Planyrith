@@ -71,6 +71,8 @@ pub struct Viewport {
     pub show_hidden: bool,
     /// Draw the drawing axes (View › Axes).
     pub show_axes: bool,
+    /// Larger, thicker snap marks on a dark halo (docs/07 §12).
+    pub high_contrast: bool,
     nav: Option<NavDrag>,
     last_hover: Option<egui::Pos2>,
     /// What the pointer is over, for the status bar.
@@ -720,7 +722,14 @@ impl Viewport {
                 ui.ctx()
                     .request_repaint_after(std::time::Duration::from_secs_f64(LABEL_AFTER_S));
             }
-            paint_inference(&painter, &cx, &p.inference, p.screen, show_label);
+            paint_inference(
+                &painter,
+                &cx,
+                &p.inference,
+                p.screen,
+                show_label,
+                self.high_contrast,
+            );
         }
         if let Some(p) = &pointer
             && self.nav.is_none()
@@ -999,6 +1008,7 @@ fn paint_inference(
     inf: &Inference,
     cursor: egui::Pos2,
     show_label: bool,
+    high_contrast: bool,
 ) {
     let Some(s) = cx.to_screen(inf.point) else {
         return;
@@ -1033,38 +1043,59 @@ fn paint_inference(
     let green = Color32::from_rgb(0, 170, 0);
     let red = Color32::from_rgb(220, 30, 30);
     let blue = Color32::from_rgb(40, 70, 230);
+    let cyan = Color32::from_rgb(0, 190, 210);
+    // Each kind has its own shape, not only its own color (docs/07 §12);
+    // high contrast draws them larger, thicker and on a dark halo.
+    let k = if high_contrast { 1.6 } else { 1.0 };
+    let w = |width: f32| if high_contrast { width + 1.0 } else { width };
+    let halo = |painter: &egui::Painter, radius: f32| {
+        if high_contrast {
+            painter.circle_filled(s, radius, Color32::from_black_alpha(150));
+        }
+    };
     match inf.kind {
         InferenceKind::Endpoint => {
-            painter.circle(s, 4.5, green, Stroke::new(1.0, Color32::BLACK));
+            halo(painter, 8.0 * k);
+            painter.circle(s, 4.5 * k, green, Stroke::new(w(1.0), Color32::BLACK));
         }
         InferenceKind::Midpoint => {
-            painter.circle(
-                s,
-                4.5,
-                Color32::from_rgb(0, 190, 210),
-                Stroke::new(1.0, Color32::BLACK),
-            );
+            halo(painter, 8.0 * k);
+            let d = 5.5 * k;
+            let points = vec![
+                s + Vec2::new(0.0, -d),
+                s + Vec2::new(d * 0.87, d * 0.5),
+                s + Vec2::new(-d * 0.87, d * 0.5),
+            ];
+            painter.add(egui::Shape::convex_polygon(
+                points,
+                cyan,
+                Stroke::new(w(1.0), Color32::BLACK),
+            ));
         }
         InferenceKind::Intersection => {
-            let d = 5.0;
-            let stroke = Stroke::new(2.0, red);
+            halo(painter, 8.0 * k);
+            let d = 5.0 * k;
+            let stroke = Stroke::new(w(2.0), red);
             painter.line_segment([s + Vec2::new(-d, -d), s + Vec2::new(d, d)], stroke);
             painter.line_segment([s + Vec2::new(-d, d), s + Vec2::new(d, -d)], stroke);
         }
         InferenceKind::Center => {
-            painter.circle_stroke(s, 5.0, Stroke::new(1.5, blue));
-            painter.circle_filled(s, 1.5, blue);
+            halo(painter, 8.0 * k);
+            painter.circle_stroke(s, 5.0 * k, Stroke::new(w(1.5), blue));
+            painter.circle_filled(s, 1.5 * k, blue);
         }
         InferenceKind::OnEdge => {
+            halo(painter, 8.0 * k);
             painter.rect_stroke(
-                egui::Rect::from_center_size(s, egui::vec2(9.0, 9.0)),
+                egui::Rect::from_center_size(s, egui::vec2(9.0, 9.0) * k),
                 0.0,
-                Stroke::new(1.5, red),
+                Stroke::new(w(1.5), red),
                 egui::StrokeKind::Inside,
             );
         }
         InferenceKind::OnFace => {
-            let d = 5.0;
+            halo(painter, 8.0 * k);
+            let d = 5.0 * k;
             let points = vec![
                 s + Vec2::new(0.0, -d),
                 s + Vec2::new(d, 0.0),
@@ -1074,12 +1105,13 @@ fn paint_inference(
             painter.add(egui::Shape::convex_polygon(
                 points,
                 Color32::TRANSPARENT,
-                Stroke::new(1.5, blue),
+                Stroke::new(w(1.5), blue),
             ));
         }
         InferenceKind::Free | InferenceKind::OnPlane => {}
         _ => {
-            painter.circle_filled(s, 2.5, axis_color(inf.axis));
+            halo(painter, 5.0 * k);
+            painter.circle_filled(s, 2.5 * k, axis_color(inf.axis));
         }
     }
     let mut label = if inf.label.is_empty() {

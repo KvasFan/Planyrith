@@ -157,6 +157,8 @@ struct Settings {
     language: crate::i18n::LanguageChoice,
     /// The interface's size, 0.75 to 2 (docs/07 §12 "UI scale").
     ui_scale: f32,
+    /// High-contrast snap marks (docs/07 §12).
+    high_contrast: bool,
 }
 
 impl Default for Settings {
@@ -168,6 +170,7 @@ impl Default for Settings {
             component_library: None,
             language: crate::i18n::LanguageChoice::System,
             ui_scale: 1.0,
+            high_contrast: false,
         }
     }
 }
@@ -1427,6 +1430,10 @@ impl App {
                         }
                     }
                 });
+                ui.checkbox(
+                    &mut self.settings.high_contrast,
+                    t("High-Contrast Snap Marks"),
+                );
                 ui.menu_button(t("Interface Size"), |ui| {
                     for scale in [0.75f32, 1.0, 1.25, 1.5, 1.75, 2.0] {
                         let label = format!("{:.0} %", scale * 100.0);
@@ -2492,6 +2499,7 @@ impl egui_tiles::Behavior<Pane> for Docks<'_> {
                         v.apply_deltas(&deltas);
                         v.show_hidden = self.viewport.show_hidden;
                         v.show_axes = self.viewport.show_axes;
+                        v.high_contrast = self.viewport.high_contrast;
                     }
                     let full = ui.available_rect_before_wrap();
                     let gap = 2.0;
@@ -2653,6 +2661,7 @@ impl App {
         self.update_preview(&ctx);
         self.play_scenes(&ctx);
         self.viewport.show_axes = self.settings.show_axes;
+        self.viewport.high_contrast = self.settings.high_contrast;
         // The header band: menus and toolbar share one surface, as does the
         // status bar below (docs/07 Decisions, 2026-11-03).
         let header = theme::header(ui.visuals());

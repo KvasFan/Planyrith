@@ -206,6 +206,7 @@ t-hidden = Nascosto
 t-hidden-geometry = Geometria nascosta
 t-hidden-line = Linee nascoste
 t-hide = Nascondi
+t-high-contrast-snap-marks = Segni di aggancio ad alto contrasto
 t-horizontal-faces = facce orizzontali
 t-image = Immagine
 t-images = Immagini

@@ -456,3 +456,8 @@ collected by clicks: e.g. segments for Circle, array count, copy toggle).
   interface from 75 to 200 % in steps of 25, on top of the system's own scaling; the 3D view's
   lines follow, as it reads the pixel density each frame. Ctrl+plus and Ctrl+minus change it too,
   and the value is saved with the user's settings (clamped to 75–200 % when read back).
+- 2026-11-03 — **Snap marks by shape (§12).** Every inference kind now has its own shape: endpoint
+  a filled circle, midpoint a filled triangle (it was a circle like the endpoint, told apart only
+  by color), intersection a cross, center a ring with a dot, on-edge a square, on-face a diamond.
+  View › High-Contrast Snap Marks draws them 60 % larger with thicker lines on a dark halo, in
+  every viewport; the choice is a user setting.
