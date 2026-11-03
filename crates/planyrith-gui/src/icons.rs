@@ -536,23 +536,20 @@ pub fn button(ui: &mut egui::Ui, icon: Icon, selected: bool, tooltip: &str) -> e
     let size = Vec2::splat(30.0);
     let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
     let visuals = ui.visuals();
+    // Flat: a soft fill on hover, the accent behind the active tool.
     let (fill, stroke, color) = if selected {
-        (
-            visuals.selection.bg_fill,
-            visuals.selection.stroke,
-            visuals.strong_text_color(),
-        )
+        (crate::theme::accent(visuals), Stroke::NONE, Color32::WHITE)
     } else if response.hovered() {
         (
             visuals.widgets.hovered.weak_bg_fill,
-            visuals.widgets.hovered.bg_stroke,
+            Stroke::NONE,
             visuals.strong_text_color(),
         )
     } else {
         (Color32::TRANSPARENT, Stroke::NONE, visuals.text_color())
     };
     ui.painter()
-        .rect(rect, 4.0, fill, stroke, egui::StrokeKind::Inside);
+        .rect(rect, 6.0, fill, stroke, egui::StrokeKind::Inside);
     paint(ui.painter(), rect.shrink(6.0), icon, color);
     response.on_hover_text(tooltip)
 }

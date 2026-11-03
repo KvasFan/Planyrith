@@ -162,7 +162,7 @@ impl Default for Settings {
         Settings {
             recent: Vec::new(),
             show_axes: true,
-            theme: ThemeChoice::System,
+            theme: ThemeChoice::default(),
             component_library: None,
             language: crate::i18n::LanguageChoice::System,
         }
@@ -2564,7 +2564,32 @@ impl egui_tiles::Behavior<Pane> for Docks<'_> {
     }
 
     fn tab_bar_color(&self, visuals: &egui::Visuals) -> egui::Color32 {
-        visuals.faint_bg_color
+        theme::header(visuals)
+    }
+
+    fn tab_outline_stroke(
+        &self,
+        _visuals: &egui::Visuals,
+        _tiles: &egui_tiles::Tiles<Pane>,
+        _tile_id: egui_tiles::TileId,
+        _state: &egui_tiles::TabState,
+    ) -> egui::Stroke {
+        // The active tab stands out by its fill, the panel's own surface.
+        egui::Stroke::NONE
+    }
+
+    fn tab_text_color(
+        &self,
+        visuals: &egui::Visuals,
+        _tiles: &egui_tiles::Tiles<Pane>,
+        _tile_id: egui_tiles::TileId,
+        state: &egui_tiles::TabState,
+    ) -> egui::Color32 {
+        if state.active {
+            visuals.strong_text_color()
+        } else {
+            visuals.weak_text_color()
+        }
     }
 
     fn tab_bar_height(&self, _style: &egui::Style) -> f32 {
@@ -2605,23 +2630,34 @@ impl App {
         self.update_preview(&ctx);
         self.play_scenes(&ctx);
         self.viewport.show_axes = self.settings.show_axes;
-        egui::Panel::top("menu").show(ui, |ui| self.menu_bar(ui));
+        // The header band: menus and toolbar share one surface, as does the
+        // status bar below (docs/07 Decisions, 2026-11-03).
+        let header = theme::header(ui.visuals());
+        egui::Panel::top("menu")
+            .frame(
+                egui::Frame::new()
+                    .fill(header)
+                    .inner_margin(egui::Margin::symmetric(6, 2)),
+            )
+            .show_separator_line(false)
+            .show(ui, |ui| self.menu_bar(ui));
         egui::Panel::top("toolbar")
             .frame(
                 egui::Frame::new()
-                    .fill(ui.visuals().panel_fill)
-                    .inner_margin(egui::Margin::symmetric(6, 3)),
+                    .fill(header)
+                    .inner_margin(egui::Margin::symmetric(6, 4)),
             )
             .show(ui, |ui| self.toolbar(ui));
         egui::Panel::bottom("status")
             .frame(
                 egui::Frame::new()
-                    .fill(ui.visuals().panel_fill)
-                    .inner_margin(egui::Margin::symmetric(8, 4)),
+                    .fill(header)
+                    .inner_margin(egui::Margin::symmetric(10, 5)),
             )
             .show(ui, |ui| self.status_bar(ui));
         egui::CentralPanel::default()
-            .frame(egui::Frame::new())
+            // The gaps between docked panels show the header band's color.
+            .frame(egui::Frame::new().fill(header))
             .show(ui, |ui| {
                 self.sheets.tabs(ui, &mut self.session);
                 if self.sheets.open {

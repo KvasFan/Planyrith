@@ -214,6 +214,15 @@ impl Sheets {
     }
     /// Workspace tabs and the model-view camera editing transition.
     pub fn tabs(&mut self, ui: &mut egui::Ui, session: &mut Session) {
+        // On the header band, below the toolbar.
+        egui::Frame::new()
+            .fill(crate::theme::header(ui.visuals()))
+            .inner_margin(egui::Margin::symmetric(6, 3))
+            .show(ui, |ui| self.tab_row(ui, session));
+    }
+
+    fn tab_row(&mut self, ui: &mut egui::Ui, session: &mut Session) {
+        ui.set_width(ui.available_width());
         ui.horizontal(|ui| {
             ui.selectable_value(&mut self.open, false, t("Model"));
             ui.selectable_value(&mut self.open, true, t("Sheets"));

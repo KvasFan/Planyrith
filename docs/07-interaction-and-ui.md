@@ -435,3 +435,12 @@ collected by clicks: e.g. segments for Circle, array count, copy toggle).
   Translated now: menus, toolbars, panels, windows, dialogs, tool labels and options, the
   context menu. Still English: texts that come from the core — each step's prompt, command
   names in Undo, inference names and messages — and the Sheets editor's remaining labels.
+- 2026-11-03 — **A new look; dark by default.** At the user's request the themes were redrawn.
+  Surfaces are neutral greys told apart by brightness, not outlines: a header band (menus,
+  toolbar, the Model/Sheets row, tab bars, the gaps between docked panels and the status bar),
+  the panels below it, and darker views and fields. Controls are flat: no outline, a fill that
+  brightens on hover and again when pressed, 6-point corners (12 for windows, 8 for menus) and
+  a little more room. One blue accent marks selection, focus and the active tool, whose toolbar
+  button is filled with it. Windows and menus cast soft shadows. New installations start in
+  Dark; a saved choice is kept, and View › Theme still offers System, Light and Dark. The
+  document's style still decides the 3D view's background.
