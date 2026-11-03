@@ -17,6 +17,8 @@ All notable changes to Planyrith are recorded here. Versions follow
 - Place a texture with pins: `texture-position --pins` puts chosen points of
   the texture on chosen points of the face. One pin moves it, two also turn
   and scale it, three also skew it, four in perspective with `--projective`.
+- Make the whole interface larger or smaller, from 75 to 200 %: View › Interface
+  Size, or Ctrl+plus and Ctrl+minus. The size is remembered.
 - A new look: flat controls on neutral grey surfaces, rounded corners and one
   blue accent, dark by default (View › Theme switches to light or the system's).
 - The interface speaks Italian: View › Language › Italiano, or automatically on

@@ -452,3 +452,7 @@ collected by clicks: e.g. segments for Circle, array count, copy toggle).
   fails it. A core text that differs from an interface text only in capitals or punctuation
   shares its translation. Error messages and the Sheets editor's remaining labels are still
   English.
+- 2026-11-03 — **Interface size (§12 UI scale).** View › Interface Size scales the whole
+  interface from 75 to 200 % in steps of 25, on top of the system's own scaling; the 3D view's
+  lines follow, as it reads the pixel density each frame. Ctrl+plus and Ctrl+minus change it too,
+  and the value is saved with the user's settings (clamped to 75–200 % when read back).

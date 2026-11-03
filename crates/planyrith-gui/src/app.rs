@@ -155,6 +155,8 @@ struct Settings {
     component_library: Option<PathBuf>,
     /// The interface language (docs/07 §12).
     language: crate::i18n::LanguageChoice,
+    /// The interface's size, 0.75 to 2 (docs/07 §12 "UI scale").
+    ui_scale: f32,
 }
 
 impl Default for Settings {
@@ -165,6 +167,7 @@ impl Default for Settings {
             theme: ThemeChoice::default(),
             component_library: None,
             language: crate::i18n::LanguageChoice::System,
+            ui_scale: 1.0,
         }
     }
 }
@@ -334,6 +337,8 @@ impl App {
             crate::i18n::set_language(app.settings.language.resolve());
         }
         theme::apply(&cc.egui_ctx, app.settings.theme);
+        app.settings.ui_scale = app.settings.ui_scale.clamp(0.75, 2.0);
+        cc.egui_ctx.set_zoom_factor(app.settings.ui_scale);
         app.autosave = !cfg!(test);
         if app.autosave {
             app.session.enable_autosave();
@@ -1421,6 +1426,18 @@ impl App {
                             ui.close();
                         }
                     }
+                });
+                ui.menu_button(t("Interface Size"), |ui| {
+                    for scale in [0.75f32, 1.0, 1.25, 1.5, 1.75, 2.0] {
+                        let label = format!("{:.0} %", scale * 100.0);
+                        let current = (self.settings.ui_scale - scale).abs() < 0.01;
+                        if ui.radio(current, label).clicked() {
+                            self.settings.ui_scale = scale;
+                            ui.ctx().set_zoom_factor(scale);
+                            ui.close();
+                        }
+                    }
+                    ui.weak(t("Ctrl+plus and Ctrl+minus change it too."));
                 });
                 // Each language in itself, so it can be found from any other.
                 ui.menu_button(t("Language"), |ui| {
@@ -2764,6 +2781,8 @@ impl eframe::App for App {
         #[cfg(not(target_arch = "wasm32"))]
         self.poll_saving(ui.ctx());
         self.shell(ui, frame.wgpu_render_state());
+        // Ctrl+plus and Ctrl+minus zoom the interface too; keep the setting.
+        self.settings.ui_scale = ui.ctx().zoom_factor();
         #[cfg(not(target_arch = "wasm32"))]
         self.probe_startup(ui.ctx());
     }
@@ -3316,6 +3335,17 @@ mod tests {
             "{}",
             at(DVec3::new(700.0, 300.0, 0.0))
         );
+    }
+
+    #[test]
+    fn settings_saved_before_new_fields_load_with_defaults() {
+        // Settings written by an earlier version lack the newer fields.
+        let old: Settings =
+            serde_json::from_str(r#"{ "recent": [], "show_axes": false }"#).unwrap();
+        assert!(!old.show_axes);
+        assert!((old.ui_scale - 1.0).abs() < 1e-6);
+        assert_eq!(old.language, crate::i18n::LanguageChoice::System);
+        assert_eq!(old.theme, ThemeChoice::Dark);
     }
 
     #[test]
