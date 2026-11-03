@@ -104,7 +104,8 @@ jobs:
       - name: Flatpak and the Freedesktop runtime
         run: |
           sudo add-apt-repository -y ppa:flatpak/stable
-          sudo apt-get update && sudo apt-get install -y flatpak
+          # build-export checks icons with gdk-pixbuf, which needs the SVG loader.
+          sudo apt-get update && sudo apt-get install -y flatpak librsvg2-common
           # Ubuntu 24.04 restricts the unprivileged user namespaces that the
           # sandbox (bubblewrap) needs; this runner is disposable.
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
