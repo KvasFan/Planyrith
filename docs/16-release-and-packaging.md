@@ -156,4 +156,6 @@ taken by running the workflow, never a side effect of a push.
   product codes from the full version, and the upgrade code is fixed. The MSI
   offers no desktop shortcut option: it is meant for scripted installs, where
   the setup program's choices have no user to ask. The Release workflow
-  verifies it on Windows by installing, running, and uninstalling it.
+  verifies it on Windows by installing, running, and uninstalling it. It builds
+  it in a Fedora container: wixl before 0.106 (Ubuntu 24.04 has 0.103) rejects
+  the component condition that leaves another program's `.plyr` default alone.

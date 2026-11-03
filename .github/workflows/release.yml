@@ -185,16 +185,21 @@ jobs:
             target/x86_64-pc-windows-msvc/release/planyrith-skp.exe
 
   msi:
-    # The verified Windows binaries, packaged by wixl (msitools) on Linux.
+    # The verified Windows binaries, packaged by wixl on Linux. Fedora's
+    # msitools (0.106) handles conditional components; Ubuntu's 0.103 does not.
     needs: [prepare, windows]
     runs-on: ubuntu-24.04
+    container: registry.fedoraproject.org/fedora:43
     steps:
+      # Git first, so the checkout is a repository (the payload records the
+      # revision).
+      - name: Installer and build tools
+        run: dnf install -y msitools git cargo
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.prepare.outputs.sha }}
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Installer tool
-        run: sudo apt-get update && sudo apt-get install -y msitools
+      - name: Trust the checkout inside the container
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - uses: actions/download-artifact@v4
         with:
           name: bins-windows

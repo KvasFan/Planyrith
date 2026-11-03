@@ -58,14 +58,18 @@ impl Options {
 }
 
 fn run(command: &mut Command) -> Result<()> {
-    let status = command.status()?;
+    let status = command
+        .status()
+        .map_err(|e| format!("cannot start {:?}: {e}", command.get_program()))?;
     if !status.success() {
         return Err(format!("command failed ({status}): {command:?}").into());
     }
     Ok(())
 }
 fn output(command: &mut Command) -> Result<Vec<u8>> {
-    let result = command.output()?;
+    let result = command
+        .output()
+        .map_err(|e| format!("cannot start {:?}: {e}", command.get_program()))?;
     if !result.status.success() {
         return Err(format!(
             "command failed: {command:?}: {}",
