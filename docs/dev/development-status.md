@@ -38,7 +38,7 @@ mipmaps; `render --shadows` works. The Styles panel and Shadows window expose
 the new settings. Later the same day: glTF cameras import as scenes and scenes
 export as cameras; clicking selects image entities; `texture-position` takes one
 to four pins (affine or perspective). Still open from earlier milestones: the
-two shadow cascades (library search and thumbnails exist since 2026-11-03). The GUI has interactive
+nothing (library search and thumbnails, two shadow cascades exist since 2026-11-03). The GUI has interactive
 texture pins (Position Texture › Pins…). `texture-position` gained `project_from` and `copy_to`. Deliberately not done: writing tag line styles to SKP, which
 needs a line-style field the writing library lacks and cannot be verified
 without the target application. See docs/06 Decisions, 2026-11-02.

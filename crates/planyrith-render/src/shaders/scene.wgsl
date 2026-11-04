@@ -32,8 +32,12 @@ struct Draw {
     // Section plane in local coordinates (n, d): fragments with
     // n·p + d > 0 are cut away when ids.y has CLIPPED (docs/06 §3.1 step 2).
     section: vec4<f32>,
-    // Light clip space from local coordinates (shadow map, docs/06 §6).
+    // Light clip space from local coordinates (shadow map, docs/06 §6):
+    // the cascade covering the whole model (layer 1).
     light_clip: mat4x4<f32>,
+    // The same for the cascade covering the nearest part of the view
+    // (layer 0, docs/06 §3.1).
+    light_clip_near: mat4x4<f32>,
     // x: shadows on; y: lit intensity; z: shadowed intensity; w: depth bias.
     shadow: vec4<f32>,
     // Edge effects in pixels (docs/06 §5): x extension past both ends,
@@ -68,7 +72,8 @@ fn fogged(rgb: vec3<f32>, depth: f32) -> vec3<f32> {
 @group(0) @binding(0) var<uniform> draw: Draw;
 @group(1) @binding(0) var tex: texture_2d<f32>;
 @group(1) @binding(1) var tex_sampler: sampler;
-@group(2) @binding(0) var shadow_map: texture_depth_2d;
+// Layer 0: the near cascade; layer 1: the whole model.
+@group(2) @binding(0) var shadow_map: texture_depth_2d_array;
 @group(2) @binding(1) var shadow_sampler: sampler_comparison;
 
 const TEXTURED: u32 = 1u;
@@ -87,16 +92,9 @@ fn cut_away(local: vec3<f32>) -> bool {
     return (draw.ids.y & CLIPPED) != 0u && dot(draw.section.xyz, local) + draw.section.w > 1e-3;
 }
 
-// 1 lit, 0 in shadow: 3×3 percentage-closer filtering of the sun's depth.
-fn sun_visibility(light: vec4<f32>) -> f32 {
-    if (draw.shadow.x < 0.5) {
-        return 1.0;
-    }
-    let ndc = light.xyz / light.w;
+// 3×3 percentage-closer filtering of one cascade of the sun's depth.
+fn pcf(ndc: vec3<f32>, layer: i32) -> f32 {
     let uv = vec2<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
-    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || ndc.z > 1.0) {
-        return 1.0;
-    }
     let texel = 1.0 / vec2<f32>(textureDimensions(shadow_map));
     var sum = 0.0;
     for (var y = -1; y <= 1; y++) {
@@ -105,11 +103,29 @@ fn sun_visibility(light: vec4<f32>) -> f32 {
                 shadow_map,
                 shadow_sampler,
                 uv + vec2<f32>(f32(x), f32(y)) * texel,
+                layer,
                 ndc.z - draw.shadow.w,
             );
         }
     }
     return sum / 9.0;
+}
+
+// 1 lit, 0 in shadow: the near cascade where it covers the point (away from
+// its border, which the filter reads past), else the whole model's.
+fn sun_visibility(light_near: vec4<f32>, light: vec4<f32>) -> f32 {
+    if (draw.shadow.x < 0.5) {
+        return 1.0;
+    }
+    let near = light_near.xyz / light_near.w;
+    if (abs(near.x) < 0.98 && abs(near.y) < 0.98 && near.z >= 0.0 && near.z <= 1.0) {
+        return pcf(near, 0);
+    }
+    let far = light.xyz / light.w;
+    if (abs(far.x) > 1.0 || abs(far.y) > 1.0 || far.z > 1.0) {
+        return 1.0;
+    }
+    return pcf(far, 1);
 }
 
 // Edge flag bits (io::render_mesh::edge_flag_bits) plus face presence.
@@ -135,6 +151,7 @@ struct FaceOut {
     @location(3) depth: f32,
     @location(4) local: vec3<f32>,
     @location(5) light: vec4<f32>,
+    @location(6) light_near: vec4<f32>,
 };
 
 @vertex
@@ -143,6 +160,7 @@ fn vs_face(input: FaceIn) -> FaceOut {
     out.clip = draw.clip_from_local * vec4<f32>(input.position, 1.0);
     out.local = input.position;
     out.light = draw.light_clip * vec4<f32>(input.position, 1.0);
+    out.light_near = draw.light_clip_near * vec4<f32>(input.position, 1.0);
     let normal_matrix = mat3x3<f32>(draw.normal_x.xyz, draw.normal_y.xyz, draw.normal_z.xyz);
     out.normal = normal_matrix * input.normal;
     out.uv = input.uv;
@@ -174,7 +192,7 @@ fn fs_face(input: FaceOut) -> @location(0) vec4<f32> {
     if (cut_away(input.local)) {
         discard;
     }
-    let visibility = sun_visibility(input.light);
+    let visibility = sun_visibility(input.light_near, input.light);
     if ((draw.ids.y & SHADOW_CATCHER) != 0u) {
         // The ground: only its shadow shows.
         let amount = (1.0 - visibility) * (1.0 - draw.shadow.z / max(draw.shadow.y, 1e-3));

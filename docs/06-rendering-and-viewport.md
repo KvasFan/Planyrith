@@ -196,6 +196,19 @@ exposes a frame-time overlay (`F11` panel).
 
 ## Decisions
 
+- 2026-11-03 — **Two shadow cascades** (§3.1). The sun's depth is drawn twice into a
+  two-layer 2048² map: layer 1 covers the whole model as before; layer 0 covers the model
+  within the near part of the view, from the eye to twice the distance of the orbit target
+  (or the geometric mean of the near distance and the model's farthest corner, if farther;
+  at most half the depth). Both reach back toward the sun to the whole model, so a distant
+  tall object still shades the near part. Faces use layer 0 where it covers them, away
+  from its border, and layer 1 elsewhere. When the near box would be most of the model
+  there is no point and both layers hold the whole model. The depth bias is six texels of
+  each cascade, folded into the matrix faces sample with; for the whole-model cascade
+  this is the former fixed bias, so earlier images are unchanged. The output depends only
+  on the document and camera, so `--deterministic` needs no single-cascade mode. Test: a
+  60 mm post on a 200 m ground casts a full, attached shadow; with one map it cast none.
+
 - 2026-10-20 — Forward Lambert shading; no PBR in the viewport (export hook for renderers instead).
 - 2026-10-20 — Reversed-Z, camera-relative `f64`→`f32` for precision.
 - 2026-10-20 — ID-buffer hover + CPU-exact confirmation; CPU ray casting is authoritative.
@@ -299,7 +312,8 @@ exposes a frame-time overlay (`F11` panel).
   and width; they are cached per container and plane. The parity test, not a solid test, decides,
   so open shells such as walls standing on a floor face are filled too (user feedback,
   2026-10-26: their cuts looked open); a cut through a lone face draws lines only. The sun's
-  shadow map is one 2048² orthographic map fitted to the model's bounds (one cascade, 3×3 PCF);
+  shadow map is one 2048² orthographic map fitted to the model's bounds (one cascade, 3×3 PCF;
+  two cascades since 2026-11-03, see Decisions);
   lit and shadowed intensities are the settings' `light` and `dark`; with `on_ground` a plane at
   the model's lowest Z shows only its shadow; when the sun is below the horizon everything takes
   the shadowed intensity. Guides (infinite lines clipped to the view), dimensions (extension

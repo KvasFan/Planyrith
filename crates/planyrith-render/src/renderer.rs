@@ -177,8 +177,10 @@ struct DrawUniform {
     fog_color: [f32; 4],
     /// Section plane in local coordinates (with `CLIPPED`).
     section: [f32; 4],
-    /// Light clip space from local coordinates.
+    /// Light clip space from local coordinates: the whole model's cascade.
     light_clip: [[f32; 4]; 4],
+    /// The near cascade's light clip space (docs/06 §3.1).
+    light_clip_near: [[f32; 4]; 4],
     /// Shadows on, lit and shadowed intensities, depth bias.
     shadow: [f32; 4],
     /// Edge extension, endpoint length, jitter and depth cue width (px).
@@ -345,9 +347,11 @@ pub struct Renderer {
     ids_valid: bool,
     /// A non-blocking pick waiting for the GPU.
     pending_pick: Option<PendingPick>,
-    /// The sun's depth map and its bind group (a 1×1 one while shadows are
-    /// off).
+    /// The sun's depth maps (two cascades, docs/06 §3.1) and their bind
+    /// group (1×1 while shadows are off): the array sampled by faces, and
+    /// each layer drawn by the sun's passes.
     shadow_view: wgpu::TextureView,
+    shadow_layers: [wgpu::TextureView; 2],
     shadow_group: wgpu::BindGroup,
     shadow_layout: wgpu::BindGroupLayout,
     shadow_sampler: wgpu::Sampler,
@@ -439,7 +443,7 @@ impl Renderer {
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Texture {
                         sample_type: wgpu::TextureSampleType::Depth,
-                        view_dimension: wgpu::TextureViewDimension::D2,
+                        view_dimension: wgpu::TextureViewDimension::D2Array,
                         multisampled: false,
                     },
                     count: None,
@@ -477,7 +481,7 @@ impl Renderer {
             compare: Some(wgpu::CompareFunction::LessEqual),
             ..Default::default()
         });
-        let shadow_view = shadow_texture(&device, 1);
+        let (shadow_view, shadow_layers) = shadow_texture(&device, 1);
         let shadow_group = shadow_group(&device, &shadow_layout, &shadow_view, &shadow_sampler);
         // Trilinear, so distant textures blend their mip levels.
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -519,6 +523,7 @@ impl Renderer {
             ids_valid: false,
             pending_pick: None,
             shadow_view,
+            shadow_layers,
             shadow_group,
             shadow_layout,
             shadow_sampler,
@@ -855,34 +860,45 @@ impl Renderer {
         let shadows = doc.rendering.shadows;
         let sun = shadows.sun.direction();
         let sun_up = shadows.enabled && sun.z > 1e-3 && !model_bounds.is_empty();
-        let sun_clip = if sun_up {
-            sun_clip(sun, &model_bounds)
+        let clip_for = |bounds: &Aabb| sun_cascade(sun, bounds, &model_bounds);
+        let sun_far = if sun_up {
+            clip_for(&model_bounds)
         } else {
-            glam::DMat4::IDENTITY
+            Cascade::default()
         };
+        // The near cascade: the model in the nearest part of the view, at
+        // the same map size, so nearby shadows are sharper (docs/06 §3.1).
+        let near_bounds = if sun_up {
+            near_cascade(&camera, &model_bounds)
+        } else {
+            None
+        };
+        let sun_near = near_bounds.map_or(sun_far, |b| clip_for(&b));
+        // What the sun's passes draw with, per layer; faces sample with each
+        // cascade's `sample`, which holds its depth bias.
+        let cascades = [sun_near.clip, sun_far.clip];
         let lit = f32::from(shadows.light.min(100)) / 100.0;
         let dark = f32::from(shadows.dark.min(100)) / 100.0;
         // x: 1 sun with shadow map, 2 sun without (faces not receiving).
         let face_shadow = match (shadows.enabled, sun_up, shadows.on_faces) {
             (false, _, _) => [0.0; 4],
             (true, false, _) => [2.0, dark, dark, 0.0],
-            (true, true, true) => [1.0, lit, dark, 0.0015],
+            (true, true, true) => [1.0, lit, dark, 0.0],
             (true, true, false) => [2.0, lit, dark, 0.0],
         };
         let sun_light = f32x4(sun, 0.35);
         // A shadow narrower than a pixel would show as dots: the edge's
         // width in the sun's map is about EDGE_SHADOW_PX on the screen.
-        let edge_shadow_texels = {
-            let texel =
-                (model_bounds.max - model_bounds.min).length().max(1.0) / f64::from(SHADOW_SIZE);
-            let pixel = camera.world_per_pixel_at(
-                camera.depth_of(model_bounds.center()),
-                f64::from(req.height),
-            );
+        // Per cascade, as each map covers a box of its own.
+        let edge_shadow_texels = [near_bounds.unwrap_or(model_bounds), model_bounds].map(|b| {
+            let texel = (b.max - b.min).length().max(1.0) / f64::from(SHADOW_SIZE);
+            let pixel =
+                camera.world_per_pixel_at(camera.depth_of(b.center()), f64::from(req.height));
             (EDGE_SHADOW_PX * pixel / texel).clamp(1.0, 16.0) as f32
-        };
-        let mut shadow_draws: Vec<(u32, ContainerRef, Range<u32>)> = Vec::new();
-        let mut shadow_edges: Vec<(u32, ContainerRef, u32)> = Vec::new();
+        });
+        // Uniform slots per cascade.
+        let mut shadow_draws: Vec<([u32; 2], ContainerRef, Range<u32>)> = Vec::new();
+        let mut shadow_edges: Vec<([u32; 2], ContainerRef, u32)> = Vec::new();
 
         let mut uniforms: Vec<DrawUniform> = Vec::new();
         let mut opaque: Vec<Draw> = Vec::new();
@@ -924,7 +940,10 @@ impl Renderer {
             if shadows.enabled {
                 base.light = sun_light;
                 base.shadow = face_shadow;
-                base.light_clip = (sun_clip * glam::DMat4::from(world))
+                base.light_clip = (sun_far.sample * glam::DMat4::from(world))
+                    .as_mat4()
+                    .to_cols_array_2d();
+                base.light_clip_near = (sun_near.sample * glam::DMat4::from(world))
                     .as_mat4()
                     .to_cols_array_2d();
             }
@@ -975,14 +994,17 @@ impl Renderer {
                     Stage::Opaque
                 };
                 if sun_up && stage == Stage::Opaque {
-                    let u = DrawUniform {
-                        clip_from_local: (sun_clip * glam::DMat4::from(world))
-                            .as_mat4()
-                            .to_cols_array_2d(),
-                        ids: [0, cut, 0, 0],
-                        ..base
-                    };
-                    shadow_draws.push((push(&mut uniforms, u), item.container, range.clone()));
+                    let slots = cascades.map(|clip| {
+                        let u = DrawUniform {
+                            clip_from_local: (clip * glam::DMat4::from(world))
+                                .as_mat4()
+                                .to_cols_array_2d(),
+                            ids: [0, cut, 0, 0],
+                            ..base
+                        };
+                        push(&mut uniforms, u)
+                    });
+                    shadow_draws.push((slots, item.container, range.clone()));
                 }
                 let draw = Draw::Faces {
                     pipeline: stage,
@@ -1001,20 +1023,24 @@ impl Renderer {
 
             // Edges without faces cast shadows when the settings ask for it.
             if sun_up && shadows.from_edges && mesh.edge_count > 0 {
-                let u = DrawUniform {
-                    clip_from_local: (sun_clip * glam::DMat4::from(world))
-                        .as_mat4()
-                        .to_cols_array_2d(),
-                    viewport: [
-                        SHADOW_SIZE as f32,
-                        SHADOW_SIZE as f32,
-                        edge_shadow_texels,
-                        0.0,
-                    ],
-                    ids: [0, cut | SUN_EDGES, 0, 0],
-                    ..base
-                };
-                shadow_edges.push((push(&mut uniforms, u), item.container, mesh.edge_count));
+                let mut slots = [0; 2];
+                for (i, clip) in cascades.iter().enumerate() {
+                    let u = DrawUniform {
+                        clip_from_local: (*clip * glam::DMat4::from(world))
+                            .as_mat4()
+                            .to_cols_array_2d(),
+                        viewport: [
+                            SHADOW_SIZE as f32,
+                            SHADOW_SIZE as f32,
+                            edge_shadow_texels[i],
+                            0.0,
+                        ],
+                        ids: [0, cut | SUN_EDGES, 0, 0],
+                        ..base
+                    };
+                    slots[i] = push(&mut uniforms, u);
+                }
+                shadow_edges.push((slots, item.container, mesh.edge_count));
             }
 
             // Edges.
@@ -1406,8 +1432,9 @@ impl Renderer {
             ];
             let u = DrawUniform {
                 ids: [0, SHADOW_CATCHER, 0, 0],
-                shadow: [1.0, lit, dark, 0.0015],
-                light_clip: sun_clip.as_mat4().to_cols_array_2d(),
+                shadow: [1.0, lit, dark, 0.0],
+                light_clip: sun_far.sample.as_mat4().to_cols_array_2d(),
+                light_clip_near: sun_near.sample.as_mat4().to_cols_array_2d(),
                 ..world_base
             };
             let slot = push(&mut uniforms, u);
@@ -1521,7 +1548,7 @@ impl Renderer {
         }
 
         if sun_up && self.shadow_size != SHADOW_SIZE {
-            self.shadow_view = shadow_texture(&self.device, SHADOW_SIZE);
+            (self.shadow_view, self.shadow_layers) = shadow_texture(&self.device, SHADOW_SIZE);
             self.shadow_size = SHADOW_SIZE;
             self.shadow_group = shadow_group(
                 &self.device,
@@ -1543,12 +1570,13 @@ impl Renderer {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("frame"),
             });
-        if sun_up {
+        // One depth pass per cascade, each into its layer.
+        for (layer, view) in self.shadow_layers.iter().enumerate().filter(|_| sun_up) {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("sun"),
                 color_attachments: &[],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &self.shadow_view,
+                    view,
                     depth_ops: Some(wgpu::Operations {
                         load: wgpu::LoadOp::Clear(1.0),
                         store: wgpu::StoreOp::Store,
@@ -1560,24 +1588,32 @@ impl Renderer {
                 multiview_mask: None,
             });
             pass.set_pipeline(&self.pipelines.shadow);
-            for (slot, container, range) in &shadow_draws {
+            for (slots, container, range) in &shadow_draws {
                 let Some(mesh) = self.meshes.get(container) else {
                     continue;
                 };
                 let (Some(vb), Some(ib)) = (&mesh.vertices, &mesh.indices) else {
                     continue;
                 };
-                pass.set_bind_group(0, &self.uniform_group, &[*slot * UNIFORM_STRIDE as u32]);
+                pass.set_bind_group(
+                    0,
+                    &self.uniform_group,
+                    &[slots[layer] * UNIFORM_STRIDE as u32],
+                );
                 pass.set_vertex_buffer(0, vb.slice(..));
                 pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
                 pass.draw_indexed(range.clone(), 0, 0..1);
             }
             pass.set_pipeline(&self.pipelines.shadow_edge);
-            for (slot, container, count) in &shadow_edges {
+            for (slots, container, count) in &shadow_edges {
                 let Some(buffer) = self.meshes.get(container).and_then(|m| m.edges.as_ref()) else {
                     continue;
                 };
-                pass.set_bind_group(0, &self.uniform_group, &[*slot * UNIFORM_STRIDE as u32]);
+                pass.set_bind_group(
+                    0,
+                    &self.uniform_group,
+                    &[slots[layer] * UNIFORM_STRIDE as u32],
+                );
                 pass.set_vertex_buffer(0, buffer.slice(..));
                 pass.draw(0..6, 0..*count);
             }
@@ -2146,6 +2182,7 @@ fn make_uniform(clip: &[[f32; 4]; 4], world: &DAffine3, camera: &Camera) -> Draw
         fog_color: [0.0; 4],
         section: [0.0; 4],
         light_clip: [[0.0; 4]; 4],
+        light_clip_near: [[0.0; 4]; 4],
         shadow: [0.0; 4],
         edge_style: [0.0; 4],
         edge_depth: [0.0; 4],
@@ -2778,23 +2815,36 @@ fn build_pipelines(
 }
 
 /// A square depth texture for the sun (`size` × `size`).
-fn shadow_texture(device: &wgpu::Device, size: u32) -> wgpu::TextureView {
-    device
-        .create_texture(&wgpu::TextureDescriptor {
-            label: Some("shadow map"),
-            size: wgpu::Extent3d {
-                width: size,
-                height: size,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: SHADOW_FORMAT,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-            view_formats: &[],
+/// The sun's depth maps: one layer per cascade, viewed as an array for
+/// sampling and layer by layer for drawing.
+fn shadow_texture(device: &wgpu::Device, size: u32) -> (wgpu::TextureView, [wgpu::TextureView; 2]) {
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("shadow map"),
+        size: wgpu::Extent3d {
+            width: size,
+            height: size,
+            depth_or_array_layers: 2,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: SHADOW_FORMAT,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+        view_formats: &[],
+    });
+    let array = texture.create_view(&wgpu::TextureViewDescriptor {
+        dimension: Some(wgpu::TextureViewDimension::D2Array),
+        ..Default::default()
+    });
+    let layer = |i: u32| {
+        texture.create_view(&wgpu::TextureViewDescriptor {
+            dimension: Some(wgpu::TextureViewDimension::D2),
+            base_array_layer: i,
+            array_layer_count: Some(1),
+            ..Default::default()
         })
-        .create_view(&wgpu::TextureViewDescriptor::default())
+    };
+    (array, [layer(0), layer(1)])
 }
 
 fn shadow_group(
@@ -2819,27 +2869,94 @@ fn shadow_group(
     })
 }
 
-/// The sun's clip space: an orthographic view along `toward_sun` that
-/// covers `bounds` (standard depth, 0 near the sun).
-fn sun_clip(toward_sun: DVec3, bounds: &Aabb) -> glam::DMat4 {
+/// The near shadow cascade's box: the model from the eye to twice the
+/// distance of the point looked at (the orbit target), or to the geometric
+/// mean of the view's near and far depths when farther, at most half the
+/// depth; `None` when that is most of the model anyway (docs/06 §3.1).
+fn near_cascade(camera: &Camera, model: &Aabb) -> Option<Aabb> {
+    let depth = camera.fit_depth(model);
+    // The farthest corner of the model (the view's far plane may be at
+    // infinity).
+    let far = (0..8)
+        .map(|i| {
+            let pick = |bit: usize, lo: f64, hi: f64| if i & bit == 0 { lo } else { hi };
+            camera.depth_of(DVec3::new(
+                pick(1, model.min.x, model.max.x),
+                pick(2, model.min.y, model.max.y),
+                pick(4, model.min.z, model.max.z),
+            ))
+        })
+        .fold(depth.near, f64::max);
+    let focus = 2.0 * camera.depth_of(camera.target);
+    let split = focus
+        .max((depth.near * far).sqrt())
+        .min(depth.near + (far - depth.near) * 0.5);
+    if split <= depth.near {
+        return None;
+    }
+    let forward = camera.forward();
+    let mut corners = Vec::with_capacity(8);
+    for (x, y) in [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)] {
+        let ray = camera.ray_through_ndc(glam::DVec2::new(x, y));
+        let along = ray.dir.dot(forward);
+        if along <= 1e-9 {
+            return None;
+        }
+        for d in [depth.near, split] {
+            corners.push(ray.origin + ray.dir * ((d - camera.depth_of(ray.origin)) / along));
+        }
+    }
+    let near = Aabb::from_points(corners).intersection(model)?;
+    (near.diagonal() < model.diagonal() * 0.6).then_some(near)
+}
+
+/// Depth bias of a shadow cascade in its own texels (docs/06 §6).
+const SHADOW_BIAS_TEXELS: f64 = 6.0;
+
+/// One shadow cascade: the sun's clip space its map is drawn with, and the
+/// one faces sample it with (the same, nearer the sun by the depth bias).
+#[derive(Debug, Clone, Copy)]
+struct Cascade {
+    clip: glam::DMat4,
+    sample: glam::DMat4,
+}
+
+impl Default for Cascade {
+    fn default() -> Self {
+        Cascade {
+            clip: glam::DMat4::IDENTITY,
+            sample: glam::DMat4::IDENTITY,
+        }
+    }
+}
+
+/// An orthographic view along `toward_sun` whose map covers `bounds`, with
+/// depth reaching back to everything in `model` that can shade them
+/// (standard depth, 0 nearest the sun).
+fn sun_cascade(toward_sun: DVec3, bounds: &Aabb, model: &Aabb) -> Cascade {
     let center = bounds.center();
     let radius = (bounds.max - bounds.min).length().max(1.0) * 0.5;
+    let model_radius = (model.max - model.min).length().max(1.0) * 0.5;
     let dir = toward_sun.normalize_or(DVec3::Z);
+    // How far toward the sun the model reaches beyond the covered box.
+    let back = ((model.center() - center).dot(dir) + model_radius).max(radius) + radius;
     let up = if dir.cross(DVec3::Z).length() > 1e-3 {
         DVec3::Z
     } else {
         DVec3::Y
     };
-    let view = glam::dcamera::rh::view::look_at_mat4(center + dir * radius * 2.0, center, up);
-    let proj = glam::dcamera::rh::proj::directx::orthographic(
-        -radius,
-        radius,
-        -radius,
-        radius,
-        0.0,
-        radius * 4.0,
-    );
-    proj * view
+    let view = glam::dcamera::rh::view::look_at_mat4(center + dir * back, center, up);
+    let far = back + radius;
+    let clip =
+        glam::dcamera::rh::proj::directx::orthographic(-radius, radius, -radius, radius, 0.0, far)
+            * view;
+    let texel = 2.0 * radius / f64::from(SHADOW_SIZE);
+    let bias =
+        glam::DMat4::from_translation(DVec3::new(0.0, 0.0, -SHADOW_BIAS_TEXELS * texel / far));
+    Cascade {
+        clip,
+        sample: bias * clip,
+    }
 }
 
 /// A key for a plane (cap cache).

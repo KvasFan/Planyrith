@@ -6,6 +6,9 @@ All notable changes to Planyrith are recorded here. Versions follow
 
 ## Unreleased
 
+- Sharper shadows near you in large models: the sun's shadow map now has a second,
+  finer layer for the part of the model you are looking at. A thin post on a large
+  site now casts its shadow.
 - Search the Materials, Components and Outliner panels by name; the Outliner
   opens the groups that hold a match.
 - The component library shows a picture of each component.

@@ -730,6 +730,83 @@ fn edges_cast_shadows() {
     );
 }
 
+/// docs/06 §3.1: in a large model a nearby thin post still casts a clear
+/// shadow, from the near cascade; one map over the whole 200 m ground would
+/// make each of its texels wider than the post.
+#[test]
+fn nearby_shadows_stay_sharp_in_large_models() {
+    let Some(gpu) = gpu() else { return };
+    let mut e = Engine::new(Document::new(), Arc::new(CommandRegistry::with_builtins()));
+    rect(
+        &mut e,
+        [-100_000.0, -100_000.0, 0.0],
+        [100_000.0, 100_000.0, 0.0],
+    );
+    rect(&mut e, [-30.0, -30.0, 0.0], [30.0, 30.0, 0.0]);
+    pull(&mut e, 2000.0);
+    run(
+        &mut e,
+        "shadows-set",
+        json!({ "enabled": true, "date": "2026-06-21", "time": "15:00",
+                "latitude": 45.0, "longitude": 9.0, "utc_offset": 2.0 }),
+    );
+    run(
+        &mut e,
+        "position-camera",
+        json!({ "eye": [2500, -3500, 2200], "target": [0, 300, 300] }),
+    );
+    let doc = e.document();
+    let mut camera = doc.camera;
+    camera.aspect = f64::from(WIDTH) / f64::from(HEIGHT);
+    let mut style = Style::default();
+    style.edges.show = false;
+    let mut renderer = Renderer::new(
+        gpu.device.clone(),
+        gpu.queue.clone(),
+        RendererOptions::default(),
+    );
+    let image = frame(
+        &mut renderer,
+        doc,
+        &Selection::new(),
+        &EditContext::model(),
+        &camera,
+        &style,
+        false,
+    );
+    if let Some(dir) = std::env::var_os("PLANYRITH_SCREENSHOTS") {
+        image
+            .save(Path::new(&dir).join("near-cascade.png"))
+            .unwrap();
+    }
+    let depth = camera.fit_depth(&doc.aabb());
+    let pixel = |p: DVec3| {
+        let ndc = camera.project(p, depth)?;
+        let x = ((ndc.x * 0.5 + 0.5) * f64::from(WIDTH)) as u32;
+        let y = ((0.5 - ndc.y * 0.5) * f64::from(HEIGHT)) as u32;
+        (x < WIDTH && y < HEIGHT).then(|| i32::from(image.get_pixel(x, y).0[1]))
+    };
+    // Points along the post's shadow, from its foot to near its tip, each
+    // against the ground 600 mm to the side of it.
+    let sun = doc.rendering.shadows.sun.direction();
+    let shadow = |t: f64| DVec3::new(0.0, 0.0, 2000.0 * t) - sun * (2000.0 * t / sun.z);
+    let side = sun.cross(DVec3::Z).normalize() * 600.0;
+    let mut dark = 0;
+    for i in 2..=8 {
+        let at = shadow(f64::from(i) / 10.0);
+        let at = DVec3::new(at.x, at.y, 0.0);
+        if let (Some(here), Some(beside)) = (pixel(at), pixel(at + side))
+            && beside - here > 25
+        {
+            dark += 1;
+        }
+    }
+    assert!(
+        dark >= 5,
+        "only {dark} of 7 points along the post's shadow are dark"
+    );
+}
+
 /// docs/13 0.6: a section cut with caps, sun shadows, a dimension, a guide
 /// and the section plane's widget.
 #[test]
