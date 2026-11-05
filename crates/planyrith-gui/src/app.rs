@@ -337,6 +337,8 @@ pub struct App {
     shadows_open: bool,
     /// The Preferences window (docs/07 §8).
     preferences_open: bool,
+    /// Tools › Solids › Check for 3D Printing (docs/05 §8.1).
+    print_check: crate::printing::PrintCheck,
     extensions: crate::extensions::Extensions,
     sheets: crate::sheets::Sheets,
     /// Journal and snapshot the documents (off in tests).
@@ -470,6 +472,7 @@ impl App {
             texture: None,
             shadows_open: false,
             preferences_open: false,
+            print_check: Default::default(),
             extensions: Default::default(),
             sheets: Default::default(),
             autosave: false,
@@ -878,6 +881,12 @@ impl App {
                 panic!("{name}: {e}");
             }
         }
+    }
+
+    /// Opens Check for 3D Printing (the screenshot test).
+    #[cfg(test)]
+    pub fn open_print_check(&mut self) {
+        self.print_check.show(&mut self.session);
     }
 
     fn tool(&self) -> &dyn Tool {
@@ -1644,6 +1653,11 @@ impl App {
                         "Outer Shell",
                     ] {
                         self.tool_button(ui, label);
+                    }
+                    ui.separator();
+                    if ui.button(t("Check for 3D Printing…")).clicked() {
+                        self.print_check.show(&mut self.session);
+                        ui.close();
                     }
                 });
                 self.tool_button(ui, "Sweep");
@@ -2816,6 +2830,7 @@ impl egui_tiles::Behavior<Pane> for Docks<'_> {
                         v.antialiasing_off = self.viewport.antialiasing_off;
                         v.snap_px = self.viewport.snap_px;
                         v.invert_wheel = self.viewport.invert_wheel;
+                        v.marks.clone_from(&self.viewport.marks);
                     }
                     let full = ui.available_rect_before_wrap();
                     let gap = 2.0;
@@ -2984,6 +2999,7 @@ impl App {
         self.viewport.antialiasing_off = !self.settings.antialiasing;
         self.viewport.snap_px = Some(f64::from(self.settings.snap_px.clamp(4.0, 24.0)));
         self.viewport.invert_wheel = self.settings.invert_wheel;
+        self.viewport.marks = self.print_check.marks(&self.session);
         // The header band: menus and toolbar share one surface, as does the
         // status bar below (docs/07 Decisions, 2026-11-03).
         let header = theme::header(ui.visuals());
@@ -3061,6 +3077,7 @@ impl App {
         self.texture_window(&ctx);
         self.shadows_window(&ctx);
         self.preferences_window(&ctx);
+        self.print_check.window(&ctx, &mut self.session);
         self.extensions.ui(&ctx, &mut self.session);
         self.file_dialog(&ctx);
         self.discard_prompt(&ctx);

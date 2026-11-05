@@ -23,6 +23,7 @@ pub mod mesh;
 pub mod offset;
 pub mod planar;
 pub mod section;
+pub mod solid_check;
 pub mod sweep;
 pub mod tessellate;
 

@@ -5,7 +5,7 @@ implementation stands, what is done, what remains, and how to resume. Update it 
 every working session. Ground truth for *what to build* stays in `docs/00`–`docs/15`; this file
 is only *progress state*. Release packaging is specified in `docs/16`.
 
-_Last updated: 2026-11-02 (0.11.0-alpha.3; 0.11 acceptance in progress)._
+_Last updated: 2026-11-05 (0.11.0-alpha.3; 1.0 stabilization; 1.1 started)._
 
 **Release state (2026-11-01):** `v0.11.0-alpha.3` is prepared at `3d55f6e`: main
 CI and the Release workflow's Windows and Linux package checks passed with
@@ -30,6 +30,12 @@ Release workflow's macOS job. All 1.0 installers now exist and passed a Release 
 with `publish=false` at `005914a` (2026-11-03): Linux packages, Flatpak installed
 and run, setup and MSI installed and uninstalled on Windows, the DMG mounted and
 exercised on macOS.
+
+**1.1 started (2026-11-05, at the user's request):** docs/13 lists the milestone (3D
+printing, a realistic presentation style, rounding/chamfers and thicken, Bézier curves and
+loft, PLY/USDZ/IFC). Done: `solid-check` and `solid-repair` (docs/05 §8.1–§8.2, docs/03
+§4.14) with the Check for 3D Printing window, which marks open edges in red. Next: 3MF import
+and export, then the printing export options.
 
 **After alpha.3 (unreleased, 2026-11-02):** the renderer draws the style's edge
 effects (depth cue, extension, endpoints, jitter) and shadows from edges without

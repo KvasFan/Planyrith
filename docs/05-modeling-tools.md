@@ -424,6 +424,32 @@ perpendicular to hovered edge); `Esc` = cancel current step (second `Esc` = canc
 - **Tests:** `docs/03 §10`; subtract a cylinder from a slab → through-hole with smooth walls;
   trim keeps the cutter.
 
+### 8.1 `solid-check` (3D printing)
+- **Params:** `targets?: Sel` (every visible object), `include_hidden: bool` (false).
+- **Behavior:** every visible occurrence with faces — a group, a component instance, or the
+  model's loose geometry — is diagnosed (`docs/03 §4.14`). A component's diagnosis is shared by
+  its instances; the volume and size are those of each placed instance. View-only: it changes
+  nothing and is not undoable.
+- **Output:** `{ objects: [{ path, name, printable, faces, shells, open_edges, holes, wire_edges,
+  pinched_vertices, inside_out_shells, voids, volume_mm3?, size_mm: [x, y, z] }], printable }`;
+  `printable` is true when there is at least one object and all are printable.
+- **GUI:** Tools › Solids › Check for 3D Printing… lists the objects with their problems,
+  marks the open edges of the chosen one in the view and offers **Repair**.
+- **Tests:** a pushed box is printable with its volume and size; a box with a deleted face has one
+  hole of four open edges; the check adds no undo step.
+
+### 8.2 `solid-repair`
+- **Params:** `targets?: Sel` (every visible object that is not printable), `include_hidden`,
+  `fill_holes` (true), `remove_wire_edges` (true), `reverse_inside_out` (true); at least one
+  repair must be on.
+- **Behavior:** `docs/03 §4.14` on each container once (a component repairs all its instances).
+  Objects under a locked group or instance are left alone and counted.
+- **Output:** `{ repaired, holes_filled, faces_added, holes_left, wire_edges_removed,
+  shells_reversed, locked, printable }`.
+- **Undo:** one step.
+- **Tests:** a missing top is closed with one face; a bent hole (two missing faces) with
+  triangles; a lone face is left open; an inside-out box is reversed while a hollow is kept.
+
 ## 9. View tools (category `view`) — not undoable, do not dirty the document
 
 - `orbit { yaw: Angle, pitch: Angle, pivot?: Point }` — middle-drag; `Shift` = pan; orbits about the

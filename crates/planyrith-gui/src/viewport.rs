@@ -19,6 +19,7 @@ use planyrith_core::ids::EntityId;
 use planyrith_core::inference::{
     Inference, InferenceEngine, InferenceKind, InferenceRequest, Lock, ViewMetrics,
 };
+use planyrith_core::io::overlay::{OverlayKind, OverlayLine};
 use planyrith_core::io::render_mesh::draw_list;
 use planyrith_core::math::{Aabb, Axis, Ray};
 use planyrith_core::spatial::HitFilter;
@@ -88,6 +89,9 @@ pub struct Viewport {
     pub snap_px: Option<f64>,
     /// Preferences › Compatibility: the wheel zooms the other way.
     pub invert_wheel: bool,
+    /// Segments marked in red, world coordinates (the open edges Check for
+    /// 3D Printing found, docs/05 §8.1).
+    pub marks: Vec<[DVec3; 2]>,
     /// The multisampling the current renderer was made with.
     renderer_msaa: u32,
     nav: Option<NavDrag>,
@@ -632,7 +636,17 @@ impl Viewport {
             self.show_hidden,
         );
         let style = doc.styles.active_style().cloned().unwrap_or_default();
-        let overlay = planyrith_core::io::overlay::overlay(doc, &items);
+        let mut overlay = planyrith_core::io::overlay::overlay(doc, &items);
+        overlay
+            .lines
+            .extend(self.marks.iter().map(|&[a, b]| OverlayLine {
+                color: None,
+                a,
+                b,
+                infinite: false,
+                dashed: false,
+                kind: OverlayKind::Detached,
+            }));
         let hover = response.hover_pos();
         let want_ids = hover.is_some() && self.nav.is_none() && hover != self.last_hover;
         let frame_camera = Camera { aspect, ..shown };

@@ -1,0 +1,10 @@
+# Check a closed box and an open tray for 3D printing (the document is
+# unchanged).
+rectangle --corner-a 0,0,0 --corner-b 100,50,0
+push-pull --face '{face & last}' --distance 20
+make-group --targets all --name Box
+rectangle --corner-a 200,0,0 --corner-b 300,50,0
+push-pull --face '{face & last}' --distance 20
+delete --targets 'face & normal:z & plane:xy@20'
+make-group --targets 'edge | face' --name Tray
+solid-check

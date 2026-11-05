@@ -6,6 +6,12 @@ All notable changes to Planyrith are recorded here. Versions follow
 
 ## Unreleased
 
+- Check for 3D Printing (Tools › Solids): lists every object with its size and
+  volume and tells which are not closed solids — open edges and holes (marked in
+  red in the view), stray edges, parts touching at a corner, parts facing inward.
+  **Repair** closes holes, removes stray edges and turns inside-out parts right
+  side out. The same from the command line: `planyrith tool solid-check` and
+  `planyrith tool solid-repair`.
 - Sharper shadows near you in large models: the sun's shadow map now has a second,
   finer layer for the part of the model you are looking at. A thin post on a large
   site now casts its shadow.

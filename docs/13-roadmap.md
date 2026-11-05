@@ -126,11 +126,31 @@ acceptance criteria. Milestones are sequential; within one, items are independen
   for commands and scripting.
 - **Accept:** zero S1/S2 bugs open; all CI gates green on all platforms for two consecutive weeks.
 
+## 1.1.0 — 3D printing, presentation and modeling additions
+Added at the user's request on 2026-11-05 (see Decisions). In order:
+1. **3D printing:** `solid-check` and `solid-repair` (docs/05 §8.1–§8.2); 3MF import and export
+   (objects, units, base colors); export options for printing (one file per object, placing each
+   object on the build plate).
+2. **Presentation style:** a realistic style beside the technical ones — specular and physically
+   based materials (read from glTF), ambient occlusion, sky lighting, soft shadows and tone
+   mapping; later a progressive path-traced final render, also from `planyrith render`.
+3. **Edge rounding and chamfers; thicken a surface into a shell.**
+4. **Bézier curves and loft between profiles.**
+5. **More exchange formats:** PLY, USDZ, then IFC.
+- **Accept:** each item has its commands, CLI batches, golden files and GUI; the CI gates stay
+  green.
+
 ## Post-1.0 candidates
 IFC import/export, FBX/COLLADA, camera calibration from photographs, WASM native plugins, collaborative editing,
 parametric/dynamic components, GPU path-traced preview, mobile UI.
 
 ## Decisions
+
+- 2026-11-05 — **Milestone 1.1.** The user asked what is missing for 3D printing, useful 3D tools,
+  other exchange formats and a more attractive rendering, then to proceed. These are not part of
+  1.0 stabilization, so they form a 1.1 milestone instead of changing 1.0's scope; new commands
+  are added to the frozen API (additions only). Printing comes first: it builds on the existing
+  solid classification and closes the gap between "looks closed" and "a slicer accepts it".
 
 - 2026-11-02 — At the user's request ("procedi con prossima tappa"), 1.0 stabilization work
   starts while 0.11 waits only for the user's check of regenerated files in the target

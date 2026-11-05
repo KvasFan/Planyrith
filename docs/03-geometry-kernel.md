@@ -232,6 +232,25 @@ If step 2 reports ambiguity (coplanar overlaps with mismatched tolerances), fall
 kernel under feature `brep` (`geom::brep::boolean`) and otherwise return `GeometryError::
 NonRobust` with guidance.
 
+### 4.14 Solid check and repair (`geom::solid_check`)
+`diagnose(mesh)` explains why a container is or is not a solid, for 3D printing (docs/05 §8.1):
+- **open edges** border a face on one side only; their free sides are traced into **holes**
+  (closed chains; at a vertex with several ways on, the loop link wins, then the lowest id);
+- **wire edges** border no face;
+- **pinched vertices** carry two or more fans of faces (parts touching at a point);
+- **shells** are edge-connected face groups. A closed shell with negative signed volume is a
+  **void** when a point of it lies inside another, positive shell (ray parity, §4.13), else it is
+  **inside out**.
+A mesh is printable when it has faces, no open or wire edges, no pinched vertices and no
+inside-out shell.
+
+`repair(mesh, options)` makes the repairs that need no judgement, each atomic: remove wire edges;
+fill holes — a hole whose corners lie within `planarity` of their best-fit plane (Newell normal,
+so the free sides run counter-clockwise) gets one face, any other is ear-clipped in that plane
+into triangles joined by new edges, and a hole that folds over itself in that projection is left;
+reverse inside-out shells. The back of a lone face is not a hole (filling it would put a second
+face on the same corners) and is left open. New faces take the default materials.
+
 ## 5. Tessellation (for rendering and export)
 
 `tessellate_face(f) -> Vec<[u32; 3]>`: project loops to the face's 2D frame, run ear clipping

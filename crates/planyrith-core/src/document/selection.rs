@@ -1488,7 +1488,11 @@ fn parse_segment(raw: &str, pos: usize) -> Result<PathSegment, QueryError> {
 
 /// The name a path uses for a group (its name) or an instance (its name,
 /// else its definition's name); `None` for other entities and empty names.
-fn display_name<'d>(doc: &'d Document, entities: &'d Entities, id: EntityId) -> Option<&'d str> {
+pub(crate) fn display_name<'d>(
+    doc: &'d Document,
+    entities: &'d Entities,
+    id: EntityId,
+) -> Option<&'d str> {
     let name = match id {
         EntityId::Group(g) => entities.group(g).map(|g| g.name.as_str()),
         EntityId::Instance(i) => entities

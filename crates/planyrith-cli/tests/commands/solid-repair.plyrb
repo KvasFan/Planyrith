@@ -1,0 +1,7 @@
+# Close the missing top of a box and remove a stray edge so it prints.
+rectangle --corner-a 0,0,0 --corner-b 100,50,0
+push-pull --face '{face & last}' --distance 20
+delete --targets 'face & normal:z & plane:xy@20'
+line --points 0,0,20 --points -40,0,60
+make-group --targets all --name Tray
+solid-repair

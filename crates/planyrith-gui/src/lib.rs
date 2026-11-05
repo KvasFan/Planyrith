@@ -17,6 +17,7 @@ pub mod i18n;
 mod icons;
 mod panels;
 pub mod platform;
+mod printing;
 #[cfg(not(target_arch = "wasm32"))]
 mod remote;
 mod resources;

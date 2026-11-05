@@ -24,6 +24,7 @@ pub mod organize;
 pub mod params;
 pub mod sheets;
 pub mod solid;
+pub mod solid_check;
 pub mod transaction;
 #[cfg(test)]
 mod undo_tests;
@@ -410,6 +411,7 @@ impl CommandRegistry {
         view::register(&mut registry);
         file::register(&mut registry);
         solid::register(&mut registry);
+        solid_check::register(&mut registry);
         sheets::register(&mut registry);
         #[cfg(feature = "scripting")]
         registry.register(crate::scripting::ScriptEval);

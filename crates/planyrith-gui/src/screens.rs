@@ -74,6 +74,51 @@ fn screenshots() {
     harness.state_mut().set_viewports(3);
     save(&mut harness, &dir, "viewports-four");
 
+    // Check for 3D Printing: a closed box beside an open tray, whose rim
+    // is marked in red.
+    let mut harness = Harness::builder()
+        .with_size(egui::vec2(1400.0, 900.0))
+        .wgpu()
+        .build_eframe(|cc| App::new(cc, None));
+    theme::apply(&harness.ctx, ThemeChoice::Light);
+    harness.state_mut().run_for_screens(&[
+        (
+            "rectangle",
+            serde_json::json!({ "corner_a": [0, 0, 0], "corner_b": [1000, 600, 0] }),
+        ),
+        (
+            "push-pull",
+            serde_json::json!({ "face": { "Query": "face & last" }, "distance": 400 }),
+        ),
+        (
+            "make-group",
+            serde_json::json!({ "targets": "all", "name": "Box" }),
+        ),
+        (
+            "rectangle",
+            serde_json::json!({ "corner_a": [1500, 0, 0], "corner_b": [2500, 600, 0] }),
+        ),
+        (
+            "push-pull",
+            serde_json::json!({ "face": { "Query": "face & last" }, "distance": 400 }),
+        ),
+        (
+            "delete",
+            serde_json::json!({ "targets": "face & normal:z & plane:xy@400" }),
+        ),
+        (
+            "make-group",
+            serde_json::json!({ "targets": "edge | face", "name": "Tray" }),
+        ),
+        ("select", serde_json::json!({ "query": "!all" })),
+        (
+            "camera-standard",
+            serde_json::json!({ "view": "iso", "extents": true }),
+        ),
+    ]);
+    harness.state_mut().open_print_check();
+    save(&mut harness, &dir, "print-check");
+
     // The context menu over a wall, and Push/Pull's options.
     let mut harness = Harness::builder()
         .with_size(egui::vec2(1400.0, 900.0))

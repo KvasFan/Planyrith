@@ -302,7 +302,7 @@ pub(crate) fn stitch(pieces: &[Piece], tol: &Tolerances) -> Result<HalfEdgeMesh,
     HalfEdgeMesh::from_indexed(&indexed, tol)
 }
 
-fn piece(mesh: &HalfEdgeMesh, f: FaceId, flip: bool) -> Result<Piece, GeometryError> {
+pub(crate) fn piece(mesh: &HalfEdgeMesh, f: FaceId, flip: bool) -> Result<Piece, GeometryError> {
     let mut loops = mesh
         .face_loops(f)?
         .into_iter()
