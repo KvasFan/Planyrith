@@ -91,6 +91,7 @@ control via `planyrith export --format json`. It is **not** required to load the
 | Format | Import | Export | Notes |
 |---|---|---|---|
 | OBJ (+MTL) | ✔ | ✔ | groups → groups or components (`o`/`g`), materials, UVs, normals (as soft edges). |
+| 3MF | ✔ | ✔ | the 3D printing package: mesh objects with base materials or color groups, components and build items on import; one welded object per visible occurrence with faces, base-material colors and the file unit on export (`W2007` for objects that are not closed solids). |
 | STL (ASCII/binary) | ✔ | ✔ | triangles merged into coplanar faces on import (`--merge-coplanar`, default on); binary default on export. |
 | glTF 2.0 / GLB | ✔ | ✔ | nodes → groups/instances (meshes shared → components), PBR base color + texture, transforms, cameras → scenes. KHR_texture_transform supported. |
 | DXF (R12–2018 ASCII) | ✔ | ✔ (3D and 2D) | LINE, LWPOLYLINE/POLYLINE, ARC, CIRCLE, ELLIPSE (segmented), SPLINE (flattened), 3DFACE, POLYFACE mesh, INSERT/BLOCK → components, LAYER → tags, TEXT/MTEXT, DIMENSION (as text+lines on export). |
@@ -539,3 +540,16 @@ save unless `--no-thumbnail`. `manifest.json` carries `title`, `author`, `descri
   perspective (two-point too) with its `yfov`, parallel as orthographic with `ymag` half the
   height and `xmag` from the camera's aspect. `gltf_cameras_round_trip_as_scenes` exports two
   scenes to GLB and imports them back with the same eye, direction, up and projection.
+- 2026-11-05 — **3MF** (milestone 1.1, docs/13). Export writes one object per visible occurrence
+  with faces, in world coordinates (Z up, as the format requires), its triangles welded on exactly
+  equal positions so a closed solid stays a closed mesh; components are not shared because
+  slicers place each object on its own and mirrored instances would need flipped copies anyway.
+  The face colors become one base-material group; the object's default is its first face's
+  material and triangles only name another. Units: millimeter, centimeter, meter, inch and foot
+  map directly, feet-and-inches write inches. Objects that are not printable
+  (`docs/03 §4.14`) are still written, with `W2007`. Import reads the model part that the root
+  relationship names (else `3D/3dmodel.model`), base materials and color groups as materials,
+  components expanded depth-first into placements (32 levels at most), and the build items;
+  micron files are scaled to millimeters. Parts in other model files, textures, composite and
+  multi-property groups, beam lattices, slices and displacement meshes are skipped with
+  `W2004`. The XML is read with `quick-xml` (MIT, docs/02); the writer is our own.

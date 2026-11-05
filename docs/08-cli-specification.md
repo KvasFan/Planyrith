@@ -86,14 +86,14 @@ planyrith tool material-apply -f house.plyr --targets 'face & normal:z' --materi
 planyrith tool scene-add -f house.plyr --name "Plan" --capture camera,tags
 ```
 
-### `planyrith import -f model.plyr <input> [--format obj|stl|gltf|dxf|step|image|csv|plyr] [--as group|component:<name>|image|texture] [--units <u>] [--merge-coplanar] [--soften <deg>] [--scale <f>] [--swap-yz] [--at x,y,z]`
+### `planyrith import -f model.plyr <input> [--format obj|stl|3mf|gltf|dxf|step|image|csv|plyr] [--as group|component:<name>|image|texture] [--units <u>] [--merge-coplanar] [--soften <deg>] [--scale <f>] [--swap-yz] [--at x,y,z]`
 Imports into the current context as a group (default) or component. Format autodetected from the
 extension. Options are per format (`docs/09 §6`). Output lists created entities, warnings and, for glTF, the number of `scenes` made from cameras. The verb
 runs the `import` command (`planyrith tool import --help` lists its options); `--units` is the
 file's unit (`file_units`) and `--z-up` keeps a Y-up format's axes as they are (`--no-swap-yz`).
 
 ### `planyrith export -f model.plyr <output> [--format …] [--scene <name>] [--selection-only] [--per-tag] [--triangulate] [--units <u>] [--include-hidden] [--copy-textures <dir>] …`
-Exports 3D formats (`obj`, `stl`, `gltf`, `glb`, `dxf`, `step`, `plyr`, `json`), 2D
+Exports 3D formats (`obj`, `stl`, `3mf`, `gltf`, `glb`, `dxf`, `step`, `plyr`, `json`), 2D
 (`svg`, `pdf`, `dxf` with `--2d --scene <name> --scale 1:50`) and data (`csv` component counts,
 `json` document dump). `--format json --pretty` is the debugging dump. Formats other than `json` run
 the `export` command (`planyrith tool export --help`): `--ascii` (STL), `--z-up`, `--units` (the
@@ -246,6 +246,7 @@ On failure: `{"ok": false, "error": {"code": "E1002", "message": "...", "param":
 | W2004 | unsupported import entity skipped |
 | W2005 | texture downscaled |
 | W2006 | damaged or unusable part dropped while loading (journal, unwritable part name, part missing from the container) |
+| W2007 | an exported object is not a closed solid (3MF; see `solid-check`) |
 
 ## 10. Determinism and reproducibility
 

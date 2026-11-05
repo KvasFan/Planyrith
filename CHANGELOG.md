@@ -6,6 +6,11 @@ All notable changes to Planyrith are recorded here. Versions follow
 
 ## Unreleased
 
+- 3MF files, the format 3D-printing slicers prefer to STL: export writes each
+  object as a closed mesh with its colors and the chosen unit, and warns when
+  an object is not a closed solid; import reads objects, components, colors
+  and the build plate placements. File › Import and File › Export › 3D Model
+  list it.
 - Check for 3D Printing (Tools › Solids): lists every object with its size and
   volume and tells which are not closed solids — open edges and holes (marked in
   red in the view), stray edges, parts touching at a corner, parts facing inward.

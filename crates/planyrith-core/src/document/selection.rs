@@ -1488,11 +1488,7 @@ fn parse_segment(raw: &str, pos: usize) -> Result<PathSegment, QueryError> {
 
 /// The name a path uses for a group (its name) or an instance (its name,
 /// else its definition's name); `None` for other entities and empty names.
-pub(crate) fn display_name<'d>(
-    doc: &'d Document,
-    entities: &'d Entities,
-    id: EntityId,
-) -> Option<&'d str> {
+fn display_name<'d>(doc: &'d Document, entities: &'d Entities, id: EntityId) -> Option<&'d str> {
     let name = match id {
         EntityId::Group(g) => entities.group(g).map(|g| g.name.as_str()),
         EntityId::Instance(i) => entities
@@ -1504,6 +1500,22 @@ pub(crate) fn display_name<'d>(
         _ => None,
     }?;
     (!name.is_empty()).then_some(name)
+}
+
+/// The name of the occurrence `path` opens: its group's or instance's name
+/// (an instance without one takes its component's), `Model` for the root,
+/// `Group` when there is none.
+pub(crate) fn occurrence_name(doc: &Document, path: &InstancePath) -> String {
+    if path.is_root() {
+        return "Model".into();
+    }
+    let named = || {
+        let last = *path.steps.last()?;
+        let (container, _) = doc.resolve_container(&path.parent()?).ok()?;
+        let entities = doc.container(container)?;
+        display_name(doc, entities, entities.key_to_id(last)?).map(str::to_owned)
+    };
+    named().unwrap_or_else(|| "Group".into())
 }
 
 /// The `index`-th group/instance named `name` in container order.

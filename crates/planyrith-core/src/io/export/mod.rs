@@ -15,6 +15,7 @@ pub mod plyr;
 pub mod scene;
 pub mod skp;
 pub mod stl;
+pub mod three_mf;
 pub mod view2d;
 
 use std::io::Write;
@@ -55,11 +56,14 @@ pub enum ExportFormat {
     Csv,
     /// SKP models and SKB backups through an optional format process.
     Skp,
+    /// 3MF package for 3D printing.
+    #[serde(rename = "3mf")]
+    ThreeMf,
 }
 
 impl ExportFormat {
     /// Every export format.
-    pub const ALL: [ExportFormat; 12] = [
+    pub const ALL: [ExportFormat; 13] = [
         ExportFormat::Obj,
         ExportFormat::Stl,
         ExportFormat::Gltf,
@@ -72,6 +76,7 @@ impl ExportFormat {
         ExportFormat::Pdf,
         ExportFormat::Csv,
         ExportFormat::Skp,
+        ExportFormat::ThreeMf,
     ];
 
     /// Registered formats; SKP additionally requires a converter-capable backend.
@@ -97,6 +102,7 @@ impl ExportFormat {
             "pdf" => ExportFormat::Pdf,
             "csv" => ExportFormat::Csv,
             "skp" | "skb" => ExportFormat::Skp,
+            "3mf" => ExportFormat::ThreeMf,
             _ => return None,
         })
     }
@@ -228,6 +234,7 @@ pub fn exporter(format: ExportFormat) -> Option<Box<dyn Exporter>> {
         ExportFormat::Plyr => Some(Box::new(plyr::PlyrExporter)),
         ExportFormat::Skp => Some(Box::new(skp::SkpExporter)),
         ExportFormat::Stl => Some(Box::new(stl::StlExporter)),
+        ExportFormat::ThreeMf => Some(Box::new(three_mf::ThreeMfExporter)),
         ExportFormat::Svg => Some(Box::new(view2d::SvgExporter)),
         ExportFormat::Pdf => Some(Box::new(view2d::PdfExporter)),
         #[cfg(not(feature = "brep"))]

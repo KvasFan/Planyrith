@@ -82,15 +82,17 @@ impl FileRequest {
                 en("Import"),
                 en("Importable files"),
                 &[
-                    "glb", "gltf", "obj", "stl", "dxf", "skp", "skb", "plyr", "plyrc", "png",
-                    "jpg", "jpeg", "webp", "csv",
+                    "glb", "gltf", "obj", "stl", "3mf", "dxf", "skp", "skb", "plyr", "plyrc",
+                    "png", "jpg", "jpeg", "webp", "csv",
                 ],
                 false,
             ),
             FileRequest::Export => (
                 en("Export 3D model"),
                 en("3D models"),
-                &["glb", "gltf", "obj", "stl", "dxf", "skp", "skb", "plyr"],
+                &[
+                    "glb", "gltf", "obj", "stl", "3mf", "dxf", "skp", "skb", "plyr",
+                ],
                 true,
             ),
             FileRequest::Report => (

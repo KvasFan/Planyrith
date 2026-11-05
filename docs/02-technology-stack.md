@@ -37,6 +37,7 @@ high-frequency interaction**.
 | OBJ | **tobj** (import); own writer | MIT | obj-rs | Simple and robust. |
 | STL | own (format is trivial) | — | stl_io | Avoid a dependency for 30 lines. |
 | DXF | own reader/writer | — | dxf crate (rejected, see Decisions) | ASCII group codes; covers the entities of docs/09 §5. |
+| 3MF | **quick-xml** (reading the model part) and the **zip** crate; own writer | MIT | roxmltree, own XML reader | A streaming reader with namespace-agnostic local names handles large meshes; already in the dependency tree. See docs/09 Decisions, 2026-11-05. |
 | STEP | **truck-stepio** (feature `brep`) | Apache-2.0 | — | Only pure-Rust option. |
 | PDF export (sheets) | **printpdf** or **pdf-writer** | MIT/Apache-2.0 | — | Pure Rust; `pdf-writer` is lower level but lean; choose at milestone 0.9. |
 | SVG export | own writer (simple) | — | svg crate | Trivial. |

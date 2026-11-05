@@ -3472,6 +3472,7 @@ dependencies = [
  "parry3d-f64",
  "pdf-writer",
  "proptest",
+ "quick-xml",
  "rayon",
  "rhai",
  "rmp-serde",

@@ -7,6 +7,7 @@ push-pull --face '{face & last}' --distance 300
 material-apply --targets 'face & normal:z' --material Oak
 make-component --targets all --name Crate
 export --path exports/box.stl
+export --path exports/box.3mf --file-units cm
 export --path exports/box-ascii.stl --ascii --file-units m --z-up
 export --path exports/box.obj
 export --path exports/box.gltf

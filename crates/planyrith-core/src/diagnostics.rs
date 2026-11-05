@@ -37,6 +37,8 @@ pub enum WarningCode {
     /// a part whose name cannot be written back, a part the manifest lists
     /// but the container lacks).
     W2006,
+    /// An exported object is not a closed solid (3MF; docs/05 §8.1).
+    W2007,
 }
 
 impl WarningCode {
@@ -49,6 +51,7 @@ impl WarningCode {
             WarningCode::W2004 => "W2004",
             WarningCode::W2005 => "W2005",
             WarningCode::W2006 => "W2006",
+            WarningCode::W2007 => "W2007",
         }
     }
 }

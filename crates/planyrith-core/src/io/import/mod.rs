@@ -18,6 +18,7 @@ pub mod obj;
 pub mod plyr;
 pub mod skp;
 pub mod stl;
+pub mod three_mf;
 
 use std::io::Read;
 
@@ -53,11 +54,14 @@ pub enum ImportFormat {
     Plyr,
     /// SKP models and SKB backups through the optional format process.
     Skp,
+    /// 3MF package (3D printing).
+    #[serde(rename = "3mf")]
+    ThreeMf,
 }
 
 impl ImportFormat {
     /// Every import format.
-    pub const ALL: [ImportFormat; 9] = [
+    pub const ALL: [ImportFormat; 10] = [
         ImportFormat::Obj,
         ImportFormat::Stl,
         ImportFormat::Gltf,
@@ -67,6 +71,7 @@ impl ImportFormat {
         ImportFormat::Csv,
         ImportFormat::Plyr,
         ImportFormat::Skp,
+        ImportFormat::ThreeMf,
     ];
 
     /// Registered formats; SKP additionally requires a converter-capable backend.
@@ -89,6 +94,7 @@ impl ImportFormat {
             "csv" => ImportFormat::Csv,
             "plyr" | "plyrc" => ImportFormat::Plyr,
             "skp" | "skb" => ImportFormat::Skp,
+            "3mf" => ImportFormat::ThreeMf,
             _ => return None,
         })
     }
@@ -238,6 +244,7 @@ pub fn importer(format: ImportFormat) -> Option<Box<dyn Importer>> {
         ImportFormat::Skp => Some(Box::new(skp::SkpImporter)),
         ImportFormat::Obj => Some(Box::new(obj::ObjImporter)),
         ImportFormat::Stl => Some(Box::new(stl::StlImporter)),
+        ImportFormat::ThreeMf => Some(Box::new(three_mf::ThreeMfImporter)),
         #[cfg(not(feature = "brep"))]
         ImportFormat::Step => None,
     }

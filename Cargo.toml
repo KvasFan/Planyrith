@@ -75,6 +75,8 @@ tobj = { version = "4.0", default-features = false }
 # Without `import`: buffers and images are resolved through the storage.
 gltf = { version = "1.4", default-features = false, features = ["names", "utils", "KHR_texture_transform"] }
 pdf-writer = "0.15"
+# 3MF model parts (docs/09 §5); the version already in the lock file.
+quick-xml = { version = "0.41", default-features = false }
 subsetter = { version = "0.2.6", default-features = false }
 # Glyph outlines for 3D text (docs/05 §3.8).
 ttf-parser = { version = "0.25", default-features = false, features = ["std"] }

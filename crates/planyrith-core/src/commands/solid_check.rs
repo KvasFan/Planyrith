@@ -13,7 +13,7 @@ use crate::commands::params::{command_context, select};
 use crate::commands::{
     Command, CommandCategory, CommandError, CommandMeta, CommonParams, Transaction,
 };
-use crate::document::selection::display_name;
+use crate::document::selection::occurrence_name;
 use crate::document::{ContainerRef, Document, EditContext, InstancePath, Query, Selection};
 use crate::geom::solid_check::{RepairOptions, RepairReport, SolidDiagnosis, diagnose, repair};
 use crate::io::render_mesh::{DrawItem, draw_list};
@@ -155,20 +155,6 @@ fn objects(
         .collect())
 }
 
-fn name_of(doc: &Document, path: &InstancePath) -> String {
-    let named = || {
-        let last = *path.steps.last()?;
-        let (container, _) = doc.resolve_container(&path.parent()?).ok()?;
-        let entities = doc.container(container)?;
-        display_name(doc, entities, entities.key_to_id(last)?).map(str::to_owned)
-    };
-    if path.is_root() {
-        "Model".into()
-    } else {
-        named().unwrap_or_else(|| "Group".into())
-    }
-}
-
 fn describe(doc: &Document, item: &DrawItem, d: &SolidDiagnosis) -> SolidCheckObject {
     let mesh = doc.container(item.container).map(|c| c.mesh());
     let (mut lo, mut hi) = (DVec3::splat(f64::INFINITY), DVec3::splat(f64::NEG_INFINITY));
@@ -189,7 +175,7 @@ fn describe(doc: &Document, item: &DrawItem, d: &SolidDiagnosis) -> SolidCheckOb
         .map(|v| v * item.world.matrix3.determinant().abs());
     SolidCheckObject {
         path: item.path.clone(),
-        name: name_of(doc, &item.path),
+        name: occurrence_name(doc, &item.path),
         printable,
         faces: d.faces,
         shells: d.shells,

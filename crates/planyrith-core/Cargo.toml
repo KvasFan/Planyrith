@@ -48,6 +48,7 @@ tracing = { workspace = true }
 tobj = { workspace = true }
 gltf = { workspace = true }
 pdf-writer = { workspace = true }
+quick-xml = { workspace = true }
 subsetter = { workspace = true }
 ttf-parser = { workspace = true }
 rayon = { workspace = true, optional = true }

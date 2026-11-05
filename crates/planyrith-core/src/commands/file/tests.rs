@@ -1848,3 +1848,87 @@ fn memory_benchmark() {
     );
     std::hint::black_box(&loaded);
 }
+
+/// docs/09 §5 3MF: a colored box goes out as one welded, closed object in
+/// centimeters and comes back as a solid of the same size and color; an
+/// open tray is written with `W2007`.
+#[test]
+fn three_mf_round_trips_a_colored_solid() {
+    let (mut e, storage) = engine();
+    run(
+        &mut e,
+        "material-create",
+        json!({ "name": "Oak", "color": "#A0522D" }),
+    );
+    run(
+        &mut e,
+        "rectangle",
+        json!({ "corner_a": [0, 0, 0], "corner_b": [600, 400, 0] }),
+    );
+    run(
+        &mut e,
+        "push-pull",
+        json!({ "face": { "Query": "face & last" }, "distance": 300 }),
+    );
+    run(
+        &mut e,
+        "material-apply",
+        json!({ "targets": "face", "material": "Oak" }),
+    );
+    run(
+        &mut e,
+        "make-group",
+        json!({ "targets": "all", "name": "Crate" }),
+    );
+    let out = run(
+        &mut e,
+        "export",
+        json!({ "path": "crate.3mf", "file_units": "cm" }),
+    );
+    assert_eq!(out["format"], "3mf");
+    assert_eq!(out["entities"], 1);
+    assert_eq!(out["warnings"], json!([]));
+    let bytes = storage.read(&StorageKey::new("crate.3mf")).unwrap();
+    let (mut e, storage) = engine();
+    storage
+        .write(&StorageKey::new("crate.3mf"), &bytes)
+        .unwrap();
+    let out = run(&mut e, "import", json!({ "path": "crate.3mf" }));
+    assert_eq!(out["format"], "3mf");
+    assert_eq!(out["faces"], 6, "coplanar triangles merge back into faces");
+    let (faces, _, lo, hi) = imported(&e);
+    assert_eq!(faces, 6);
+    assert!(close(lo, DVec3::ZERO), "{lo}");
+    assert!(close(hi, DVec3::new(600.0, 400.0, 300.0)), "{hi}");
+    let check = run(&mut e, "solid-check", json!({}));
+    assert_eq!(check["printable"], true, "{check}");
+    let volume = check["objects"][0]["volume_mm3"].as_f64().unwrap();
+    assert!((volume - 72_000_000.0).abs() < 1e-3, "{volume}");
+    let doc = e.document();
+    let oak = doc
+        .materials
+        .iter()
+        .find(|(_, m)| m.name == "Oak")
+        .map(|(_, m)| m.color);
+    assert_eq!(oak, Some(crate::document::Rgba8::rgb(0xA0, 0x52, 0x2D)));
+
+    // An open tray is still written, with W2007.
+    run(&mut e, "delete", json!({ "targets": "all" }));
+    run(
+        &mut e,
+        "rectangle",
+        json!({ "corner_a": [0, 0, 0], "corner_b": [100, 50, 0] }),
+    );
+    run(
+        &mut e,
+        "push-pull",
+        json!({ "face": { "Query": "face & last" }, "distance": 20 }),
+    );
+    run(
+        &mut e,
+        "delete",
+        json!({ "targets": "face & normal:z & plane:xy@20" }),
+    );
+    let out = run(&mut e, "export", json!({ "path": "tray.3mf" }));
+    assert_eq!(out["warnings"][0]["code"], "W2007", "{out}");
+}
