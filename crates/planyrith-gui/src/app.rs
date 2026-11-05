@@ -3066,6 +3066,9 @@ impl App {
         if let Some(request) = self.resources.file.take() {
             self.open_resource_dialog(request);
         }
+        if let Some(per_object) = self.print_check.export.take() {
+            self.open_resource_dialog(FileRequest::ExportPrint { per_object });
+        }
         if std::mem::take(&mut self.resources.pick_library) {
             self.dialog = platform::file_dialog().title("Component library");
             self.dialog.pick_directory();

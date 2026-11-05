@@ -11,6 +11,10 @@ All notable changes to Planyrith are recorded here. Versions follow
   an object is not a closed solid; import reads objects, components, colors
   and the build plate placements. File › Import and File › Export › 3D Model
   list it.
+- Export for printing: `--on-plate` rests the objects on Z = 0 and
+  `--per-object` writes each top-level group or component to its own file
+  (STL, OBJ, glTF, 3MF); the Check for 3D Printing window has an
+  **Export for Printing…** button that does both.
 - Check for 3D Printing (Tools › Solids): lists every object with its size and
   volume and tells which are not closed solids — open edges and holes (marked in
   red in the view), stray edges, parts touching at a corner, parts facing inward.

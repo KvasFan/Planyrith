@@ -29,6 +29,10 @@ pub struct PrintCheck {
     note: Option<String>,
     /// The marks for (chosen row, document generation).
     marks: Option<(MarksKey, Vec<[DVec3; 2]>)>,
+    /// Export one file per object.
+    per_object: bool,
+    /// Export for printing was asked for: one file per object or not.
+    pub export: Option<bool>,
 }
 
 impl PrintCheck {
@@ -133,6 +137,7 @@ impl PrintCheck {
         };
         let stale = *generation != session.engine.generation();
         let failing = output.objects.iter().filter(|o| !o.printable).count();
+        let has_objects = !output.objects.is_empty();
         let summary = if output.objects.is_empty() {
             t("There is nothing to print: no visible object has faces.")
         } else if failing == 0 {
@@ -216,6 +221,18 @@ impl PrintCheck {
                 });
                 self.check(session);
             }
+        });
+        ui.horizontal(|ui| {
+            if ui
+                .add_enabled(has_objects, egui::Button::new(t("Export for Printing…")))
+                .on_hover_text(t(
+                    "Writes a 3MF or STL file with the objects resting on the build plate.",
+                ))
+                .clicked()
+            {
+                self.export = Some(self.per_object);
+            }
+            ui.checkbox(&mut self.per_object, t("One file per object"));
         });
         if let Some(note) = &self.note {
             ui.label(note);

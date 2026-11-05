@@ -41,6 +41,12 @@ pub enum FileRequest {
     Report,
     /// An SVG, PDF or DXF drawing of the current view.
     Export2d,
+    /// A 3MF or STL file for 3D printing, objects on the build plate
+    /// (docs/05 §8.1), optionally one file per object.
+    ExportPrint {
+        /// One file per top-level object.
+        per_object: bool,
+    },
 }
 
 impl FileRequest {
@@ -107,6 +113,12 @@ impl FileRequest {
                 &["pdf", "svg", "dxf"],
                 true,
             ),
+            FileRequest::ExportPrint { .. } => (
+                en("Export for 3D printing"),
+                en("3D printing files"),
+                &["3mf", "stl"],
+                true,
+            ),
         }
     }
 
@@ -134,6 +146,10 @@ impl FileRequest {
             FileRequest::Import => ("import", json!({ "path": path })),
             FileRequest::Export | FileRequest::Report => ("export", json!({ "path": path })),
             FileRequest::Export2d => ("export", json!({ "path": path, "two_d": true })),
+            FileRequest::ExportPrint { per_object } => (
+                "export",
+                json!({ "path": path, "on_plate": true, "per_object": per_object }),
+            ),
         }
     }
 }

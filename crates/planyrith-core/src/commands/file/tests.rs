@@ -1932,3 +1932,62 @@ fn three_mf_round_trips_a_colored_solid() {
     let out = run(&mut e, "export", json!({ "path": "tray.3mf" }));
     assert_eq!(out["warnings"][0]["code"], "W2007", "{out}");
 }
+
+/// docs/05 §10 printing options: each top-level object in its own file,
+/// each lifted onto the build plate; refused where they make no sense.
+#[test]
+fn per_object_export_puts_each_object_on_the_plate() {
+    let (mut e, storage) = engine();
+    for (z, name) in [(500, "Raised Box"), (-100, "Sunk/Box")] {
+        run(
+            &mut e,
+            "rectangle",
+            json!({ "corner_a": [0, 0, z], "corner_b": [100, 50, z] }),
+        );
+        run(
+            &mut e,
+            "push-pull",
+            json!({ "face": { "Query": "face & last" }, "distance": 20 }),
+        );
+        run(
+            &mut e,
+            "make-group",
+            json!({ "targets": "edge | face", "name": name }),
+        );
+    }
+    let out = run(
+        &mut e,
+        "export",
+        json!({ "path": "out/parts.3mf", "per_object": true, "on_plate": true }),
+    );
+    assert_eq!(
+        out["files"],
+        json!(["out/parts-Raised-Box.3mf", "out/parts-Sunk-Box.3mf"])
+    );
+    assert_eq!(out["entities"], 2);
+    for file in ["out/parts-Raised-Box.3mf", "out/parts-Sunk-Box.3mf"] {
+        let bytes = storage.read(&StorageKey::new(file)).unwrap();
+        let (mut fresh, store) = engine();
+        store.write(&StorageKey::new("part.3mf"), &bytes).unwrap();
+        run(&mut fresh, "import", json!({ "path": "part.3mf" }));
+        let (faces, _, lo, hi) = imported(&fresh);
+        assert_eq!(faces, 6, "{file}");
+        assert!(
+            lo.z.abs() < 1e-9 && (hi.z - 20.0).abs() < 1e-9,
+            "{file}: {lo} {hi}"
+        );
+    }
+    // Without the options one file holds both, where they are.
+    let out = run(&mut e, "export", json!({ "path": "all.stl" }));
+    assert!(out.get("files").is_none());
+    for (params, bad) in [
+        (json!({ "path": "a.dxf", "on_plate": true }), "on_plate"),
+        (
+            json!({ "path": "a.stl", "per_object": true, "targets": "all" }),
+            "per_object",
+        ),
+    ] {
+        let err = e.execute_erased("export", params).unwrap_err();
+        assert!(err.to_string().contains(bad), "{err}");
+    }
+}

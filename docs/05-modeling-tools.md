@@ -434,7 +434,8 @@ perpendicular to hovered edge); `Esc` = cancel current step (second `Esc` = canc
   pinched_vertices, inside_out_shells, voids, volume_mm3?, size_mm: [x, y, z] }], printable }`;
   `printable` is true when there is at least one object and all are printable.
 - **GUI:** Tools › Solids › Check for 3D Printing… lists the objects with their problems,
-  marks the open edges of the chosen one in the view and offers **Repair**.
+  marks the open edges of the chosen one in the view and offers **Repair** and **Export for
+  Printing…** (3MF or STL, `on_plate`, and `per_object` when "One file per object" is ticked).
 - **Tests:** a pushed box is printable with its volume and size; a box with a deleted face has one
   hole of four open edges; the check adds no undo step.
 
@@ -480,6 +481,11 @@ perpendicular to hovered edge); `Esc` = cancel current step (second `Esc` = canc
   with hidden lines removed, at `scale` (`1:50`, parallel views) or fitted to `paper_width`
   (297 mm). It changes nothing and is not undoable. Output: `{ format, bytes_written, entities,
   warnings }` (`entities`: triangles, rows or drawn lines).
+  For 3D printing, with STL, OBJ, glTF, GLB and 3MF: `per_object` writes each top-level group or
+  instance (with what it holds) and the model's loose faces to its own file
+  `<file>-<name>.<ext>` (names reduced to letters, digits, `-` and `_`, numbered when repeated;
+  not with `targets`), listed in the output's `files`; `on_plate` lifts what each file holds so
+  its lowest point is at Z = 0. The other output fields sum over the files.
 
 ## 11. Tool metadata (for frontends)
 

@@ -156,6 +156,10 @@ pub struct ExportOptions {
     /// Paper width of a fitted view, mm.
     #[serde(default)]
     pub paper_width_mm: Option<f64>,
+    /// Shift of the model before export, document millimeters (the
+    /// build-plate placement of docs/05 §10).
+    #[serde(default)]
+    pub offset_mm: [f64; 3],
 }
 
 impl Default for ExportOptions {
@@ -174,6 +178,7 @@ impl Default for ExportOptions {
             two_d: false,
             scale: None,
             paper_width_mm: None,
+            offset_mm: [0.0; 3],
         }
     }
 }
@@ -242,8 +247,8 @@ pub fn exporter(format: ExportFormat) -> Option<Box<dyn Exporter>> {
     }
 }
 
-/// Document (mm, Z-up) → output coordinates: `opts.units`, and Y-up
-/// unless `z_up` for formats that are Y-up by default.
+/// Document (mm, Z-up) → output coordinates: `opts.offset_mm`, then
+/// `opts.units`, and Y-up unless `z_up` for formats that are Y-up by default.
 pub fn output_transform(opts: &ExportOptions, y_up_format: bool) -> glam::DAffine3 {
     let axes = if y_up_format && !opts.z_up {
         // (x, y, z) → (x, z, −y): Z-up to Y-up.
@@ -252,6 +257,7 @@ pub fn output_transform(opts: &ExportOptions, y_up_format: bool) -> glam::DAffin
         glam::DMat3::IDENTITY
     };
     glam::DAffine3::from_mat3(axes / opts.units.millimeters())
+        * glam::DAffine3::from_translation(glam::DVec3::from_array(opts.offset_mm))
 }
 
 #[cfg(test)]
