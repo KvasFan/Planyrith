@@ -173,9 +173,19 @@ pub struct Material {
     pub is_default_for: Option<FrontOrBack>,
     /// Attributes.
     pub attrs: AttributeDictionaries,
+    /// Surface roughness `0..=1` for realistic styles (docs/06 §4.1);
+    /// `None`: the default, fairly matte.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub roughness: Option<f32>,
+    /// Metalness `0..=1` for realistic styles; `None`: not metallic.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metallic: Option<f32>,
 }
 
 impl Material {
+    /// Roughness used when a material sets none.
+    pub const DEFAULT_ROUGHNESS: f32 = 0.6;
+
     /// Name of the built-in default front material.
     pub const DEFAULT_FRONT_NAME: &'static str = "Default";
     /// Name of the built-in default back material.
@@ -190,6 +200,8 @@ impl Material {
             texture: None,
             is_default_for: None,
             attrs: AttributeDictionaries::default(),
+            roughness: None,
+            metallic: None,
         }
     }
 }

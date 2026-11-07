@@ -40,6 +40,17 @@ fn material_named(doc: &Document, name: &str) -> Result<MaterialId, CommandError
     })
 }
 
+/// A `0..=1` surface factor (roughness, metalness).
+fn check_unit(name: &str, v: Option<f32>) -> Result<(), CommandError> {
+    if v.is_some_and(|v| !(0.0..=1.0).contains(&v)) {
+        return Err(CommandError::OutOfRange {
+            name: name.into(),
+            reason: "must be between 0 and 1".into(),
+        });
+    }
+    Ok(())
+}
+
 fn check_opacity(o: f32) -> Result<(), CommandError> {
     if !(0.0..=1.0).contains(&o) {
         return Err(CommandError::OutOfRange {
@@ -160,6 +171,12 @@ pub struct MaterialCreateParams {
     /// Real-world height of one texture tile.
     #[serde(default)]
     pub texture_height: Option<Length>,
+    /// Surface roughness 0–1 for realistic styles (0.6).
+    #[serde(default)]
+    pub roughness: Option<f32>,
+    /// Metalness 0–1 for realistic styles (0).
+    #[serde(default)]
+    pub metallic: Option<f32>,
 }
 
 /// The `material-create` command.
@@ -184,6 +201,8 @@ impl Command for MaterialCreate {
         parse_color("color", &p.color)?;
         check_tile("texture_width", p.texture_width)?;
         check_tile("texture_height", p.texture_height)?;
+        check_unit("roughness", p.roughness)?;
+        check_unit("metallic", p.metallic)?;
         check_opacity(p.opacity)
     }
 
@@ -194,6 +213,8 @@ impl Command for MaterialCreate {
     ) -> Result<MaterialOutput, CommandError> {
         let color = parse_color("color", &p.color)?;
         let mut material = with_opacity(Material::solid(p.name.clone(), color), p.opacity);
+        material.roughness = p.roughness;
+        material.metallic = p.metallic;
         if let Some(path) = &p.texture {
             let (image, aspect) = load_texture_image(tx, path)?;
             material.texture = Some(Texture {
@@ -241,6 +262,12 @@ pub struct MaterialEditParams {
     /// How the material color alters the texture.
     #[serde(default)]
     pub colorize: Option<ColorizeChoice>,
+    /// Surface roughness 0–1 for realistic styles.
+    #[serde(default)]
+    pub roughness: Option<f32>,
+    /// Metalness 0–1 for realistic styles.
+    #[serde(default)]
+    pub metallic: Option<f32>,
 }
 
 /// The `material-edit` command.
@@ -274,6 +301,8 @@ impl Command for MaterialEdit {
         }
         check_tile("texture_width", p.texture_width)?;
         check_tile("texture_height", p.texture_height)?;
+        check_unit("roughness", p.roughness)?;
+        check_unit("metallic", p.metallic)?;
         let removes = p.texture.as_deref() == Some("none");
         let has_texture = doc.materials.get(id).is_some_and(|m| m.texture.is_some());
         if !has_texture
@@ -310,6 +339,12 @@ impl Command for MaterialEdit {
         }
         if let Some(o) = p.opacity {
             m = with_opacity(m, o);
+        }
+        if p.roughness.is_some() {
+            m.roughness = p.roughness;
+        }
+        if p.metallic.is_some() {
+            m.metallic = p.metallic;
         }
         match p.texture.as_deref() {
             Some("none") => m.texture = None,

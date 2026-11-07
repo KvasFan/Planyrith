@@ -131,6 +131,7 @@ pub struct Material {
     texture: Option<Texture { image: ImageRef, size_mm: DVec2, colorize: Option<ColorizeMode> }>,
     is_default_for: Option<FrontOrBack>, // the two built-in "Default" materials
     attrs: AttributeDictionaries,
+    roughness: Option<f32>, metallic: Option<f32>, // 0..1, realistic styles only (docs/06 §4.1); None: 0.6 and 0
 }
 ```
 - Faces have `material_front: Option<MaterialId>` and `material_back` (None = default material).
@@ -181,6 +182,7 @@ pub struct Style {
     watermarks: Vec<Watermark>,
     modeling: ModelingStyle { selection_color, locked_color, guide_color, inactive_fade: f32, section_fill, section_line_color, section_line_width_px },
     fog: Option<Fog { start, end, use_background_color, color }>,
+    realism: Option<Realism { sky_light: f32 /*0..1, 0.6*/, ambient_occlusion: f32 /*0..1, 0.7*/, exposure: f32 /*stops −3..3, 0*/, soft_shadows: bool }>, // docs/06 §4.1; absent: the technical look
 }
 pub struct ShadowSettings { enabled: bool, sun: SunModel /*Geo{date, time, lat, lon, utc_offset, north_angle} | Manual{azimuth, altitude}*/, light: u8, dark: u8, on_faces: bool, on_ground: bool, from_edges: bool }
 ```

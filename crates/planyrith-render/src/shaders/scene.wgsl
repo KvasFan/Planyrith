@@ -50,6 +50,13 @@ struct Draw {
     axis_x: vec4<f32>,
     axis_y: vec4<f32>,
     axis_z: vec4<f32>,
+    // Realistic look (docs/06 §4.1): x on, y roughness, z metalness,
+    // w exposure factor.
+    pbr: vec4<f32>,
+    // Sky light color (linear) and amount.
+    sky: vec4<f32>,
+    // Ground bounce color (linear); w: 1 soft shadows.
+    ground: vec4<f32>,
 };
 
 // Distance along the view of a clip position (fog).
@@ -92,13 +99,19 @@ fn cut_away(local: vec3<f32>) -> bool {
     return (draw.ids.y & CLIPPED) != 0u && dot(draw.section.xyz, local) + draw.section.w > 1e-3;
 }
 
-// 3×3 percentage-closer filtering of one cascade of the sun's depth.
+// Percentage-closer filtering of one cascade of the sun's depth: 3×3
+// texels, or 5×5 spread over twice that for soft shadows (docs/06 §4.1).
 fn pcf(ndc: vec3<f32>, layer: i32) -> f32 {
     let uv = vec2<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
-    let texel = 1.0 / vec2<f32>(textureDimensions(shadow_map));
+    var texel = 1.0 / vec2<f32>(textureDimensions(shadow_map));
+    var reach = 1;
+    if (draw.pbr.x > 0.5 && draw.ground.w > 0.5) {
+        reach = 2;
+        texel = texel * 1.25;
+    }
     var sum = 0.0;
-    for (var y = -1; y <= 1; y++) {
-        for (var x = -1; x <= 1; x++) {
+    for (var y = -reach; y <= reach; y++) {
+        for (var x = -reach; x <= reach; x++) {
             sum += textureSampleCompareLevel(
                 shadow_map,
                 shadow_sampler,
@@ -108,7 +121,8 @@ fn pcf(ndc: vec3<f32>, layer: i32) -> f32 {
             );
         }
     }
-    return sum / 9.0;
+    let side = f32(2 * reach + 1);
+    return sum / (side * side);
 }
 
 // 1 lit, 0 in shadow: the near cascade where it covers the point (away from
@@ -169,7 +183,66 @@ fn vs_face(input: FaceIn) -> FaceOut {
     return out;
 }
 
-fn shade(base: vec4<f32>, normal: vec3<f32>, visibility: f32) -> vec4<f32> {
+const PI: f32 = 3.14159265;
+
+// A filmic curve from scene light to display values (docs/06 §4.1).
+fn filmic(x: vec3<f32>) -> vec3<f32> {
+    return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), vec3<f32>(0.0), vec3<f32>(1.0));
+}
+
+// The realistic look: the sun (or the head light) with microfacet
+// highlights, light from the sky and the ground, then the filmic curve.
+fn shade_realistic(base: vec3<f32>, normal: vec3<f32>, view: vec3<f32>, visibility: f32) -> vec3<f32> {
+    let n = normalize(normal);
+    let l = normalize(draw.light.xyz);
+    var v = normalize(view);
+    if (dot(n, v) < 0.0) {
+        v = reflect(v, n);
+    }
+    let roughness = clamp(draw.pbr.y, 0.04, 1.0);
+    let metallic = clamp(draw.pbr.z, 0.0, 1.0);
+    let a = roughness * roughness;
+    let a2 = a * a;
+    let h = normalize(l + v);
+    let ndl = max(dot(n, l), 0.0);
+    let ndv = max(dot(n, v), 1e-3);
+    let ndh = max(dot(n, h), 0.0);
+    let vdh = max(dot(v, h), 0.0);
+    let f0 = mix(vec3<f32>(0.04), base, metallic);
+    let fresnel = f0 + (vec3<f32>(1.0) - f0) * pow(1.0 - vdh, 5.0);
+    let dd = ndh * ndh * (a2 - 1.0) + 1.0;
+    let distribution = a2 / (PI * dd * dd);
+    let k = (roughness + 1.0) * (roughness + 1.0) / 8.0;
+    let geometry = (ndv / (ndv * (1.0 - k) + k)) * (ndl / (ndl * (1.0 - k) + k));
+    let specular = distribution * geometry * fresnel / (4.0 * ndv * max(ndl, 1e-3));
+    let diffuse = (vec3<f32>(1.0) - fresnel) * (1.0 - metallic) * base / PI;
+    // The sun's strength follows the Shadows window's "light" setting: a
+    // white face square to the sun reaches about 0.8 after the curve.
+    var sun = 0.85 * PI;
+    if (draw.shadow.x > 0.5) {
+        sun = sun * max(draw.shadow.y, 0.05) / 0.8;
+    }
+    let direct = (diffuse + specular) * sun * ndl * visibility;
+    // Sky above, ground below (Z up): diffuse light from around the
+    // normal, and what a mirror would see along the reflection, blurred
+    // toward the diffuse light as the surface gets rougher.
+    let sky = draw.sky.rgb * draw.sky.a;
+    let ground = draw.ground.rgb * 0.5 * draw.sky.a;
+    let around = mix(ground, sky, n.z * 0.5 + 0.5);
+    let r = reflect(-v, n);
+    let mirrored = mix(mix(ground, sky, r.z * 0.5 + 0.5), around, roughness);
+    let glancing = f0 + (max(vec3<f32>(1.0 - roughness), f0) - f0) * pow(1.0 - ndv, 5.0);
+    let ambient = around * (1.0 - metallic) * base + mirrored * glancing;
+    return filmic((direct + ambient) * draw.pbr.w);
+}
+
+fn shade(base: vec4<f32>, normal: vec3<f32>, visibility: f32, view: vec3<f32>) -> vec4<f32> {
+    if (draw.pbr.x > 0.5 && (draw.ids.y & UNLIT) == 0u) {
+        var rgb = shade_realistic(base.rgb, normal, view, visibility);
+        rgb = mix(rgb, draw.tint.rgb, draw.tint.a);
+        rgb = mix(rgb, draw.fade.rgb, draw.fade.a);
+        return vec4<f32>(rgb, base.a);
+    }
     var lit = 1.0;
     if ((draw.ids.y & UNLIT) == 0u) {
         let n = normalize(normal);
@@ -203,7 +276,14 @@ fn fs_face(input: FaceOut) -> @location(0) vec4<f32> {
         // Texture rows run top to bottom; face-frame v runs upward.
         base = base * textureSample(tex, tex_sampler, vec2<f32>(input.uv.x, 1.0 - input.uv.y));
     }
-    let lit = shade(base, input.normal, visibility);
+    // Toward the eye, in world directions (the normal matrix keeps
+    // rotations, which is what directions need here).
+    var to_eye = draw.local_eye.xyz;
+    if (draw.local_eye.w > 0.5) {
+        to_eye = draw.local_eye.xyz - input.local;
+    }
+    let normal_matrix = mat3x3<f32>(draw.normal_x.xyz, draw.normal_y.xyz, draw.normal_z.xyz);
+    let lit = shade(base, input.normal, visibility, normal_matrix * to_eye);
     return vec4<f32>(fogged(lit.rgb, input.depth), lit.a);
 }
 

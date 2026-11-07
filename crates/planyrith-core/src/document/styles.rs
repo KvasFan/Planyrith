@@ -160,6 +160,37 @@ pub struct Style {
     pub modeling: ModelingStyle,
     /// Fog.
     pub fog: Option<Fog>,
+    /// Presentation lighting (docs/06 §4.1); absent, the technical look.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub realism: Option<Realism>,
+}
+
+/// The realistic look of a style (docs/06 §4.1): light from the sky as well
+/// as the sun, highlights after each material's roughness and metalness,
+/// ambient occlusion, softer shadows and a filmic tone curve.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Realism {
+    /// How much the sky lights the model, `0..=1`.
+    pub sky_light: f32,
+    /// Ambient occlusion: how much creases and contacts darken, `0..=1`
+    /// (0 off).
+    pub ambient_occlusion: f32,
+    /// Exposure in stops, `-3..=3`.
+    pub exposure: f32,
+    /// Soften shadow edges.
+    pub soft_shadows: bool,
+}
+
+impl Default for Realism {
+    fn default() -> Self {
+        Realism {
+            sky_light: 0.6,
+            ambient_occlusion: 0.7,
+            exposure: 0.0,
+            soft_shadows: true,
+        }
+    }
 }
 
 impl Default for Style {
@@ -200,6 +231,7 @@ impl Default for Style {
                 section_line_width_px: 3.0,
             },
             fog: None,
+            realism: None,
         }
     }
 }

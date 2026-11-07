@@ -232,7 +232,7 @@ fn parse(xml: &str) -> Result<Model, IoError> {
                     name: label,
                     color: rgb,
                     opacity,
-                    texture: None,
+                    ..ImportedMaterial::default()
                 });
             }
             b"object" if !empty => {

@@ -82,6 +82,25 @@ are drawn with GPU instancing.
 - Fog: linear by distance in view space using style settings.
 - Watermarks: textured quads in screen space (background or overlay) with tiling/stretch modes.
 
+### 4.1 Realistic look
+
+A style with `realism` (docs/04 §7) shades faces for presentation instead of readability; the
+technical look above stays the default and returns exactly when `realism` is removed.
+- **Light:** the sun (or, with shadows off, the head light) with a microfacet highlight
+  (GGX distribution, Smith–Schlick visibility, Schlick Fresnel; F0 0.04, or the base color for
+  metals) after each material's `roughness` (0.6 when unset) and `metallic` (0); the Shadows
+  window's light setting scales the sun. Light from the sky above and the ground below
+  (hemisphere: the style's sky color, else a pale blue; its ground color, else a warm gray)
+  times `sky_light` lights every face, so shadows keep their color.
+- **Tones:** the sum times 2^`exposure` goes through a filmic curve to display values, so lit
+  faces approach white without clipping. Tint, fade and fog apply after it.
+- **Soft shadows:** the shadow filter reads 5×5 texels spread over 1.25 texels each instead of
+  3×3.
+- **Ambient occlusion:** `ambient_occlusion` darkens creases and contacts (a screen-space pass,
+  §3.1).
+- Hidden-line and wireframe faces are unaffected; monochrome faces use the style's colors with
+  the same light.
+
 ## 5. Edge rendering
 
 - Edges are drawn as screen-space quads (instanced line segments) with configurable width in
@@ -361,3 +380,10 @@ exposes a frame-time overlay (`F11` panel).
   nearest mesh hit by more than the pick distance, else the mesh hit. A document without
   images returns at once, and only image lists are walked, so hovering costs nothing on models
   without them. This closes "picking image entities by clicking", deferred in docs/13 (0.4).
+- 2026-11-08 — **Realistic look** (§4.1, milestone 1.1). A style field rather than a face mode:
+  the frozen format allows added fields, not enum variants (docs/09 §4), and the look combines
+  with shaded, textured and monochrome faces. `style-edit` takes `realistic` (on/off) and
+  `sky_light`, `ambient_occlusion`, `exposure`, `soft_shadows`; setting one of those turns the
+  look on. The color target stays 8-bit sRGB: the filmic curve runs per fragment, before
+  blending, which keeps WebGL2 and the existing passes. Per-draw uniforms grew three vectors
+  (stride 768 bytes).

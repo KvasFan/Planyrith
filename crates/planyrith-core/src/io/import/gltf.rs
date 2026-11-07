@@ -241,6 +241,11 @@ impl Importer for GltfImporter {
                 color: Rgba8::rgb(srgb(r), srgb(g), srgb(b)),
                 opacity: if blended { a } else { 1.0 },
                 texture,
+                // The format's defaults (1 and 1) cannot be told from
+                // unset values: only lower factors are kept (docs/09
+                // Decisions, 2026-11-08).
+                roughness: Some(pbr.roughness_factor()).filter(|&f| f < 1.0),
+                metallic: Some(pbr.metallic_factor()).filter(|&f| f > 0.0 && f < 1.0),
             });
         }
 

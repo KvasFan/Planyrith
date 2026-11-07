@@ -553,3 +553,8 @@ save unless `--no-thumbnail`. `manifest.json` carries `title`, `author`, `descri
   micron files are scaled to millimeters. Parts in other model files, textures, composite and
   multi-property groups, beam lattices, slices and displacement meshes are skipped with
   `W2004`. The XML is read with `quick-xml` (MIT, docs/02); the writer is our own.
+- 2026-11-08 — **glTF surface factors** (docs/06 §4.1). Export writes a material's `metallic`
+  and `roughness`, or 0 and 1 (the matte look exports had before) when unset. Import keeps a
+  roughness below 1 and a metalness strictly between 0 and 1: the format's defaults (1 and 1)
+  cannot be told from values a file left unset, and taking them would make every material a
+  rough metal. A fully metallic material therefore imports as non-metallic.

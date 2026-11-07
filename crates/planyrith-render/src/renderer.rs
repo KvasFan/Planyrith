@@ -37,7 +37,7 @@ const COLOR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 const ID_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rg32Uint;
 /// Dynamic uniform offsets are multiples of this (the WebGPU minimum).
-const UNIFORM_STRIDE: u64 = 512;
+const UNIFORM_STRIDE: u64 = 768;
 
 /// Shadow map size (docs/06 §3.1 step 1).
 const SHADOW_SIZE: u32 = 2048;
@@ -191,6 +191,13 @@ struct DrawUniform {
     axis_x: [f32; 4],
     axis_y: [f32; 4],
     axis_z: [f32; 4],
+    /// Realistic look (docs/06 §4.1): x on, y roughness, z metalness,
+    /// w exposure factor.
+    pbr: [f32; 4],
+    /// Sky light color (linear) and amount.
+    sky: [f32; 4],
+    /// Ground bounce color (linear); w: 1 soft shadows.
+    ground: [f32; 4],
 }
 
 const TEXTURED: u32 = 1;
@@ -854,6 +861,13 @@ impl Renderer {
             0.0,
         ];
         let fade_amount = style.modeling.inactive_fade.clamp(0.0, 1.0);
+        // The realistic look (docs/06 §4.1); edges-only and hidden-line
+        // faces stay as they are.
+        let realism = style
+            .realism
+            .filter(|_| !matches!(mode, FaceMode::HiddenLine | FaceMode::Wireframe));
+        let sky_light = linear(style.background.sky.unwrap_or(SKY_LIGHT));
+        let ground_light = linear(style.background.ground.map_or(GROUND_LIGHT, |(c, _)| c));
 
         // The sun (docs/06 §6): its direction lights the faces; its depth
         // map shadows them and the ground.
@@ -979,12 +993,33 @@ impl Renderer {
                     FaceMode::XRay => color[3] *= 0.5,
                     _ => {}
                 }
-                let u = DrawUniform {
+                let mut u = DrawUniform {
                     color,
                     fade,
                     ids: [item_id, flags, 0, 0],
                     ..base
                 };
+                if let Some(r) = realism {
+                    let [roughness, metallic] = surface(doc, *key, item.material_override);
+                    u.pbr = [
+                        1.0,
+                        roughness,
+                        metallic,
+                        2f32.powf(r.exposure.clamp(-3.0, 3.0)),
+                    ];
+                    u.sky = [
+                        sky_light[0],
+                        sky_light[1],
+                        sky_light[2],
+                        r.sky_light.clamp(0.0, 1.0),
+                    ];
+                    u.ground = [
+                        ground_light[0],
+                        ground_light[1],
+                        ground_light[2],
+                        if r.soft_shadows { 1.0 } else { 0.0 },
+                    ];
+                }
                 let slot = push(&mut uniforms, u);
                 let stage = if mode == FaceMode::Wireframe {
                     Stage::DepthOnly
@@ -2189,7 +2224,33 @@ fn make_uniform(clip: &[[f32; 4]; 4], world: &DAffine3, camera: &Camera) -> Draw
         axis_x: AXIS_COLORS[0],
         axis_y: AXIS_COLORS[1],
         axis_z: AXIS_COLORS[2],
+        pbr: [0.0; 4],
+        sky: [0.0; 4],
+        ground: [0.0; 4],
     }
+}
+
+/// Default sky light of a realistic style without a sky color.
+const SKY_LIGHT: Rgba8 = Rgba8::rgb(0xA8, 0xC4, 0xE8);
+/// Default ground bounce of a realistic style without a ground color.
+const GROUND_LIGHT: Rgba8 = Rgba8::rgb(0x8C, 0x82, 0x74);
+
+/// Roughness and metalness of a face range's material (docs/06 §4.1).
+fn surface(doc: &Document, key: MaterialKey, material_override: Option<MaterialId>) -> [f32; 2] {
+    let id = doc
+        .materials
+        .resolve(key.material.or(material_override), key.side);
+    doc.materials.get(id).map_or(
+        [planyrith_core::document::Material::DEFAULT_ROUGHNESS, 0.0],
+        |m| {
+            [
+                m.roughness
+                    .unwrap_or(planyrith_core::document::Material::DEFAULT_ROUGHNESS)
+                    .clamp(0.0, 1.0),
+                m.metallic.unwrap_or(0.0).clamp(0.0, 1.0),
+            ]
+        },
+    )
 }
 
 /// `world` turned about its blue axis (through its origin) so that its

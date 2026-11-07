@@ -985,3 +985,106 @@ fn renders_within_webgl2_limits() {
     assert!(renderer.display_view().is_some());
     assert!(renderer.pick(WIDTH / 2, HEIGHT / 2, 4).unwrap().is_some());
 }
+
+/// docs/06 §4.1: the realistic look. The sky lights faces the sun does not
+/// reach, so shadows keep their color; the filmic curve keeps lit faces
+/// below white; a polished metal reflects its own color. Compared with a
+/// golden at the shadow tolerance.
+#[test]
+fn realistic_style_lights_from_the_sky() {
+    let Some(gpu) = gpu() else { return };
+    let mut e = room();
+    run(
+        &mut e,
+        "shadows-set",
+        json!({ "enabled": true, "date": "2026-06-21", "time": "16:00",
+                "latitude": 45.0, "longitude": 9.0, "utc_offset": 2.0 }),
+    );
+    run(
+        &mut e,
+        "material-create",
+        json!({ "name": "Brass", "color": "#C8A050", "metallic": 1.0, "roughness": 0.25 }),
+    );
+    run(
+        &mut e,
+        "material-apply",
+        json!({ "targets": "instance", "material": "Brass" }),
+    );
+    let doc = e.document().clone();
+    let technical = doc.styles.active_style().cloned().unwrap_or_default();
+    run(&mut e, "style-edit", json!({ "realistic": true }));
+    let realistic = e.document().styles.active_style().cloned().unwrap();
+    assert!(realistic.realism.is_some());
+    let mut renderer = Renderer::new(
+        gpu.device.clone(),
+        gpu.queue.clone(),
+        RendererOptions::default(),
+    );
+    let doc = e.document();
+    let context = EditContext::model();
+    let plain = frame(
+        &mut renderer,
+        doc,
+        &Selection::new(),
+        &context,
+        &doc.camera,
+        &technical,
+        false,
+    );
+    let image = frame(
+        &mut renderer,
+        doc,
+        &Selection::new(),
+        &context,
+        &doc.camera,
+        &realistic,
+        false,
+    );
+    if let Some(dir) = std::env::var_os("PLANYRITH_SCREENSHOTS") {
+        image.save(Path::new(&dir).join("realistic.png")).unwrap();
+        plain.save(Path::new(&dir).join("technical.png")).unwrap();
+    }
+    let differing = plain
+        .pixels()
+        .zip(image.pixels())
+        .filter(|(a, b)| {
+            a.0[..3]
+                .iter()
+                .zip(&b.0[..3])
+                .any(|(x, y)| x.abs_diff(*y) > 8)
+        })
+        .count();
+    assert!(
+        differing > (WIDTH * HEIGHT) as usize / 4,
+        "{differing} pixels changed"
+    );
+    // No face burns out to pure white under the filmic curve: only the
+    // (white) background is.
+    let white = |img: &image::RgbaImage| {
+        img.pixels()
+            .filter(|p| p.0[..3].iter().all(|&c| c == 255))
+            .count()
+    };
+    assert!(
+        white(&image) <= white(&plain) + (WIDTH * HEIGHT) as usize / 200,
+        "{} white pixels, {} in the technical look",
+        white(&image),
+        white(&plain)
+    );
+    check_within("realistic", &image, 24, 100);
+
+    // Off again: the technical look comes back exactly.
+    run(&mut e, "style-edit", json!({ "realistic": false }));
+    let style = e.document().styles.active_style().cloned().unwrap();
+    assert!(style.realism.is_none());
+    let back = frame(
+        &mut renderer,
+        e.document(),
+        &Selection::new(),
+        &context,
+        &e.document().camera,
+        &style,
+        false,
+    );
+    assert_eq!(back, plain);
+}

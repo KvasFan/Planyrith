@@ -1991,3 +1991,80 @@ fn per_object_export_puts_each_object_on_the_plate() {
         assert!(err.to_string().contains(bad), "{err}");
     }
 }
+
+/// docs/09 Decisions 2026-11-08: glTF carries roughness and metalness; the
+/// format's defaults stay unset on import.
+#[test]
+fn gltf_keeps_surface_factors() {
+    let (mut e, storage) = engine();
+    for (name, extra) in [
+        ("Brass", json!({ "metallic": 0.9, "roughness": 0.25 })),
+        ("Paint", json!({})),
+    ] {
+        let mut params = json!({ "name": name, "color": "#C8A050" });
+        params
+            .as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        run(&mut e, "material-create", params);
+    }
+    for (x, material) in [(0, "Brass"), (500, "Paint")] {
+        run(
+            &mut e,
+            "rectangle",
+            json!({ "corner_a": [x, 0, 0], "corner_b": [x + 100, 100, 0] }),
+        );
+        run(
+            &mut e,
+            "material-apply",
+            json!({ "targets": "face & last", "material": material }),
+        );
+    }
+    run(&mut e, "export", json!({ "path": "m.glb" }));
+    let bytes = storage.read(&StorageKey::new("m.glb")).unwrap();
+    let (mut e, storage) = engine();
+    storage.write(&StorageKey::new("m.glb"), &bytes).unwrap();
+    run(&mut e, "import", json!({ "path": "m.glb" }));
+    let doc = e.document();
+    let find = |n: &str| {
+        doc.materials
+            .iter()
+            .find(|(_, m)| m.name == n)
+            .map(|(_, m)| m.clone())
+    };
+    let brass = find("Brass").unwrap();
+    assert!((brass.metallic.unwrap() - 0.9).abs() < 1e-6);
+    assert!((brass.roughness.unwrap() - 0.25).abs() < 1e-6);
+    let paint = find("Paint").unwrap();
+    assert_eq!((paint.metallic, paint.roughness), (None, None));
+}
+
+/// docs/06 §4.1: `style-edit` turns the realistic look on with its
+/// defaults, tunes it, and off again; out-of-range values are refused.
+#[test]
+fn style_edit_switches_the_realistic_look() {
+    let (mut e, _) = engine();
+    let realism = |e: &Engine| e.document().styles.active_style().and_then(|s| s.realism);
+    run(&mut e, "style-edit", json!({ "exposure": 1.0 }));
+    let r = realism(&e).unwrap();
+    assert!((r.exposure - 1.0).abs() < 1e-6 && (r.sky_light - 0.6).abs() < 1e-6);
+    run(
+        &mut e,
+        "style-edit",
+        json!({ "realistic": false, "sky_light": 0.2 }),
+    );
+    assert!(realism(&e).is_none());
+    for bad in [
+        json!({ "exposure": 4.0 }),
+        json!({ "ambient_occlusion": -0.1 }),
+    ] {
+        assert!(e.execute_erased("style-edit", bad).is_err());
+    }
+    assert!(
+        e.execute_erased(
+            "material-create",
+            json!({ "name": "X", "color": "#FFFFFF", "metallic": 2.0 })
+        )
+        .is_err()
+    );
+}

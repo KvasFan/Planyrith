@@ -176,6 +176,7 @@ impl Importer for ObjImporter {
                 color: Rgba8::rgb(r, g, b),
                 opacity: m.dissolve.unwrap_or(1.0),
                 texture,
+                ..ImportedMaterial::default()
             });
         }
 

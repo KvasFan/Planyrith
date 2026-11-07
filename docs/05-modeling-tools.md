@@ -314,7 +314,9 @@ perpendicular to hovered edge); `Esc` = cancel current step (second `Esc` = canc
   material; `Shift` = all faces with the same material in context; `Ctrl+Shift` = same material
   on connected object; `Alt` = sample material from face (`material-sample`). Applying to a
   group/instance sets `material_override` (affects default-material faces only).
-- `material-edit { material, color?, opacity?, texture?: path|ImageRef, texture_size?: (w,h), colorize?: mode }`.
+- `material-edit { material, color?, opacity?, texture?: path|ImageRef, texture_size?: (w,h), colorize?: mode,
+  roughness?, metallic? }`; `material-create` also takes `roughness` and `metallic` (0–1, used by
+  realistic styles, docs/06 §4.1).
 - `material-library-save { path, materials? }` writes a `.plyrm` library; `material-library-load
   { path, replace? }` adds its materials (see Decisions).
 

@@ -47,8 +47,8 @@ pub use selection::{
 pub use shadows::{Date, ShadowSettings, SunModel, TimeOfDay};
 pub use stable_map::StableMap;
 pub use styles::{
-    Background, EdgeColorMode, EdgeStyle, FaceMode, FaceStyle, Fog, ModelingStyle, Style, Styles,
-    Watermark, WatermarkPlacement,
+    Background, EdgeColorMode, EdgeStyle, FaceMode, FaceStyle, Fog, ModelingStyle, Realism, Style,
+    Styles, Watermark, WatermarkPlacement,
 };
 pub use tags::{LineStyle, Tag, TagError, TagFolder, Tags};
 

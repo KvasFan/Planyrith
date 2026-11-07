@@ -14,7 +14,7 @@ use crate::commands::{
     Command, CommandCategory, CommandError, CommandMeta, CommonParams, Transaction,
 };
 use crate::document::{
-    Document, EdgeColorMode, FaceMode, Rgba8, Style, Watermark, WatermarkPlacement,
+    Document, EdgeColorMode, FaceMode, Realism, Rgba8, Style, Watermark, WatermarkPlacement,
 };
 use crate::ids::StyleId;
 use crate::io::native::{read_document, write_document};
@@ -275,6 +275,23 @@ pub struct StyleEditParams {
     /// Fade of what lies outside the open group, 0–1.
     #[serde(default)]
     pub inactive_fade: Option<f32>,
+    /// The realistic look (docs/06 §4.1): sky light, highlights, ambient
+    /// occlusion, soft shadows, filmic tones. Setting one of its values
+    /// below turns it on unless this is false.
+    #[serde(default)]
+    pub realistic: Option<bool>,
+    /// Light from the sky, 0–1 (0.6).
+    #[serde(default)]
+    pub sky_light: Option<f32>,
+    /// Ambient occlusion strength, 0–1 (0.7; 0 off).
+    #[serde(default)]
+    pub ambient_occlusion: Option<f32>,
+    /// Exposure in stops, −3 to 3 (0).
+    #[serde(default)]
+    pub exposure: Option<f32>,
+    /// Soften shadow edges (true).
+    #[serde(default)]
+    pub soft_shadows: Option<bool>,
 }
 
 /// The `style-edit` command (undoable; the Styles panel's editor).
@@ -321,6 +338,14 @@ impl Command for StyleEdit {
             }
         }
         check_unit("ground_opacity", p.ground_opacity)?;
+        check_unit("sky_light", p.sky_light)?;
+        check_unit("ambient_occlusion", p.ambient_occlusion)?;
+        if p.exposure.is_some_and(|e| !(-3.0..=3.0).contains(&e)) {
+            return Err(CommandError::OutOfRange {
+                name: "exposure".into(),
+                reason: "must be between -3 and 3 stops".into(),
+            });
+        }
         check_unit("inactive_fade", p.inactive_fade)
     }
 
@@ -397,6 +422,34 @@ impl Command for StyleEdit {
         }
         if let Some(v) = p.inactive_fade {
             s.modeling.inactive_fade = v;
+        }
+        let tunes = p.sky_light.is_some()
+            || p.ambient_occlusion.is_some()
+            || p.exposure.is_some()
+            || p.soft_shadows.is_some();
+        match p.realistic {
+            Some(false) => s.realism = None,
+            Some(true) => {
+                s.realism.get_or_insert_with(Realism::default);
+            }
+            None if tunes => {
+                s.realism.get_or_insert_with(Realism::default);
+            }
+            None => {}
+        }
+        if let Some(r) = &mut s.realism {
+            if let Some(v) = p.sky_light {
+                r.sky_light = v;
+            }
+            if let Some(v) = p.ambient_occlusion {
+                r.ambient_occlusion = v;
+            }
+            if let Some(v) = p.exposure {
+                r.exposure = v;
+            }
+            if let Some(v) = p.soft_shadows {
+                r.soft_shadows = v;
+            }
         }
         let name = s.name.clone();
         tx.replace_style(id, s)?;

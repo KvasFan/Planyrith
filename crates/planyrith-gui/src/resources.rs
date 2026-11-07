@@ -592,6 +592,31 @@ pub fn materials(
                     actions.push(("material-edit", json!({ "material": name, "opacity": o })));
                 }
                 ui.end_row();
+                // Realistic styles only (docs/06 §4.1).
+                ui.label(t("Roughness"))
+                    .on_hover_text(t("How matte the surface is in realistic styles"));
+                let roughness = m
+                    .roughness
+                    .unwrap_or(planyrith_core::document::Material::DEFAULT_ROUGHNESS);
+                if let Some(v) =
+                    number_field(ui, "roughness", f64::from(roughness), 0.0..=1.0, 0.01, "")
+                {
+                    actions.push(("material-edit", json!({ "material": name, "roughness": v })));
+                }
+                ui.end_row();
+                ui.label(t("Metallic"))
+                    .on_hover_text(t("How metallic the surface is in realistic styles"));
+                if let Some(v) = number_field(
+                    ui,
+                    "metallic",
+                    f64::from(m.metallic.unwrap_or(0.0)),
+                    0.0..=1.0,
+                    0.01,
+                    "",
+                ) {
+                    actions.push(("material-edit", json!({ "material": name, "metallic": v })));
+                }
+                ui.end_row();
                 ui.label(t("Texture"));
                 ui.horizontal(|ui| {
                     if ui
@@ -1209,6 +1234,63 @@ pub fn styles(
                 }
                 if ui.button(t("Add image…")).clicked() {
                     state.file = Some(FileRequest::Watermark(name.clone()));
+                }
+            });
+            egui::CollapsingHeader::new(t("Realistic lighting")).show(ui, |ui| {
+                let mut on = style.realism.is_some();
+                if ui
+                    .checkbox(&mut on, t("Realistic lighting"))
+                    .on_hover_text(t(
+                        "Sky light, highlights, ambient occlusion and soft shadows",
+                    ))
+                    .changed()
+                {
+                    actions.push(edit(json!({ "realistic": on })));
+                }
+                if let Some(r) = style.realism {
+                    egui::Grid::new("realism").num_columns(2).show(ui, |ui| {
+                        ui.label(t("Sky light"));
+                        if let Some(v) = number_field(
+                            ui,
+                            "sky light",
+                            f64::from(r.sky_light),
+                            0.0..=1.0,
+                            0.01,
+                            "",
+                        ) {
+                            actions.push(edit(json!({ "sky_light": v })));
+                        }
+                        ui.end_row();
+                        ui.label(t("Ambient occlusion"));
+                        if let Some(v) = number_field(
+                            ui,
+                            "ambient occlusion",
+                            f64::from(r.ambient_occlusion),
+                            0.0..=1.0,
+                            0.01,
+                            "",
+                        ) {
+                            actions.push(edit(json!({ "ambient_occlusion": v })));
+                        }
+                        ui.end_row();
+                        ui.label(t("Exposure"));
+                        if let Some(v) = number_field(
+                            ui,
+                            "exposure",
+                            f64::from(r.exposure),
+                            -3.0..=3.0,
+                            0.01,
+                            "",
+                        ) {
+                            actions.push(edit(json!({ "exposure": v })));
+                        }
+                        ui.end_row();
+                        let mut soft = r.soft_shadows;
+                        if ui.checkbox(&mut soft, t("Soft shadows")).changed() {
+                            actions.push(edit(json!({ "soft_shadows": soft })));
+                        }
+                        ui.end_row();
+                    });
                 }
             });
             egui::CollapsingHeader::new(t("Fog")).show(ui, |ui| {

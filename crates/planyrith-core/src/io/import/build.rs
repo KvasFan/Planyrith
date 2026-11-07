@@ -36,6 +36,10 @@ pub struct ImportedMaterial {
     pub opacity: f32,
     /// Encoded texture image (PNG, JPEG, WebP), if any.
     pub texture: Option<Vec<u8>>,
+    /// Surface roughness `0..=1`, when the file sets one.
+    pub roughness: Option<f32>,
+    /// Metalness `0..=1`, when the file sets one.
+    pub metallic: Option<f32>,
 }
 
 /// A triangle mesh in source units.
@@ -319,6 +323,8 @@ pub fn build_scene(
         }
         let mut material = Material::solid(m.name.trim().to_string(), m.color);
         material.opacity = m.opacity.clamp(0.0, 1.0);
+        material.roughness = m.roughness.map(|v| v.clamp(0.0, 1.0));
+        material.metallic = m.metallic.map(|v| v.clamp(0.0, 1.0));
         material.color.a = (material.opacity * 255.0).round() as u8;
         if let Some(bytes) = &m.texture {
             match tx.insert_image(bytes.clone()) {
@@ -346,6 +352,8 @@ pub fn build_scene(
                     old.color == material.color
                         && (old.opacity - material.opacity).abs() <= f32::EPSILON
                         && old.texture == material.texture
+                        && old.roughness == material.roughness
+                        && old.metallic == material.metallic
                         && old.is_default_for.is_none()
                 })
             });

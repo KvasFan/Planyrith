@@ -6,6 +6,10 @@ All notable changes to Planyrith are recorded here. Versions follow
 
 ## Unreleased
 
+- A realistic look for styles (Styles › Realistic lighting, or `style-edit
+  --realistic`): light from the sky as well as the sun, highlights after each
+  material's new roughness and metallic settings, softer shadows and a filmic
+  tone curve. Materials read and write roughness and metalness from glTF.
 - 3MF files, the format 3D-printing slicers prefer to STL: export writes each
   object as a closed mesh with its colors and the chosen unit, and warns when
   an object is not a closed solid; import reads objects, components, colors

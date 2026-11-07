@@ -137,13 +137,21 @@ impl Exporter for GltfExporter {
                 (crate::document::Rgba8::WHITE, 1.0, String::from("Material")),
                 |m| (m.color, m.opacity, m.name.clone()),
             );
+            // Unset surface factors write the technical look's matte,
+            // non-metallic values (docs/09 Decisions, 2026-11-08).
+            let metallic = m
+                .and_then(|m| m.metallic)
+                .map_or(0.0, |v| round6(f64::from(v)));
+            let roughness = m
+                .and_then(|m| m.roughness)
+                .map_or(1.0, |v| round6(f64::from(v)));
             let mut pbr = json!({
                 "baseColorFactor": [
                     round6(linear(color.r)), round6(linear(color.g)), round6(linear(color.b)),
                     round6(f64::from(opacity)),
                 ],
-                "metallicFactor": 0.0,
-                "roughnessFactor": 1.0,
+                "metallicFactor": metallic,
+                "roughnessFactor": roughness,
             });
             let mut has_texture = false;
             if let Some(t) = m.and_then(|m| m.texture.as_ref())
