@@ -15,6 +15,7 @@ pub mod dxf;
 pub mod gltf;
 pub mod image;
 pub mod obj;
+pub mod ply;
 pub mod plyr;
 pub mod skp;
 pub mod stl;
@@ -57,11 +58,13 @@ pub enum ImportFormat {
     /// 3MF package (3D printing).
     #[serde(rename = "3mf")]
     ThreeMf,
+    /// PLY polygon mesh (ASCII or binary), e.g. from 3D scanning.
+    Ply,
 }
 
 impl ImportFormat {
     /// Every import format.
-    pub const ALL: [ImportFormat; 10] = [
+    pub const ALL: [ImportFormat; 11] = [
         ImportFormat::Obj,
         ImportFormat::Stl,
         ImportFormat::Gltf,
@@ -72,6 +75,7 @@ impl ImportFormat {
         ImportFormat::Plyr,
         ImportFormat::Skp,
         ImportFormat::ThreeMf,
+        ImportFormat::Ply,
     ];
 
     /// Registered formats; SKP additionally requires a converter-capable backend.
@@ -95,6 +99,7 @@ impl ImportFormat {
             "plyr" | "plyrc" => ImportFormat::Plyr,
             "skp" | "skb" => ImportFormat::Skp,
             "3mf" => ImportFormat::ThreeMf,
+            "ply" => ImportFormat::Ply,
             _ => return None,
         })
     }
@@ -245,6 +250,7 @@ pub fn importer(format: ImportFormat) -> Option<Box<dyn Importer>> {
         ImportFormat::Obj => Some(Box::new(obj::ObjImporter)),
         ImportFormat::Stl => Some(Box::new(stl::StlImporter)),
         ImportFormat::ThreeMf => Some(Box::new(three_mf::ThreeMfImporter)),
+        ImportFormat::Ply => Some(Box::new(ply::PlyImporter)),
         #[cfg(not(feature = "brep"))]
         ImportFormat::Step => None,
     }

@@ -92,6 +92,7 @@ control via `planyrith export --format json`. It is **not** required to load the
 |---|---|---|---|
 | OBJ (+MTL) | ✔ | ✔ | groups → groups or components (`o`/`g`), materials, UVs, normals (as soft edges). |
 | 3MF | ✔ | ✔ | the 3D printing package: mesh objects with base materials or color groups, components and build items on import; one welded object per visible occurrence with faces, base-material colors and the file unit on export (`W2007` for objects that are not closed solids). |
+| PLY (ASCII/binary) | ✔ | ✔ | polygon meshes, e.g. from 3D scanning: vertex and face colors become materials on import; export writes triangles with the front color on each vertex (binary little-endian unless `--ascii`). |
 | STL (ASCII/binary) | ✔ | ✔ | triangles merged into coplanar faces on import (`--merge-coplanar`, default on); binary default on export. |
 | glTF 2.0 / GLB | ✔ | ✔ | nodes → groups/instances (meshes shared → components), PBR base color + texture, transforms, cameras → scenes. KHR_texture_transform supported. |
 | DXF (R12–2018 ASCII) | ✔ | ✔ (3D and 2D) | LINE, LWPOLYLINE/POLYLINE, ARC, CIRCLE, ELLIPSE (segmented), SPLINE (flattened), 3DFACE, POLYFACE mesh, INSERT/BLOCK → components, LAYER → tags, TEXT/MTEXT, DIMENSION (as text+lines on export). |
@@ -558,3 +559,11 @@ save unless `--no-thumbnail`. `manifest.json` carries `title`, `author`, `descri
   roughness below 1 and a metalness strictly between 0 and 1: the format's defaults (1 and 1)
   cannot be told from values a file left unset, and taking them would make every material a
   rough metal. A fully metallic material therefore imports as non-metallic.
+- 2026-11-08 — **PLY** (milestone 1.1, docs/13). Own reader and writer (the format is a text
+  header and a flat body). Import reads the three encodings, `vertex` (`x y z`, `red green blue`
+  as integers 0–255 or floats 0–1) and `face` (the first list property, `vertex_indices` or
+  `vertex_index`; optional colors); other elements are counted in `W2004`. Polygons are fanned
+  into triangles; a face's color is its own or its first vertex's, and each distinct color
+  becomes a material. Export writes `float x y z`, `uchar red green blue` and a `uchar`/`uint`
+  index list per triangle, welding vertices of equal position and color; Z up and
+  `--file-units` as for 3MF.

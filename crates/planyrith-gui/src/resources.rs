@@ -88,8 +88,8 @@ impl FileRequest {
                 en("Import"),
                 en("Importable files"),
                 &[
-                    "glb", "gltf", "obj", "stl", "3mf", "dxf", "skp", "skb", "plyr", "plyrc",
-                    "png", "jpg", "jpeg", "webp", "csv",
+                    "glb", "gltf", "obj", "stl", "3mf", "ply", "dxf", "skp", "skb", "plyr",
+                    "plyrc", "png", "jpg", "jpeg", "webp", "csv",
                 ],
                 false,
             ),

@@ -11,6 +11,7 @@ pub mod dxf;
 pub mod gltf;
 pub mod json;
 pub mod obj;
+pub mod ply;
 pub mod plyr;
 pub mod scene;
 pub mod skp;
@@ -59,11 +60,13 @@ pub enum ExportFormat {
     /// 3MF package for 3D printing.
     #[serde(rename = "3mf")]
     ThreeMf,
+    /// PLY triangle mesh with vertex colors.
+    Ply,
 }
 
 impl ExportFormat {
     /// Every export format.
-    pub const ALL: [ExportFormat; 13] = [
+    pub const ALL: [ExportFormat; 14] = [
         ExportFormat::Obj,
         ExportFormat::Stl,
         ExportFormat::Gltf,
@@ -77,6 +80,7 @@ impl ExportFormat {
         ExportFormat::Csv,
         ExportFormat::Skp,
         ExportFormat::ThreeMf,
+        ExportFormat::Ply,
     ];
 
     /// Registered formats; SKP additionally requires a converter-capable backend.
@@ -103,6 +107,7 @@ impl ExportFormat {
             "csv" => ExportFormat::Csv,
             "skp" | "skb" => ExportFormat::Skp,
             "3mf" => ExportFormat::ThreeMf,
+            "ply" => ExportFormat::Ply,
             _ => return None,
         })
     }
@@ -240,6 +245,7 @@ pub fn exporter(format: ExportFormat) -> Option<Box<dyn Exporter>> {
         ExportFormat::Skp => Some(Box::new(skp::SkpExporter)),
         ExportFormat::Stl => Some(Box::new(stl::StlExporter)),
         ExportFormat::ThreeMf => Some(Box::new(three_mf::ThreeMfExporter)),
+        ExportFormat::Ply => Some(Box::new(ply::PlyExporter)),
         ExportFormat::Svg => Some(Box::new(view2d::SvgExporter)),
         ExportFormat::Pdf => Some(Box::new(view2d::PdfExporter)),
         #[cfg(not(feature = "brep"))]

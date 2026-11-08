@@ -9,6 +9,7 @@ make-component --targets all --name Crate
 export --path exports/box.stl
 export --path exports/box.3mf --file-units cm
 export --path exports/plate.3mf --per-object --on-plate
+export --path exports/box.ply
 export --path exports/box-ascii.stl --ascii --file-units m --z-up
 export --path exports/box.obj
 export --path exports/box.gltf

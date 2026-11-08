@@ -6,6 +6,8 @@ All notable changes to Planyrith are recorded here. Versions follow
 
 ## Unreleased
 
+- PLY files (meshes from 3D scanners and many other tools), ASCII or binary,
+  with vertex or face colors, both ways.
 - Bézier curves (Draw › Bézier Curve, `bezier`): click the start, two handles
   and the end of each span; closed flat curves form faces.
 - Loft (`loft`, Tools › Loft Selected Faces): a solid through two or more

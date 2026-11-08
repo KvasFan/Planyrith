@@ -2068,3 +2068,57 @@ fn style_edit_switches_the_realistic_look() {
         .is_err()
     );
 }
+
+/// docs/09 §5 PLY: a painted box goes out (binary and ASCII) and comes back
+/// with its size, faces and color.
+#[test]
+fn ply_round_trips_a_painted_box() {
+    for ascii in [false, true] {
+        let (mut e, storage) = engine();
+        run(
+            &mut e,
+            "material-create",
+            json!({ "name": "Teal", "color": "#108080" }),
+        );
+        run(
+            &mut e,
+            "rectangle",
+            json!({ "corner_a": [0, 0, 0], "corner_b": [300, 200, 0] }),
+        );
+        run(
+            &mut e,
+            "push-pull",
+            json!({ "face": { "Query": "face & last" }, "distance": 100 }),
+        );
+        run(
+            &mut e,
+            "material-apply",
+            json!({ "targets": "face", "material": "Teal" }),
+        );
+        let out = run(
+            &mut e,
+            "export",
+            json!({ "path": "box.ply", "ascii": ascii }),
+        );
+        assert_eq!(out["format"], "ply");
+        assert_eq!(out["entities"], 12, "triangles");
+        let bytes = storage.read(&StorageKey::new("box.ply")).unwrap();
+        assert_eq!(bytes.starts_with(b"ply\nformat ascii"), ascii);
+        let (mut e, storage) = engine();
+        storage.write(&StorageKey::new("box.ply"), &bytes).unwrap();
+        let out = run(&mut e, "import", json!({ "path": "box.ply" }));
+        assert_eq!(out["format"], "ply");
+        let (faces, _, lo, hi) = imported(&e);
+        assert_eq!(faces, 6);
+        assert!(
+            close(lo, DVec3::ZERO) && close(hi, DVec3::new(300.0, 200.0, 100.0)),
+            "{lo} {hi}"
+        );
+        let teal = e
+            .document()
+            .materials
+            .iter()
+            .any(|(_, m)| m.color == crate::document::Rgba8::rgb(0x10, 0x80, 0x80));
+        assert!(teal);
+    }
+}

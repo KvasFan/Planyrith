@@ -287,12 +287,13 @@ impl Command for Export {
                 | ExportFormat::Gltf
                 | ExportFormat::Glb
                 | ExportFormat::ThreeMf
+                | ExportFormat::Ply
         );
         for (on, name) in [(p.per_object, "per_object"), (p.on_plate, "on_plate")] {
             if on && (!mesh || p.two_d) {
                 return Err(CommandError::invalid_param(
                     name,
-                    "only for STL, OBJ, glTF, GLB and 3MF models",
+                    "only for STL, OBJ, glTF, GLB, 3MF and PLY models",
                 ));
             }
         }

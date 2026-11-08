@@ -36,6 +36,7 @@ high-frequency interaction**.
 | glTF | **gltf** | MIT/Apache-2.0 | own | Complete, maintained. |
 | OBJ | **tobj** (import); own writer | MIT | obj-rs | Simple and robust. |
 | STL | own (format is trivial) | — | stl_io | Avoid a dependency for 30 lines. |
+| PLY | own reader/writer | — | ply-rs | A text header and a flat body; the crate adds a dependency for what fits in one module. |
 | DXF | own reader/writer | — | dxf crate (rejected, see Decisions) | ASCII group codes; covers the entities of docs/09 §5. |
 | 3MF | **quick-xml** (reading the model part) and the **zip** crate; own writer | MIT | roxmltree, own XML reader | A streaming reader with namespace-agnostic local names handles large meshes; already in the dependency tree. See docs/09 Decisions, 2026-11-05. |
 | STEP | **truck-stepio** (feature `brep`) | Apache-2.0 | — | Only pure-Rust option. |
