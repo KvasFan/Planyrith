@@ -2226,3 +2226,56 @@ fn ifc_writes_one_element_per_top_level_object() {
         "the same model gives the same file"
     );
 }
+
+/// docs/09 Decisions 2026-11-08: a textured material's image goes into
+/// the package, or into `<stem>_textures/` beside a text stage.
+#[test]
+fn usd_carries_textures() {
+    let (mut e, storage) = engine();
+    let png = {
+        let mut bytes = Vec::new();
+        image::RgbImage::from_pixel(4, 4, image::Rgb([160, 82, 45]))
+            .write_to(
+                &mut std::io::Cursor::new(&mut bytes),
+                image::ImageFormat::Png,
+            )
+            .unwrap();
+        bytes
+    };
+    storage.write(&StorageKey::new("oak.png"), &png).unwrap();
+    run(
+        &mut e,
+        "material-create",
+        json!({ "name": "Oak", "color": "#A0522D", "texture": "oak.png" }),
+    );
+    run(
+        &mut e,
+        "rectangle",
+        json!({ "corner_a": [0, 0, 0], "corner_b": [300, 200, 0] }),
+    );
+    run(
+        &mut e,
+        "material-apply",
+        json!({ "targets": "face", "material": "Oak" }),
+    );
+    run(&mut e, "export", json!({ "path": "out/desk.usda" }));
+    let text = String::from_utf8(storage.read(&StorageKey::new("out/desk.usda")).unwrap()).unwrap();
+    assert!(
+        text.contains("asset inputs:file = @desk_textures/Oak.png@"),
+        "{text}"
+    );
+    assert!(text.contains("texCoord2f[] primvars:st"));
+    assert_eq!(
+        storage
+            .read(&StorageKey::new("out/desk_textures/Oak.png"))
+            .unwrap(),
+        png
+    );
+    run(&mut e, "export", json!({ "path": "desk.usdz" }));
+    let bytes = storage.read(&StorageKey::new("desk.usdz")).unwrap();
+    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(&bytes)).unwrap();
+    assert_eq!(
+        archive.by_index(1).unwrap().name().unwrap(),
+        "textures/Oak.png"
+    );
+}

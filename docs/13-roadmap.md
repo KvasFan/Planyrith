@@ -146,6 +146,15 @@ parametric/dynamic components, GPU path-traced preview, mobile UI.
 
 ## Decisions
 
+- 2026-11-08 — **1.1 as built so far.** 3D printing: `solid-check`, `solid-repair`, 3MF both
+  ways, `per_object` and `on_plate` exports. Presentation: the realistic look (`realism` in a
+  style: microfacet highlights after material roughness/metalness, sky and ground light, soft
+  shadows, filmic tones, screen-space ambient occlusion). Modeling: `fillet`, `chamfer`,
+  `thicken`, `bezier`, `loft`. Exchange: PLY both ways, USD (`usda`, `usdz`) and IFC4 export,
+  checked by the reference libraries in `tools/validate-exports.sh`; USD carries textures.
+  Still open in 1.1: IFC element classes and storeys, the progressive path-traced render, and
+  interactive (picking) versions of the rounding, thicken and loft dialogs.
+
 - 2026-11-05 — **Milestone 1.1.** The user asked what is missing for 3D printing, useful 3D tools,
   other exchange formats and a more attractive rendering, then to proceed. These are not part of
   1.0 stabilization, so they form a 1.1 milestone instead of changing 1.0's scope; new commands

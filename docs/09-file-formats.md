@@ -93,7 +93,7 @@ control via `planyrith export --format json`. It is **not** required to load the
 | OBJ (+MTL) | ✔ | ✔ | groups → groups or components (`o`/`g`), materials, UVs, normals (as soft edges). |
 | 3MF | ✔ | ✔ | the 3D printing package: mesh objects with base materials or color groups, components and build items on import; one welded object per visible occurrence with faces, base-material colors and the file unit on export (`W2007` for objects that are not closed solids). |
 | PLY (ASCII/binary) | ✔ | ✔ | polygon meshes, e.g. from 3D scanning: vertex and face colors become materials on import; export writes triangles with the front color on each vertex (binary little-endian unless `--ascii`). |
-| USD (`.usda`, `.usdz`) | — | ✔ | a text stage, or packed (stored, 64-byte aligned) for augmented-reality viewers: one mesh per occurrence and material, Z up, `metersPerUnit` from `--file-units`, preview-surface materials. |
+| USD (`.usda`, `.usdz`) | — | ✔ | a text stage, or packed (stored, 64-byte aligned) for augmented-reality viewers: one mesh per occurrence and material, Z up, `metersPerUnit` from `--file-units`, preview-surface materials with their textures. |
 | IFC (IFC4) | — | ✔ | a building model for BIM tools: one storey holding an element per top-level group or component and the loose faces, triangulated face sets per material with surface colors, millimeters. |
 | STL (ASCII/binary) | ✔ | ✔ | triangles merged into coplanar faces on import (`--merge-coplanar`, default on); binary default on export. |
 | glTF 2.0 / GLB | ✔ | ✔ | nodes → groups/instances (meshes shared → components), PBR base color + texture, transforms, cameras → scenes. KHR_texture_transform supported. |
@@ -575,8 +575,11 @@ save unless `--no-thumbnail`. `manifest.json` carries `title`, `author`, `descri
   boundary, as the package rules require. World transforms are baked into the points, as for
   3MF; each occurrence gives one `Mesh` per material (triangles, face-varying normals,
   double-sided) bound to a `UsdPreviewSurface` material with the linear base color, opacity,
-  roughness and metalness. Textures are not written yet: a textured material exports its
-  color. `tools/validate-exports.sh` checks both files with the reference library's validators
+  roughness and metalness. A textured material's image (PNG or JPEG; WebP converted to PNG)
+  feeds the base color through a texture reader on the faces' `st` coordinates (texture
+  repeats, face-varying); a colorizing material scales it by its color. Packed, the images go
+  in `textures/`; beside a text stage, in `<stem>_textures/`, so exporting next to the model's
+  own images never replaces them. `tools/validate-exports.sh` checks both files with the reference library's validators
   (`usd-core`, a local check). Import of USD is not planned for 1.1.
 - 2026-11-08 — **IFC export** (milestone 1.1, docs/13). IFC4 in the exchange structure's text
   encoding, written by our own module: the project (named after the file), a site, a building

@@ -10,8 +10,8 @@ All notable changes to Planyrith are recorded here. Versions follow
   a building element with its geometry and colors, in one storey; checked with
   IfcOpenShell.
 - USD export (`.usda` text and `.usdz` packages for augmented-reality viewers),
-  with colors, roughness and metalness; checked with the reference USD
-  library's validators.
+  with colors, textures, roughness and metalness; checked with the reference
+  USD library's validators.
 - PLY files (meshes from 3D scanners and many other tools), ASCII or binary,
   with vertex or face colors, both ways.
 - Bézier curves (Draw › Bézier Curve, `bezier`): click the start, two handles
