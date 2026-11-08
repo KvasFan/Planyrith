@@ -139,7 +139,12 @@ pub struct PluginInfo {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Entry {
-    script: String,
+    /// A Rhai script.
+    #[serde(default)]
+    script: Option<String>,
+    /// A WebAssembly module (docs/10 §7).
+    #[serde(default)]
+    wasm: Option<String>,
 }
 /// Requested host capabilities. Unsupported grants are refused on install.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -250,6 +255,8 @@ pub struct Plugin {
     /// Validated manifest.
     pub manifest: Manifest,
     source: String,
+    /// The WebAssembly module of a native plugin (then `source` is empty).
+    module: Option<Arc<Vec<u8>>>,
     files: BTreeMap<String, Vec<u8>>,
     schemas: Vec<Schema>,
 }
@@ -282,7 +289,47 @@ fn resource<'a>(
         .ok_or_else(|| invalid(format!("missing resource `{path}`")))
 }
 
+/// How the GUI runs a menu or panel callback.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Callback {
+    /// Script source for `script-eval` (the arguments are `args`).
+    Script(String),
+    /// A registered command taking the arguments as its parameters.
+    Command(String),
+}
+
 impl Plugin {
+    /// How to run the declared callback `function`.
+    pub fn callback(&self, function: &str) -> Result<Callback, CommandError> {
+        if self.module.is_some() {
+            if !self.callbacks().contains(&function) {
+                return Err(invalid("unknown callback"));
+            }
+            return Ok(Callback::Command(format!(
+                "ext:{}/{function}",
+                self.manifest.plugin.id
+            )));
+        }
+        self.callback_source(function).map(Callback::Script)
+    }
+
+    /// Menu and panel callbacks, each once.
+    fn callbacks(&self) -> Vec<&str> {
+        let mut out: Vec<&str> = Vec::new();
+        for f in self
+            .manifest
+            .menus
+            .iter()
+            .map(|m| m.on_click.as_str())
+            .chain(self.manifest.panels.iter().map(|p| p.on_change.as_str()))
+        {
+            if !out.contains(&f) {
+                out.push(f);
+            }
+        }
+        out
+    }
+
     /// Source for a declared callback, evaluated through the script command.
     pub fn callback_source(&self, function: &str) -> Result<String, CommandError> {
         if function.is_empty()
@@ -321,7 +368,11 @@ impl Plugin {
             Some((v[0], v[1], v[2]))
         };
         if parse_version(&manifest.plugin.version).is_none()
-            || parse_version(&manifest.plugin.min_planyrith).is_none_or(|v| v > (0, 8, 0))
+            || parse_version(&manifest.plugin.min_planyrith).is_none_or(|v| {
+                // This build's version, without a pre-release suffix.
+                let own = env!("CARGO_PKG_VERSION");
+                v > parse_version(own.split('-').next().unwrap_or(own)).unwrap_or((0, 8, 0))
+            })
         {
             return Err(invalid(
                 "invalid version or plugin requires a newer application",
@@ -358,16 +409,43 @@ impl Plugin {
                 "this host supports ui_forms only; filesystem, network, time and random grants are unavailable",
             ));
         }
-        let source = std::str::from_utf8(resource(&files, &manifest.entry.script)?)
-            .map_err(|e| invalid(e.to_string()))?
-            .to_owned();
-        let mut runtime = rhai::Engine::new();
-        runtime.disable_symbol("eval");
-        runtime.set_max_expr_depths(64, 64);
-        let ast = runtime
-            .compile(&source)
-            .map_err(|e| invalid(e.to_string()))?;
+        let callbacks: Vec<&str> = manifest
+            .tools
+            .iter()
+            .map(|t| t.on_execute.as_str())
+            .chain(manifest.menus.iter().map(|m| m.on_click.as_str()))
+            .chain(manifest.panels.iter().map(|p| p.on_change.as_str()))
+            .collect();
+        let (source, module, ast) = match (&manifest.entry.script, &manifest.entry.wasm) {
+            (Some(script), None) => {
+                let source = std::str::from_utf8(resource(&files, script)?)
+                    .map_err(|e| invalid(e.to_string()))?
+                    .to_owned();
+                let mut runtime = rhai::Engine::new();
+                runtime.disable_symbol("eval");
+                runtime.set_max_expr_depths(64, 64);
+                let ast = runtime
+                    .compile(&source)
+                    .map_err(|e| invalid(e.to_string()))?;
+                (source, None, Some(ast))
+            }
+            (None, Some(wasm)) => {
+                let bytes = resource(&files, wasm)?.to_vec();
+                super::wasm::check(&bytes, &callbacks).map_err(|e| invalid(e.to_string()))?;
+                for menu in &manifest.menus {
+                    if manifest.tools.iter().any(|t| t.name == menu.on_click) {
+                        return Err(invalid("a callback must not share a tool's name"));
+                    }
+                }
+                (String::new(), Some(Arc::new(bytes)), None)
+            }
+            _ => return Err(invalid("the entry is either a script or a wasm module")),
+        };
         let callback = |name: &str| -> Result<(), CommandError> {
+            let Some(ast) = &ast else {
+                // Checked against the module's exports above.
+                return Ok(());
+            };
             if !ast
                 .iter_functions()
                 .any(|f| f.name == name && f.params.len() == 1)
@@ -441,6 +519,7 @@ impl Plugin {
         Ok(Self {
             manifest,
             source,
+            module,
             files,
             schemas,
         })
@@ -517,8 +596,50 @@ impl Plugin {
                 name,
                 tool: tool.clone(),
                 source: self.source.clone(),
+                module: self.module.clone(),
                 schema: self.schemas[i].clone(),
             }));
+        }
+        // A native plugin's menu and panel callbacks are commands too, so the
+        // GUI, the command line and RPC reach them alike.
+        if self.module.is_some() {
+            for function in self.callbacks() {
+                let name = format!("ext:{}/{function}", self.manifest.plugin.id);
+                if registry.contains(&name) {
+                    continue;
+                }
+                let label = self
+                    .manifest
+                    .menus
+                    .iter()
+                    .find(|m| m.on_click == function)
+                    .map(|m| m.path.rsplit('/').next().unwrap_or(&m.path).to_string())
+                    .or_else(|| {
+                        self.manifest
+                            .panels
+                            .iter()
+                            .find(|p| p.on_change == function)
+                            .map(|p| p.name.clone())
+                    })
+                    .unwrap_or_else(|| function.to_string());
+                registry.register_plugin(Box::new(PluginCommand {
+                    name,
+                    tool: Tool {
+                        name: function.to_string(),
+                        label,
+                        icon: None,
+                        category: CommandCategory::Edit,
+                        params_schema: String::new(),
+                        form: None,
+                        steps: Vec::new(),
+                        on_execute: function.to_string(),
+                    },
+                    source: String::new(),
+                    module: self.module.clone(),
+                    schema: Schema::try_from(serde_json::json!({"type": "object", "properties": {}, "additionalProperties": true}))
+                        .map_err(|e| invalid(e.to_string()))?,
+                }));
+            }
         }
         Ok(())
     }
@@ -818,6 +939,7 @@ struct PluginCommand {
     name: String,
     tool: Tool,
     source: String,
+    module: Option<Arc<Vec<u8>>>,
     schema: Schema,
 }
 impl ErasedCommand for PluginCommand {
@@ -859,14 +981,23 @@ impl ErasedCommand for PluginCommand {
         engine.set_selection(tx.query_env().selection.clone());
         engine.set_last_created(tx.query_env().last.to_vec());
         engine.set_context(tx.context().clone())?;
-        let plan = plan(
-            engine,
-            &self.source,
-            &p,
-            Some(&self.tool.on_execute),
-            ScriptLimits::default(),
-            ScriptControl::default(),
-        )?;
+        let plan = match &self.module {
+            Some(module) => super::wasm::plan(
+                engine,
+                module,
+                &self.tool.on_execute,
+                &p,
+                ScriptLimits::default(),
+            )?,
+            None => plan(
+                engine,
+                &self.source,
+                &p,
+                Some(&self.tool.on_execute),
+                ScriptLimits::default(),
+                ScriptControl::default(),
+            )?,
+        };
         replay(tx, &registry, plan.actions)?;
         Ok(plan.output.value)
     }

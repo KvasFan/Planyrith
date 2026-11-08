@@ -19,6 +19,7 @@ mod attributes;
 mod command;
 pub use attributes::{AttributeParams, AttributeSet};
 pub mod plugins;
+mod wasm;
 pub use command::{ScriptEval, ScriptParams};
 
 mod tests;
@@ -146,20 +147,33 @@ impl Host {
 }
 
 fn query(engine: &Engine, source: &str) -> ScriptResult<Array> {
-    let expr = Query::new(source).parse().map_err(exception)?;
+    query_records(engine, source)
+        .map_err(|e| exception(&e))?
+        .iter()
+        .map(dynamic)
+        .collect()
+}
+
+/// The entities matching `source` as JSON records (kind, pid, path, attrs,
+/// tag, transform, vertices, material and measures), for scripts and plugins.
+pub(crate) fn query_records(engine: &Engine, source: &str) -> Result<Vec<Value>, String> {
+    let exception = |e: &dyn std::fmt::Display| e.to_string();
+    let expr = Query::new(source).parse().map_err(|e| exception(&e))?;
     let env = QueryEnv {
         selection: engine.selection(),
         last: engine.last_created(),
         context: engine.context(),
     };
-    let selected = expr.eval(engine.document(), &env).map_err(exception)?;
+    let selected = expr
+        .eval(engine.document(), &env)
+        .map_err(|e| exception(&e))?;
     let mut output = Vec::new();
     for path in selected.iter() {
-        let r = engine.document().resolve(path).map_err(exception)?;
+        let r = engine.document().resolve(path).map_err(|e| exception(&e))?;
         let entities = engine
             .document()
             .container(r.container)
-            .ok_or_else(|| exception("container missing"))?;
+            .ok_or_else(|| "container missing".to_string())?;
         let measures = crate::document::measure_occurrence(engine.document(), &env, path);
         let mut record = json!({"kind":r.entity.kind().to_string(),"pid":entities.pid_of(r.entity).map(|p|p.0),"path":path.to_string(),"attrs":entities.attrs(r.entity)});
         record["attrs"] = Value::Object(
@@ -221,7 +235,7 @@ fn query(engine: &Engine, source: &str) -> ScriptResult<Array> {
             record["volume"] = json!(measures.volume);
             record["bbox"] = json!(engine.document().occurrence_aabb(path));
         }
-        output.push(dynamic(&record)?);
+        output.push(record);
     }
     Ok(output)
 }

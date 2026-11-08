@@ -13,8 +13,8 @@
    "property form" schema is provided).
 3. **Sandboxed.** Scripts have no filesystem/network access unless the host grants a capability.
    Operation and memory limits prevent runaway scripts from freezing the app.
-4. **Same on desktop and web.** The scripting language (rhai) runs in both. Native WASM plugins
-   (`wasmtime`) are a post-1.0, desktop-only extension.
+4. **Same on desktop and web.** The scripting language (rhai) and native WebAssembly plugins
+   (§7, run by an interpreter) run in both.
 
 ## 2. Scripting language binding (rhai)
 
@@ -157,10 +157,49 @@ same form as options.
   schemas are in `crates/planyrith-cli/tests/golden/api-v1.json`, checked on every build.
 - `planyrith ext check <plugin>` validates a manifest and dry-runs all declared tools' schemas.
 
-## 7. Native WASM plugins (post-1.0, desktop)
+## 7. Native WebAssembly plugins (1.3)
 
-A `wasmtime`-hosted component model with the same host API as §5; the manifest adds
-`[entry] wasm = "plugin.wasm"`. Not part of 1.0; mentioned so the manifest format reserves the key.
+A plugin whose manifest says `[entry] wasm = "plugin.wasm"` (instead of `script`) is a
+WebAssembly module, written in any language that compiles to it. It contributes tools, menus,
+toolbars and panels exactly as a scripted plugin (§3) and has the same host API (§5), with the
+same plan-and-replay semantics: a callback runs against an isolated copy of the document, its
+registry calls replay in one transaction when it returns, and a failure commits nothing.
+
+### 7.1 Module ABI
+- **Exports:** `memory`; `planyrith_alloc(size: i32) -> i32`, which returns `size` bytes the host
+  may write; one function per callback named in the manifest, `(args_ptr: i32, args_len: i32) ->
+  i64`. A callback receives its parameters as UTF-8 JSON and returns `ptr << 32 | len` of its
+  JSON result in its memory (0 for null), which becomes the command's output.
+- **Imports** (module `planyrith`, all optional): `call(name_ptr, name_len, params_ptr,
+  params_len) -> i64` runs a registry command with JSON parameters and answers
+  `{"ok": output}` or `{"error": {"code", "message", "param"}}`; `query(ptr, len) -> i64` answers
+  `{"ok": [records]}` with the records scripts get from `query` (§2.2); `log(ptr, len)` adds a
+  line to the invocation's output. Answers are written into memory from `planyrith_alloc`, and
+  the call returns their `ptr << 32 | len`. Plugin commands (`ext:…`) and `script-eval` cannot be
+  called. Any other import makes the module invalid.
+- **Checks on load:** the module is validated and its exports and imports checked against the
+  manifest; nothing runs until a callback is invoked.
+- **Limits:** the script operation budget as fuel (50 million by default; exhausting it is an
+  error), the data budget for everything crossing the boundary, linear memory up to 256 MiB, one
+  instance. No filesystem, network, clock or randomness exist to import; floating point follows
+  the deterministic profile.
+- **Callbacks as commands:** a native plugin's menu and panel callbacks are registered as
+  `ext:<id>/<callback>` taking the form values as parameters, so the GUI, CLI and RPC run them
+  alike (a scripted plugin's still run through `script-eval`).
+
+```wat
+(module
+  (import "planyrith" "call" (func $call (param i32 i32 i32 i32) (result i64)))
+  (memory (export "memory") 1)
+  (global $next (mut i32) (i32.const 4096))
+  (data (i32.const 0) "rectangle")
+  (data (i32.const 16) "{\"corner_a\":[0,0,0],\"corner_b\":[1000,500,0]}")
+  (func (export "planyrith_alloc") (param $n i32) (result i32)
+    (global.get $next)
+    (global.set $next (i32.add (global.get $next) (local.get $n))))
+  (func (export "build") (param i32 i32) (result i64)
+    (call $call (i32.const 0) (i32.const 9) (i32.const 16) (i32.const 44))))
+```
 
 ## 8. Security
 
@@ -178,6 +217,15 @@ A `wasmtime`-hosted component model with the same host API as §5; the manifest 
   `Params` (from the JSON schema) through `command.execute` without schema errors.
 
 ## Decisions
+
+- 2026-11-08 — **Native plugins** (§7). An interpreter (`wasmi`, docs/02 §2.6) instead of
+  `wasmtime`: pure Rust, small, runs in the web build as well as on the desktop, meters
+  operations deterministically and has the deterministic floating-point profile; plugin code is
+  slower than compiled code, which suits callbacks that mostly call commands. A core-module ABI
+  with JSON across the boundary instead of the component model: the component model needs
+  `wasmtime`, and JSON is what scripts, the CLI and RPC already speak, so a plugin needs no
+  generated bindings. `min_planyrith` is now checked against the running version rather than a
+  fixed 0.8.0.
 
 - 2026-10-28 — **0.8 invocation semantics.** A script plans registry calls on
   an isolated document, then replays them in one transaction. Errors commit

@@ -43,7 +43,7 @@ high-frequency interaction**.
 | PDF export (sheets) | **printpdf** or **pdf-writer** | MIT/Apache-2.0 | — | Pure Rust; `pdf-writer` is lower level but lean; choose at milestone 0.9. |
 | SVG export | own writer (simple) | — | svg crate | Trivial. |
 | Text shaping in viewport | **cosmic-text** or egui's own text via `epaint` | MIT/Apache-2.0 | glyphon | Labels/dimensions rendered through egui painter layer; 3D text uses glyph outlines from `ttf-parser` (MIT/Apache-2.0) extruded by the core. |
-| Scripting language | **rhai** behind feature `scripting` | MIT/Apache-2.0 | mlua (C), rune, koto, wasmtime plugins | Pure Rust, sandboxed, wasm-compatible, simple syntax, serde interop. WASM plugins via `wasmtime` (Apache-2.0 w/ LLVM exception) are a desktop-only extension for a later milestone. |
+| Scripting language | **rhai** behind feature `scripting` | MIT/Apache-2.0 | mlua (C), rune, koto, wasmtime plugins | Pure Rust, sandboxed, wasm-compatible, simple syntax, serde interop. Native plugins are WebAssembly modules run by **wasmi** (MIT/Apache-2.0, a pure-Rust interpreter, same feature), on the desktop and in the web build. |
 | WebAssembly glue | **wasm-bindgen**, **web-sys**, **js-sys**, **wasm-bindgen-futures** | MIT/Apache-2.0 | — | Standard; eframe uses them. |
 | Browser storage | **rexie** (IndexedDB wrapper) behind a `Storage` trait | MIT/Apache-2.0 | idb crate, raw web-sys | Ergonomic async API; alternative `idb` acceptable. |
 | Compression inside containers | **flate2** with default `miniz_oxide` backend; **zstd** excluded (C) | MIT/Apache-2.0 | lz4_flex (MIT) for history journal | Pure Rust. |
@@ -140,7 +140,9 @@ cast against the candidate's geometry.
 `rhai` is pure Rust (no C), sandboxed (operation limits, no filesystem unless provided), runs
 in wasm and binds serde types directly, so the command registry can be exposed automatically.
 Lua via `mlua` requires a C runtime (excluded). WASM component plugins via `wasmtime` are
-powerful but add ~10 MB and do not run inside the web build; they are a post-1.0 desktop feature.
+powerful but add ~10 MB and do not run inside the web build. Native plugins (1.3) therefore use
+`wasmi`, an interpreter: smaller, runs in the browser too, meters operations with fuel and has a
+deterministic profile; plugins trade speed for that, which suits command-driven extensions.
 
 ## 3. Licensing policy
 
@@ -174,6 +176,12 @@ powerful but add ~10 MB and do not run inside the web build; they are a post-1.0
 | Web | WebGPU, WebGL2 fallback | WebGL2 path disables MSAA > 4 and compute-based features. |
 
 ## Decisions
+
+- 2026-11-08 — **wasmi for native plugins** (§2.6, docs/10 §7). Features `std`, `validate`
+  (modules are untrusted), `deterministic` (the Wasm 3.0 deterministic profile, for the
+  determinism rule) and `portable-dispatch` (the tail-call dispatch overflows the stack in
+  unoptimized builds). `wat` is a development dependency only, for tests written in the text
+  format. Both pass `cargo deny`.
 
 - 2026-11-03 — **Documentation site.** `pulldown-cmark` (MIT) renders the site in
   `xtask`; it is a build tool dependency, not part of any shipped program.

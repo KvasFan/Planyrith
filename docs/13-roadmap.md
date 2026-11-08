@@ -168,6 +168,9 @@ Collaborative editing, GPU path tracing, mobile UI.
 
 ## Decisions
 
+- 2026-11-08 — **1.3 progress.** FBX import and export (docs/09 Decisions) and native
+  WebAssembly plugins (docs/10 §7) are done; the progressive path-traced preview remains.
+
 - 2026-11-08 — **Milestone 1.3.** With 1.2 implemented, the remaining candidates are ordered by
   use and by what can be verified here: FBX is the exchange format game engines and asset stores
   expect; native plugins were reserved in the manifest since 1.0 (docs/10 §7); a progressive

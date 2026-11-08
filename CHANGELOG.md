@@ -6,6 +6,10 @@ All notable changes to Planyrith are recorded here. Versions follow
 
 ## Unreleased
 
+- Native plugins: an extension can be a WebAssembly module instead of a
+  script (`[entry] wasm = "plugin.wasm"`), written in any language that
+  compiles to it. It calls the same commands, is sandboxed and metered, and
+  runs on the desktop and in the browser.
 - FBX import and export, the format game engines and asset stores use:
   meshes, materials with colors and textures (embedded in the file when
   exporting), the model hierarchy and copies sharing one geometry, units

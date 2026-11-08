@@ -53,6 +53,7 @@ subsetter = { workspace = true }
 ttf-parser = { workspace = true }
 rayon = { workspace = true, optional = true }
 rhai = { workspace = true, optional = true }
+wasmi = { workspace = true, optional = true }
 toml = { workspace = true, optional = true }
 truck-modeling = { workspace = true, optional = true }
 truck-stepio = { workspace = true, optional = true }
@@ -66,13 +67,14 @@ uuid = { workspace = true, features = ["js"] }
 
 [dev-dependencies]
 proptest = { workspace = true }
+wat = { workspace = true }
 
 [features]
 default = []
 # B-rep conversion, STEP and numerical boolean fallback (docs/13 0.8).
 brep = ["dep:truck-modeling", "dep:truck-stepio", "dep:truck-topology", "dep:truck-meshalgo", "dep:truck-shapeops"]
 # Sandboxed Rhai scripting and declarative plugin manifests (docs/10).
-scripting = ["dep:rhai", "dep:toml"]
+scripting = ["dep:rhai", "dep:toml", "dep:wasmi"]
 # rayon-based data parallelism on desktop targets (docs/01 §6).
 parallel = ["dep:rayon"]
 

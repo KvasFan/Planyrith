@@ -5,7 +5,7 @@ use crate::{platform, session::Session};
 use egui::{Context, Ui};
 use planyrith_core::commands::{CommandError, CommandRegistry, GroupToken};
 use planyrith_core::io::{Storage, StorageKey};
-use planyrith_core::scripting::plugins::{self, Plugin};
+use planyrith_core::scripting::plugins::{self, Callback, Plugin};
 use serde_json::{Value, json};
 
 /// Plugin storage root shared with the CLI on desktop, IndexedDB on web.
@@ -46,7 +46,7 @@ pub struct Extensions {
     plugins: Option<Vec<Plugin>>,
     form: Option<(usize, usize, Value)>,
     panel: Option<(usize, usize, Value)>,
-    callbacks: Vec<(String, Value)>,
+    callbacks: Vec<(Callback, Value)>,
     error: Option<String>,
     picker: Option<egui_file_dialog::FileDialog>,
     #[cfg(target_arch = "wasm32")]
@@ -146,8 +146,8 @@ impl Extensions {
                             {
                                 if let Some(j) = tool {
                                     self.form = Some((i, j, defaults(plugin, j)));
-                                } else if let Ok(source) = plugin.callback_source(&menu.on_click) {
-                                    self.callbacks.push((source, json!({})));
+                                } else if let Ok(callback) = plugin.callback(&menu.on_click) {
+                                    self.callbacks.push((callback, json!({})));
                                 }
                                 ui.close();
                             }
@@ -184,8 +184,14 @@ impl Extensions {
     /// Renders the Console, manager, forms and Soften/Smooth window.
     pub fn ui(&mut self, ctx: &Context, session: &mut Session) {
         self.load();
-        for (source, args) in self.callbacks.drain(..) {
-            if let Err(e) = session.execute("script-eval", json!({"source":source,"args":args})) {
+        for (callback, args) in self.callbacks.drain(..) {
+            let result = match callback {
+                Callback::Script(source) => {
+                    session.execute("script-eval", json!({"source":source,"args":args}))
+                }
+                Callback::Command(name) => session.execute(&name, args),
+            };
+            if let Err(e) = result {
                 self.error = Some(e);
             }
         }
@@ -221,9 +227,9 @@ impl Extensions {
                                         && ui
                                             .button(path.rsplit('/').next().unwrap_or(path))
                                             .clicked()
-                                        && let Ok(source) = plugin.callback_source(&menu.on_click)
+                                        && let Ok(callback) = plugin.callback(&menu.on_click)
                                     {
-                                        self.callbacks.push((source, json!({})));
+                                        self.callbacks.push((callback, json!({})));
                                     }
                                 }
                             });
@@ -242,9 +248,9 @@ impl Extensions {
                         .show(ctx, |ui| {
                             fields(ui, &form, &mut values, session);
                             if ui.button(t("Apply")).clicked()
-                                && let Ok(source) = plugin.callback_source(&panel.on_change)
+                                && let Ok(callback) = plugin.callback(&panel.on_change)
                             {
-                                self.callbacks.push((source, values.clone()));
+                                self.callbacks.push((callback, values.clone()));
                             }
                         });
                 }
