@@ -217,6 +217,9 @@ A final image traced on the CPU, so it needs no graphics adapter (`planyrith-ren
   the filmic curve, sRGB. Random numbers come from a generator seeded by pixel and sample, so
   the image is the same on every run, thread count and platform. Rows are shared among all
   cores.
+- **GUI (desktop):** File › Export › Rendered Image… traces the current view of the active style
+  at a chosen size and quality (16, 64 or 256 paths per pixel) on a background thread and saves
+  PNG or JPEG; the interface stays usable meanwhile.
 
 ## 12. Performance budget (1080p, integrated GPU, 1 M tris / 200 k edges)
 

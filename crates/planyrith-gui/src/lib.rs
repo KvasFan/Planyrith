@@ -20,6 +20,8 @@ pub mod platform;
 mod printing;
 #[cfg(not(target_arch = "wasm32"))]
 mod remote;
+#[cfg(not(target_arch = "wasm32"))]
+mod render_job;
 mod resources;
 mod rounding;
 pub mod samples;

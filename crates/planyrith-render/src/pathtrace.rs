@@ -698,23 +698,28 @@ pub fn path_trace(doc: &Document, options: &PathTraceOptions) -> image::RgbaImag
             .collect()
     };
     let workers = threads.clamp(1, height as usize) as u32;
-    let mut rows: Vec<(u32, Vec<[u8; 4]>)> = std::thread::scope(|s| {
-        let handles: Vec<_> = (0..workers)
-            .map(|w| {
-                let pixel_row = &pixel_row;
-                s.spawn(move || {
-                    (w..height)
-                        .step_by(workers as usize)
-                        .map(|y| (y, pixel_row(y)))
-                        .collect::<Vec<_>>()
+    // One worker traces here (where threads are unavailable, the browser).
+    let mut rows: Vec<(u32, Vec<[u8; 4]>)> = if workers == 1 {
+        (0..height).map(|y| (y, pixel_row(y))).collect()
+    } else {
+        std::thread::scope(|s| {
+            let handles: Vec<_> = (0..workers)
+                .map(|w| {
+                    let pixel_row = &pixel_row;
+                    s.spawn(move || {
+                        (w..height)
+                            .step_by(workers as usize)
+                            .map(|y| (y, pixel_row(y)))
+                            .collect::<Vec<_>>()
+                    })
                 })
-            })
-            .collect();
-        handles
-            .into_iter()
-            .flat_map(|h| h.join().unwrap_or_default())
-            .collect()
-    });
+                .collect();
+            handles
+                .into_iter()
+                .flat_map(|h| h.join().unwrap_or_default())
+                .collect()
+        })
+    };
     rows.sort_by_key(|(y, _)| *y);
     let mut image = image::RgbaImage::new(width, height);
     for (y, row) in &rows {

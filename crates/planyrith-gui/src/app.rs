@@ -186,6 +186,9 @@ enum DialogPurpose {
     Resource(FileRequest),
     /// The folder of the component library.
     Library,
+    /// A path-traced image to write (docs/06 §11.1).
+    #[cfg(not(target_arch = "wasm32"))]
+    RenderImage,
     /// A file in the browser to download to the computer (web).
     #[cfg(target_arch = "wasm32")]
     Download,
@@ -343,6 +346,9 @@ pub struct App {
     round_edges: crate::rounding::RoundEdges,
     /// Tools › Thicken (docs/05 §4.19).
     thicken: crate::rounding::ThickenWindow,
+    /// File › Export › Rendered Image (docs/06 §11.1).
+    #[cfg(not(target_arch = "wasm32"))]
+    render_job: crate::render_job::RenderJob,
     extensions: crate::extensions::Extensions,
     sheets: crate::sheets::Sheets,
     /// Journal and snapshot the documents (off in tests).
@@ -479,6 +485,8 @@ impl App {
             print_check: Default::default(),
             round_edges: Default::default(),
             thicken: Default::default(),
+            #[cfg(not(target_arch = "wasm32"))]
+            render_job: Default::default(),
             extensions: Default::default(),
             sheets: Default::default(),
             autosave: false,
@@ -1337,6 +1345,11 @@ impl App {
                     }
                     if ui.button(t("Component Report…")).clicked() {
                         self.resources.file = Some(FileRequest::Report);
+                        ui.close();
+                    }
+                    #[cfg(not(target_arch = "wasm32"))]
+                    if ui.button(t("Rendered Image…")).clicked() {
+                        self.render_job.open = true;
                         ui.close();
                     }
                 });
@@ -2489,6 +2502,18 @@ impl App {
                     }
                 }
                 Some(DialogPurpose::Open) => self.open(&path),
+                #[cfg(not(target_arch = "wasm32"))]
+                Some(DialogPurpose::RenderImage) => {
+                    let path = if path.extension().is_none() {
+                        path.with_extension("png")
+                    } else {
+                        path
+                    };
+                    let doc = self.session.doc().clone();
+                    let style = doc.styles.active_style().cloned();
+                    let camera = doc.camera;
+                    self.render_job.start(path, doc, camera, style);
+                }
                 Some(DialogPurpose::Library) => {
                     self.resources.library = Some(path.clone());
                     self.settings.component_library = Some(path);
@@ -3105,6 +3130,24 @@ impl App {
         self.print_check.window(&ctx, &mut self.session);
         self.round_edges.window(&ctx, &mut self.session);
         self.thicken.window(&ctx, &mut self.session);
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.render_job.window(&ctx);
+            if std::mem::take(&mut self.render_job.pick) {
+                let kind = t("Images");
+                self.dialog = platform::file_dialog()
+                    .title(&t("Rendered Image"))
+                    .add_file_filter_extensions(&kind, vec!["png", "jpg"])
+                    .default_file_filter(&kind);
+                self.dialog.save_file();
+                self.dialog_purpose = Some(DialogPurpose::RenderImage);
+            }
+            match self.render_job.poll() {
+                Some(Ok(note)) => self.info(note),
+                Some(Err(e)) => self.error(e),
+                None => {}
+            }
+        }
         self.extensions.ui(&ctx, &mut self.session);
         self.file_dialog(&ctx);
         self.discard_prompt(&ctx);
