@@ -1,0 +1,5 @@
+# Match a 1600 × 1200 photo of a 2 × 3 m box, 2.5 m high: the camera stands
+# at (-3000, -4000, 1600) with a 1400-pixel focal length.
+rectangle --corner-a 0,0,0 --corner-b 2000,3000,0
+push-pull --face '{face & last}' --distance 2500
+camera-match --image-size 1600,1200 --x-line-1 820.04,894.25,1175.35,812.93 --x-line-2 821.09,196.39,1191.23,246.57 --y-line-1 820.04,894.25,486.46,754.14 --y-line-2 821.09,196.39,475.45,282.25 --origin 820.04,894.25 --length 2m --length-end 1175.35,812.93

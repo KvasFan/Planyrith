@@ -131,7 +131,7 @@ collected by clicks: e.g. segments for Circle, array count, copy toggle).
   Cuts, Section Fill, Axes, Guides, Shadows, Fog, Edge Style ►, Face Style ►, Component Edit ►
   (Hide rest of model, Hide similar components), Animation ►.
 - **Camera:** Previous, Next, Standard Views ►, Parallel Projection, Perspective, Two-Point
-  Perspective, Field of View, Zoom, Zoom Window, Zoom Extents, Position Camera, Walk, Look Around.
+  Perspective, Field of View, Zoom, Zoom Window, Zoom Extents, Position Camera, Walk, Look Around, Match Photo….
 - **Draw:** Lines ► (Line, Freehand), Arcs ► (Arc, 2 Point Arc, 3 Point Arc, Pie), Shapes ►
   (Rectangle, Rotated Rectangle, Circle, Polygon), 3D Text.
 - **Tools:** Select, Eraser, Paint, Move, Rotate, Scale, Push/Pull, Sweep, Offset,

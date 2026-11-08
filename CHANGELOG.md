@@ -6,6 +6,10 @@ All notable changes to Planyrith are recorded here. Versions follow
 
 ## Unreleased
 
+- Match Photo (Camera › Match Photo…, `camera-match`): open a photograph over
+  the view, lay two red lines and two green lines along edges of the room or
+  building and mark the origin; the camera becomes the one that took the
+  picture, ready to model over it.
 - Parametric components: give a component parameters such as `width = 80cm`
   and its parts rules such as "shelf width = width - 2 * board"
   (`parameter-set`, `part-rule-set`), then `parametric-update` resizes and

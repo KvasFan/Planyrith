@@ -5,7 +5,7 @@ implementation stands, what is done, what remains, and how to resume. Update it 
 every working session. Ground truth for *what to build* stays in `docs/00`–`docs/15`; this file
 is only *progress state*. Release packaging is specified in `docs/16`.
 
-_Last updated: 2026-11-05 (0.11.0-alpha.3; 1.0 stabilization; 1.1 started)._
+_Last updated: 2026-11-08 (0.11.0-alpha.3; 1.1 and 1.2 implemented, unreleased)._
 
 **Release state (2026-11-01):** `v0.11.0-alpha.3` is prepared at `3d55f6e`: main
 CI and the Release workflow's Windows and Linux package checks passed with
@@ -43,6 +43,14 @@ its lighting, materials' roughness/metalness, soft shadows and screen-space ambi
 five 1.1 items are implemented (docs/13 Decisions, "1.1 as built so far"): textures in USD,
 IFC classes, storeys, quantities and property sets, the path-traced render (CLI and GUI), and
 picking tools with live previews for fillet, chamfer, thicken and loft.
+
+**1.2 implemented (2026-11-08, continuing without a pause at the user's request):** COLLADA
+import and export, IFC import (docs/09 Decisions), parametric components (`parameter-set`,
+`instance-parameter-set`, `part-rule-set`, `parametric-update`; docs/04 §9.1, docs/05 §5.14) and
+the camera from a photograph (`camera-match`, Camera › Match Photo…; docs/05 §9.1). GitHub
+Actions jobs do not start since 2026-11-08 (the account is locked for billing), so
+`tools/ci-local.sh` is the only gate; each pushed commit passed it. Next candidates (docs/13):
+FBX, native plugins, collaborative editing, a mobile interface.
 
 **After alpha.3 (unreleased, 2026-11-02):** the renderer draws the style's edge
 effects (depth cue, extension, endpoints, jitter) and shadows from edges without

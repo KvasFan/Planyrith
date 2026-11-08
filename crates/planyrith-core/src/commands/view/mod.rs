@@ -10,6 +10,7 @@
 //! (AGENTS.md §4).
 
 mod camera;
+mod photo_match;
 pub mod shadows;
 mod style;
 
@@ -18,6 +19,7 @@ pub use camera::{
     OrbitParams, Pan, PanParams, PositionCamera, PositionCameraParams, ProjectionKind, Zoom,
     ZoomExtents, ZoomExtentsParams, ZoomParams,
 };
+pub use photo_match::{CameraMatch, CameraMatchOutput, CameraMatchParams, picture_camera};
 pub use style::{
     FogSet, FogSetOutput, FogSetParams, StyleActivate, StyleActivateParams, StyleSet,
     StyleSetOutput, StyleSetParams,
@@ -35,6 +37,7 @@ pub fn register(registry: &mut CommandRegistry) {
     registry.register(Pan);
     registry.register(Zoom);
     registry.register(ZoomExtents);
+    registry.register(CameraMatch);
     registry.register(StyleSet);
     registry.register(StyleActivate);
     registry.register(FogSet);

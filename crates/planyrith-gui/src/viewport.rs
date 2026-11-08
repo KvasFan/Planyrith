@@ -92,6 +92,9 @@ pub struct Viewport {
     /// Segments marked in red, world coordinates (the open edges Check for
     /// 3D Printing found, docs/05 §8.1).
     pub marks: Vec<[DVec3; 2]>,
+    /// Camera › Match Photo…: the picture over the viewport and its handles
+    /// (docs/05 §9.1).
+    pub photo: crate::photo::PhotoMatch,
     /// The multisampling the current renderer was made with.
     renderer_msaa: u32,
     nav: Option<NavDrag>,
@@ -516,8 +519,11 @@ impl Viewport {
             }
         }
 
+        // The photo's handles come before the tool (docs/05 §9.1).
+        let on_photo = self.photo.input(ui, &response, rect);
+
         // Tool input.
-        if let Some(p) = &pointer {
+        if let Some(p) = pointer.as_ref().filter(|_| !on_photo) {
             let cx = cx_for(session, camera, depth, rect, unit);
             tool.hover(p, &cx);
             if response.hovered() && ui.input(|i| i.pointer.primary_pressed()) {
@@ -740,6 +746,7 @@ impl Viewport {
         // Overlays: the tool's hints, then the inference (docs/06 §10).
         let cx = cx_for(session, camera, depth, rect, unit);
         let painter = ui.painter_at(rect);
+        self.photo.paint(&painter, rect);
         paint_overlay(&painter, &cx, &overlay);
         if let Some(caption) = &self.caption {
             let at = rect.left_top() + Vec2::new(8.0, 6.0);

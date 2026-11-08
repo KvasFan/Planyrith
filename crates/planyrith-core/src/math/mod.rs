@@ -16,6 +16,7 @@ pub mod polygon;
 pub mod ray;
 pub mod segment;
 pub mod transform;
+pub mod vanishing;
 
 pub use aabb::Aabb;
 pub use glam::{DAffine2, DAffine3, DMat2, DMat3, DMat4, DQuat, DVec2, DVec3, DVec4};

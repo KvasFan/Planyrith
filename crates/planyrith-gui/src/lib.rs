@@ -16,6 +16,7 @@ mod extensions;
 pub mod i18n;
 mod icons;
 mod panels;
+mod photo;
 pub mod platform;
 mod printing;
 #[cfg(not(target_arch = "wasm32"))]

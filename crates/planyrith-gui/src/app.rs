@@ -186,6 +186,8 @@ enum DialogPurpose {
     Resource(FileRequest),
     /// The folder of the component library.
     Library,
+    /// A picture to match the camera to (docs/05 §9.1).
+    Photo,
     /// A path-traced image to write (docs/06 §11.1).
     #[cfg(not(target_arch = "wasm32"))]
     RenderImage,
@@ -1634,6 +1636,11 @@ impl App {
                     self.run("zoom-extents", json!({ "targets": "selection" }));
                     ui.close();
                 }
+                ui.separator();
+                if ui.button(t("Match Photo…")).clicked() {
+                    self.viewport.photo.show();
+                    ui.close();
+                }
             });
             ui.menu_button(t("Draw"), |ui| {
                 self.tool_button(ui, "Line");
@@ -2518,6 +2525,18 @@ impl App {
                     let camera = doc.camera;
                     self.render_job.start(path, doc, camera, style);
                 }
+                Some(DialogPurpose::Photo) => {
+                    let key = planyrith_core::io::storage::StorageKey::new(
+                        path.to_string_lossy().to_string(),
+                    );
+                    let loaded = platform::storage()
+                        .read(&key)
+                        .map_err(|e| e.to_string())
+                        .and_then(|bytes| self.viewport.photo.load(ctx, &file_name(&path), &bytes));
+                    if let Err(e) = loaded {
+                        self.error(e);
+                    }
+                }
                 Some(DialogPurpose::Library) => {
                     self.resources.library = Some(path.clone());
                     self.settings.component_library = Some(path);
@@ -3132,6 +3151,16 @@ impl App {
         self.shadows_window(&ctx);
         self.preferences_window(&ctx);
         self.print_check.window(&ctx, &mut self.session);
+        self.viewport.photo.window(&ctx, &mut self.session);
+        if std::mem::take(&mut self.viewport.photo.pick) {
+            let kind = t("Images");
+            self.dialog = platform::file_dialog()
+                .title(&t("Match Photo"))
+                .add_file_filter_extensions(&kind, vec!["png", "jpg", "jpeg", "webp"])
+                .default_file_filter(&kind);
+            self.dialog.pick_file();
+            self.dialog_purpose = Some(DialogPurpose::Photo);
+        }
         self.round_edges.window(&ctx, &mut self.session);
         self.thicken.window(&ctx, &mut self.session);
         #[cfg(not(target_arch = "wasm32"))]

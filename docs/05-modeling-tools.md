@@ -557,6 +557,37 @@ parameters, and whose sides, shelves and doors follow them.
 - `style-set`, `shadows-set`, `fog-set`, `show-hidden-geometry`, `show-guides`, `show-section-planes`,
   `show-section-cuts`, `show-section-fill`, `xray`, `show-axes`.
 
+### 9.1 `camera-match` (camera from a photograph)
+Matches the view to a photograph, so a model can be built over a picture of a room or a building
+and its renders sit in the photo.
+- **Params:** `image_size: [w, h]` (pixels); `x_line_1`, `x_line_2`, `y_line_1`, `y_line_2`:
+  picture segments `[u1, v1, u2, v2]` (pixels from the top left, `v` down) along edges that run
+  parallel to the model's X and Y axes in reality; `origin: [u, v]`, the model origin's picture
+  point; either `length: Length`, `length_axis: X|Y|Z (X)` and `length_end: [u, v]` (a known length
+  from the origin along that axis), or `eye_height: Length (1600 mm)`.
+- **Algorithm** (`math::vanishing`): each pair of lines meets at a vanishing point. With the
+  picture's center as the principal point, the focal length is `f = √(−vx·vy)` (points about the
+  center) and the model axes in camera coordinates are the unit vectors toward `(vx, −f)` and
+  `(vy, −f)`, made orthonormal; +Z is their cross product, its sign chosen so +Z points up in the
+  picture (which also fixes the sense of +Y), and +X runs toward the X lines' vanishing point.
+  The origin's picture point gives the direction to the origin; the known length (the distance
+  at which the length's far end falls on its picture point) or the eye height gives the distance.
+  The camera becomes a perspective camera with that eye, view direction, up vector (keeping any
+  roll) and vertical field of view `2·atan(h / 2f)`; aspect `w / h`.
+- **Edge cases:** lines of one axis that are parallel in the picture (no vanishing point, or one
+  farther than a thousand picture sizes), vanishing points that give no real focal length, a
+  length end on the origin, and an origin above the horizon with only an eye height are refused
+  with the reason; the camera is unchanged.
+- **Interactive:** Camera › Match Photo… opens a picture (PNG, JPEG, WebP) over the viewport, as
+  high as the viewport and centered, with an opacity slider. Red handles lay two lines on edges
+  along X, green ones two along Y, a yellow handle marks the origin and, with "Known length", a
+  blue handle the length's end. Each change runs `camera-match`; the field of view found or the
+  reason for no camera shows in the window. Done removes the picture.
+- **Undo:** a view command, not undoable (§9).
+- **Acceptance:** lines projected from a known camera give back its eye within 10⁻⁶ of the
+  distance and its focal length (property test over random cameras); parallel lines are
+  refused and leave the camera as it was.
+
 ## 10. File commands (category `file`) — see `docs/08 §6` and `docs/09`
 
 `new`, `open`, `save`, `save-as`, `save-copy`, `import { path, format?, options }`, `export
@@ -619,6 +650,14 @@ UI hints are generated from one source.
 - [ ] Documented in `docs/08` command table.
 
 ## Decisions
+
+- 2026-11-08 — **Camera from a photograph** (§9.1). Two vanishing points with the principal point
+  at the picture's center determine the camera, tilt included, so a third set of lines is not
+  asked for: photographs are rarely cropped off center, and a camera with a shifted principal
+  point could not be shown without a lens shift the document camera does not have. The picture
+  itself is not stored in the document (the native format is frozen and pictures are large);
+  the match is the camera, which scenes can keep. Lines are given as four numbers per segment
+  so the command line stays plain (`--x-line-1 820,894,1175,813`).
 
 - 2026-10-29 — **Sheets (0.9, category `sheet`).** The complete command and
   parameter catalogue is docs/15 §5.1. Every paper item operation is a command,
