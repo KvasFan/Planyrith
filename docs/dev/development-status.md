@@ -50,7 +50,12 @@ import and export, IFC import (docs/09 Decisions), parametric components (`param
 the camera from a photograph (`camera-match`, Camera › Match Photo…; docs/05 §9.1). GitHub
 Actions jobs do not start since 2026-11-08 (the account is locked for billing), so
 `tools/ci-local.sh` is the only gate; each pushed commit passed it. Next candidates (docs/13):
-FBX, native plugins, collaborative editing, a mobile interface.
+collaborative editing, GPU path tracing, a mobile interface.
+
+**1.3 implemented (2026-11-08):** FBX import and export (docs/09 Decisions; surveyed on a public
+corpus kept outside the repository), native WebAssembly plugins run by `wasmi` (docs/10 §7) and
+the progressive path-traced preview (docs/06 §11.2). Not done here for lack of permission:
+opening exported FBX files in a reference application (a downloaded one may not be run).
 
 **After alpha.3 (unreleased, 2026-11-02):** the renderer draws the style's edge
 effects (depth cue, extension, endpoints, jitter) and shadows from edges without

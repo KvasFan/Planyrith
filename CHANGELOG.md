@@ -6,6 +6,9 @@ All notable changes to Planyrith are recorded here. Versions follow
 
 ## Unreleased
 
+- Path-Traced Preview (View menu, desktop): a window in which the path
+  tracer refines an image of the current view while you work, starting
+  again when the model or the camera changes.
 - Native plugins: an extension can be a WebAssembly module instead of a
   script (`[entry] wasm = "plugin.wasm"`), written in any language that
   compiles to it. It calls the same commands, is sandboxed and metered, and

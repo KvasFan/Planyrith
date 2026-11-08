@@ -221,6 +221,17 @@ A final image traced on the CPU, so it needs no graphics adapter (`planyrith-ren
   at a chosen size and quality (16, 64 or 256 paths per pixel) on a background thread and saves
   PNG or JPEG; the interface stays usable meanwhile.
 
+### 11.2 Progressive path-traced preview (desktop)
+View › Path-Traced Preview opens a window in which the tracer of §11.1 refines an image of the
+current view (`PathTracer`: the scene's hierarchy is built once, each pass adds one path per
+pixel). The image has half the window's pixels (at most 960 × 720) and three bounces; it is shown
+after every pass with the count of paths so far and stops refining at 256. When the document,
+the camera or the window size changes and then stays the same for a quarter of a second,
+tracing starts again from the new state, so orbiting does not restart it on every frame. The
+tracing runs on a background thread on all cores but one; closing the window stops it. Because
+pixel `p`'s path `k` always draws the same random numbers and a pixel's paths add up in order,
+an image traced in passes equals the one traced at once (`passes_add_up_to_the_same_image`).
+
 ## 12. Performance budget (1080p, integrated GPU, 1 M tris / 200 k edges)
 
 | Pass | Budget |

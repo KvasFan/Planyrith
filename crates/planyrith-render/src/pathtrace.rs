@@ -623,111 +623,163 @@ fn encode(c: f64) -> u8 {
     (s * 255.0).round().clamp(0.0, 255.0) as u8
 }
 
-/// Traces `doc` into an image (docs/06 §11.1).
-pub fn path_trace(doc: &Document, options: &PathTraceOptions) -> image::RgbaImage {
-    let (width, height) = (options.width.max(1), options.height.max(1));
-    let style = options
-        .style
-        .clone()
-        .or_else(|| doc.styles.active_style().cloned())
-        .unwrap_or_default();
-    let camera = Camera {
-        aspect: f64::from(width) / f64::from(height),
-        ..options.camera.unwrap_or(doc.camera)
-    };
-    let scene = scene(doc, &style);
-    let shadows = doc.rendering.shadows;
-    let sun = shadows.sun.direction();
-    let sun = if shadows.enabled && sun.z > 0.02 {
-        sun
-    } else {
-        DVec3::new(0.35, -0.55, 0.76).normalize()
-    };
-    let realism = style.realism.unwrap_or_default();
-    let sky = rgb(style.background.sky.unwrap_or(Rgba8::rgb(0xA8, 0xC4, 0xE8)));
-    let light = Light {
-        sun,
-        sun_radiance: 3.2 * f64::from(shadows.light.clamp(5, 100)) / 80.0,
-        sky: sky * f64::from(realism.sky_light) * 1.6,
-        horizon: (sky * 0.5 + DVec3::splat(0.5)) * f64::from(realism.sky_light) * 1.6,
-        ground: scene
-            .ground
-            .map_or(DVec3::splat(0.3), |(_, s)| s.albedo * 0.3),
-        background: Some(rgb(style.background.color)),
-        exposure: libm::pow(2.0, f64::from(realism.exposure.clamp(-3.0, 3.0))),
-    };
-    let samples = options.samples.max(1);
-    let threads = if options.threads == 0 {
-        std::thread::available_parallelism().map_or(1, usize::from)
-    } else {
-        options.threads
-    };
-    // Each worker takes every `threads`-th row; a pixel's value does not
-    // depend on which worker traced it.
-    let pixel_row = |y: u32| -> Vec<[u8; 4]> {
-        (0..width)
-            .map(|x| {
+/// A path-traced image refined pass by pass (docs/06 §11.1–§11.2): each
+/// pass adds samples to every pixel. Pixel `p`'s sample `k` always uses the
+/// same random sequence and samples add up in order, so an image traced in
+/// several passes equals one traced at once, whatever the thread count.
+pub struct PathTracer {
+    scene: Scene,
+    light: Light,
+    camera: Camera,
+    width: u32,
+    height: u32,
+    bounces: u32,
+    threads: usize,
+    sum: Vec<DVec3>,
+    samples: u32,
+}
+
+impl PathTracer {
+    /// Prepares tracing `doc` (the scene's hierarchy is built once).
+    pub fn new(doc: &Document, options: &PathTraceOptions) -> Self {
+        let (width, height) = (options.width.max(1), options.height.max(1));
+        let style = options
+            .style
+            .clone()
+            .or_else(|| doc.styles.active_style().cloned())
+            .unwrap_or_default();
+        let camera = Camera {
+            aspect: f64::from(width) / f64::from(height),
+            ..options.camera.unwrap_or(doc.camera)
+        };
+        let scene = scene(doc, &style);
+        let shadows = doc.rendering.shadows;
+        let sun = shadows.sun.direction();
+        let sun = if shadows.enabled && sun.z > 0.02 {
+            sun
+        } else {
+            DVec3::new(0.35, -0.55, 0.76).normalize()
+        };
+        let realism = style.realism.unwrap_or_default();
+        let sky = rgb(style.background.sky.unwrap_or(Rgba8::rgb(0xA8, 0xC4, 0xE8)));
+        let light = Light {
+            sun,
+            sun_radiance: 3.2 * f64::from(shadows.light.clamp(5, 100)) / 80.0,
+            sky: sky * f64::from(realism.sky_light) * 1.6,
+            horizon: (sky * 0.5 + DVec3::splat(0.5)) * f64::from(realism.sky_light) * 1.6,
+            ground: scene
+                .ground
+                .map_or(DVec3::splat(0.3), |(_, s)| s.albedo * 0.3),
+            background: Some(rgb(style.background.color)),
+            exposure: libm::pow(2.0, f64::from(realism.exposure.clamp(-3.0, 3.0))),
+        };
+        let threads = if options.threads == 0 {
+            std::thread::available_parallelism().map_or(1, usize::from)
+        } else {
+            options.threads
+        };
+        PathTracer {
+            scene,
+            light,
+            camera,
+            width,
+            height,
+            bounces: options.bounces,
+            threads,
+            sum: vec![DVec3::ZERO; width as usize * height as usize],
+            samples: 0,
+        }
+    }
+
+    /// Samples per pixel so far.
+    pub fn samples(&self) -> u32 {
+        self.samples
+    }
+
+    /// Adds `count` samples to every pixel.
+    pub fn pass(&mut self, count: u32) {
+        let (width, height) = (self.width, self.height);
+        let first = self.samples;
+        let (scene, light, camera, bounces) =
+            (&self.scene, &self.light, &self.camera, self.bounces);
+        let row = |y: u32, sums: &mut [DVec3]| {
+            for (x, sum) in sums.iter_mut().enumerate() {
+                let x = x as u32;
                 let pixel = u64::from(y) * u64::from(width) + u64::from(x);
-                let mut sum = DVec3::ZERO;
-                for k in 0..samples {
+                for k in first..first + count {
                     let mut rng = Rng::new(pixel, u64::from(k));
                     let ndc = DVec2::new(
                         (f64::from(x) + rng.next()) / f64::from(width) * 2.0 - 1.0,
                         1.0 - (f64::from(y) + rng.next()) / f64::from(height) * 2.0,
                     );
                     let ray = camera.ray_through_ndc(ndc);
-                    let c = trace(
-                        &scene,
-                        &light,
-                        ray.origin,
-                        ray.dir,
-                        options.bounces,
-                        &mut rng,
-                    );
+                    let c = trace(scene, light, ray.origin, ray.dir, bounces, &mut rng);
                     // A rare, very bright path would show as a dot.
-                    sum += c * (FIREFLY / c.max_element().max(FIREFLY));
+                    *sum += c * (FIREFLY / c.max_element().max(FIREFLY));
                 }
-                let c = sum / f64::from(samples) * light.exposure;
-                [
+            }
+        };
+        let workers = self.threads.clamp(1, height as usize);
+        let mut rows: Vec<(u32, &mut [DVec3])> = self
+            .sum
+            .chunks_mut(width as usize)
+            .enumerate()
+            .map(|(y, r)| (y as u32, r))
+            .collect();
+        if workers == 1 {
+            // One worker traces here (where threads are unavailable, the
+            // browser).
+            for (y, r) in &mut rows {
+                row(*y, r);
+            }
+        } else {
+            // Each worker takes every `workers`-th row.
+            let mut lanes: Vec<Vec<(u32, &mut [DVec3])>> =
+                (0..workers).map(|_| Vec::new()).collect();
+            for (i, r) in rows.into_iter().enumerate() {
+                lanes[i % workers].push(r);
+            }
+            std::thread::scope(|s| {
+                for lane in lanes {
+                    let row = &row;
+                    s.spawn(move || {
+                        for (y, r) in lane {
+                            row(y, r);
+                        }
+                    });
+                }
+            });
+        }
+        self.samples += count;
+    }
+
+    /// The image so far.
+    pub fn image(&self) -> image::RgbaImage {
+        let mut image = image::RgbaImage::new(self.width, self.height);
+        let n = f64::from(self.samples.max(1));
+        for (i, sum) in self.sum.iter().enumerate() {
+            let c = *sum / n * self.light.exposure;
+            let (x, y) = (i as u32 % self.width, i as u32 / self.width);
+            image.put_pixel(
+                x,
+                y,
+                image::Rgba([
                     encode(filmic(c.x)),
                     encode(filmic(c.y)),
                     encode(filmic(c.z)),
                     255,
-                ]
-            })
-            .collect()
-    };
-    let workers = threads.clamp(1, height as usize) as u32;
-    // One worker traces here (where threads are unavailable, the browser).
-    let mut rows: Vec<(u32, Vec<[u8; 4]>)> = if workers == 1 {
-        (0..height).map(|y| (y, pixel_row(y))).collect()
-    } else {
-        std::thread::scope(|s| {
-            let handles: Vec<_> = (0..workers)
-                .map(|w| {
-                    let pixel_row = &pixel_row;
-                    s.spawn(move || {
-                        (w..height)
-                            .step_by(workers as usize)
-                            .map(|y| (y, pixel_row(y)))
-                            .collect::<Vec<_>>()
-                    })
-                })
-                .collect();
-            handles
-                .into_iter()
-                .flat_map(|h| h.join().unwrap_or_default())
-                .collect()
-        })
-    };
-    rows.sort_by_key(|(y, _)| *y);
-    let mut image = image::RgbaImage::new(width, height);
-    for (y, row) in &rows {
-        for (x, p) in row.iter().enumerate() {
-            image.put_pixel(x as u32, *y, image::Rgba(*p));
+                ]),
+            );
         }
+        image
     }
-    image
+}
+
+/// Traces `doc` into an image (docs/06 §11.1).
+pub fn path_trace(doc: &Document, options: &PathTraceOptions) -> image::RgbaImage {
+    let mut tracer = PathTracer::new(doc, options);
+    tracer.pass(options.samples.max(1));
+    tracer.image()
 }
 
 #[cfg(test)]
@@ -833,5 +885,24 @@ mod tests {
         let corner = one.get_pixel(0, 0).0;
         let middle = one.get_pixel(24, 16).0;
         assert_ne!(corner, middle, "the box is in the middle of the view");
+    }
+
+    #[test]
+    fn passes_add_up_to_the_same_image() {
+        let mut doc = Document::new();
+        doc.camera = Camera::default();
+        let options = PathTraceOptions {
+            width: 24,
+            height: 16,
+            samples: 4,
+            threads: 3,
+            ..PathTraceOptions::default()
+        };
+        let once = path_trace(&doc, &options);
+        let mut tracer = PathTracer::new(&doc, &options);
+        tracer.pass(1);
+        tracer.pass(3);
+        assert_eq!(tracer.samples(), 4);
+        assert_eq!(tracer.image(), once);
     }
 }

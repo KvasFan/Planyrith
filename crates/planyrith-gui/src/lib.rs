@@ -31,6 +31,8 @@ mod theme;
 #[cfg(not(target_arch = "wasm32"))]
 mod thumbnails;
 mod tools;
+#[cfg(not(target_arch = "wasm32"))]
+mod trace_preview;
 mod viewport;
 
 #[cfg(test)]

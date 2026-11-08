@@ -351,6 +351,9 @@ pub struct App {
     /// File › Export › Rendered Image (docs/06 §11.1).
     #[cfg(not(target_arch = "wasm32"))]
     render_job: crate::render_job::RenderJob,
+    /// View › Path-Traced Preview (docs/06 §11.2).
+    #[cfg(not(target_arch = "wasm32"))]
+    trace_preview: crate::trace_preview::TracePreview,
     extensions: crate::extensions::Extensions,
     sheets: crate::sheets::Sheets,
     /// Journal and snapshot the documents (off in tests).
@@ -489,6 +492,8 @@ impl App {
             thicken: Default::default(),
             #[cfg(not(target_arch = "wasm32"))]
             render_job: Default::default(),
+            #[cfg(not(target_arch = "wasm32"))]
+            trace_preview: Default::default(),
             extensions: Default::default(),
             sheets: Default::default(),
             autosave: false,
@@ -1561,6 +1566,11 @@ impl App {
                 let mut fills = section.fills_visible;
                 if ui.checkbox(&mut fills, t("Section Fill")).changed() {
                     self.run("section-display-set", json!({ "fills": fills }));
+                }
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    ui.separator();
+                    ui.checkbox(&mut self.trace_preview.open, t("Path-Traced Preview"));
                 }
                 ui.separator();
                 ui.menu_button(t("Theme"), |ui| {
@@ -3166,6 +3176,7 @@ impl App {
         #[cfg(not(target_arch = "wasm32"))]
         {
             self.render_job.window(&ctx);
+            self.trace_preview.window(&ctx, &self.session);
             if std::mem::take(&mut self.render_job.pick) {
                 let kind = t("Images");
                 self.dialog = platform::file_dialog()
