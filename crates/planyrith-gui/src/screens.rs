@@ -65,6 +65,19 @@ fn screenshots() {
     }
     save(&mut harness, &dir, "preferences-dark");
 
+    // The touch layout on a tablet held upright: larger controls, the
+    // modifier toggles, then the drawer with the Materials panel.
+    let mut harness = Harness::builder()
+        .with_size(egui::vec2(820.0, 1180.0))
+        .wgpu()
+        .build_eframe(|cc| App::new(cc, doc.clone()));
+    theme::apply(&harness.ctx, ThemeChoice::Light);
+    save(&mut harness, &dir, "touch-tablet");
+    harness
+        .state_mut()
+        .set_drawer(Some(crate::app::Pane::Materials));
+    save(&mut harness, &dir, "touch-drawer");
+
     // Four viewports: the document's camera, top, front and right.
     let mut harness = Harness::builder()
         .with_size(egui::vec2(1400.0, 900.0))

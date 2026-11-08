@@ -167,6 +167,25 @@ pub fn accent(visuals: &Visuals) -> Color32 {
 }
 
 /// Installs both themes and selects `choice`.
+/// The touch layout's sizes (docs/07 §13.1): controls at least 40 points
+/// high, more room between them; `false` restores the usual sizes.
+pub fn set_touch(ctx: &egui::Context, on: bool) {
+    ctx.all_styles_mut(|style| {
+        let s = &mut style.spacing;
+        if on {
+            s.item_spacing = egui::vec2(10.0, 10.0);
+            s.button_padding = egui::vec2(14.0, 10.0);
+            s.interact_size.y = 40.0;
+            s.scroll.bar_width = 14.0;
+        } else {
+            s.item_spacing = egui::vec2(8.0, 6.0);
+            s.button_padding = egui::vec2(10.0, 4.0);
+            s.interact_size.y = 26.0;
+            s.scroll.bar_width = egui::style::ScrollStyle::default().bar_width;
+        }
+    });
+}
+
 pub fn apply(ctx: &egui::Context, choice: ThemeChoice) {
     ctx.set_visuals_of(Theme::Light, visuals(&LIGHT, false));
     ctx.set_visuals_of(Theme::Dark, visuals(&DARK, true));

@@ -76,6 +76,19 @@ impl Pane {
     }
 }
 
+/// The panels the touch layout's drawer offers, in order.
+const DRAWER_PANES: [Pane; 9] = [
+    Pane::EntityInfo,
+    Pane::Materials,
+    Pane::Components,
+    Pane::Styles,
+    Pane::Tags,
+    Pane::Scenes,
+    Pane::Outliner,
+    Pane::ToolOptions,
+    Pane::ToolHelp,
+];
+
 /// The default layout: tool options | viewport | info, materials,
 /// components, styles, tags, tool help | outliner, scenes.
 fn default_layout() -> Tree<Pane> {
@@ -233,6 +246,8 @@ struct Settings {
     snap_px: f32,
     /// Preferences › Compatibility: the wheel zooms the other way.
     invert_wheel: bool,
+    /// View › Touch Layout: on, off, or automatic (`None`, docs/07 §13.1).
+    touch_layout: Option<bool>,
 }
 
 impl Default for Settings {
@@ -249,12 +264,16 @@ impl Default for Settings {
             antialiasing: true,
             snap_px: DEFAULT_SNAP_PX,
             invert_wheel: false,
+            touch_layout: None,
         }
     }
 }
 
 /// The inference engine's pick radius (docs/07 §4).
 const DEFAULT_SNAP_PX: f32 = 8.0;
+
+/// Narrower windows (points) get the touch layout when automatic.
+const COMPACT_WIDTH: f32 = 900.0;
 
 const LAYOUT_KEY: &str = "planyrith.layout.v3";
 const SETTINGS_KEY: &str = "planyrith.settings";
@@ -342,6 +361,12 @@ pub struct App {
     shadows_open: bool,
     /// The Preferences window (docs/07 §8).
     preferences_open: bool,
+    /// A finger touched the screen this session (docs/07 §13.1).
+    touch_seen: bool,
+    /// Whether the touch layout's sizes are applied.
+    compact: bool,
+    /// The panel shown in the touch layout's drawer.
+    drawer: Option<Pane>,
     /// Tools › Solids › Check for 3D Printing (docs/05 §8.1).
     print_check: crate::printing::PrintCheck,
     /// Tools › Round Edges (docs/05 §4.17).
@@ -487,6 +512,9 @@ impl App {
             texture: None,
             shadows_open: false,
             preferences_open: false,
+            touch_seen: false,
+            compact: false,
+            drawer: None,
             print_check: Default::default(),
             round_edges: Default::default(),
             thicken: Default::default(),
@@ -529,6 +557,12 @@ impl App {
     /// Runs a command, reporting failures in the status bar.
     /// Splits the viewport (docs/07 §1 "multiple viewports"): extra views
     /// from the top, the front and the right, parallel and fitted to the
+    /// Shows `pane` in the touch layout's drawer (or closes it).
+    #[cfg(test)]
+    pub(crate) fn set_drawer(&mut self, pane: Option<Pane>) {
+        self.drawer = pane;
+    }
+
     /// model; their cameras are theirs, not the document's.
     pub(crate) fn set_viewports(&mut self, extra: usize) {
         use planyrith_core::document::{Projection, StandardView};
@@ -1589,6 +1623,21 @@ impl App {
                     t("High-Contrast Snap Marks"),
                 );
                 self.axis_palette_checkbox(ui);
+                ui.menu_button(t("Touch Layout"), |ui| {
+                    for (label, choice) in [
+                        (en("Automatic"), None),
+                        (en("On"), Some(true)),
+                        (en("Off"), Some(false)),
+                    ] {
+                        if ui
+                            .radio(self.settings.touch_layout == choice, t(label))
+                            .clicked()
+                        {
+                            self.settings.touch_layout = choice;
+                            ui.close();
+                        }
+                    }
+                });
                 ui.menu_button(t("Interface Size"), |ui| {
                     if self.ui_scale_radios(ui) {
                         ui.close();
@@ -1922,6 +1971,31 @@ impl App {
             ] {
                 if icons::button(ui, icon, mode == Some(m), &t(tip)).clicked() {
                     self.run("style-set", json!({ "faces": key }));
+                }
+            }
+            if self.compact {
+                // Without a keyboard: the panels' drawer and modifier keys
+                // that stay down until tapped again (docs/07 §13.1).
+                group_gap(ui);
+                if ui
+                    .selectable_label(self.drawer.is_some(), t("Panels"))
+                    .clicked()
+                {
+                    self.drawer = match self.drawer {
+                        Some(_) => None,
+                        None => Some(Pane::EntityInfo),
+                    };
+                }
+                let sticky = &mut self.viewport.sticky;
+                if ui.selectable_label(sticky.shift, "Shift").clicked() {
+                    sticky.shift = !sticky.shift;
+                }
+                if ui.selectable_label(sticky.command, "Ctrl").clicked() {
+                    sticky.command = !sticky.command;
+                    sticky.ctrl = sticky.command;
+                }
+                if ui.selectable_label(sticky.alt, "Alt").clicked() {
+                    sticky.alt = !sticky.alt;
                 }
             }
         });
@@ -3056,6 +3130,31 @@ impl App {
     /// One frame of the whole window (`render_state` is `None` headless).
     fn shell(&mut self, ui: &mut egui::Ui, render_state: Option<&egui_wgpu::RenderState>) {
         let ctx = ui.ctx().clone();
+        // The touch layout: on a finger's first touch or a narrow window,
+        // unless the user chose (docs/07 §13.1).
+        self.touch_seen |= ctx.input(|i| {
+            i.any_touches()
+                || i.events
+                    .iter()
+                    .any(|e| matches!(e, egui::Event::Touch { .. }))
+        });
+        let compact = self
+            .settings
+            .touch_layout
+            .unwrap_or(self.touch_seen || ui.max_rect().width() < COMPACT_WIDTH);
+        // A theme change resets the sizes; put the touch sizes back.
+        let touch_sizes = ctx.global_style().spacing.interact_size.y >= 40.0;
+        if compact && !touch_sizes {
+            theme::set_touch(&ctx, true);
+        }
+        if compact != self.compact {
+            self.compact = compact;
+            theme::set_touch(&ctx, compact);
+            if !compact {
+                self.drawer = None;
+                self.viewport.sticky = egui::Modifiers::NONE;
+            }
+        }
         // A button press ends the value field's hold on the last command.
         if ctx.input(|i| i.pointer.primary_pressed()) {
             self.revalue_open = false;
@@ -3126,7 +3225,52 @@ impl App {
                     flows: Vec::new(),
                     error: None,
                 };
-                self.tree.ui(&mut docks, ui);
+                if self.compact {
+                    // The touch layout: the viewport fills the window; a
+                    // drawer on the right shows one panel at a time.
+                    let full = ui.available_rect_before_wrap();
+                    let drawer_w = (full.width() * 0.45).min(380.0);
+                    let (view, side) = match self.drawer {
+                        Some(_) => (
+                            egui::Rect::from_min_max(
+                                full.min,
+                                egui::pos2(full.max.x - drawer_w, full.max.y),
+                            ),
+                            Some(egui::Rect::from_min_max(
+                                egui::pos2(full.max.x - drawer_w + 2.0, full.min.y),
+                                full.max,
+                            )),
+                        ),
+                        None => (full, None),
+                    };
+                    ui.scope_builder(egui::UiBuilder::new().max_rect(view), |ui| {
+                        let _ = egui_tiles::Behavior::pane_ui(&mut docks, ui, TileId::from_u64(0), &mut Pane::Viewport);
+                    });
+                    if let (Some(rect), Some(pane)) = (side, self.drawer.as_mut()) {
+                        ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
+                            egui::Frame::new()
+                                .fill(ui.visuals().panel_fill)
+                                .inner_margin(egui::Margin::same(8))
+                                .show(ui, |ui| {
+                                    ui.set_min_size(rect.size() - egui::vec2(16.0, 16.0));
+                                    egui::ComboBox::from_id_salt("drawer pane")
+                                        .selected_text(t(pane.title()))
+                                        .show_ui(ui, |ui| {
+                                            for p in DRAWER_PANES {
+                                                ui.selectable_value(pane, p, t(p.title()));
+                                            }
+                                        });
+                                    ui.separator();
+                                    egui::ScrollArea::vertical().show(ui, |ui| {
+                                        let _ = egui_tiles::Behavior::pane_ui(&mut docks, ui, TileId::from_u64(1), pane);
+                                    });
+                                });
+                        });
+                    }
+                    ui.allocate_rect(full, egui::Sense::hover());
+                } else {
+                    self.tree.ui(&mut docks, ui);
+                }
                 // One library picture per frame, after the panels asked.
                 #[cfg(not(target_arch = "wasm32"))]
                 if let Some(render_state) = render_state {
@@ -3420,11 +3564,49 @@ mod tests {
         assert!(!shell.app.preferences_open);
     }
 
+    /// docs/07 §13.1: a touch or a narrow window brings the touch layout,
+    /// unless the user chose; its drawer shows a panel and its modifier
+    /// toggles reach the tools.
+    #[test]
+    fn touches_and_narrow_windows_get_the_touch_layout() {
+        let mut shell = Shell::new();
+        assert!(!shell.app.compact);
+        let touch = |phase| egui::Event::Touch {
+            device_id: egui::TouchDeviceId(1),
+            id: egui::TouchId(1),
+            phase,
+            pos: egui::pos2(20.0, 880.0),
+            force: None,
+        };
+        shell.frame(vec![touch(egui::TouchPhase::Start)]);
+        shell.frame(vec![touch(egui::TouchPhase::End)]);
+        assert!(shell.app.compact);
+        assert!(shell.ctx.global_style().spacing.interact_size.y >= 40.0);
+        // The drawer shows one panel beside the viewport.
+        shell.app.drawer = Some(Pane::Materials);
+        shell.frame(Vec::new());
+        shell.app.viewport.sticky.shift = true;
+        shell.frame(Vec::new());
+        // The user's choice wins over the touch.
+        shell.app.settings.touch_layout = Some(false);
+        shell.frame(Vec::new());
+        assert!(!shell.app.compact);
+        assert!(shell.app.drawer.is_none());
+        assert_eq!(shell.app.viewport.sticky, egui::Modifiers::NONE);
+        assert!(shell.ctx.global_style().spacing.interact_size.y < 40.0);
+        // Automatic again: a fresh window narrower than 900 points.
+        let mut narrow = Shell::new();
+        narrow.size = egui::vec2(700.0, 900.0);
+        narrow.frame(Vec::new());
+        assert!(narrow.app.compact);
+    }
+
     /// The whole window driven by synthetic input, headless.
     struct Shell {
         ctx: egui::Context,
         time: f64,
         app: App,
+        size: egui::Vec2,
     }
 
     impl Shell {
@@ -3433,6 +3615,7 @@ mod tests {
                 ctx: egui::Context::default(),
                 time: 0.0,
                 app: App::blank(default_layout(), Settings::default()),
+                size: egui::vec2(1400.0, 900.0),
             };
             shell.frame(Vec::new());
             shell
@@ -3441,10 +3624,7 @@ mod tests {
         fn frame(&mut self, events: Vec<egui::Event>) {
             self.time += 1.0 / 60.0;
             let input = egui::RawInput {
-                screen_rect: Some(egui::Rect::from_min_size(
-                    egui::Pos2::ZERO,
-                    egui::vec2(1400.0, 900.0),
-                )),
+                screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, self.size)),
                 time: Some(self.time),
                 events,
                 ..Default::default()

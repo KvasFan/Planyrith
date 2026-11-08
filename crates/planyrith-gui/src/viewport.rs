@@ -92,6 +92,9 @@ pub struct Viewport {
     /// Segments marked in red, world coordinates (the open edges Check for
     /// 3D Printing found, docs/05 §8.1).
     pub marks: Vec<[DVec3; 2]>,
+    /// Modifiers held by on-screen toggles in the touch layout (docs/07
+    /// §13.1): added to the keyboard's.
+    pub sticky: egui::Modifiers,
     /// Camera › Match Photo…: the picture over the viewport and its handles
     /// (docs/05 §9.1).
     pub photo: crate::photo::PhotoMatch,
@@ -473,7 +476,7 @@ impl Viewport {
             self.last = Some((req, inference.clone()));
             Pointer {
                 inference,
-                modifiers: ui.input(|i| i.modifiers),
+                modifiers: ui.input(|i| i.modifiers) | self.sticky,
                 face,
                 target,
                 screen: pos,
@@ -481,7 +484,7 @@ impl Viewport {
         });
 
         // Shift locks the current inference while held (docs/05 §2).
-        let shift = ui.input(|i| i.modifiers.shift);
+        let shift = ui.input(|i| i.modifiers.shift) || self.sticky.shift;
         if shift && !self.shift_was_down && tool.step() > 0 {
             self.lock(Lock::Current);
         } else if !shift && self.shift_was_down && self.inference.lock() == Some(Lock::Current) {

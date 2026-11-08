@@ -53,7 +53,7 @@ document semantics; it collects parameters and dispatches commands (`docs/01 §3
 - Focus rules: the viewport keeps keyboard focus unless a text field is being edited; `Esc` from
   a text field returns focus to the viewport.
 - Touch (web/tablets): one finger = tool action, two fingers = orbit/zoom, three = pan; long
-  press = right-click. Not optimized for 1.0 but must work.
+  press = right-click. The touch layout (§13.1) adapts the window to fingers.
 
 ## 3. Tool lifecycle
 
@@ -198,6 +198,21 @@ collected by clicks: e.g. segments for Circle, array count, copy toggle).
   documented in Help.
 - A persistent "unsaved changes" guard via `beforeunload`.
 
+### 13.1 Touch layout (1.4)
+On by itself when a finger first touches the screen or the window is narrower than 900 points;
+View › Touch Layout chooses Automatic, On or Off (a user setting).
+- **Sizes:** controls are at least 40 points high, toolbar icons 44 points, with more room
+  between them and wider scroll bars.
+- **Viewport first:** the docks are replaced by the viewport across the window; the toolbar's
+  Panels toggle opens a drawer on the right (up to 380 points, 45 % of the width) showing one
+  panel at a time, chosen from a list (Entity Info, Materials, Components, Styles, Tags, Scenes,
+  Outliner, Tool Options, Tool Help).
+- **Modifier toggles:** Shift, Ctrl and Alt buttons on the toolbar stay down until tapped again
+  and are added to the keyboard's modifiers for the tools: Shift locks the inference, Ctrl makes
+  Move copy, and so on, without a keyboard.
+- **Long press** is the context menu (§2). Leaving the touch layout releases the toggles and
+  closes the drawer; the dock layout is kept as it was.
+
 ## 14. Performance rules for the GUI layer
 
 - Never allocate per frame in hot paths (egui painter shapes are pooled).
@@ -207,6 +222,13 @@ collected by clicks: e.g. segments for Circle, array count, copy toggle).
   animation.
 
 ## Decisions
+
+- 2026-11-08 — **Touch layout** (§13.1). A layout that switches by itself rather than a separate
+  mobile interface: the same tools and panels, reached with fingers, so nothing is missing on a
+  tablet and nothing new has to be learned. 900 points is where the default docks leave the
+  viewport less than half the window; a touch turns it on even on a wide screen because fingers
+  need the larger targets whatever the size. Sticky modifiers on the toolbar instead of gestures
+  for them, since every tool already documents its modifiers.
 
 - 2026-11-03 — **Drag from panels.** A material (Materials), a component (Components)
   or a component file (library) can be dragged into the viewport. Starting the drag

@@ -57,6 +57,10 @@ corpus kept outside the repository), native WebAssembly plugins run by `wasmi` (
 the progressive path-traced preview (docs/06 §11.2). Not done here for lack of permission:
 opening exported FBX files in a reference application (a downloaded one may not be run).
 
+**1.4 implemented (2026-11-08):** path tracing on the graphics card (`GpuPathTracer`,
+`render --path-traced --gpu`, used by the preview; docs/06 §11.3) and the touch layout
+(docs/07 §13.1). Collaborative editing remains, awaiting the user's decisions.
+
 **After alpha.3 (unreleased, 2026-11-02):** the renderer draws the style's edge
 effects (depth cue, extension, endpoints, jitter) and shadows from edges without
 faces, both stored and imported from SKP before but not drawn; textures have

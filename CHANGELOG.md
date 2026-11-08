@@ -6,6 +6,10 @@ All notable changes to Planyrith are recorded here. Versions follow
 
 ## Unreleased
 
+- Touch layout for tablets and phones: larger controls, the viewport across
+  the window with panels in a drawer, and Shift, Ctrl and Alt buttons that
+  stay down for the tools. It turns on by itself on touch or in a narrow
+  window (View › Touch Layout).
 - Path tracing on the graphics card: the Path-Traced Preview uses it when the
   card supports compute shaders, and `planyrith render --path-traced --gpu`
   renders final images about ten times faster.

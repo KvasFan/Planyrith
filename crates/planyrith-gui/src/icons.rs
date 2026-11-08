@@ -533,7 +533,8 @@ pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
 
 /// A square toolbar button showing `icon`; highlighted when `selected`.
 pub fn button(ui: &mut egui::Ui, icon: Icon, selected: bool, tooltip: &str) -> egui::Response {
-    let size = Vec2::splat(30.0);
+    // 30 points, or larger in the touch layout (docs/07 §13.1).
+    let size = Vec2::splat(30.0_f32.max(ui.spacing().interact_size.y + 4.0));
     let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
     let visuals = ui.visuals();
     // Flat: a soft fill on hover, the accent behind the active tool.

@@ -176,6 +176,9 @@ Collaborative editing.
 
 ## Decisions
 
+- 2026-11-08 — **1.4 progress.** Path tracing on the graphics card (docs/06 §11.3) and the
+  touch layout (docs/07 §13.1) are done, which completes the milestone.
+
 - 2026-11-08 — **Milestone 1.4.** Asked to resume without a choice among the remaining
   candidates, the two that can be built and checked on this machine come first: graphics card
   path tracing (a GPU is present) and the touch interface. Collaborative editing needs a server
