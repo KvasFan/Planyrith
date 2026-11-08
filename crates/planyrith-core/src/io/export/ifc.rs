@@ -1,0 +1,372 @@
+//! Implements docs/09-file-formats.md §5 IFC export: an IFC4 file (the
+//! exchange structure's text encoding) with a project, a site, a building
+//! and one storey holding one element per top-level group, component
+//! instance and the model's loose faces; geometry as triangulated face
+//! sets in world millimeters, one per material, each with its surface
+//! color (docs/09 Decisions, IFC).
+
+use std::collections::BTreeMap;
+use std::fmt::Write as _;
+use std::io::Write;
+
+use glam::DVec3;
+
+use crate::document::selection::occurrence_name;
+use crate::document::{Document, EntityKey, FrontOrBack, InstancePath};
+use crate::ids::MaterialId;
+use crate::io::export::scene::collect;
+use crate::io::export::{ExportFormat, ExportOptions, ExportReport, ExportScope, Exporter};
+use crate::io::{IoError, Progress};
+
+/// The IFC exporter.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct IfcExporter;
+
+/// The characters of IFC's compressed GUIDs, in value order.
+const GUID_CHARS: &[u8; 64] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_$";
+
+/// A 22-character IFC GUID from 128 bits: two bits, then 21 groups of six.
+fn guid(bits: [u8; 16]) -> String {
+    let n = u128::from_be_bytes(bits);
+    let mut out = String::with_capacity(22);
+    out.push(GUID_CHARS[(n >> 126) as usize] as char);
+    for k in (0..21).rev() {
+        out.push(GUID_CHARS[((n >> (6 * k)) & 63) as usize] as char);
+    }
+    out
+}
+
+/// A stable GUID for `what` (the same model exports the same ids).
+fn stable_guid(what: &str) -> String {
+    let hash = blake3::hash(format!("planyrith ifc\0{what}").as_bytes());
+    let mut bits = [0u8; 16];
+    bits.copy_from_slice(&hash.as_bytes()[..16]);
+    guid(bits)
+}
+
+/// A string literal: quotes doubled, backslashes doubled, other than
+/// printable ASCII as `\X2\…\X0\` UTF-16 code units.
+fn text(s: &str) -> String {
+    let mut out = String::from("'");
+    let mut wide: Vec<u16> = Vec::new();
+    let flush = |out: &mut String, wide: &mut Vec<u16>| {
+        if !wide.is_empty() {
+            out.push_str("\\X2\\");
+            for u in wide.drain(..) {
+                let _ = write!(out, "{u:04X}");
+            }
+            out.push_str("\\X0\\");
+        }
+    };
+    for c in s.chars() {
+        if (' '..='~').contains(&c) {
+            flush(&mut out, &mut wide);
+            match c {
+                '\'' => out.push_str("''"),
+                '\\' => out.push_str("\\\\"),
+                c => out.push(c),
+            }
+        } else {
+            let mut buf = [0u16; 2];
+            wide.extend_from_slice(c.encode_utf16(&mut buf));
+        }
+    }
+    flush(&mut out, &mut wide);
+    out.push('\'');
+    out
+}
+
+/// A real: always with a decimal point.
+fn real(v: f64) -> String {
+    let s = format!("{}", v + 0.0);
+    if s.contains(['.', 'e', 'E']) {
+        s
+    } else {
+        format!("{s}.")
+    }
+}
+
+/// Numbered entity lines.
+struct Data {
+    lines: String,
+    next: u64,
+}
+
+impl Data {
+    fn add(&mut self, entity: impl AsRef<str>) -> u64 {
+        let id = self.next;
+        self.next += 1;
+        let _ = writeln!(self.lines, "#{id}={};", entity.as_ref());
+        id
+    }
+}
+
+/// Welded points (with their index by position bits) and triangles.
+type Part = (Vec<DVec3>, BTreeMap<[u64; 3], usize>, Vec<[usize; 3]>);
+
+/// One element's geometry: per material, welded points and triangles.
+#[derive(Default)]
+struct Element {
+    name: String,
+    key: String,
+    parts: BTreeMap<MaterialId, Part>,
+}
+
+fn elements(doc: &Document, scope: &ExportScope) -> Vec<Element> {
+    let scene = collect(doc, scope);
+    let mut order: Vec<Option<EntityKey>> = Vec::new();
+    let mut by_top: BTreeMap<Option<EntityKey>, Element> = BTreeMap::new();
+    for occ in &scene.occurrences {
+        let Some(mesh) = scene.mesh(occ.container) else {
+            continue;
+        };
+        if mesh.faces.is_empty() {
+            continue;
+        }
+        let top = occ.path.steps.first().copied();
+        let element = by_top.entry(top).or_insert_with(|| {
+            order.push(top);
+            let path = top.map_or(InstancePath::root(), |k| InstancePath::root().child(k));
+            Element {
+                name: occurrence_name(doc, &path),
+                key: top.map_or("model".into(), |k| k.to_string()),
+                parts: BTreeMap::new(),
+            }
+        });
+        let flip = occ.world.matrix3.determinant() < 0.0;
+        for face in &mesh.faces {
+            let material = doc
+                .materials
+                .resolve(face.material.or(occ.material_override), FrontOrBack::Front);
+            let (points, weld, triangles) = element.parts.entry(material).or_default();
+            let ids: Vec<usize> = face
+                .positions
+                .iter()
+                .map(|p| {
+                    let q = occ.world.transform_point3(*p) + DVec3::ZERO;
+                    *weld
+                        .entry([q.x.to_bits(), q.y.to_bits(), q.z.to_bits()])
+                        .or_insert_with(|| {
+                            points.push(q);
+                            points.len() - 1
+                        })
+                })
+                .collect();
+            for t in &face.triangles {
+                let [a, b, c] = t.map(|i| ids[i as usize]);
+                triangles.push(if flip { [a, c, b] } else { [a, b, c] });
+            }
+        }
+    }
+    order
+        .into_iter()
+        .filter_map(|k| by_top.remove(&k))
+        .collect()
+}
+
+/// The whole file.
+fn file(doc: &Document, elements: &[Element], name: &str) -> (String, usize) {
+    let mut d = Data {
+        lines: String::new(),
+        next: 1,
+    };
+    let version = env!("CARGO_PKG_VERSION");
+    let org = d.add("IFCORGANIZATION($,'Planyrith',$,$,$)");
+    let _app = d.add(format!(
+        "IFCAPPLICATION(#{org},'{version}','Planyrith','Planyrith')"
+    ));
+    let mm = d.add("IFCSIUNIT(*,.LENGTHUNIT.,.MILLI.,.METRE.)");
+    let area = d.add("IFCSIUNIT(*,.AREAUNIT.,$,.SQUARE_METRE.)");
+    let volume = d.add("IFCSIUNIT(*,.VOLUMEUNIT.,$,.CUBIC_METRE.)");
+    let angle = d.add("IFCSIUNIT(*,.PLANEANGLEUNIT.,$,.RADIAN.)");
+    let units = d.add(format!(
+        "IFCUNITASSIGNMENT((#{mm},#{area},#{volume},#{angle}))"
+    ));
+    let origin = d.add("IFCCARTESIANPOINT((0.,0.,0.))");
+    let up = d.add("IFCDIRECTION((0.,0.,1.))");
+    let east = d.add("IFCDIRECTION((1.,0.,0.))");
+    let axes = d.add(format!("IFCAXIS2PLACEMENT3D(#{origin},#{up},#{east})"));
+    let context = d.add(format!(
+        "IFCGEOMETRICREPRESENTATIONCONTEXT($,'Model',3,1.E-05,#{axes},$)"
+    ));
+    let body = d.add(format!(
+        "IFCGEOMETRICREPRESENTATIONSUBCONTEXT('Body','Model',*,*,*,*,#{context},$,.MODEL_VIEW.,$)"
+    ));
+    let project = d.add(format!(
+        "IFCPROJECT({},$,{},$,$,$,$,(#{context}),#{units})",
+        text(&stable_guid("project")),
+        text(name)
+    ));
+    let site_place = d.add(format!("IFCLOCALPLACEMENT($,#{axes})"));
+    let site = d.add(format!(
+        "IFCSITE({},$,'Site',$,$,#{site_place},$,$,.ELEMENT.,$,$,$,$,$)",
+        text(&stable_guid("site"))
+    ));
+    let building_place = d.add(format!("IFCLOCALPLACEMENT(#{site_place},#{axes})"));
+    let building = d.add(format!(
+        "IFCBUILDING({},$,'Building',$,$,#{building_place},$,$,.ELEMENT.,$,$,$)",
+        text(&stable_guid("building"))
+    ));
+    let storey_place = d.add(format!("IFCLOCALPLACEMENT(#{building_place},#{axes})"));
+    let storey = d.add(format!(
+        "IFCBUILDINGSTOREY({},$,'Level 0',$,$,#{storey_place},$,$,.ELEMENT.,0.)",
+        text(&stable_guid("storey"))
+    ));
+    for (whole, part, what) in [
+        (project, site, "project-site"),
+        (site, building, "site-building"),
+        (building, storey, "building-storey"),
+    ] {
+        d.add(format!(
+            "IFCRELAGGREGATES({},$,$,$,#{whole},(#{part}))",
+            text(&stable_guid(what))
+        ));
+    }
+    // One surface style per material.
+    let mut styles: BTreeMap<MaterialId, u64> = BTreeMap::new();
+    let mut products = Vec::new();
+    let mut triangles_total = 0;
+    for element in elements {
+        let mut items = Vec::new();
+        for (material, (points, _, triangles)) in &element.parts {
+            if triangles.is_empty() {
+                continue;
+            }
+            triangles_total += triangles.len();
+            let coords: Vec<String> = points
+                .iter()
+                .map(|p| format!("({},{},{})", real(p.x), real(p.y), real(p.z)))
+                .collect();
+            let list = d.add(format!("IFCCARTESIANPOINTLIST3D(({}),$)", coords.join(",")));
+            let index: Vec<String> = triangles
+                .iter()
+                .map(|[a, b, c]| format!("({},{},{})", a + 1, b + 1, c + 1))
+                .collect();
+            let set = d.add(format!(
+                "IFCTRIANGULATEDFACESET(#{list},$,$,({}),$)",
+                index.join(",")
+            ));
+            let style = match styles.get(material) {
+                Some(&s) => s,
+                None => {
+                    let m = doc.materials.get(*material);
+                    let (rgb, opacity, label) = m
+                        .map_or(([255, 255, 255], 1.0, "Default".to_string()), |m| {
+                            ([m.color.r, m.color.g, m.color.b], m.opacity, m.name.clone())
+                        });
+                    let c = |v: u8| real(f64::from(v) / 255.0);
+                    let colour = d.add(format!(
+                        "IFCCOLOURRGB($,{},{},{})",
+                        c(rgb[0]),
+                        c(rgb[1]),
+                        c(rgb[2])
+                    ));
+                    let shading = d.add(format!(
+                        "IFCSURFACESTYLESHADING(#{colour},{})",
+                        real(f64::from(1.0 - opacity.clamp(0.0, 1.0)))
+                    ));
+                    let s = d.add(format!(
+                        "IFCSURFACESTYLE({},.BOTH.,(#{shading}))",
+                        text(&label)
+                    ));
+                    styles.insert(*material, s);
+                    s
+                }
+            };
+            d.add(format!("IFCSTYLEDITEM(#{set},(#{style}),$)"));
+            items.push(format!("#{set}"));
+        }
+        if items.is_empty() {
+            continue;
+        }
+        let shape = d.add(format!(
+            "IFCSHAPEREPRESENTATION(#{body},'Body','Tessellation',({}))",
+            items.join(",")
+        ));
+        let definition = d.add(format!("IFCPRODUCTDEFINITIONSHAPE($,$,(#{shape}))"));
+        let place = d.add(format!("IFCLOCALPLACEMENT(#{storey_place},#{axes})"));
+        let product = d.add(format!(
+            "IFCBUILDINGELEMENTPROXY({},$,{},$,$,#{place},#{definition},$,.NOTDEFINED.)",
+            text(&stable_guid(&format!("element {}", element.key))),
+            text(&element.name)
+        ));
+        products.push(format!("#{product}"));
+    }
+    if !products.is_empty() {
+        d.add(format!(
+            "IFCRELCONTAINEDINSPATIALSTRUCTURE({},$,$,$,({}),#{storey})",
+            text(&stable_guid("contained")),
+            products.join(",")
+        ));
+    }
+    let mut out = String::new();
+    let _ = writeln!(out, "ISO-10303-21;");
+    let _ = writeln!(out, "HEADER;");
+    let _ = writeln!(
+        out,
+        "FILE_DESCRIPTION(('ViewDefinition [ReferenceView_V1.2]'),'2;1');"
+    );
+    let _ = writeln!(
+        out,
+        "FILE_NAME({},'1970-01-01T00:00:00',(''),(''),'Planyrith {version}','Planyrith','');",
+        text(name)
+    );
+    let _ = writeln!(out, "FILE_SCHEMA(('IFC4'));");
+    let _ = writeln!(out, "ENDSEC;");
+    let _ = writeln!(out, "DATA;");
+    out.push_str(&d.lines);
+    let _ = writeln!(out, "ENDSEC;");
+    let _ = writeln!(out, "END-ISO-10303-21;");
+    (out, triangles_total)
+}
+
+impl Exporter for IfcExporter {
+    fn format(&self) -> ExportFormat {
+        ExportFormat::Ifc
+    }
+
+    fn export(
+        &self,
+        doc: &Document,
+        scope: &ExportScope,
+        opts: &ExportOptions,
+        dst: &mut dyn Write,
+        progress: &dyn Progress,
+    ) -> Result<ExportReport, IoError> {
+        let elements = elements(doc, scope);
+        progress.report(0.5, "writing the model");
+        let name = crate::io::import::source_stem(&opts.destination, "Model");
+        let (content, triangles) = file(doc, &elements, &name);
+        dst.write_all(content.as_bytes())
+            .map_err(|e| IoError::Storage {
+                key: "ifc".into(),
+                reason: e.to_string(),
+            })?;
+        Ok(ExportReport {
+            bytes_written: content.len() as u64,
+            entities: triangles,
+            warnings: Vec::new(),
+            side_files: Vec::new(),
+        })
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn guids_texts_and_reals_follow_the_encoding() {
+        assert_eq!(guid([0; 16]), "0000000000000000000000");
+        assert_eq!(guid([0xFF; 16]), "3$$$$$$$$$$$$$$$$$$$$$");
+        assert_eq!(stable_guid("a"), stable_guid("a"));
+        assert_ne!(stable_guid("a"), stable_guid("b"));
+        assert_eq!(stable_guid("x").len(), 22);
+        assert_eq!(text("O'Brien \\ ok"), "'O''Brien \\\\ ok'");
+        assert_eq!(text("Città"), "'Citt\\X2\\00E0\\X0\\'");
+        assert_eq!(real(3.0), "3.");
+        assert_eq!(real(-0.0), "0.");
+        assert_eq!(real(2.5), "2.5");
+    }
+}

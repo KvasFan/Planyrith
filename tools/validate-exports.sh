@@ -7,7 +7,9 @@
 #   SVG         xmllint (well-formed XML)
 #   PDF         pdfinfo (poppler)
 #   USDA / USDZ the reference USD library's validators (pip `usd-core`)
-# The glTF validator, ezdxf and usd-core are downloaded into the scratch folder on
+#   IFC         IfcOpenShell's schema and rule validation and its geometry
+#               (pip `ifcopenshell`, LGPL, a checking tool only)
+# The glTF validator, ezdxf, usd-core and IfcOpenShell are downloaded into the scratch folder on
 # first use (npm and pip, network); a missing tool is reported and skipped.
 # Exits non-zero when a validator finds an error.
 # Usage: tools/validate-exports.sh [scratch-dir]
@@ -38,7 +40,7 @@ rm -f cabinet.plyr kitchen.plyr
 "$cli" batch "$root/crates/planyrith-cli/tests/batches/cabinet.plyrb" -f cabinet.plyr --deterministic >/dev/null
 "$cli" batch "$root/crates/planyrith-cli/tests/batches/kitchen.plyrb" -f kitchen.plyr --deterministic >/dev/null
 for out in kitchen.glb kitchen.gltf kitchen.obj kitchen.stl kitchen.dxf kitchen.svg kitchen.pdf \
-  kitchen.usda kitchen.usdz; do
+  kitchen.usda kitchen.usdz kitchen.ifc; do
   "$cli" export -f kitchen.plyr "$out" >/dev/null
 done
 "$cli" export -f kitchen.plyr kitchen-2d.dxf --2d >/dev/null
@@ -113,6 +115,31 @@ PY
   done
 else
   echo "skipped USD: usd-core not available"
+fi
+
+# IFC
+if [ ! -x "$work/tools/ifc/bin/python" ]; then
+  python3 -m venv "$work/tools/ifc" && "$work/tools/ifc/bin/pip" install --quiet ifcopenshell pytest || true
+fi
+if "$work/tools/ifc/bin/python" -c "import ifcopenshell.geom" 2>/dev/null; then
+  "$work/tools/ifc/bin/python" -I - kitchen.ifc <<'PY' || failed=1
+import sys
+import ifcopenshell, ifcopenshell.validate, ifcopenshell.geom
+f = ifcopenshell.open(sys.argv[1])
+logger = ifcopenshell.validate.json_logger()
+ifcopenshell.validate.validate(f, logger, express_rules=True)
+elements = f.by_type("IfcBuildingElementProxy")
+settings = ifcopenshell.geom.settings()
+shaped = sum(1 for e in elements
+             if len(ifcopenshell.geom.create_shape(settings, e).geometry.faces) > 0)
+print(f"{sys.argv[1]}: IfcOpenShell issues={len(logger.statements)} "
+      f"elements={len(elements)} with geometry={shaped}")
+for s in logger.statements[:10]:
+    print(f"  {s}")
+sys.exit(1 if logger.statements or not elements or shaped != len(elements) else 0)
+PY
+else
+  echo "skipped IFC: IfcOpenShell not available"
 fi
 
 # SVG and PDF

@@ -9,6 +9,7 @@
 pub mod csv;
 pub mod dxf;
 pub mod gltf;
+pub mod ifc;
 pub mod json;
 pub mod obj;
 pub mod ply;
@@ -67,11 +68,13 @@ pub enum ExportFormat {
     Usda,
     /// USD package for augmented-reality viewers.
     Usdz,
+    /// IFC4 building model.
+    Ifc,
 }
 
 impl ExportFormat {
     /// Every export format.
-    pub const ALL: [ExportFormat; 16] = [
+    pub const ALL: [ExportFormat; 17] = [
         ExportFormat::Obj,
         ExportFormat::Stl,
         ExportFormat::Gltf,
@@ -88,6 +91,7 @@ impl ExportFormat {
         ExportFormat::Ply,
         ExportFormat::Usda,
         ExportFormat::Usdz,
+        ExportFormat::Ifc,
     ];
 
     /// Registered formats; SKP additionally requires a converter-capable backend.
@@ -117,6 +121,7 @@ impl ExportFormat {
             "ply" => ExportFormat::Ply,
             "usda" => ExportFormat::Usda,
             "usdz" => ExportFormat::Usdz,
+            "ifc" => ExportFormat::Ifc,
             _ => return None,
         })
     }
@@ -257,6 +262,7 @@ pub fn exporter(format: ExportFormat) -> Option<Box<dyn Exporter>> {
         ExportFormat::Ply => Some(Box::new(ply::PlyExporter)),
         ExportFormat::Usda => Some(Box::new(usd::UsdExporter { packed: false })),
         ExportFormat::Usdz => Some(Box::new(usd::UsdExporter { packed: true })),
+        ExportFormat::Ifc => Some(Box::new(ifc::IfcExporter)),
         ExportFormat::Svg => Some(Box::new(view2d::SvgExporter)),
         ExportFormat::Pdf => Some(Box::new(view2d::PdfExporter)),
         #[cfg(not(feature = "brep"))]

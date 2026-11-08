@@ -6,6 +6,9 @@ All notable changes to Planyrith are recorded here. Versions follow
 
 ## Unreleased
 
+- IFC export (IFC4) for BIM tools: each top-level group or component becomes
+  a building element with its geometry and colors, in one storey; checked with
+  IfcOpenShell.
 - USD export (`.usda` text and `.usdz` packages for augmented-reality viewers),
   with colors, roughness and metalness; checked with the reference USD
   library's validators.

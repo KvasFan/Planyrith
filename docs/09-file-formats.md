@@ -94,6 +94,7 @@ control via `planyrith export --format json`. It is **not** required to load the
 | 3MF | ✔ | ✔ | the 3D printing package: mesh objects with base materials or color groups, components and build items on import; one welded object per visible occurrence with faces, base-material colors and the file unit on export (`W2007` for objects that are not closed solids). |
 | PLY (ASCII/binary) | ✔ | ✔ | polygon meshes, e.g. from 3D scanning: vertex and face colors become materials on import; export writes triangles with the front color on each vertex (binary little-endian unless `--ascii`). |
 | USD (`.usda`, `.usdz`) | — | ✔ | a text stage, or packed (stored, 64-byte aligned) for augmented-reality viewers: one mesh per occurrence and material, Z up, `metersPerUnit` from `--file-units`, preview-surface materials. |
+| IFC (IFC4) | — | ✔ | a building model for BIM tools: one storey holding an element per top-level group or component and the loose faces, triangulated face sets per material with surface colors, millimeters. |
 | STL (ASCII/binary) | ✔ | ✔ | triangles merged into coplanar faces on import (`--merge-coplanar`, default on); binary default on export. |
 | glTF 2.0 / GLB | ✔ | ✔ | nodes → groups/instances (meshes shared → components), PBR base color + texture, transforms, cameras → scenes. KHR_texture_transform supported. |
 | DXF (R12–2018 ASCII) | ✔ | ✔ (3D and 2D) | LINE, LWPOLYLINE/POLYLINE, ARC, CIRCLE, ELLIPSE (segmented), SPLINE (flattened), 3DFACE, POLYFACE mesh, INSERT/BLOCK → components, LAYER → tags, TEXT/MTEXT, DIMENSION (as text+lines on export). |
@@ -105,7 +106,7 @@ control via `planyrith export --format json`. It is **not** required to load the
 | SVG / PDF | — | ✔ | 2D export of a view (`--2d`) and of sheets (`docs/15`). Hidden-line removal in software; vector output. |
 | `.plyr/.plyrc` | ✔ | ✔ | merge another document as a group/component. |
 
-Out of scope for 1.0 (documented as future work): IFC, FBX, 3DS, DWG, COLLADA; USD import.
+Out of scope for 1.0 (documented as future work): FBX, 3DS, DWG, COLLADA; USD and IFC import.
 Import of any unsupported entity yields `W2004` with counts, never a failure.
 
 ## 6. Importer/exporter contracts
@@ -577,3 +578,15 @@ save unless `--no-thumbnail`. `manifest.json` carries `title`, `author`, `descri
   roughness and metalness. Textures are not written yet: a textured material exports its
   color. `tools/validate-exports.sh` checks both files with the reference library's validators
   (`usd-core`, a local check). Import of USD is not planned for 1.1.
+- 2026-11-08 — **IFC export** (milestone 1.1, docs/13). IFC4 in the exchange structure's text
+  encoding, written by our own module: the project (named after the file), a site, a building
+  and one storey "Level 0" aggregated in that order; one `IfcBuildingElementProxy` per top-level
+  group or component instance (with everything inside it) and one for the model's loose faces,
+  named like the Outliner, placed at the storey's origin; its body is one
+  `IfcTriangulatedFaceSet` per material in world millimeters, styled with the material's color
+  and transparency. GUIDs are the format's 22-character encoding of a hash of fixed labels and
+  the element's pid, so exporting a model twice gives the same ids; the header's timestamp is
+  fixed (docs/08 §10). Element classes beyond the proxy (walls, slabs…), storeys from tags and
+  property sets are later work. `tools/validate-exports.sh` checks the file with IfcOpenShell's
+  schema and rule validation and its geometry kernel (a local check; the tool is not a
+  dependency).

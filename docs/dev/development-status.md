@@ -39,8 +39,9 @@ export (docs/09 Decisions, 2026-11-05); the export options `per_object` and `on_
 (docs/05 §10). The 3D printing item of 1.1 is complete. The realistic look (docs/06 §4.1) has
 its lighting, materials' roughness/metalness, soft shadows and screen-space ambient occlusion.
 `fillet`, `chamfer`, `thicken`, `bezier` and `loft` (docs/05 §3.9, §4.17–§4.20, docs/03
-§4.15–§4.18) are done; PLY import/export and USD (`usda`/`usdz`) export are done. Next in
-1.1: IFC (docs/13).
+§4.15–§4.18) are done; PLY import/export, USD (`usda`/`usdz`) and IFC4 export are done. All
+five 1.1 items now have a first version; refinements listed in docs/09 and docs/06 Decisions
+(textures in USD, IFC classes and storeys, a path-traced final render) remain.
 
 **After alpha.3 (unreleased, 2026-11-02):** the renderer draws the style's edge
 effects (depth cue, extension, endpoints, jitter) and shadows from edges without

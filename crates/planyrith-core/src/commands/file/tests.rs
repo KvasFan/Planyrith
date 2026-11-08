@@ -2175,3 +2175,54 @@ fn usd_writes_a_stage_and_a_package() {
     let mut archive = zip::ZipArchive::new(std::io::Cursor::new(&bytes)).unwrap();
     assert_eq!(archive.by_index(0).unwrap().name().unwrap(), "model.usda");
 }
+
+/// docs/09 §5 IFC: two groups become two building element proxies in one
+/// storey, with their geometry and colors; the same model gives the same
+/// file.
+#[test]
+fn ifc_writes_one_element_per_top_level_object() {
+    let (mut e, storage) = engine();
+    run(
+        &mut e,
+        "material-create",
+        json!({ "name": "Concrete", "color": "#A0A0A0" }),
+    );
+    for (x, name) in [(0, "Wall"), (2000, "Slab")] {
+        run(
+            &mut e,
+            "rectangle",
+            json!({ "corner_a": [x, 0, 0], "corner_b": [x + 1000, 200, 0] }),
+        );
+        run(
+            &mut e,
+            "push-pull",
+            json!({ "face": { "Query": "face & last" }, "distance": 300 }),
+        );
+        run(
+            &mut e,
+            "make-group",
+            json!({ "targets": "edge | face", "name": name }),
+        );
+    }
+    run(
+        &mut e,
+        "material-apply",
+        json!({ "targets": "group & name:Wall", "material": "Concrete" }),
+    );
+    let out = run(&mut e, "export", json!({ "path": "site.ifc" }));
+    assert_eq!(out["format"], "ifc");
+    assert_eq!(out["entities"], 24);
+    let text = String::from_utf8(storage.read(&StorageKey::new("site.ifc")).unwrap()).unwrap();
+    assert!(text.starts_with("ISO-10303-21;"));
+    assert!(text.contains("FILE_SCHEMA(('IFC4'));"));
+    assert_eq!(text.matches("IFCBUILDINGELEMENTPROXY(").count(), 2);
+    assert_eq!(text.matches("IFCTRIANGULATEDFACESET(").count(), 2);
+    assert!(text.contains("'Wall'") && text.contains("'Slab'"));
+    assert!(text.contains("IFCSURFACESTYLE('Concrete'"));
+    run(&mut e, "export", json!({ "path": "copy/site.ifc" }));
+    assert_eq!(
+        storage.read(&StorageKey::new("copy/site.ifc")).unwrap(),
+        text.as_bytes(),
+        "the same model gives the same file"
+    );
+}

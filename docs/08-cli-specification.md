@@ -93,7 +93,7 @@ runs the `import` command (`planyrith tool import --help` lists its options); `-
 file's unit (`file_units`) and `--z-up` keeps a Y-up format's axes as they are (`--no-swap-yz`).
 
 ### `planyrith export -f model.plyr <output> [--format …] [--scene <name>] [--selection-only] [--per-tag] [--triangulate] [--units <u>] [--include-hidden] [--copy-textures <dir>] …`
-Exports 3D formats (`obj`, `stl`, `3mf`, `ply`, `usda`, `usdz`, `gltf`, `glb`, `dxf`, `step`, `plyr`, `json`), 2D
+Exports 3D formats (`obj`, `stl`, `3mf`, `ply`, `usda`, `usdz`, `ifc`, `gltf`, `glb`, `dxf`, `step`, `plyr`, `json`), 2D
 (`svg`, `pdf`, `dxf` with `--2d --scene <name> --scale 1:50`) and data (`csv` component counts,
 `json` document dump). `--format json --pretty` is the debugging dump. Formats other than `json` run
 the `export` command (`planyrith tool export --help`): `--ascii` (STL), `--z-up`, `--units` (the
