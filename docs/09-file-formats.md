@@ -93,6 +93,7 @@ control via `planyrith export --format json`. It is **not** required to load the
 | OBJ (+MTL) | ✔ | ✔ | groups → groups or components (`o`/`g`), materials, UVs, normals (as soft edges). |
 | 3MF | ✔ | ✔ | the 3D printing package: mesh objects with base materials or color groups, components and build items on import; one welded object per visible occurrence with faces, base-material colors and the file unit on export (`W2007` for objects that are not closed solids). |
 | PLY (ASCII/binary) | ✔ | ✔ | polygon meshes, e.g. from 3D scanning: vertex and face colors become materials on import; export writes triangles with the front color on each vertex (binary little-endian unless `--ascii`). |
+| USD (`.usda`, `.usdz`) | — | ✔ | a text stage, or packed (stored, 64-byte aligned) for augmented-reality viewers: one mesh per occurrence and material, Z up, `metersPerUnit` from `--file-units`, preview-surface materials. |
 | STL (ASCII/binary) | ✔ | ✔ | triangles merged into coplanar faces on import (`--merge-coplanar`, default on); binary default on export. |
 | glTF 2.0 / GLB | ✔ | ✔ | nodes → groups/instances (meshes shared → components), PBR base color + texture, transforms, cameras → scenes. KHR_texture_transform supported. |
 | DXF (R12–2018 ASCII) | ✔ | ✔ (3D and 2D) | LINE, LWPOLYLINE/POLYLINE, ARC, CIRCLE, ELLIPSE (segmented), SPLINE (flattened), 3DFACE, POLYFACE mesh, INSERT/BLOCK → components, LAYER → tags, TEXT/MTEXT, DIMENSION (as text+lines on export). |
@@ -104,7 +105,7 @@ control via `planyrith export --format json`. It is **not** required to load the
 | SVG / PDF | — | ✔ | 2D export of a view (`--2d`) and of sheets (`docs/15`). Hidden-line removal in software; vector output. |
 | `.plyr/.plyrc` | ✔ | ✔ | merge another document as a group/component. |
 
-Out of scope for 1.0 (documented as future work): IFC, FBX, 3DS, DWG, USD, COLLADA.
+Out of scope for 1.0 (documented as future work): IFC, FBX, 3DS, DWG, COLLADA; USD import.
 Import of any unsupported entity yields `W2004` with counts, never a failure.
 
 ## 6. Importer/exporter contracts
@@ -567,3 +568,12 @@ save unless `--no-thumbnail`. `manifest.json` carries `title`, `author`, `descri
   becomes a material. Export writes `float x y z`, `uchar red green blue` and a `uchar`/`uint`
   index list per triangle, welding vertices of equal position and color; Z up and
   `--file-units` as for 3MF.
+- 2026-11-08 — **USD export** (milestone 1.1, docs/13). Text (`usda`) rather than the binary
+  crate format: it needs no library and every USD reader takes it, inside a package as well.
+  The package holds `model.usda` first, stored uncompressed with each entry's data on a 64-byte
+  boundary, as the package rules require. World transforms are baked into the points, as for
+  3MF; each occurrence gives one `Mesh` per material (triangles, face-varying normals,
+  double-sided) bound to a `UsdPreviewSurface` material with the linear base color, opacity,
+  roughness and metalness. Textures are not written yet: a textured material exports its
+  color. `tools/validate-exports.sh` checks both files with the reference library's validators
+  (`usd-core`, a local check). Import of USD is not planned for 1.1.

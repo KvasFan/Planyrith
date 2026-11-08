@@ -2122,3 +2122,56 @@ fn ply_round_trips_a_painted_box() {
         assert!(teal);
     }
 }
+
+/// docs/09 §5 USD: a painted box as a text stage with its unit, Z up, a
+/// mesh and a preview-surface material, and packed as USDZ.
+#[test]
+fn usd_writes_a_stage_and_a_package() {
+    let (mut e, storage) = engine();
+    run(
+        &mut e,
+        "material-create",
+        json!({ "name": "Brass rod", "color": "#C8A050", "metallic": 1.0, "roughness": 0.3 }),
+    );
+    run(
+        &mut e,
+        "rectangle",
+        json!({ "corner_a": [0, 0, 0], "corner_b": [300, 200, 0] }),
+    );
+    run(
+        &mut e,
+        "push-pull",
+        json!({ "face": { "Query": "face & last" }, "distance": 100 }),
+    );
+    run(
+        &mut e,
+        "material-apply",
+        json!({ "targets": "face & normal:z & plane:xy@100", "material": "Brass rod" }),
+    );
+    let out = run(
+        &mut e,
+        "export",
+        json!({ "path": "box.usda", "file_units": "cm" }),
+    );
+    assert_eq!(out["format"], "usda");
+    assert_eq!(out["entities"], 12);
+    let text = String::from_utf8(storage.read(&StorageKey::new("box.usda")).unwrap()).unwrap();
+    for needle in [
+        "#usda 1.0",
+        "metersPerUnit = 0.01",
+        "upAxis = \"Z\"",
+        "def Mesh \"Model_1\"",
+        "def Mesh \"Model_2\"",
+        "def Material \"Brass_rod\"",
+        "float inputs:metallic = 1",
+        "float inputs:roughness = 0.3",
+        "(30, 20, 10)",
+    ] {
+        assert!(text.contains(needle), "missing {needle}");
+    }
+    let out = run(&mut e, "export", json!({ "path": "box.usdz" }));
+    assert_eq!(out["format"], "usdz");
+    let bytes = storage.read(&StorageKey::new("box.usdz")).unwrap();
+    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(&bytes)).unwrap();
+    assert_eq!(archive.by_index(0).unwrap().name().unwrap(), "model.usda");
+}

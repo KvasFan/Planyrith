@@ -6,7 +6,8 @@
 #   DXF         ezdxf's recover + audit (Python)
 #   SVG         xmllint (well-formed XML)
 #   PDF         pdfinfo (poppler)
-# The glTF validator and ezdxf are downloaded into the scratch folder on
+#   USDA / USDZ the reference USD library's validators (pip `usd-core`)
+# The glTF validator, ezdxf and usd-core are downloaded into the scratch folder on
 # first use (npm and pip, network); a missing tool is reported and skipped.
 # Exits non-zero when a validator finds an error.
 # Usage: tools/validate-exports.sh [scratch-dir]
@@ -36,7 +37,8 @@ PY
 rm -f cabinet.plyr kitchen.plyr
 "$cli" batch "$root/crates/planyrith-cli/tests/batches/cabinet.plyrb" -f cabinet.plyr --deterministic >/dev/null
 "$cli" batch "$root/crates/planyrith-cli/tests/batches/kitchen.plyrb" -f kitchen.plyr --deterministic >/dev/null
-for out in kitchen.glb kitchen.gltf kitchen.obj kitchen.stl kitchen.dxf kitchen.svg kitchen.pdf; do
+for out in kitchen.glb kitchen.gltf kitchen.obj kitchen.stl kitchen.dxf kitchen.svg kitchen.pdf \
+  kitchen.usda kitchen.usdz; do
   "$cli" export -f kitchen.plyr "$out" >/dev/null
 done
 "$cli" export -f kitchen.plyr kitchen-2d.dxf --2d >/dev/null
@@ -85,6 +87,32 @@ PY
   done
 else
   echo "skipped DXF: ezdxf not available"
+fi
+
+# USDA / USDZ
+if [ ! -x "$work/tools/usd/bin/python" ]; then
+  python3 -m venv "$work/tools/usd" && "$work/tools/usd/bin/pip" install --quiet usd-core || true
+fi
+if "$work/tools/usd/bin/python" -c "from pxr import UsdValidation" 2>/dev/null; then
+  for f in kitchen.usda kitchen.usdz; do
+    "$work/tools/usd/bin/python" -I - "$f" <<'PY' || failed=1
+import sys
+from pxr import Usd, UsdGeom, UsdShade, UsdValidation
+stage = Usd.Stage.Open(sys.argv[1])
+meshes = [p for p in stage.Traverse() if p.IsA(UsdGeom.Mesh)]
+unbound = [m.GetName() for m in meshes
+           if not UsdShade.MaterialBindingAPI(m).ComputeBoundMaterial()[0]]
+validators = UsdValidation.ValidationRegistry().GetOrLoadAllValidators()
+errors = UsdValidation.ValidationContext(validators).Validate(stage)
+print(f"{sys.argv[1]}: USD validators={len(validators)} errors={len(errors)} "
+      f"meshes={len(meshes)} unbound={len(unbound)}")
+for e in errors[:10]:
+    print(f"  {e.GetName()}: {e.GetMessage()}")
+sys.exit(1 if errors or unbound or not meshes else 0)
+PY
+  done
+else
+  echo "skipped USD: usd-core not available"
 fi
 
 # SVG and PDF

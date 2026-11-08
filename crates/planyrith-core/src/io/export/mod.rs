@@ -17,6 +17,7 @@ pub mod scene;
 pub mod skp;
 pub mod stl;
 pub mod three_mf;
+pub mod usd;
 pub mod view2d;
 
 use std::io::Write;
@@ -62,11 +63,15 @@ pub enum ExportFormat {
     ThreeMf,
     /// PLY triangle mesh with vertex colors.
     Ply,
+    /// USD stage as text.
+    Usda,
+    /// USD package for augmented-reality viewers.
+    Usdz,
 }
 
 impl ExportFormat {
     /// Every export format.
-    pub const ALL: [ExportFormat; 14] = [
+    pub const ALL: [ExportFormat; 16] = [
         ExportFormat::Obj,
         ExportFormat::Stl,
         ExportFormat::Gltf,
@@ -81,6 +86,8 @@ impl ExportFormat {
         ExportFormat::Skp,
         ExportFormat::ThreeMf,
         ExportFormat::Ply,
+        ExportFormat::Usda,
+        ExportFormat::Usdz,
     ];
 
     /// Registered formats; SKP additionally requires a converter-capable backend.
@@ -108,6 +115,8 @@ impl ExportFormat {
             "skp" | "skb" => ExportFormat::Skp,
             "3mf" => ExportFormat::ThreeMf,
             "ply" => ExportFormat::Ply,
+            "usda" => ExportFormat::Usda,
+            "usdz" => ExportFormat::Usdz,
             _ => return None,
         })
     }
@@ -246,6 +255,8 @@ pub fn exporter(format: ExportFormat) -> Option<Box<dyn Exporter>> {
         ExportFormat::Stl => Some(Box::new(stl::StlExporter)),
         ExportFormat::ThreeMf => Some(Box::new(three_mf::ThreeMfExporter)),
         ExportFormat::Ply => Some(Box::new(ply::PlyExporter)),
+        ExportFormat::Usda => Some(Box::new(usd::UsdExporter { packed: false })),
+        ExportFormat::Usdz => Some(Box::new(usd::UsdExporter { packed: true })),
         ExportFormat::Svg => Some(Box::new(view2d::SvgExporter)),
         ExportFormat::Pdf => Some(Box::new(view2d::PdfExporter)),
         #[cfg(not(feature = "brep"))]
