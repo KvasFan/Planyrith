@@ -8,7 +8,9 @@ use glam::DVec3;
 use planyrith_core::commands::params::{CliType, parse_cli_value};
 use planyrith_core::document::{Camera, Document, Projection};
 use planyrith_core::units::LengthUnit;
-use planyrith_render::{Gpu, HeadlessOptions, PathTraceOptions, path_trace, render_image};
+use planyrith_render::{
+    Gpu, GpuPathTracer, HeadlessOptions, PathTraceOptions, compute_device, path_trace, render_image,
+};
 use serde_json::{Value, json};
 
 use crate::session::Session;
@@ -63,6 +65,10 @@ pub struct RenderArgs {
     /// Light bounces of a path-traced image.
     #[arg(long, default_value_t = 4, requires = "path_traced")]
     pub bounces: u32,
+    /// Trace on the graphics card (docs/06 §11.3): much faster; the same
+    /// picture, with noise that differs from one card to another.
+    #[arg(long, requires = "path_traced")]
+    pub gpu: bool,
 }
 
 /// Runs the verb.
@@ -124,21 +130,30 @@ pub fn render(global: &Global, args: &RenderArgs) -> Result<(), CliError> {
         };
         views.push((output, camera));
     }
+    let compute = if args.gpu {
+        Some(compute_device().map_err(render_error)?)
+    } else {
+        None
+    };
     for (path, camera) in views {
-        let image = match &gpu {
-            None => path_trace(
-                doc,
-                &PathTraceOptions {
-                    width: args.width,
-                    height: args.height,
-                    samples: args.samples.clamp(1, 65_536),
-                    bounces: args.bounces.min(64),
-                    camera: Some(camera),
-                    style: style.clone(),
-                    threads: 0,
-                },
-            ),
-            Some(gpu) => render_image(
+        let traced = PathTraceOptions {
+            width: args.width,
+            height: args.height,
+            samples: args.samples.clamp(1, 65_536),
+            bounces: args.bounces.min(64),
+            camera: Some(camera),
+            style: style.clone(),
+            threads: 0,
+        };
+        let image = match (&gpu, &compute) {
+            (None, Some((device, queue, _))) => {
+                let mut tracer =
+                    GpuPathTracer::new(device, queue, doc, &traced).map_err(render_error)?;
+                tracer.pass(traced.samples);
+                tracer.image().map_err(render_error)?
+            }
+            (None, None) => path_trace(doc, &traced),
+            (Some(gpu), _) => render_image(
                 doc,
                 &HeadlessOptions {
                     width: args.width,

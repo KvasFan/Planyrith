@@ -6,6 +6,9 @@ All notable changes to Planyrith are recorded here. Versions follow
 
 ## Unreleased
 
+- Path tracing on the graphics card: the Path-Traced Preview uses it when the
+  card supports compute shaders, and `planyrith render --path-traced --gpu`
+  renders final images about ten times faster.
 - Path-Traced Preview (View menu, desktop): a window in which the path
   tracer refines an image of the current view while you work, starting
   again when the model or the camera changes.

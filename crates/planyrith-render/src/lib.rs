@@ -24,12 +24,14 @@
 
 mod ao;
 mod gpu;
+mod gpu_trace;
 mod headless;
 mod labels;
 mod pathtrace;
 mod renderer;
 
 pub use gpu::Gpu;
+pub use gpu_trace::{GpuPathTracer, compute_device};
 pub use headless::{HeadlessOptions, render_image};
 pub use labels::draw_labels;
 pub use pathtrace::{PathTraceOptions, PathTracer, path_trace};

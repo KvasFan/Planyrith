@@ -163,10 +163,23 @@ Continues 1.2 without a pause, at the user's request (2026-11-07). In order:
 - **Accept:** each item has its commands or API, tests and documentation; formats have golden
   round trips; the CI gates stay green.
 
+## 1.4.0 — Graphics card tracing and touch
+Continues 1.3 at the user's request ("riprendi", 2026-11-08). In order:
+1. **Path tracing on the graphics card:** the tracer of 1.1 in a compute shader, for the preview
+   and `render --path-traced --gpu`.
+2. **Touch interface:** the GUI usable on tablets and phones (larger targets, a touch layout,
+   long press for the context menu) in the web build and on touch screens.
+- **Accept:** tests and documentation; the CI gates stay green.
+
 ## Post-1.0 candidates
-Collaborative editing, GPU path tracing, mobile UI.
+Collaborative editing.
 
 ## Decisions
+
+- 2026-11-08 — **Milestone 1.4.** Asked to resume without a choice among the remaining
+  candidates, the two that can be built and checked on this machine come first: graphics card
+  path tracing (a GPU is present) and the touch interface. Collaborative editing needs a server
+  and a merge model, decisions that are the user's; it stays a candidate.
 
 - 2026-11-08 — **1.3 progress.** FBX import and export (docs/09 Decisions), native
   WebAssembly plugins (docs/10 §7) and the progressive path-traced preview (docs/06 §11.2) are

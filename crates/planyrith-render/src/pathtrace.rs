@@ -54,28 +54,28 @@ impl Default for PathTraceOptions {
 
 /// A surface's look.
 #[derive(Debug, Clone, Copy)]
-struct Surface {
-    albedo: DVec3,
-    roughness: f64,
-    metallic: f64,
-    opacity: f64,
+pub(crate) struct Surface {
+    pub(crate) albedo: DVec3,
+    pub(crate) roughness: f64,
+    pub(crate) metallic: f64,
+    pub(crate) opacity: f64,
     /// Index into the scene's textures; the albedo then tints it.
-    texture: Option<usize>,
+    pub(crate) texture: Option<usize>,
 }
 
 #[derive(Debug, Clone, Copy)]
-struct Triangle {
-    p: [DVec3; 3],
-    n: [DVec3; 3],
-    uv: [DVec2; 3],
-    surface: u32,
+pub(crate) struct Triangle {
+    pub(crate) p: [DVec3; 3],
+    pub(crate) n: [DVec3; 3],
+    pub(crate) uv: [DVec2; 3],
+    pub(crate) surface: u32,
 }
 
 /// A decoded texture, linear RGB.
-struct Texture {
-    width: usize,
-    height: usize,
-    texels: Vec<DVec3>,
+pub(crate) struct Texture {
+    pub(crate) width: usize,
+    pub(crate) height: usize,
+    pub(crate) texels: Vec<DVec3>,
 }
 
 impl Texture {
@@ -89,22 +89,22 @@ impl Texture {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct Node {
-    lo: DVec3,
-    hi: DVec3,
+pub(crate) struct Node {
+    pub(crate) lo: DVec3,
+    pub(crate) hi: DVec3,
     /// Leaf: first triangle and count; inner: left child and 0.
-    first: u32,
-    count: u32,
-    right: u32,
+    pub(crate) first: u32,
+    pub(crate) count: u32,
+    pub(crate) right: u32,
 }
 
 /// The traced scene.
-struct Scene {
-    triangles: Vec<Triangle>,
-    nodes: Vec<Node>,
-    surfaces: Vec<Surface>,
-    textures: Vec<Texture>,
-    ground: Option<(f64, Surface)>,
+pub(crate) struct Scene {
+    pub(crate) triangles: Vec<Triangle>,
+    pub(crate) nodes: Vec<Node>,
+    pub(crate) surfaces: Vec<Surface>,
+    pub(crate) textures: Vec<Texture>,
+    pub(crate) ground: Option<(f64, Surface)>,
 }
 
 fn linear(c: u8) -> f64 {
@@ -435,14 +435,14 @@ fn frame(n: DVec3) -> (DVec3, DVec3) {
 }
 
 /// Lighting of the scene.
-struct Light {
-    sun: DVec3,
-    sun_radiance: f64,
-    sky: DVec3,
-    horizon: DVec3,
-    ground: DVec3,
-    background: Option<DVec3>,
-    exposure: f64,
+pub(crate) struct Light {
+    pub(crate) sun: DVec3,
+    pub(crate) sun_radiance: f64,
+    pub(crate) sky: DVec3,
+    pub(crate) horizon: DVec3,
+    pub(crate) ground: DVec3,
+    pub(crate) background: Option<DVec3>,
+    pub(crate) exposure: f64,
 }
 
 impl Light {
@@ -610,11 +610,11 @@ fn trace(
 /// Brightest a single path may count (scene light units).
 const FIREFLY: f64 = 6.0;
 
-fn filmic(x: f64) -> f64 {
+pub(crate) fn filmic(x: f64) -> f64 {
     ((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14)).clamp(0.0, 1.0)
 }
 
-fn encode(c: f64) -> u8 {
+pub(crate) fn encode(c: f64) -> u8 {
     let s = if c <= 0.003_130_8 {
         c * 12.92
     } else {
@@ -628,15 +628,15 @@ fn encode(c: f64) -> u8 {
 /// same random sequence and samples add up in order, so an image traced in
 /// several passes equals one traced at once, whatever the thread count.
 pub struct PathTracer {
-    scene: Scene,
-    light: Light,
-    camera: Camera,
-    width: u32,
-    height: u32,
-    bounces: u32,
-    threads: usize,
-    sum: Vec<DVec3>,
-    samples: u32,
+    pub(crate) scene: Scene,
+    pub(crate) light: Light,
+    pub(crate) camera: Camera,
+    pub(crate) width: u32,
+    pub(crate) height: u32,
+    pub(crate) bounces: u32,
+    pub(crate) threads: usize,
+    pub(crate) sum: Vec<DVec3>,
+    pub(crate) samples: u32,
 }
 
 impl PathTracer {

@@ -7,13 +7,26 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use planyrith_core::document::Camera;
-use planyrith_render::{PathTraceOptions, PathTracer};
+use planyrith_render::{GpuPathTracer, PathTraceOptions, PathTracer, compute_device};
 
 use crate::i18n::{t, t_args};
 use crate::session::Session;
 
-/// Samples per pixel after which the preview stops refining.
+/// Samples per pixel after which the preview stops refining (on the
+/// processor; the graphics card goes on to four times as many).
 const MAX_SAMPLES: u32 = 256;
+/// Paths per pixel the graphics card adds between two images.
+const GPU_STEP: u32 = 4;
+
+/// The graphics card's compute device, found once (`None`: trace on the
+/// processor).
+fn compute() -> Option<&'static (wgpu::Device, wgpu::Queue)> {
+    static DEVICE: std::sync::OnceLock<Option<(wgpu::Device, wgpu::Queue)>> =
+        std::sync::OnceLock::new();
+    DEVICE
+        .get_or_init(|| compute_device().ok().map(|(d, q, _)| (d, q)))
+        .as_ref()
+}
 /// How long the view must stay still before tracing starts again (s).
 const SETTLE_S: f64 = 0.25;
 
@@ -44,6 +57,15 @@ pub struct TracePreview {
     samples: u32,
 }
 
+/// The sample count at which the preview is finished.
+fn limit() -> u32 {
+    if compute().is_some() {
+        4 * MAX_SAMPLES
+    } else {
+        MAX_SAMPLES
+    }
+}
+
 fn start(
     doc: planyrith_core::document::Document,
     camera: Camera,
@@ -67,6 +89,21 @@ fn start(
             threads,
             ..PathTraceOptions::default()
         };
+        if let Some((device, queue)) = compute()
+            && let Ok(mut tracer) = GpuPathTracer::new(device, queue, &doc, &options)
+        {
+            while tracer.samples() < 4 * MAX_SAMPLES && !flag.load(Ordering::Relaxed) {
+                tracer.pass(GPU_STEP);
+                let Ok(image) = tracer.image() else { break };
+                if flag.load(Ordering::Relaxed) {
+                    break;
+                }
+                if let Ok(mut slot) = out.lock() {
+                    *slot = Some((image, tracer.samples()));
+                }
+            }
+            return;
+        }
         let mut tracer = PathTracer::new(&doc, &options);
         while tracer.samples() < MAX_SAMPLES && !flag.load(Ordering::Relaxed) {
             tracer.pass(1);
@@ -147,7 +184,7 @@ impl TracePreview {
                     let scale = (size.x / fit.x).min(size.y / fit.y).max(0.01);
                     ui.image((texture.id(), fit * scale));
                 }
-                if self.samples < MAX_SAMPLES {
+                if self.samples < limit() {
                     ui.horizontal(|ui| {
                         ui.spinner();
                         ui.label(t_args(

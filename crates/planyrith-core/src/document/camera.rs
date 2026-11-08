@@ -62,6 +62,36 @@ impl Default for Camera {
     }
 }
 
+/// A camera's rays as linear functions of normalized device coordinates
+/// (see [`Camera::ray_frame`]).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RayFrame {
+    /// Origin at the center.
+    pub origin: DVec3,
+    /// Origin change per unit of `x`.
+    pub origin_x: DVec3,
+    /// Origin change per unit of `y`.
+    pub origin_y: DVec3,
+    /// Direction at the center (not normalized).
+    pub direction: DVec3,
+    /// Direction change per unit of `x`.
+    pub direction_x: DVec3,
+    /// Direction change per unit of `y`.
+    pub direction_y: DVec3,
+}
+
+impl RayFrame {
+    /// The origin at `ndc`.
+    pub fn origin_at(&self, ndc: glam::DVec2) -> DVec3 {
+        self.origin + self.origin_x * ndc.x + self.origin_y * ndc.y
+    }
+
+    /// The direction at `ndc` (not normalized).
+    pub fn direction_at(&self, ndc: glam::DVec2) -> DVec3 {
+        self.direction + self.direction_x * ndc.x + self.direction_y * ndc.y
+    }
+}
+
 impl Camera {
     /// Unit view direction.
     pub fn forward(&self) -> DVec3 {
@@ -93,9 +123,25 @@ impl Camera {
     /// World ray through normalized device coordinates `(x, y) ∈ [-1, 1]²`
     /// (y up), used by picking and the CLI `infer` verb (docs/03 §7).
     pub fn ray_through_ndc(&self, ndc: glam::DVec2) -> Ray {
+        let f = self.ray_frame();
+        Ray::new(f.origin_at(ndc), f.direction_at(ndc))
+    }
+
+    /// The camera's rays as linear functions of normalized device
+    /// coordinates: origin `o + ox·x + oy·y` and (not normalized) direction
+    /// `d + dx·x + dy·y` (docs/06 §11.2, for tracers on the graphics card).
+    pub fn ray_frame(&self) -> RayFrame {
         let f = self.forward();
         let r = self.right();
         let u = r.cross(f);
+        let still = |d: DVec3, dx: DVec3, dy: DVec3| RayFrame {
+            origin: self.eye,
+            origin_x: DVec3::ZERO,
+            origin_y: DVec3::ZERO,
+            direction: d,
+            direction_x: dx,
+            direction_y: dy,
+        };
         match self.projection {
             Projection::TwoPoint { fov_y_deg } => {
                 // Vertical image plane (verticals stay vertical, docs/06 §7)
@@ -106,22 +152,28 @@ impl Camera {
                 let level = (f - up * f.dot(up)).normalize_or_zero();
                 if level == DVec3::ZERO {
                     // Looking straight up or down: no horizon to keep level.
-                    return Ray::new(self.eye, f + r * (ndc.x * half_w) + u * (ndc.y * half_h));
+                    return still(f, r * half_w, u * half_h);
                 }
                 let side = level.cross(up).normalize_or_zero();
                 let shear = f.dot(up) / f.dot(level);
-                let dir = level + side * (ndc.x * half_w) + up * (ndc.y * half_h + shear);
-                Ray::new(self.eye, dir)
+                still(level + up * shear, side * half_w, up * half_h)
             }
             Projection::Perspective { fov_y_deg } => {
                 let half_h = libm::tan(fov_y_deg.to_radians() * 0.5);
                 let half_w = half_h * self.aspect;
-                Ray::new(self.eye, f + r * (ndc.x * half_w) + u * (ndc.y * half_h))
+                still(f, r * half_w, u * half_h)
             }
             Projection::Parallel { height_mm } => {
                 let half_h = height_mm * 0.5;
                 let half_w = half_h * self.aspect;
-                Ray::new(self.eye + r * (ndc.x * half_w) + u * (ndc.y * half_h), f)
+                RayFrame {
+                    origin: self.eye,
+                    origin_x: r * half_w,
+                    origin_y: u * half_h,
+                    direction: f,
+                    direction_x: DVec3::ZERO,
+                    direction_y: DVec3::ZERO,
+                }
             }
         }
     }

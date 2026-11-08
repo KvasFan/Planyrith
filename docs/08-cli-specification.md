@@ -101,8 +101,10 @@ file's unit), `--targets <query>`, `--include-hidden`, and for drawings `--2d` (
 always are), `--scene <name>`, `--scale 1:50`, `--paper-width <length>`, and for 3D printing
 `--per-object` and `--on-plate` (docs/05 §10); the document is not saved.
 
-### `planyrith render -f model.plyr <out.png> [--width 1920 --height 1080] [--scene <name> | --camera 'eye=…;target=…;fov=35'] [--style <name>] [--shadows] [--transparent] [--msaa 4] [--show-hidden] [--deterministic] [--path-traced [--samples 64] [--bounces 4]]`
-Headless rendering (`docs/06 §11`). `--format png|jpg|webp` from extension. `--all-scenes
+### `planyrith render -f model.plyr <out.png> [--width 1920 --height 1080] [--scene <name> | --camera 'eye=…;target=…;fov=35'] [--style <name>] [--shadows] [--transparent] [--msaa 4] [--show-hidden] [--deterministic] [--path-traced [--samples 64] [--bounces 4] [--gpu]]`
+Headless rendering (`docs/06 §11`). `--gpu` traces a path-traced image on the graphics card
+(`docs/06 §11.3`); without it the image is traced on the processor and is the same on every
+machine. `--format png|jpg|webp` from extension. `--all-scenes
 <dir>` renders every scene; `--animation <dir> --fps 30` renders scene transitions as frames.
 
 ### `planyrith validate -f model.plyr [--json]` / `planyrith repair -f model.plyr [--fix all|merge-vertices,degenerate-faces,dangling-refs]`

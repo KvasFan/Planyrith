@@ -231,6 +231,24 @@ tracing starts again from the new state, so orbiting does not restart it on ever
 tracing runs on a background thread on all cores but one; closing the window stops it. Because
 pixel `p`'s path `k` always draws the same random numbers and a pixel's paths add up in order,
 an image traced in passes equals the one traced at once (`passes_add_up_to_the_same_image`).
+On a graphics card with compute shaders the preview traces there (§11.3), four paths per pixel
+between images and up to 1024; elsewhere (WebGL2, no adapter) on the processor.
+
+### 11.3 Path tracing on the graphics card
+`GpuPathTracer` traces the scene of §11.1 in a compute shader (`shaders/pathtrace.wgsl`): the
+scene, the hierarchy and the light are prepared exactly as for the processor and uploaded as
+storage buffers (triangles, nodes, surfaces, textures as sRGB texels, an accumulation buffer),
+in f32 relative to the camera origin; each invocation traces one pixel with the same surface
+model, sun sampling, bounces, roulette and firefly limit, adding at most four paths per
+dispatch so no dispatch trips a driver's watchdog. Rays come from `Camera::ray_frame`, the
+camera's rays as linear functions of the image position, which the processor's tracer and
+picking also use. The image is read back and finished like the processor's. The card draws its
+own random numbers (a 32-bit hash of pixel and path), so its image is the same from run to run
+on one card but not bit for bit the processor's: on the test scene of
+`the_card_converges_to_the_cpu_picture` (colored, metallic and lit) the mean difference after
+256 paths is under one level in 255, against a bound of 6. `planyrith render --path-traced --gpu`
+uses it; on the development machine it traces 960 × 540 at 64 paths in 0.17 s against 1.8 s.
+The default stays the processor, whose images are the same on every machine.
 
 ## 12. Performance budget (1080p, integrated GPU, 1 M tris / 200 k edges)
 

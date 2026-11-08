@@ -27,7 +27,7 @@ pub mod styles;
 pub mod tags;
 
 pub use attributes::{AttributeDictionaries, Value};
-pub use camera::{Camera, DepthRange, Projection, StandardView};
+pub use camera::{Camera, DepthRange, Projection, RayFrame, StandardView};
 pub use entities::{
     Anchor, AnchorKind, AnchorPosition, ArrowStyle, ComponentBehavior, ComponentDefinition,
     ComponentInstance, DimStyle, Dimension, GlueTo, Group, Guide, ImageEntity, RadialKind,
