@@ -2482,3 +2482,196 @@ fn ifc_round_trips_classes_storeys_and_parts() {
     assert_eq!(text.matches("IFCFURNITURE(").count(), 1);
     assert!(text.contains("'Level 0'"));
 }
+
+/// docs/09 §5 FBX: a component placed twice (once turned) and a textured
+/// box go out with shared geometry and an embedded texture, and come back
+/// with their sizes, placements, material and texture.
+#[test]
+fn fbx_round_trips_components_and_textures() {
+    let (mut e, storage) = engine();
+    let png = {
+        let mut bytes = Vec::new();
+        image::RgbImage::from_pixel(4, 4, image::Rgb([160, 82, 45]))
+            .write_to(
+                &mut std::io::Cursor::new(&mut bytes),
+                image::ImageFormat::Png,
+            )
+            .unwrap();
+        bytes
+    };
+    storage.write(&StorageKey::new("oak.png"), &png).unwrap();
+    run(
+        &mut e,
+        "material-create",
+        json!({ "name": "Oak", "color": "#A0522D", "texture": "oak.png" }),
+    );
+    run(
+        &mut e,
+        "rectangle",
+        json!({ "corner_a": [0, 0, 0], "corner_b": [300, 200, 0] }),
+    );
+    run(
+        &mut e,
+        "push-pull",
+        json!({ "face": { "Query": "face & last" }, "distance": 100 }),
+    );
+    run(
+        &mut e,
+        "material-apply",
+        json!({ "targets": "face", "material": "Oak" }),
+    );
+    run(
+        &mut e,
+        "make-component",
+        json!({ "targets": "all", "name": "Block" }),
+    );
+    run(
+        &mut e,
+        "move",
+        json!({ "targets": "instance", "delta": [1000, 0, 0], "copy": true }),
+    );
+    run(
+        &mut e,
+        "rotate",
+        json!({ "targets": "instance & last", "center": [1000, 0, 0], "axis": [0, 0, 1], "angle": std::f64::consts::FRAC_PI_2 }),
+    );
+    for (file, opts) in [
+        ("out/blocks.fbx", json!({})),
+        ("out/blocks-z.fbx", json!({ "z_up": true, "units": "m" })),
+    ] {
+        let out = run(&mut e, "export", json!({ "path": file, "options": opts }));
+        assert_eq!(out["format"], "fbx");
+        let bytes = storage.read(&StorageKey::new(file)).unwrap();
+        let tree = crate::io::fbx::parse(&bytes).unwrap();
+        let objects = tree.node("Objects").unwrap();
+        assert_eq!(objects.all("Geometry").count(), 1, "the geometry is shared");
+        assert_eq!(objects.all("Model").count(), 2);
+        assert_eq!(objects.all("Video").count(), 1, "the texture is embedded");
+
+        let (mut e2, storage2) = engine();
+        storage2
+            .write(&StorageKey::new("in/blocks.fbx"), &bytes)
+            .unwrap();
+        let out = run(&mut e2, "import", json!({ "path": "in/blocks.fbx" }));
+        assert_eq!(out["format"], "fbx");
+        assert_eq!(out["faces"], 6, "faces counted once per definition");
+        let doc = e2.document();
+        let oak = doc
+            .materials
+            .iter()
+            .find(|(_, m)| m.name == "Oak")
+            .unwrap()
+            .1;
+        assert!(oak.texture.is_some(), "the texture came back");
+        assert_eq!([oak.color.r, oak.color.g, oak.color.b], [0xA0, 0x52, 0x2D]);
+        let check = run(&mut e2, "solid-check", json!({}));
+        let objects = check["objects"].as_array().unwrap();
+        assert_eq!(objects.len(), 2);
+        let mut sizes: Vec<Vec<f64>> = objects
+            .iter()
+            .map(|o| {
+                let s: Vec<f64> = serde_json::from_value(o["size_mm"].clone()).unwrap();
+                s.iter().map(|v| (v * 1000.0).round() / 1000.0).collect()
+            })
+            .collect();
+        sizes.sort_by(|a, b| a[0].total_cmp(&b[0]));
+        assert_eq!(
+            sizes,
+            vec![vec![200.0, 300.0, 100.0], vec![300.0, 200.0, 100.0]],
+            "{file}"
+        );
+        let bounds = e2.document().aabb();
+        assert!(
+            bounds.min.distance(glam::DVec3::new(0.0, 0.0, 0.0)) < 1e-6,
+            "{file}: {bounds:?}"
+        );
+        assert!(
+            bounds.max.distance(glam::DVec3::new(1000.0, 300.0, 100.0)) < 1e-6,
+            "{file}: {bounds:?}"
+        );
+    }
+}
+
+/// A local survey (docs/09 Decisions, FBX): imports every FBX file of the
+/// folder `PLANYRITH_FBX_CORPUS` and, where a reference OBJ of the same
+/// model sits beside it, compares the proportions of the two bounding
+/// boxes. The files are not part of the repository.
+#[test]
+#[ignore = "needs a local corpus"]
+fn fbx_corpus_survey() {
+    let Ok(dir) = std::env::var("PLANYRITH_FBX_CORPUS") else {
+        return;
+    };
+    let import = |name: &str, bytes: &[u8]| -> Result<crate::math::Aabb, String> {
+        let (mut e, storage) = engine();
+        storage.write(&StorageKey::new(name), bytes).unwrap();
+        e.execute_erased("import", json!({ "path": name }))
+            .map_err(|err| err.to_string())?;
+        // Exact bounds: the vertices as exported in world coordinates.
+        e.execute_erased(
+            "export",
+            json!({ "path": "x.obj", "options": { "z_up": true } }),
+        )
+        .map_err(|err| err.to_string())?;
+        let text = String::from_utf8(storage.read(&StorageKey::new("x.obj")).unwrap()).unwrap();
+        let mut b = crate::math::Aabb::EMPTY;
+        for line in text.lines().filter(|l| l.starts_with("v ")) {
+            let v: Vec<f64> = line[2..]
+                .split_whitespace()
+                .filter_map(|t| t.parse().ok())
+                .collect();
+            if v.len() >= 3 {
+                b = b.union(&crate::math::Aabb::from_point(glam::DVec3::new(
+                    v[0], v[1], v[2],
+                )));
+            }
+        }
+        Ok(b)
+    };
+    let shape = |b: &crate::math::Aabb| {
+        let mut d = [b.max.x - b.min.x, b.max.y - b.min.y, b.max.z - b.min.z];
+        d.sort_by(f64::total_cmp);
+        (d[2] > 0.0).then(|| [d[0] / d[2], d[1] / d[2]])
+    };
+    let (mut imported, mut failed, mut same, mut different) = (0, Vec::new(), 0, Vec::new());
+    let mut names: Vec<_> = std::fs::read_dir(&dir)
+        .unwrap()
+        .filter_map(|e| e.ok()?.file_name().into_string().ok())
+        .filter(|n| n.ends_with(".fbx") && !n.starts_with("synthetic"))
+        .collect();
+    names.sort();
+    for name in names {
+        let bytes = std::fs::read(format!("{dir}/{name}")).unwrap();
+        let bounds = match import(&name, &bytes) {
+            Ok(b) => b,
+            Err(e) => {
+                failed.push(format!("{name}: {e}"));
+                continue;
+            }
+        };
+        imported += 1;
+        let base = name
+            .rsplit_once('_')
+            .and_then(|(rest, _)| rest.rsplit_once('_'))
+            .map_or(name.as_str(), |(b, _)| b);
+        let Ok(obj) = std::fs::read(format!("{dir}/{base}.obj")) else {
+            continue;
+        };
+        let Ok(reference) = import(&format!("{base}.obj"), &obj) else {
+            continue;
+        };
+        if let (Some(a), Some(b)) = (shape(&bounds), shape(&reference)) {
+            if (a[0] - b[0]).abs() < 0.01 && (a[1] - b[1]).abs() < 0.01 {
+                same += 1;
+            } else {
+                different.push(format!("{name}: {a:?} vs {b:?}"));
+            }
+        }
+    }
+    println!(
+        "imported {imported}, failed {}; same proportions as the reference {same}, different {}",
+        failed.len(),
+        different.len()
+    );
+    println!("{}\n{}", failed.join("\n"), different.join("\n"));
+}

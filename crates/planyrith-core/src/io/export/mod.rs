@@ -9,6 +9,7 @@
 pub mod collada;
 pub mod csv;
 pub mod dxf;
+pub mod fbx;
 pub mod gltf;
 pub mod ifc;
 pub mod json;
@@ -73,11 +74,13 @@ pub enum ExportFormat {
     Ifc,
     /// COLLADA 1.4.1.
     Dae,
+    /// FBX binary 7.4.
+    Fbx,
 }
 
 impl ExportFormat {
     /// Every export format.
-    pub const ALL: [ExportFormat; 18] = [
+    pub const ALL: [ExportFormat; 19] = [
         ExportFormat::Obj,
         ExportFormat::Stl,
         ExportFormat::Gltf,
@@ -96,6 +99,7 @@ impl ExportFormat {
         ExportFormat::Usdz,
         ExportFormat::Ifc,
         ExportFormat::Dae,
+        ExportFormat::Fbx,
     ];
 
     /// Registered formats; SKP additionally requires a converter-capable backend.
@@ -127,6 +131,7 @@ impl ExportFormat {
             "usdz" => ExportFormat::Usdz,
             "ifc" => ExportFormat::Ifc,
             "dae" => ExportFormat::Dae,
+            "fbx" => ExportFormat::Fbx,
             _ => return None,
         })
     }
@@ -269,6 +274,7 @@ pub fn exporter(format: ExportFormat) -> Option<Box<dyn Exporter>> {
         ExportFormat::Usdz => Some(Box::new(usd::UsdExporter { packed: true })),
         ExportFormat::Ifc => Some(Box::new(ifc::IfcExporter)),
         ExportFormat::Dae => Some(Box::new(collada::ColladaExporter)),
+        ExportFormat::Fbx => Some(Box::new(fbx::FbxExporter)),
         ExportFormat::Svg => Some(Box::new(view2d::SvgExporter)),
         ExportFormat::Pdf => Some(Box::new(view2d::PdfExporter)),
         #[cfg(not(feature = "brep"))]

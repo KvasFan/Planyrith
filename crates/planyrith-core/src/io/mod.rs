@@ -14,6 +14,7 @@
 pub mod adapter;
 pub mod autosave;
 pub mod export;
+pub mod fbx;
 pub mod import;
 pub mod model_file;
 pub mod native;

@@ -13,6 +13,7 @@ pub mod build;
 pub mod collada;
 pub mod csv;
 pub mod dxf;
+pub mod fbx;
 pub mod gltf;
 pub mod ifc;
 pub mod image;
@@ -67,11 +68,13 @@ pub enum ImportFormat {
     Dae,
     /// IFC (IFC2X3, IFC4) building model.
     Ifc,
+    /// FBX (binary and ASCII 7.x).
+    Fbx,
 }
 
 impl ImportFormat {
     /// Every import format.
-    pub const ALL: [ImportFormat; 13] = [
+    pub const ALL: [ImportFormat; 14] = [
         ImportFormat::Obj,
         ImportFormat::Stl,
         ImportFormat::Gltf,
@@ -85,6 +88,7 @@ impl ImportFormat {
         ImportFormat::Ply,
         ImportFormat::Dae,
         ImportFormat::Ifc,
+        ImportFormat::Fbx,
     ];
 
     /// Registered formats; SKP additionally requires a converter-capable backend.
@@ -111,6 +115,7 @@ impl ImportFormat {
             "ply" => ImportFormat::Ply,
             "dae" => ImportFormat::Dae,
             "ifc" => ImportFormat::Ifc,
+            "fbx" => ImportFormat::Fbx,
             _ => return None,
         })
     }
@@ -264,6 +269,7 @@ pub fn importer(format: ImportFormat) -> Option<Box<dyn Importer>> {
         ImportFormat::Ply => Some(Box::new(ply::PlyImporter)),
         ImportFormat::Dae => Some(Box::new(collada::ColladaImporter)),
         ImportFormat::Ifc => Some(Box::new(ifc::IfcImporter)),
+        ImportFormat::Fbx => Some(Box::new(fbx::FbxImporter)),
         #[cfg(not(feature = "brep"))]
         ImportFormat::Step => None,
     }

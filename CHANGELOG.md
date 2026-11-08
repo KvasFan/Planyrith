@@ -6,6 +6,10 @@ All notable changes to Planyrith are recorded here. Versions follow
 
 ## Unreleased
 
+- FBX import and export, the format game engines and asset stores use:
+  meshes, materials with colors and textures (embedded in the file when
+  exporting), the model hierarchy and copies sharing one geometry, units
+  and axes. Binary and text FBX 7 files are read; binary 7.4 is written.
 - Match Photo (Camera › Match Photo…, `camera-match`): open a photograph over
   the view, lay two red lines and two green lines along edges of the room or
   building and mark the origin; the camera becomes the one that took the

@@ -152,10 +152,28 @@ Continues 1.1 without a pause, at the user's request (2026-11-07, see Decisions)
 - **Accept:** each item has its commands, CLI batches, golden files, GUI and validation by an
   external tool where one exists; the CI gates stay green.
 
+## 1.3.0 — Engines, plugins and live rendering
+Continues 1.2 without a pause, at the user's request (2026-11-07). In order:
+1. **FBX** import and export (binary 7.x; ASCII 7.x import): meshes, materials with colors and
+   embedded or neighboring textures, the model hierarchy with shared geometry, units and axes.
+2. **Native plugins** (docs/10 §7): WebAssembly modules hosted on the desktop with the same host
+   API as scripts, sandboxed, declared by the manifest's `[entry] wasm` key.
+3. **Progressive path-traced preview:** the path tracer of 1.1 refines an image in a GUI window
+   while the model is open, restarting when the model or the camera changes.
+- **Accept:** each item has its commands or API, tests and documentation; formats have golden
+  round trips; the CI gates stay green.
+
 ## Post-1.0 candidates
-FBX, WASM native plugins, collaborative editing, GPU path-traced preview, mobile UI.
+Collaborative editing, GPU path tracing, mobile UI.
 
 ## Decisions
+
+- 2026-11-08 — **Milestone 1.3.** With 1.2 implemented, the remaining candidates are ordered by
+  use and by what can be verified here: FBX is the exchange format game engines and asset stores
+  expect; native plugins were reserved in the manifest since 1.0 (docs/10 §7); a progressive
+  preview reuses the deterministic CPU path tracer instead of a GPU tracer, which needs hardware
+  ray queries not available on every adapter. Collaborative editing (a server and a merge model)
+  and a mobile interface stay candidates.
 
 - 2026-11-08 — **1.2 progress.** COLLADA import and export and IFC import are done (docs/09
   Decisions); parametric components (docs/04 §9.1, docs/05 §5.14) and the camera from a photograph

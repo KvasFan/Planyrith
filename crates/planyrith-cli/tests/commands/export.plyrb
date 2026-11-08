@@ -13,6 +13,7 @@ export --path exports/box.ply
 export --path exports/box.usdz --file-units m
 export --path exports/box.ifc
 export --path exports/box.dae
+export --path exports/box.fbx
 export --path exports/box-ascii.stl --ascii --file-units m --z-up
 export --path exports/box.obj
 export --path exports/box.gltf

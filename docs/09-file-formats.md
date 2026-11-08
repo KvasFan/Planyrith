@@ -96,6 +96,7 @@ control via `planyrith export --format json`. It is **not** required to load the
 | USD (`.usda`, `.usdz`) | — | ✔ | a text stage, or packed (stored, 64-byte aligned) for augmented-reality viewers: one mesh per occurrence and material, Z up, `metersPerUnit` from `--file-units`, preview-surface materials with their textures. |
 | IFC (IFC2X3, IFC4) | ✔ | ✔ (IFC4) | a building model for BIM tools: one storey holding an element per top-level group or component and the loose faces, triangulated face sets per material with surface colors, millimeters. |
 | COLLADA (`.dae`, 1.4/1.5) | ✔ | ✔ | geometry (triangles, polylists, polygons with holes), materials with colors, textures and transparency, the node tree with instanced nodes, unit and up axis; export shares a component's geometry among its instances. |
+| FBX (binary 7.x; ASCII 7.x import) | ✔ | ✔ (binary 7.4) | meshes (polygons of any size, texture coordinates, normals as soft edges, per-polygon materials), materials with colors, opacity and diffuse textures (embedded or beside the file), the model hierarchy with its full transform chain, unit and axes; export shares a component's geometry among its instances, embeds textures and writes Y up unless `--z-up`. Animation, skinning, cameras and lights are not read. |
 | STL (ASCII/binary) | ✔ | ✔ | triangles merged into coplanar faces on import (`--merge-coplanar`, default on); binary default on export. |
 | glTF 2.0 / GLB | ✔ | ✔ | nodes → groups/instances (meshes shared → components), PBR base color + texture, transforms, cameras → scenes. KHR_texture_transform supported. |
 | DXF (R12–2018 ASCII) | ✔ | ✔ (3D and 2D) | LINE, LWPOLYLINE/POLYLINE, ARC, CIRCLE, ELLIPSE (segmented), SPLINE (flattened), 3DFACE, POLYFACE mesh, INSERT/BLOCK → components, LAYER → tags, TEXT/MTEXT, DIMENSION (as text+lines on export). |
@@ -107,7 +108,7 @@ control via `planyrith export --format json`. It is **not** required to load the
 | SVG / PDF | — | ✔ | 2D export of a view (`--2d`) and of sheets (`docs/15`). Hidden-line removal in software; vector output. |
 | `.plyr/.plyrc` | ✔ | ✔ | merge another document as a group/component. |
 
-Out of scope for 1.0 (documented as future work): FBX, 3DS, DWG; USD import.
+Out of scope (documented as future work): 3DS, DWG; USD import; FBX 6 and earlier.
 Import of any unsupported entity yields `W2004` with counts, never a failure.
 
 ## 6. Importer/exporter contracts
@@ -613,6 +614,33 @@ save unless `--no-thumbnail`. `manifest.json` carries `title`, `author`, `descri
   element gets a property set "Planyrith" with its `Tag`, the `Material` covering most of its
   triangles, and its other `ifc` attributes (booleans, integers, reals, lengths in mm and texts;
   other kinds are skipped). IfcOpenShell reads both back.
+- 2026-11-08 — **FBX** (milestone 1.3, docs/13). Own reader for the node tree of both encodings
+  (`io::fbx`): binary 7.x with 32- and 64-bit records and zlib-compressed arrays, ASCII 7.x with
+  values continued after a trailing comma and base64 content; big-endian files and FBX 6 and
+  earlier are refused with the reason. Import follows the connections from the root: models
+  give the hierarchy with the transform chain `T · Roff · Rp · Rpre · R · Rpost⁻¹ · Rp⁻¹ · Soff · Sp
+  · S · Sp⁻¹` (rotation order from `RotationOrder`, the first letter turning first; pre- and
+  post-rotation applied whatever `RotationActive` says, as files that set them mean them), the
+  geometric transform on the geometry only; a geometry and the model's material list (the
+  order of material connections, which the per-polygon material indices refer to) make one
+  mesh, so models sharing both share a component. Polygons are triangulated in their plane by
+  ear clipping. `UnitScaleFactor` (centimeters per unit) picks the unit, or scales into
+  millimeters when it is no unit of Planyrith's; the up, front and right axes of the global
+  settings map to +Z, −Y and +X unless `--swap-yz` decides. Material color is the diffuse color
+  as written (0–1 → 0–255), opacity is `Opacity` or else `1 − TransparencyFactor ×
+  TransparentColor`; a texture connected to the diffuse color is read from its video's content
+  or from its file name beside the model. Export writes binary 7.4 (the last version with 32-bit
+  records, which every reader accepts) with a fixed file id and creation time for byte-identical
+  output; models carry translation, Euler XYZ rotation and scale, and an occurrence whose
+  transform has shear gets its own geometry, placed. Validation here: round trips through both
+  axis settings and units, and a survey of 465 public FBX 7 files from many exporters (a test
+  corpus of an open-source FBX library, kept outside the repository): 382 of the 389 real
+  files import (the rest are big-endian or hold an unknown audio property type); of the 69 with
+  a reference OBJ, 56 have the same proportions and the other 13 are skinned, subdivided,
+  blend-shaped or posed models, or references that leave children out — deformations Planyrith
+  does not evaluate. Running a reference application on the exported files needs the user's
+  permission and was not done.
+
 - 2026-11-08 — **COLLADA** (milestone 1.2, docs/13). Own reader on a light element tree (read
   with `quick-xml`) and own writer. Import: `triangles`, `polylist` and `polygons` (fanned),
   `ph` polygons with holes (ear clipping in the outer ring's plane, keeping its side), the
