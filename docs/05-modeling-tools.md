@@ -292,7 +292,10 @@ perpendicular to hovered edge); `Esc` = cancel current step (second `Esc` = canc
   container's geometry is replaced by the result (new pids).
 - **Output:** `{ rounded, faces, volume_mm3 }`.
 - **Undo:** one step.
-- **GUI:** Tools › Round Edges… acts on the selected edges.
+- **GUI:** the Fillet and Chamfer tools (Tools menu): click edges of the solid being edited
+  (again to drop one); the result shows at the current size while picking; type the size and
+  Enter to apply (Esc clears, Backspace drops the last edge). Tools › Round Edges… acts on the
+  selected edges instead.
 - **Tests:** the long edges of a box lose exactly the corner area outside the polygonal arc; all
   twelve edges of a box give a printable solid; undo restores the six faces.
 

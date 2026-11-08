@@ -1681,6 +1681,8 @@ impl App {
                     }
                 });
                 self.tool_button(ui, "Sweep");
+                self.tool_button(ui, "Fillet");
+                self.tool_button(ui, "Chamfer");
                 if ui.button(t("Round Edges…")).clicked() {
                     self.round_edges.open = true;
                     ui.close();
@@ -3488,6 +3490,53 @@ mod tests {
                 self.app.message
             );
         }
+    }
+
+    #[test]
+    fn fillet_tool_rounds_the_clicked_edges() {
+        let mut shell = Shell::new();
+        let session = &mut shell.app.session;
+        session
+            .execute(
+                "position-camera",
+                json!({ "eye": [3000, -4000, 3500], "target": [500, 250, 200] }),
+            )
+            .unwrap();
+        for (name, params) in [
+            (
+                "rectangle",
+                json!({ "corner_a": [0, 0, 0], "corner_b": [1000, 500, 0] }),
+            ),
+            (
+                "push-pull",
+                json!({ "face": { "Query": "face & last" }, "distance": 400 }),
+            ),
+        ] {
+            session.execute(name, params).unwrap();
+        }
+        shell.frame(Vec::new());
+        let i = shell
+            .app
+            .tools
+            .iter()
+            .position(|(t, _)| t.command() == "fillet")
+            .expect("the tool");
+        shell.app.activate(i);
+        shell.frame(Vec::new());
+        // The two long top edges facing the camera's side, at their middles.
+        shell.click(DVec3::new(500.0, 0.0, 400.0));
+        shell.click(DVec3::new(1000.0, 250.0, 400.0));
+        shell.type_text("50", true);
+        shell.ok("fillet");
+        let faces = shell
+            .app
+            .session
+            .doc()
+            .container(planyrith_core::document::ContainerRef::Model)
+            .unwrap()
+            .mesh()
+            .face_count();
+        assert_eq!(faces, 6 + 2 * 8, "two edges rounded in 8 pieces each");
     }
 
     #[test]
