@@ -92,6 +92,9 @@ pub struct Viewport {
     /// Segments marked in red, world coordinates (the open edges Check for
     /// 3D Printing found, docs/05 §8.1).
     pub marks: Vec<[DVec3; 2]>,
+    /// Others' selections when working together (docs/08 §3.1): segments
+    /// in their colors.
+    pub others: Vec<(planyrith_core::document::Rgba8, [DVec3; 2])>,
     /// Modifiers held by on-screen toggles in the touch layout (docs/07
     /// §13.1): added to the keyboard's.
     pub sticky: egui::Modifiers,
@@ -654,6 +657,16 @@ impl Viewport {
                 b,
                 infinite: false,
                 dashed: false,
+                kind: OverlayKind::Detached,
+            }));
+        overlay
+            .lines
+            .extend(self.others.iter().map(|&(color, [a, b])| OverlayLine {
+                color: Some(color),
+                a,
+                b,
+                infinite: false,
+                dashed: true,
                 kind: OverlayKind::Detached,
             }));
         let hover = response.hover_pos();

@@ -1,8 +1,15 @@
 //! `planyrith serve` (docs/08 §3): a JSON-RPC 2.0 server over standard input
-//! and output (one JSON frame per line) or over a Unix socket or a localhost
-//! TCP port (frames prefixed by their length as a little-endian `u32`). A TCP
-//! server requires `--token`: clients authenticate with `server.auth` before
-//! any other method (docs/08 Decisions).
+//! and output (one JSON frame per line) or over a Unix socket or a TCP port
+//! (frames prefixed by their length as a little-endian `u32`). A TCP server
+//! requires `--token`: clients authenticate with `server.auth` before any
+//! other method (docs/08 Decisions).
+//!
+//! Socket servers take several clients at once (docs/08 §3.1, working
+//! together): a thread per connection reads frames and hands them to the one
+//! thread that owns the documents, which handles them in arrival order, so
+//! commands never interleave. Each client has its own selection and edit
+//! context, a name and a color; changes to a document reach every client
+//! subscribed to them.
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
@@ -14,6 +21,7 @@ use std::sync::Arc;
 use planyrith_core::commands::{CommandError, CommandRegistry, Engine, Event, GroupToken};
 use planyrith_core::document::{
     ContainerRef, Document, EditContext, EntityPath, EntityRef, FrontOrBack, Query, QueryEnv,
+    Selection,
 };
 use planyrith_core::ids::{EntityId, Pid};
 use planyrith_core::io::render_mesh::{ExtractOptions, RenderMesh, extract};
@@ -58,7 +66,7 @@ const ALL_FIELDS: [&str; 15] = [
 type EventQueue = Rc<RefCell<Vec<(String, &'static str, Value)>>>;
 
 /// Event kinds `events.subscribe` accepts (`*` = all).
-const EVENT_KINDS: [&str; 9] = [
+const EVENT_KINDS: [&str; 10] = [
     "document_changed",
     "selection_changed",
     "context_changed",
@@ -68,6 +76,28 @@ const EVENT_KINDS: [&str; 9] = [
     "progress",
     "warning",
     "history_changed",
+    "presence_changed",
+];
+
+/// Event kinds every subscribed client receives, whoever caused them; the
+/// others go to the client whose request caused them.
+const SHARED_KINDS: [&str; 4] = [
+    "document_changed",
+    "history_changed",
+    "scene_activated",
+    "presence_changed",
+];
+
+/// Participants' colors, in the order they join (docs/08 §3.1).
+const COLORS: [[u8; 3]; 8] = [
+    [0xD5, 0x5E, 0x00],
+    [0x00, 0x72, 0xB2],
+    [0x00, 0x9E, 0x73],
+    [0xCC, 0x79, 0xA7],
+    [0xE6, 0x9F, 0x00],
+    [0x56, 0xB4, 0xE9],
+    [0x88, 0x44, 0xAA],
+    [0x44, 0x44, 0x44],
 ];
 
 /// Runs the server until standard input closes (stdio) or forever (socket).
@@ -90,7 +120,15 @@ pub fn serve(
         events: Rc::default(),
         token: token.map(str::to_string),
         authenticated: token.is_none(),
+        clients: BTreeMap::new(),
+        current: 0,
+        joined: 0,
     };
+    // Standard input and output is one client (always authenticated: only
+    // sockets take a token).
+    let mut solo = Client::new(Box::new(std::io::sink()), 0);
+    solo.authenticated = true;
+    server.clients.insert(0, solo);
     if global.file.is_some() {
         let session = Session::open(global, false)?;
         server.adopt(session);
@@ -131,28 +169,112 @@ fn io_error(what: &str, e: &std::io::Error) -> CliError {
     CliError::io(planyrith_core::io::IoError::storage(what, e.to_string()))
 }
 
-/// Listens on a localhost TCP port (a number; 0 picks a free one) or a Unix
-/// socket path, and serves one client at a time. The documents stay open
-/// across connections.
+/// What a connection's thread hands the server.
+enum Incoming {
+    /// A client connected; replies go to this writer.
+    Open(u64, Box<dyn Write + Send>),
+    /// A frame's bytes.
+    Frame(u64, Vec<u8>),
+    /// A frame longer than the limit; the connection then closes.
+    TooLarge(u64, usize),
+    /// The client went away.
+    Closed(u64),
+}
+
+/// A stream a connection can be read from on one thread and written to
+/// from another.
+trait Duplex: Read + Write + Send + 'static {
+    fn duplicate(&self) -> std::io::Result<Box<dyn Write + Send>>;
+}
+
+impl Duplex for std::net::TcpStream {
+    fn duplicate(&self) -> std::io::Result<Box<dyn Write + Send>> {
+        let _ = self.set_nodelay(true);
+        Ok(Box::new(self.try_clone()?))
+    }
+}
+
+#[cfg(unix)]
+impl Duplex for std::os::unix::net::UnixStream {
+    fn duplicate(&self) -> std::io::Result<Box<dyn Write + Send>> {
+        Ok(Box::new(self.try_clone()?))
+    }
+}
+
+/// Reads one connection's frames until it closes.
+fn read_frames(id: u64, mut reader: impl Read, tx: std::sync::mpsc::Sender<Incoming>) {
+    loop {
+        let mut len = [0u8; 4];
+        if reader.read_exact(&mut len).is_err() {
+            break;
+        }
+        let len = u32::from_le_bytes(len) as usize;
+        if len > MAX_FRAME {
+            let _ = tx.send(Incoming::TooLarge(id, len));
+            return;
+        }
+        let mut frame = vec![0u8; len];
+        if reader.read_exact(&mut frame).is_err() {
+            break;
+        }
+        if tx.send(Incoming::Frame(id, frame)).is_err() {
+            return;
+        }
+    }
+    let _ = tx.send(Incoming::Closed(id));
+}
+
+/// Accepts connections on another thread and serves every client from this
+/// one, in the order their frames arrive.
+fn serve_clients<S: Duplex>(
+    server: &mut Server,
+    incoming: impl Iterator<Item = std::io::Result<S>> + Send + 'static,
+) {
+    // Socket clients only: no standard input and output client.
+    server.clients.clear();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut next = 1u64;
+        for stream in incoming {
+            let Ok(stream) = stream else { continue };
+            let Ok(writer) = stream.duplicate() else {
+                continue;
+            };
+            let id = next;
+            next += 1;
+            if tx.send(Incoming::Open(id, writer)).is_err() {
+                return;
+            }
+            let tx = tx.clone();
+            std::thread::spawn(move || read_frames(id, stream, tx));
+        }
+    });
+    for message in rx {
+        server.incoming(message);
+    }
+}
+
+/// Listens on a TCP port (a number: localhost, 0 picks a free one; or an
+/// address such as `0.0.0.0:7400` to take clients from other machines) or
+/// a Unix socket path. The documents stay open across connections.
 fn serve_socket(server: &mut Server, spec: &str) -> Result<(), CliError> {
-    if let Ok(port) = spec.parse::<u16>() {
+    let address = match spec.parse::<u16>() {
+        Ok(port) => Some(std::net::SocketAddr::from(([127, 0, 0, 1], port))),
+        Err(_) => spec.parse::<std::net::SocketAddr>().ok(),
+    };
+    if let Some(address) = address {
         if server.token.is_none() {
             return Err(CliError::usage(
-                "a TCP socket needs --token <secret>: any local user can connect to it",
+                "a TCP socket needs --token <secret>: anyone who can reach the port could connect",
             ));
         }
-        let listener =
-            std::net::TcpListener::bind(("127.0.0.1", port)).map_err(|e| io_error("socket", &e))?;
+        let listener = std::net::TcpListener::bind(address).map_err(|e| io_error("socket", &e))?;
         let addr = listener.local_addr().map_err(|e| io_error("socket", &e))?;
         out::diagnostic(format!("listening on {addr}"));
-        for stream in listener.incoming() {
-            let stream = stream.map_err(|e| io_error("socket", &e))?;
-            let _ = stream.set_nodelay(true);
-            let reader = stream.try_clone().map_err(|e| io_error("socket", &e))?;
-            if let Err(e) = server.connection(reader, stream) {
-                out::diagnostic(format!("connection closed: {e}"));
-            }
-        }
+        serve_clients(
+            server,
+            std::iter::repeat_with(move || listener.accept().map(|(s, _)| s)),
+        );
         return Ok(());
     }
     serve_unix(server, spec)
@@ -178,20 +300,27 @@ fn serve_unix(server: &mut Server, path: &str) -> Result<(), CliError> {
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
         .map_err(|e| io_error("socket", &e))?;
     out::diagnostic(format!("listening on {}", path.display()));
-    for stream in listener.incoming() {
-        let stream = stream.map_err(|e| io_error("socket", &e))?;
-        let reader = stream.try_clone().map_err(|e| io_error("socket", &e))?;
-        if let Err(e) = server.connection(reader, stream) {
-            out::diagnostic(format!("connection closed: {e}"));
-        }
-    }
+    serve_clients(server, UnixIncoming(listener));
     Ok(())
+}
+
+/// A Unix listener's connections, owned (for the accepting thread).
+#[cfg(unix)]
+struct UnixIncoming(std::os::unix::net::UnixListener);
+
+#[cfg(unix)]
+impl Iterator for UnixIncoming {
+    type Item = std::io::Result<std::os::unix::net::UnixStream>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        Some(self.0.accept().map(|(s, _)| s))
+    }
 }
 
 #[cfg(not(unix))]
 fn serve_unix(_server: &mut Server, path: &str) -> Result<(), CliError> {
     Err(CliError::usage(format!(
-        "`{path}` is not a port number, and Unix sockets are not available on this system"
+        "`{path}` is not a port number or address, and Unix sockets are not available on this system"
     )))
 }
 
@@ -266,8 +395,34 @@ impl RpcError {
 struct Doc {
     session: Session,
     /// The undo group consecutive `command.execute` calls with the same
-    /// `group` share.
+    /// `group` share, and the client that opened it.
     group: Option<(String, GroupToken)>,
+    group_client: u64,
+}
+
+/// One client's own state (docs/08 §3.1).
+struct Client {
+    writer: Box<dyn Write + Send>,
+    authenticated: bool,
+    kinds: BTreeSet<String>,
+    /// The name others see (`presence.set`).
+    name: String,
+    color: [u8; 3],
+    /// Selection and edit context per document.
+    views: BTreeMap<String, (Selection, EditContext)>,
+}
+
+impl Client {
+    fn new(writer: Box<dyn Write + Send>, order: usize) -> Self {
+        Client {
+            writer,
+            authenticated: false,
+            kinds: BTreeSet::new(),
+            name: format!("Guest {}", order + 1),
+            color: COLORS[order % COLORS.len()],
+            views: BTreeMap::new(),
+        }
+    }
 }
 
 struct Server {
@@ -284,48 +439,222 @@ struct Server {
     kinds: BTreeSet<String>,
     /// Pending events.
     events: EventQueue,
+    /// Connected clients (0: standard input and output).
+    clients: BTreeMap<u64, Client>,
+    /// The client whose request is being handled.
+    current: u64,
+    /// Clients that ever joined (for their colors).
+    joined: usize,
 }
 
 impl Server {
-    /// Serves one socket client until it disconnects.
-    fn connection(&mut self, mut reader: impl Read, mut writer: impl Write) -> std::io::Result<()> {
-        self.authenticated = self.token.is_none();
-        self.kinds.clear();
-        self.events.borrow_mut().clear();
-        loop {
-            let mut len = [0u8; 4];
-            match reader.read_exact(&mut len) {
-                Ok(()) => {}
-                Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(()),
-                Err(e) => return Err(e),
+    /// Handles what a connection's thread reported (docs/08 §3.1).
+    fn incoming(&mut self, message: Incoming) {
+        match message {
+            Incoming::Open(id, writer) => {
+                self.joined += 1;
+                let mut client = Client::new(writer, self.joined - 1);
+                client.authenticated = self.token.is_none();
+                self.clients.insert(id, client);
+                self.announce(id);
             }
-            let len = u32::from_le_bytes(len) as usize;
-            if len > MAX_FRAME {
+            Incoming::Closed(id) => {
+                if self.clients.remove(&id).is_some() {
+                    self.announce(id);
+                }
+            }
+            Incoming::TooLarge(id, len) => {
                 let error = RpcError::new(
                     INVALID_REQUEST,
                     format!("frame of {len} bytes is too large"),
                 );
-                write_frame(&mut writer, &reply_error(Value::Null, error))?;
-                return Ok(());
+                if let Some(mut client) = self.clients.remove(&id) {
+                    let _ = write_frame(&mut client.writer, &reply_error(Value::Null, error));
+                }
+                self.announce(id);
             }
-            let mut frame = vec![0u8; len];
-            reader.read_exact(&mut frame)?;
-            let reply = match String::from_utf8(frame) {
-                Ok(text) => self.frame(&text),
-                Err(e) => Some(reply_error(
-                    Value::Null,
-                    RpcError::new(PARSE_ERROR, format!("frames are UTF-8 JSON: {e}")),
-                )),
-            };
-            for event in self.drain_events() {
-                write_frame(&mut writer, &event)?;
-            }
-            if let Some(reply) = reply {
-                write_frame(&mut writer, &reply)?;
+            Incoming::Frame(id, bytes) => {
+                if !self.clients.contains_key(&id) {
+                    return;
+                }
+                self.enter(id);
+                let reply = match String::from_utf8(bytes) {
+                    Ok(text) => self.frame(&text),
+                    Err(e) => Some(reply_error(
+                        Value::Null,
+                        RpcError::new(PARSE_ERROR, format!("frames are UTF-8 JSON: {e}")),
+                    )),
+                };
+                let moved = self.leave(id);
+                self.deliver(id, reply);
+                if moved {
+                    self.announce(id);
+                }
             }
         }
     }
 
+    /// Makes client `id`'s view current: authentication, subscription, and
+    /// its selection and edit context in every document.
+    fn enter(&mut self, id: u64) {
+        self.current = id;
+        let Some(client) = self.clients.get(&id) else {
+            return;
+        };
+        self.authenticated = client.authenticated;
+        self.kinds = client.kinds.clone();
+        let views = client.views.clone();
+        for (doc_id, doc) in &mut self.docs {
+            let (selection, context) = views
+                .get(doc_id)
+                .cloned()
+                .unwrap_or_else(|| (Selection::new(), EditContext::model()));
+            let engine = &mut doc.session.engine;
+            if engine.set_context(context).is_err() {
+                // What the client had open is gone: back to the model.
+                let _ = engine.set_context(EditContext::model());
+            }
+            engine.set_selection(selection);
+        }
+        // Switching views is not news to anyone.
+        self.events.borrow_mut().clear();
+    }
+
+    /// Keeps client `id`'s view; whether its selection or context changed.
+    fn leave(&mut self, id: u64) -> bool {
+        let views: BTreeMap<String, (Selection, EditContext)> = self
+            .docs
+            .iter()
+            .map(|(doc_id, doc)| {
+                let engine = &doc.session.engine;
+                (
+                    doc_id.clone(),
+                    (engine.selection().clone(), engine.context().clone()),
+                )
+            })
+            .collect();
+        let (authenticated, kinds) = (self.authenticated, self.kinds.clone());
+        let Some(client) = self.clients.get_mut(&id) else {
+            return false;
+        };
+        let moved = client.views != views;
+        client.views = views;
+        client.authenticated = authenticated;
+        client.kinds = kinds;
+        moved
+    }
+
+    /// Sends the pending events (shared ones to every subscribed client,
+    /// the others to client `id`), then `reply` to client `id`.
+    fn deliver(&mut self, id: u64, reply: Option<Value>) {
+        let pending = std::mem::take(&mut *self.events.borrow_mut());
+        let mut gone = Vec::new();
+        for (doc_id, kind, data) in pending {
+            let frame = json!({
+                "jsonrpc": "2.0",
+                "method": "event",
+                "params": { "doc_id": doc_id, "kind": kind, "data": data },
+            });
+            for (&cid, client) in &mut self.clients {
+                let to_this = cid == id || SHARED_KINDS.contains(&kind);
+                if to_this
+                    && client.authenticated
+                    && client.kinds.contains(kind)
+                    && write_frame(&mut client.writer, &frame).is_err()
+                {
+                    gone.push(cid);
+                }
+            }
+        }
+        if let Some(reply) = reply
+            && let Some(client) = self.clients.get_mut(&id)
+            && write_frame(&mut client.writer, &reply).is_err()
+        {
+            gone.push(id);
+        }
+        for cid in gone {
+            self.clients.remove(&cid);
+        }
+    }
+
+    /// Tells the other clients that client `id` joined, left, renamed or
+    /// selected something.
+    fn announce(&mut self, id: u64) {
+        let frame = json!({
+            "jsonrpc": "2.0",
+            "method": "event",
+            "params": { "kind": "presence_changed", "data": { "client": id } },
+        });
+        let mut gone = Vec::new();
+        for (&cid, client) in &mut self.clients {
+            if cid != id
+                && client.authenticated
+                && client.kinds.contains("presence_changed")
+                && write_frame(&mut client.writer, &frame).is_err()
+            {
+                gone.push(cid);
+            }
+        }
+        for cid in gone {
+            self.clients.remove(&cid);
+        }
+    }
+
+    /// `presence.set {name}`: the name others see.
+    fn presence_set(&mut self, p: &Map<String, Value>) -> Result<Value, RpcError> {
+        let name = required_str(p, "name")?.trim();
+        if name.is_empty() || name.chars().count() > 64 {
+            return Err(RpcError::params("`name` is 1 to 64 characters"));
+        }
+        let current = self.current;
+        let client = self
+            .clients
+            .get_mut(&current)
+            .ok_or_else(|| RpcError::new(INTERNAL_ERROR, "no client"))?;
+        client.name = name.to_string();
+        let you = json!({ "client": current, "name": client.name, "color": client.color });
+        self.announce(current);
+        Ok(you)
+    }
+
+    /// Everyone connected, with what they selected in document `doc_id`
+    /// (paths and world bounds).
+    fn participants(&self, doc_id: &str) -> Vec<Value> {
+        let doc = self.docs.get(doc_id);
+        self.clients
+            .iter()
+            .filter(|(_, c)| c.authenticated)
+            .map(|(&id, c)| {
+                let selection = if id == self.current {
+                    doc.map(|d| d.session.engine.selection().clone())
+                } else {
+                    c.views.get(doc_id).map(|(s, _)| s.clone())
+                };
+                let items: Vec<Value> = match (doc, selection) {
+                    (Some(d), Some(sel)) => {
+                        let document = d.session.engine.document();
+                        sel.iter()
+                            .take(1000)
+                            .map(|path| {
+                                json!({
+                                    "path": path.display_with(document),
+                                    "bounds": document.occurrence_aabb(path).map(|b| [b.min.to_array(), b.max.to_array()]),
+                                })
+                            })
+                            .collect()
+                    }
+                    _ => Vec::new(),
+                };
+                json!({
+                    "client": id,
+                    "name": c.name,
+                    "color": c.color,
+                    "you": id == self.current,
+                    "selection": items,
+                })
+            })
+            .collect()
+    }
     /// Handles one frame (a request, a notification or a batch); `None` when
     /// nothing is to be answered.
     fn frame(&mut self, text: &str) -> Option<Value> {
@@ -450,6 +779,23 @@ impl Server {
             }
             "context.set" => self.context_set(p),
             "events.subscribe" => self.subscribe(p),
+            "presence.set" => self.presence_set(p),
+            "presence.list" => {
+                let id = required_str(p, "doc_id")?;
+                self.doc(p)?;
+                Ok(json!(self.participants(id)))
+            }
+            "session.status" => {
+                let id = required_str(p, "doc_id")?.to_string();
+                let doc = self.doc(p)?;
+                let engine = &doc.session.engine;
+                Ok(json!({
+                    "generation": engine.generation(),
+                    "undo": engine.history().undo_label(),
+                    "redo": engine.history().redo_label(),
+                    "participants": self.participants(&id),
+                }))
+            }
             "command.preview" => self.command_preview(p),
             "document.render_mesh" => self.document_render_mesh(p),
             other => Err(RpcError::new(
@@ -573,6 +919,7 @@ impl Server {
                     "document.get", "selection.get", "selection.set", "context.get",
                     "context.set", "events.subscribe", "command.preview",
                     "document.render_mesh", "document.snapshot", "script.eval", "server.auth",
+                    "presence.set", "presence.list", "session.status",
                 ],
             },
         })
@@ -597,6 +944,7 @@ impl Server {
             Doc {
                 session,
                 group: None,
+                group_client: 0,
             },
         );
         id
@@ -695,9 +1043,12 @@ impl Server {
             return Err(RpcError::readonly(&format!("`{name}`")));
         }
         let global = self.global.clone();
+        let current = self.current;
         let doc = self.doc_mut(p)?;
-        // Consecutive calls with the same group form one undo step.
-        if doc.group.as_ref().map(|(g, _)| g) != group.as_ref() {
+        // Consecutive calls with the same group form one undo step; another
+        // client's call ends it.
+        if doc.group.as_ref().map(|(g, _)| g) != group.as_ref() || doc.group_client != current {
+            doc.group_client = current;
             close_group(doc)?;
             if let Some(label) = &group {
                 let token = doc.session.engine.begin_group(label);

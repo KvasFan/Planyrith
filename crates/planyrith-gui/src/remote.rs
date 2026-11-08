@@ -25,6 +25,39 @@ pub(crate) struct Snapshot {
     pub redo: Option<String>,
 }
 
+/// What `session.status` answers.
+#[derive(Deserialize)]
+pub(crate) struct Status {
+    pub generation: u64,
+    pub undo: Option<String>,
+    pub redo: Option<String>,
+    pub participants: Vec<Participant>,
+}
+
+/// Someone connected to the server.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct Participant {
+    /// The server's number for them.
+    pub client: u64,
+    /// Their name.
+    pub name: String,
+    /// Their color (sRGB).
+    pub color: [u8; 3],
+    /// This is the session's own connection.
+    pub you: bool,
+    /// What they selected: paths and world bounds.
+    pub selection: Vec<Selected>,
+}
+
+/// One selected entity of a participant.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct Selected {
+    /// Its path.
+    pub path: String,
+    /// Its world bounds, when it has any.
+    pub bounds: Option<[[f64; 3]; 2]>,
+}
+
 /// One local authenticated framed JSON-RPC connection.
 pub(crate) struct Remote {
     transport: Box<dyn Transport>,
@@ -36,10 +69,26 @@ pub(crate) struct Remote {
 }
 impl Remote {
     pub fn connect(address: &str, token: &str, doc_id: &str) -> Result<Self, String> {
-        let transport: Box<dyn Transport> = if let Ok(port) = address.parse::<u16>() {
-            let socket = std::net::SocketAddr::from(([127, 0, 0, 1], port));
-            let stream = std::net::TcpStream::connect_timeout(&socket, Duration::from_secs(3))
+        // A port (this machine), `host:port` (another one, docs/08 §3.1) or
+        // a Unix socket path.
+        let network = if let Ok(port) = address.parse::<u16>() {
+            Some(std::net::SocketAddr::from(([127, 0, 0, 1], port)))
+        } else if !address.starts_with('/') && address.contains(':') {
+            use std::net::ToSocketAddrs;
+            Some(
+                address
+                    .to_socket_addrs()
+                    .map_err(|e| e.to_string())?
+                    .next()
+                    .ok_or_else(|| format!("{address} has no address"))?,
+            )
+        } else {
+            None
+        };
+        let transport: Box<dyn Transport> = if let Some(socket) = network {
+            let stream = std::net::TcpStream::connect_timeout(&socket, Duration::from_secs(5))
                 .map_err(|e| e.to_string())?;
+            let _ = stream.set_nodelay(true);
             stream
                 .set_read_timeout(Some(Duration::from_secs(65)))
                 .map_err(|e| e.to_string())?;
@@ -141,6 +190,22 @@ impl Remote {
                 .ok_or_else(|| "RPC response has no result".into());
         }
     }
+    /// The document's generation, history labels and the people working on
+    /// it (`session.status`, docs/08 §3.1).
+    pub fn status(&mut self) -> Result<Status, String> {
+        let status: Status = serde_json::from_value(self.call("session.status", json!({}))?)
+            .map_err(|e| e.to_string())?;
+        self.undo = status.undo.clone();
+        self.redo = status.redo.clone();
+        Ok(status)
+    }
+
+    /// The name the others see.
+    pub fn set_name(&mut self, name: &str) -> Result<(), String> {
+        self.call("presence.set", json!({ "name": name }))
+            .map(|_| ())
+    }
+
     pub fn snapshot(&mut self) -> Result<Snapshot, String> {
         let snapshot: Snapshot = serde_json::from_value(self.call("document.snapshot", json!({}))?)
             .map_err(|e| e.to_string())?;

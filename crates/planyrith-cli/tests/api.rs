@@ -318,6 +318,14 @@ fn the_api_stays_compatible_with_version_1() {
             let commands = frozen["commands"].as_object_mut().unwrap();
             commands.entry(name).or_insert_with(|| entry.clone());
         }
+        for list in ["methods", "events"] {
+            let items = frozen[list].as_array_mut().unwrap();
+            for item in now[list].as_array().unwrap() {
+                if !items.contains(item) {
+                    items.push(item.clone());
+                }
+            }
+        }
         std::fs::write(&path, render(&frozen)).unwrap();
     }
     let frozen: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();

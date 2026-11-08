@@ -30,6 +30,8 @@ pub mod session;
 mod theme;
 #[cfg(not(target_arch = "wasm32"))]
 mod thumbnails;
+#[cfg(not(target_arch = "wasm32"))]
+mod together;
 mod tools;
 #[cfg(not(target_arch = "wasm32"))]
 mod trace_preview;

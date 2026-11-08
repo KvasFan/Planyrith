@@ -137,7 +137,8 @@ select 'face & plane:xy@0' ; move --targets selection --delta 0,0,700
 
 ### `planyrith serve [--stdio | --socket <path|port>] [-f model.plyr] [--readonly] [--token <secret>]`
 JSON-RPC 2.0 server (newline-delimited JSON frames over stdio; or length-prefixed frames over
-a Unix socket / localhost TCP). Methods:
+a Unix socket or TCP: a bare port listens on localhost, an address such as `0.0.0.0:7400` on the
+network; TCP needs `--token`). Methods:
 
 | Method | Params → Result |
 |---|---|
@@ -154,10 +155,39 @@ a Unix socket / localhost TCP). Methods:
 | `events.subscribe` | `{kinds}` → notifications `event` with deltas (`docs/01 §8`) |
 | `server.capabilities` | → `{schema_version, formats, features}` |
 | `server.auth` | `{token}` → `{authenticated}` (socket servers started with `--token`) |
+| `presence.set` | `{name}` → `{client, name, color}`: the name others see (§3.1) |
+| `presence.list` | `{doc_id}` → `[{client, name, color, you, selection: [{path, bounds}]}]` |
+| `session.status` | `{doc_id}` → `{generation, undo, redo, participants}` (what a joined GUI polls) |
 
 Errors use JSON-RPC error objects with `code` from §9 and `data.details`. Concurrency: one
 writer; `command.execute` calls are serialized per document. The GUI's "attach to server" mode
 uses exactly this protocol, so it is tested by the GUI's integration tests.
+
+### 3.1 Working together (1.5)
+A socket server takes several clients at once. A thread per connection reads frames and hands
+them to the one thread that owns the documents, which handles them in the order they arrive,
+so commands from different people never interleave and no merging is needed: each command
+applies to the document as the commands before it left it.
+- **Per client:** authentication, the event subscription, a name (`presence.set`; `Guest n` by
+  default), a color (from a fixed palette, by joining order) and, per document, a selection
+  and an edit context. A client's request runs with its own selection and context; when what
+  it had open was deleted by someone else, it is back at the model.
+- **Events:** `document_changed`, `history_changed`, `scene_activated` and `presence_changed`
+  reach every subscribed client, whoever caused them, pushed as they happen; the others
+  (selection, context, camera, tool, progress, warning) go to the client that caused them.
+  `presence_changed` tells that someone joined, left, renamed or changed their selection or
+  context.
+- **History** is the document's: undo takes back the last change, whoever made it. An undo
+  group (`command.execute {group}`) ends when another client's command arrives.
+- **Desktop GUI:** File › Work Together… joins a document by server (`host:port`, a port, or a
+  socket path), token, document id and name. A joined session asks `session.status` every half
+  second: others' changes reload the document (the camera stays the user's), the participants
+  appear in the status bar as colored dots, and their selections as dashed boxes in their
+  colors in the viewport. Leave keeps a local copy to save. Hosting is
+  `planyrith serve -f model.plyr --socket 0.0.0.0:7400 --token <secret>`.
+- **Security:** the token is checked in constant time, but frames are not encrypted (no TLS
+  implementation without C code is available, docs/02); across untrusted networks use an
+  encrypted tunnel (SSH, VPN).
 
 ### `planyrith repl -f model.plyr`
 Interactive line editor with completion over command names and params, history, `:undo`,
@@ -361,6 +391,17 @@ On failure: `{"ok": false, "error": {"code": "E1002", "message": "...", "param":
   A plugin's parameter called `steps` uses `--steps <count>`; interactive help
   is then `--tool-steps` instead of `--steps`. Semantic form lengths/angles
   enrich the schema, so their CLI options accept units.
+- 2026-11-09 — **Working together** (§3.1). A server that orders commands rather than a
+  replicated document with a merge model: the server already applied commands one at a time,
+  every command is a deterministic, validated operation on the current document, and a CAD
+  model's invariants (closed solids, face finding, components) are not something two
+  independently edited copies can be merged into safely. The cost is a round trip per command
+  and a server someone runs; the benefit is that nothing can diverge. Shared history rather than
+  per-person undo for the same reason: undoing an older command under newer ones by other people
+  could fail validation. GUI clients poll `session.status` (half a second) instead of reading
+  pushed events, which keeps their connection strictly request-reply; other clients get pushed
+  events. Per-client cameras stay on the clients.
+
 - 2026-10-28 — Native GUI attachment uses the existing framed local socket/TCP
   protocol and token authentication (TCP). Extension Manager › Attach accepts
   a port or Unix socket and a document id (`d1` for `serve -f`, empty creates

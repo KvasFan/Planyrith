@@ -189,3 +189,61 @@ fn attached_gui_dispatches_history_scripts_and_save_to_server() {
     let loaded = Session::open(&file).unwrap();
     assert!(loaded.doc().model.mesh().is_solid());
 }
+
+/// docs/08 §3.1: two desktop sessions join one document by address and
+/// name; one draws and selects, the other sees the change and the
+/// selection, then leaves with a local copy.
+#[test]
+fn two_gui_sessions_work_together() {
+    let mut server = Server(
+        Command::new(cli())
+            .args(["serve", "--socket", "127.0.0.1:0", "--token", "t0ken"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap(),
+    );
+    let mut stderr = BufReader::new(server.0.stderr.take().unwrap());
+    let mut line = String::new();
+    stderr.read_line(&mut line).unwrap();
+    let address = line
+        .trim()
+        .strip_prefix("listening on ")
+        .unwrap()
+        .to_string();
+    let mut anna = Session::join(&address, "t0ken", "", "Anna").unwrap();
+    let doc_id = "d1";
+    let mut bruno = Session::join(&address, "t0ken", doc_id, "Bruno").unwrap();
+    assert_eq!(bruno.participants.len(), 2);
+    anna.execute(
+        "rectangle",
+        json!({ "corner_a": [0, 0, 0], "corner_b": [800, 400, 0] }),
+    )
+    .unwrap();
+    anna.execute("select", json!({ "query": "face" })).unwrap();
+    bruno.poll_remote(1000.0).unwrap();
+    assert_eq!(
+        bruno.doc().model.mesh().faces().count(),
+        1,
+        "Anna's face arrived"
+    );
+    assert!(
+        bruno.engine.selection().is_empty(),
+        "Bruno's selection is his own"
+    );
+    let anna_row = bruno
+        .participants
+        .iter()
+        .find(|p| p.name == "Anna")
+        .expect("Anna is listed");
+    assert!(!anna_row.you);
+    assert_eq!(anna_row.selection.len(), 1);
+    assert_eq!(
+        anna_row.selection[0].bounds,
+        Some([[0.0, 0.0, 0.0], [800.0, 400.0, 0.0]])
+    );
+    let local = bruno.leave();
+    assert!(!local.is_attached());
+    assert_eq!(local.doc().model.mesh().faces().count(), 1);
+}

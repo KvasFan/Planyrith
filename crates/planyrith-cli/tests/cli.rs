@@ -1251,6 +1251,132 @@ fn serve_over_tcp_requires_the_token() {
     }
 }
 
+/// docs/08 §3.1: two people work on one document at once. Each has a
+/// selection of their own; a change reaches the other as an event without
+/// the other asking; each sees who else is there and what they selected.
+#[test]
+fn two_clients_work_on_one_document() {
+    use serde_json::json;
+    let (mut child, addr) = spawn_server(&["--socket", "0", "--token", "s3cret"]);
+    let result = std::panic::catch_unwind(|| {
+        let connect = |name: &str| {
+            let mut stream = std::net::TcpStream::connect(&addr).unwrap();
+            stream
+                .set_read_timeout(Some(std::time::Duration::from_secs(10)))
+                .unwrap();
+            call(
+                &mut stream,
+                rpc(1, "server.auth", json!({ "token": "s3cret" })),
+            );
+            let r = call(&mut stream, rpc(2, "presence.set", json!({ "name": name })));
+            assert_eq!(r["result"]["name"], name);
+            stream
+        };
+        let mut anna = connect("Anna");
+        let r = call(&mut anna, rpc(3, "session.new", json!({})));
+        assert_eq!(r["result"]["doc_id"], "d1");
+        let mut bruno = connect("Bruno");
+        call(
+            &mut bruno,
+            rpc(
+                3,
+                "events.subscribe",
+                json!({ "kinds": ["document_changed", "presence_changed"] }),
+            ),
+        );
+
+        // Anna draws and selects; Bruno hears of it without asking.
+        call(
+            &mut anna,
+            rpc(
+                4,
+                "command.execute",
+                json!({ "doc_id": "d1", "name": "rectangle",
+                "params": { "corner_a": [0, 0, 0], "corner_b": [1000, 500, 0] } }),
+            ),
+        );
+        let event = read_frame(&mut bruno);
+        assert_eq!(event["method"], "event", "{event}");
+        assert_eq!(event["params"]["kind"], "document_changed");
+        call(
+            &mut anna,
+            rpc(
+                5,
+                "selection.set",
+                json!({ "doc_id": "d1", "query": "face" }),
+            ),
+        );
+
+        // Bruno's own selection is empty; he sees Anna's, with its bounds.
+        let r = call(
+            &mut bruno,
+            rpc(6, "selection.get", json!({ "doc_id": "d1" })),
+        );
+        assert_eq!(r["result"]["selection"], json!([]), "{r}");
+        let r = call(
+            &mut bruno,
+            rpc(7, "session.status", json!({ "doc_id": "d1" })),
+        );
+        let people = r["result"]["participants"].as_array().unwrap();
+        assert_eq!(people.len(), 2, "{r}");
+        let anna_row = people.iter().find(|p| p["name"] == "Anna").unwrap();
+        assert_eq!(anna_row["you"], false);
+        assert_eq!(anna_row["selection"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            anna_row["selection"][0]["bounds"][1],
+            json!([1000.0, 500.0, 0.0])
+        );
+        assert_ne!(
+            anna_row["color"],
+            people.iter().find(|p| p["name"] == "Bruno").unwrap()["color"]
+        );
+        assert!(r["result"]["generation"].as_u64().unwrap() > 0);
+
+        // Commands queue: Bruno's push/pull works on the face Anna drew.
+        let r = call(
+            &mut bruno,
+            rpc(
+                8,
+                "command.execute",
+                json!({ "doc_id": "d1", "name": "push-pull",
+                "params": { "face": { "Query": "face" }, "distance": 300 } }),
+            ),
+        );
+        assert!(
+            r["result"]["deltas_summary"]["changed"].as_bool().unwrap(),
+            "{r}"
+        );
+        let r = call(
+            &mut anna,
+            rpc(
+                9,
+                "document.query",
+                json!({ "doc_id": "d1", "query": "face" }),
+            ),
+        );
+        assert_eq!(r["result"].as_array().unwrap().len(), 6);
+
+        // When Anna leaves, Bruno is told.
+        drop(anna);
+        loop {
+            let frame = read_frame(&mut bruno);
+            if frame["params"]["kind"] == "presence_changed" {
+                break;
+            }
+        }
+        let r = call(
+            &mut bruno,
+            rpc(10, "presence.list", json!({ "doc_id": "d1" })),
+        );
+        assert_eq!(r["result"].as_array().unwrap().len(), 1);
+    });
+    let _ = child.kill();
+    let _ = child.wait();
+    if let Err(e) = result {
+        std::panic::resume_unwind(e);
+    }
+}
+
 /// docs/08 §3: a Unix socket only this user may open.
 #[cfg(unix)]
 #[test]

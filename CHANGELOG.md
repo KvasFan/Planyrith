@@ -6,6 +6,10 @@ All notable changes to Planyrith are recorded here. Versions follow
 
 ## Unreleased
 
+- Work together: several people edit one document at once through
+  `planyrith serve` (now also on a network address). Each has a selection of
+  their own, sees who else is connected and their selections in their colors,
+  and gets the others' changes within half a second (File › Work Together…).
 - Touch layout for tablets and phones: larger controls, the viewport across
   the window with panels in a drawer, and Shift, Ctrl and Alt buttons that
   stay down for the tools. It turns on by itself on touch or in a narrow

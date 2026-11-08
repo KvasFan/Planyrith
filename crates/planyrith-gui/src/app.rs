@@ -379,6 +379,9 @@ pub struct App {
     /// View › Path-Traced Preview (docs/06 §11.2).
     #[cfg(not(target_arch = "wasm32"))]
     trace_preview: crate::trace_preview::TracePreview,
+    /// File › Work Together… (docs/08 §3.1).
+    #[cfg(not(target_arch = "wasm32"))]
+    together: crate::together::Together,
     extensions: crate::extensions::Extensions,
     sheets: crate::sheets::Sheets,
     /// Journal and snapshot the documents (off in tests).
@@ -522,6 +525,8 @@ impl App {
             render_job: Default::default(),
             #[cfg(not(target_arch = "wasm32"))]
             trace_preview: Default::default(),
+            #[cfg(not(target_arch = "wasm32"))]
+            together: Default::default(),
             extensions: Default::default(),
             sheets: Default::default(),
             autosave: false,
@@ -1394,6 +1399,11 @@ impl App {
                         ui.close();
                     }
                 });
+                #[cfg(not(target_arch = "wasm32"))]
+                if ui.button(t("Work Together…")).clicked() {
+                    self.together.open = true;
+                    ui.close();
+                }
                 if ui.button(t("Insert Image…")).clicked() {
                     self.resources.file = Some(FileRequest::Image);
                     ui.close();
@@ -2058,6 +2068,14 @@ impl App {
     /// Breadcrumb, the step's prompt, the selection, what is under the
     /// cursor and the last message (docs/07 §4).
     fn status_left(&mut self, ui: &mut egui::Ui, prompt: &str) {
+        // Who else works on the document (docs/08 §3.1).
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.session.is_attached() && self.session.participants.len() > 1 {
+            for p in &self.session.participants {
+                ui.push_id(p.client, |ui| crate::together::chip(ui, p));
+            }
+            ui.separator();
+        }
         // Breadcrumb (docs/07 §4): click to leave levels.
         let doc = self.session.doc();
         let context = self.session.engine.context().path.canonical(doc);
@@ -3179,6 +3197,17 @@ impl App {
         self.viewport.snap_px = Some(f64::from(self.settings.snap_px.clamp(4.0, 24.0)));
         self.viewport.invert_wheel = self.settings.invert_wheel;
         self.viewport.marks = self.print_check.marks(&self.session);
+        // Working together: news from the server, others' selections.
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.session.is_attached() {
+            if let Err(e) = self.session.poll_remote(ctx.input(|i| i.time)) {
+                self.error(e);
+            }
+            self.viewport.others = crate::together::selection_lines(&self.session.participants);
+            ctx.request_repaint_after(std::time::Duration::from_millis(500));
+        } else {
+            self.viewport.others.clear();
+        }
         // The header band: menus and toolbar share one surface, as does the
         // status bar below (docs/07 Decisions, 2026-11-03).
         let header = theme::header(ui.visuals());
@@ -3321,6 +3350,7 @@ impl App {
         {
             self.render_job.window(&ctx);
             self.trace_preview.window(&ctx, &self.session);
+            self.together.window(&ctx, &mut self.session);
             if std::mem::take(&mut self.render_job.pick) {
                 let kind = t("Images");
                 self.dialog = platform::file_dialog()

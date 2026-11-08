@@ -59,7 +59,11 @@ opening exported FBX files in a reference application (a downloaded one may not 
 
 **1.4 implemented (2026-11-08):** path tracing on the graphics card (`GpuPathTracer`,
 `render --path-traced --gpu`, used by the preview; docs/06 §11.3) and the touch layout
-(docs/07 §13.1). Collaborative editing remains, awaiting the user's decisions.
+(docs/07 §13.1).
+
+**1.5 implemented (2026-11-09):** working together (docs/08 §3.1): a multi-client server
+ordering commands, per-client selection and context, presence, `session.status`, network
+addresses, File › Work Together…
 
 **After alpha.3 (unreleased, 2026-11-02):** the renderer draws the style's edge
 effects (depth cue, extension, endpoints, jitter) and shadows from edges without

@@ -171,10 +171,22 @@ Continues 1.3 at the user's request ("riprendi", 2026-11-08). In order:
    long press for the context menu) in the web build and on touch screens.
 - **Accept:** tests and documentation; the CI gates stay green.
 
+## 1.5.0 — Working together
+At the user's request ("continue with milestones", 2026-11-09):
+1. **Several people on one document:** the server takes several clients at once, orders their
+   commands and gives each a selection and edit context of their own; changes reach everyone.
+2. **Presence:** names and colors; everyone sees who is connected and what they selected.
+3. **Desktop joining:** File › Work Together…, network addresses, a local copy on leaving.
+- **Accept:** a CLI test with two clients and a GUI test with two sessions; documentation.
+
 ## Post-1.0 candidates
-Collaborative editing.
+Encrypted transport, joining from the browser, per-person undo.
 
 ## Decisions
+
+- 2026-11-09 — **Milestone 1.5.** Collaborative editing, the last candidate, with the design
+  in docs/08 Decisions ("Working together"): a server that orders commands, chosen because it
+  needs no merge model and builds on the existing server and GUI attachment. Done in full.
 
 - 2026-11-08 — **1.4 progress.** Path tracing on the graphics card (docs/06 §11.3) and the
   touch layout (docs/07 §13.1) are done, which completes the milestone.

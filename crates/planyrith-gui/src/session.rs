@@ -28,6 +28,12 @@ use crate::platform::{self, now_rfc3339};
 pub struct Session {
     #[cfg(not(target_arch = "wasm32"))]
     remote: Option<crate::remote::Remote>,
+    /// The people working on the attached document (docs/08 §3.1).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub participants: Vec<crate::remote::Participant>,
+    /// When the server was last asked for news (seconds).
+    #[cfg(not(target_arch = "wasm32"))]
+    polled: f64,
     /// The engine owning the document.
     pub engine: Engine,
     /// Where it was read from or last saved to.
@@ -173,6 +179,10 @@ impl Session {
                     .is_some_and(|p| planyrith_core::io::model_file::is_skp(&p.to_string_lossy())),
             #[cfg(not(target_arch = "wasm32"))]
             remote: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            participants: Vec::new(),
+            #[cfg(not(target_arch = "wasm32"))]
+            polled: f64::NEG_INFINITY,
             engine,
             path,
             loaded,
@@ -641,6 +651,48 @@ impl Session {
         session.mark_saved();
         Ok(session)
     }
+    /// Joins the document `doc_id` on the server at `address` under `name`
+    /// (docs/08 §3.1).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn join(address: &str, token: &str, doc_id: &str, name: &str) -> Result<Self, String> {
+        let mut session = Self::attach(address, token, doc_id)?;
+        if let Some(remote) = session.remote.as_mut() {
+            remote.set_name(name)?;
+        }
+        session.poll_remote(f64::INFINITY)?;
+        Ok(session)
+    }
+
+    /// The server's address of the attached document is asked for news at
+    /// most every half second: others' changes reload the document (the
+    /// camera stays), and the participants are kept.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn poll_remote(&mut self, now: f64) -> Result<(), String> {
+        if now - self.polled < 0.5 && now.is_finite() {
+            return Ok(());
+        }
+        self.polled = if now.is_finite() { now } else { self.polled };
+        let Some(remote) = self.remote.as_mut() else {
+            return Ok(());
+        };
+        let status = remote.status()?;
+        self.participants = status.participants;
+        if status.generation != remote.generation {
+            self.refresh_remote(true)?;
+        }
+        Ok(())
+    }
+
+    /// Leaves the server, keeping a local copy of the document to save.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn leave(&mut self) -> Self {
+        let mut local = Self::new();
+        local
+            .engine
+            .replace_document(self.engine.document().clone());
+        local
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     fn refresh_remote(&mut self, preserve_camera: bool) -> Result<(), String> {
         let remote = self.remote.as_mut().ok_or("No remote connection")?;
