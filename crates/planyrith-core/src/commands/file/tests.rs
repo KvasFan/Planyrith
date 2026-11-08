@@ -2434,3 +2434,51 @@ fn collada_round_trips_components_and_textures() {
         assert_eq!(o["printable"], true);
     }
 }
+
+/// docs/09 §5 IFC import: elements come back as groups tagged with their
+/// class and carrying `ifc` attributes, so a second export keeps classes
+/// and storeys; a multi-part element stays one group.
+#[test]
+fn ifc_round_trips_classes_storeys_and_parts() {
+    let (mut e, storage) = engine();
+    for (x, name, tag) in [(0, "Wall", "Walls"), (2000, "Table", "Furniture")] {
+        run(
+            &mut e,
+            "rectangle",
+            json!({ "corner_a": [x, 0, 0], "corner_b": [x + 1000, 200, 0] }),
+        );
+        run(
+            &mut e,
+            "push-pull",
+            json!({ "face": { "Query": "face & last" }, "distance": 500 }),
+        );
+        run(
+            &mut e,
+            "make-group",
+            json!({ "targets": "edge | face", "name": name }),
+        );
+        run(&mut e, "tag-create", json!({ "name": tag }));
+        run(
+            &mut e,
+            "tag-assign",
+            json!({ "targets": format!("group & name:{name}"), "tag": tag }),
+        );
+    }
+    run(&mut e, "export", json!({ "path": "first.ifc" }));
+    let bytes = storage.read(&StorageKey::new("first.ifc")).unwrap();
+    let (mut e, storage) = engine();
+    storage
+        .write(&StorageKey::new("first.ifc"), &bytes)
+        .unwrap();
+    let out = run(&mut e, "import", json!({ "path": "first.ifc" }));
+    assert_eq!(out["format"], "ifc");
+    assert!(crate::diagnostics::validate(e.document()).is_clean());
+    for tag in ["Wall", "Furniture"] {
+        assert!(e.document().tags.by_name(tag).is_some(), "tag {tag}");
+    }
+    run(&mut e, "export", json!({ "path": "second.ifc" }));
+    let text = String::from_utf8(storage.read(&StorageKey::new("second.ifc")).unwrap()).unwrap();
+    assert_eq!(text.matches("IFCWALL(").count(), 1, "{text}");
+    assert_eq!(text.matches("IFCFURNITURE(").count(), 1);
+    assert!(text.contains("'Level 0'"));
+}

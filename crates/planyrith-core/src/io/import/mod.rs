@@ -14,11 +14,13 @@ pub mod collada;
 pub mod csv;
 pub mod dxf;
 pub mod gltf;
+pub mod ifc;
 pub mod image;
 pub mod obj;
 pub mod ply;
 pub mod plyr;
 pub mod skp;
+pub mod step21;
 pub mod stl;
 pub mod three_mf;
 
@@ -63,11 +65,13 @@ pub enum ImportFormat {
     Ply,
     /// COLLADA 1.4/1.5.
     Dae,
+    /// IFC (IFC2X3, IFC4) building model.
+    Ifc,
 }
 
 impl ImportFormat {
     /// Every import format.
-    pub const ALL: [ImportFormat; 12] = [
+    pub const ALL: [ImportFormat; 13] = [
         ImportFormat::Obj,
         ImportFormat::Stl,
         ImportFormat::Gltf,
@@ -80,6 +84,7 @@ impl ImportFormat {
         ImportFormat::ThreeMf,
         ImportFormat::Ply,
         ImportFormat::Dae,
+        ImportFormat::Ifc,
     ];
 
     /// Registered formats; SKP additionally requires a converter-capable backend.
@@ -105,6 +110,7 @@ impl ImportFormat {
             "3mf" => ImportFormat::ThreeMf,
             "ply" => ImportFormat::Ply,
             "dae" => ImportFormat::Dae,
+            "ifc" => ImportFormat::Ifc,
             _ => return None,
         })
     }
@@ -257,6 +263,7 @@ pub fn importer(format: ImportFormat) -> Option<Box<dyn Importer>> {
         ImportFormat::ThreeMf => Some(Box::new(three_mf::ThreeMfImporter)),
         ImportFormat::Ply => Some(Box::new(ply::PlyImporter)),
         ImportFormat::Dae => Some(Box::new(collada::ColladaImporter)),
+        ImportFormat::Ifc => Some(Box::new(ifc::IfcImporter)),
         #[cfg(not(feature = "brep"))]
         ImportFormat::Step => None,
     }

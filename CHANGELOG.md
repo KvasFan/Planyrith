@@ -6,6 +6,10 @@ All notable changes to Planyrith are recorded here. Versions follow
 
 ## Unreleased
 
+- IFC import (IFC2X3 and IFC4): walls, slabs, columns, doors and the rest
+  arrive as named groups tagged with their class, on their storeys, with their
+  colors; extruded, faceted and tessellated geometry is read. Exporting again
+  keeps classes and storeys.
 - COLLADA (`.dae`) import and export: geometry, components shared between
   their copies, materials with colors and textures, units and up axis.
 - Path-traced final images: `planyrith render --path-traced` traces the sun,

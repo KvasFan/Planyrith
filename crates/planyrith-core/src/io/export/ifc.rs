@@ -12,7 +12,7 @@ use std::io::Write;
 use glam::DVec3;
 
 use crate::document::selection::occurrence_name;
-use crate::document::{Document, EntityKey, FrontOrBack, InstancePath};
+use crate::document::{Document, FrontOrBack, InstancePath};
 use crate::ids::MaterialId;
 use crate::io::export::scene::collect;
 use crate::io::export::{ExportFormat, ExportOptions, ExportReport, ExportScope, Exporter};
@@ -119,7 +119,8 @@ struct Element {
     tag: Option<String>,
     /// Further `ifc` attributes, written as properties.
     properties: Vec<(String, crate::document::Value)>,
-    parts: BTreeMap<MaterialId, Part>,
+    /// Per occurrence and material.
+    parts: BTreeMap<(usize, MaterialId), Part>,
 }
 
 /// The building element classes written, with the attributes that follow
@@ -229,15 +230,23 @@ fn class_of_tag(name: &str) -> Option<&'static str> {
         .map(|(_, class)| *class)
 }
 
+/// The entities holding the group or instance a path ends at.
+fn entity_at<'d>(
+    doc: &'d Document,
+    path: &InstancePath,
+) -> Option<(&'d crate::document::Entities, crate::ids::EntityId)> {
+    let last = *path.steps.last()?;
+    let (container, _) = doc.resolve_container(&path.parent()?).ok()?;
+    let entities = doc.container(container)?;
+    Some((entities, entities.key_to_id(last)?))
+}
+
 /// The class of a top-level entity: an `ifc`/`class` attribute naming one
 /// of [`CLASSES`] (with or without the `Ifc` prefix, any case), else its
 /// tag's name, else the proxy.
-fn class_of(doc: &Document, key: Option<EntityKey>) -> &'static str {
+fn class_of(doc: &Document, path: &InstancePath) -> &'static str {
     let proxy = CLASSES[0].0;
-    let Some(model) = doc.container(crate::document::ContainerRef::Model) else {
-        return proxy;
-    };
-    let Some(id) = key.and_then(|k| model.key_to_id(k)) else {
+    let Some((model, id)) = entity_at(doc, path) else {
         return proxy;
     };
     if let Some(crate::document::Value::Str(text)) =
@@ -263,12 +272,9 @@ fn class_of(doc: &Document, key: Option<EntityKey>) -> &'static str {
 /// of a top-level entity.
 fn tag_and_properties(
     doc: &Document,
-    key: Option<EntityKey>,
+    path: &InstancePath,
 ) -> (Option<String>, Vec<(String, crate::document::Value)>) {
-    let Some(model) = doc.container(crate::document::ContainerRef::Model) else {
-        return (None, Vec::new());
-    };
-    let Some(id) = key.and_then(|k| model.key_to_id(k)) else {
+    let Some((model, id)) = entity_at(doc, path) else {
         return (None, Vec::new());
     };
     let tag = model
@@ -303,10 +309,9 @@ fn property_value(value: &crate::document::Value) -> Option<String> {
 
 /// The storey of a top-level entity: its `ifc`/`storey` attribute, else
 /// `Level 0`.
-fn storey_of(doc: &Document, key: Option<EntityKey>) -> String {
+fn storey_of(doc: &Document, path: &InstancePath) -> String {
     let named = || {
-        let model = doc.container(crate::document::ContainerRef::Model)?;
-        let id = model.key_to_id(key?)?;
+        let (model, id) = entity_at(doc, path)?;
         match model.attrs(id)?.get("ifc", "storey")? {
             crate::document::Value::Str(text) if !text.trim().is_empty() => {
                 Some(text.trim().to_string())
@@ -322,27 +327,36 @@ const DEFAULT_STOREY: &str = "Level 0";
 
 fn elements(doc: &Document, scope: &ExportScope) -> Vec<Element> {
     let scene = collect(doc, scope);
-    let mut order: Vec<Option<EntityKey>> = Vec::new();
-    let mut by_top: BTreeMap<Option<EntityKey>, Element> = BTreeMap::new();
-    for occ in &scene.occurrences {
+    let mut order: Vec<InstancePath> = Vec::new();
+    let mut by_path: BTreeMap<InstancePath, Element> = BTreeMap::new();
+    for (index, occ) in scene.occurrences.iter().enumerate() {
         let Some(mesh) = scene.mesh(occ.container) else {
             continue;
         };
         if mesh.faces.is_empty() {
             continue;
         }
-        let top = occ.path.steps.first().copied();
-        let element = by_top.entry(top).or_insert_with(|| {
-            order.push(top);
-            let path = top.map_or(InstancePath::root(), |k| InstancePath::root().child(k));
+        let element_path = element_path(doc, &occ.path);
+        let element = by_path.entry(element_path.clone()).or_insert_with(|| {
+            order.push(element_path.clone());
+            let (tag, properties) = tag_and_properties(doc, &element_path);
             Element {
-                name: occurrence_name(doc, &path),
-                key: top.map_or("model".into(), |k| k.to_string()),
-                class: class_of(doc, top),
-                storey: storey_of(doc, top),
+                name: occurrence_name(doc, &element_path),
+                key: if element_path.is_root() {
+                    "model".into()
+                } else {
+                    element_path
+                        .steps
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                        .join("/")
+                },
+                class: class_of(doc, &element_path),
+                storey: storey_of(doc, &element_path),
                 closed: true,
-                tag: tag_and_properties(doc, top).0,
-                properties: tag_and_properties(doc, top).1,
+                tag,
+                properties,
                 parts: BTreeMap::new(),
             }
         });
@@ -354,7 +368,7 @@ fn elements(doc: &Document, scope: &ExportScope) -> Vec<Element> {
             let material = doc
                 .materials
                 .resolve(face.material.or(occ.material_override), FrontOrBack::Front);
-            let (points, weld, triangles) = element.parts.entry(material).or_default();
+            let (points, weld, triangles) = element.parts.entry((index, material)).or_default();
             let ids: Vec<usize> = face
                 .positions
                 .iter()
@@ -376,8 +390,27 @@ fn elements(doc: &Document, scope: &ExportScope) -> Vec<Element> {
     }
     order
         .into_iter()
-        .filter_map(|k| by_top.remove(&k))
+        .filter_map(|k| by_path.remove(&k))
         .collect()
+}
+
+/// The element an occurrence belongs to: the first group or instance on
+/// its path with `ifc` attributes (an imported building's elements sit in
+/// the import's group), else the top-level one.
+fn element_path(doc: &Document, path: &InstancePath) -> InstancePath {
+    let mut prefix = InstancePath::root();
+    for &step in &path.steps {
+        prefix = prefix.child(step);
+        if entity_at(doc, &prefix)
+            .and_then(|(e, id)| e.attrs(id))
+            .is_some_and(|a| a.dictionary("ifc").is_some())
+        {
+            return prefix;
+        }
+    }
+    path.steps
+        .first()
+        .map_or(InstancePath::root(), |&k| InstancePath::root().child(k))
 }
 
 /// The element's quantities (its volume, when closed) and properties
@@ -415,10 +448,13 @@ fn write_properties(d: &mut Data, doc: &Document, element: &Element, product: u6
         values.push(("Tag".into(), format!("IFCLABEL({})", text(tag))));
     }
     // The material covering the most triangles.
-    if let Some(name) = element
-        .parts
+    let mut counts: BTreeMap<MaterialId, usize> = BTreeMap::new();
+    for ((_, m), (_, _, t)) in &element.parts {
+        *counts.entry(*m).or_default() += t.len();
+    }
+    if let Some(name) = counts
         .iter()
-        .max_by_key(|(_, (_, _, t))| t.len())
+        .max_by_key(|(_, n)| **n)
         .and_then(|(m, _)| doc.materials.get(*m))
         .map(|m| m.name.clone())
     {
@@ -556,7 +592,7 @@ fn file(doc: &Document, elements: &[Element], name: &str) -> (String, usize) {
     let mut triangles_total = 0;
     for element in elements {
         let mut items = Vec::new();
-        for (material, (points, _, triangles)) in &element.parts {
+        for ((_, material), (points, _, triangles)) in &element.parts {
             if triangles.is_empty() {
                 continue;
             }

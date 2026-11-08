@@ -94,7 +94,7 @@ control via `planyrith export --format json`. It is **not** required to load the
 | 3MF | ✔ | ✔ | the 3D printing package: mesh objects with base materials or color groups, components and build items on import; one welded object per visible occurrence with faces, base-material colors and the file unit on export (`W2007` for objects that are not closed solids). |
 | PLY (ASCII/binary) | ✔ | ✔ | polygon meshes, e.g. from 3D scanning: vertex and face colors become materials on import; export writes triangles with the front color on each vertex (binary little-endian unless `--ascii`). |
 | USD (`.usda`, `.usdz`) | — | ✔ | a text stage, or packed (stored, 64-byte aligned) for augmented-reality viewers: one mesh per occurrence and material, Z up, `metersPerUnit` from `--file-units`, preview-surface materials with their textures. |
-| IFC (IFC4) | — | ✔ | a building model for BIM tools: one storey holding an element per top-level group or component and the loose faces, triangulated face sets per material with surface colors, millimeters. |
+| IFC (IFC2X3, IFC4) | ✔ | ✔ (IFC4) | a building model for BIM tools: one storey holding an element per top-level group or component and the loose faces, triangulated face sets per material with surface colors, millimeters. |
 | COLLADA (`.dae`, 1.4/1.5) | ✔ | ✔ | geometry (triangles, polylists, polygons with holes), materials with colors, textures and transparency, the node tree with instanced nodes, unit and up axis; export shares a component's geometry among its instances. |
 | STL (ASCII/binary) | ✔ | ✔ | triangles merged into coplanar faces on import (`--merge-coplanar`, default on); binary default on export. |
 | glTF 2.0 / GLB | ✔ | ✔ | nodes → groups/instances (meshes shared → components), PBR base color + texture, transforms, cameras → scenes. KHR_texture_transform supported. |
@@ -107,7 +107,7 @@ control via `planyrith export --format json`. It is **not** required to load the
 | SVG / PDF | — | ✔ | 2D export of a view (`--2d`) and of sheets (`docs/15`). Hidden-line removal in software; vector output. |
 | `.plyr/.plyrc` | ✔ | ✔ | merge another document as a group/component. |
 
-Out of scope for 1.0 (documented as future work): FBX, 3DS, DWG; USD and IFC import.
+Out of scope for 1.0 (documented as future work): FBX, 3DS, DWG; USD import.
 Import of any unsupported entity yields `W2004` with counts, never a failure.
 
 ## 6. Importer/exporter contracts
@@ -629,3 +629,24 @@ save unless `--no-thumbnail`. `manifest.json` carries `title`, `author`, `descri
   COLLADA files from the original application every file imports; 41 have the same bounds as
   the SKP import of the same model within 0.5 mm, the others hold content COLLADA does not
   carry (edges without faces, dimensions, guides, texts, images).
+- 2026-11-08 — **IFC import** (milestone 1.2, docs/13). An own reader of the exchange
+  structure's text encoding (`io::import::step21`: strings with their escapes, numbers,
+  enumerations, references, lists, typed values, `$`, `*`, complex instances by their first
+  type) and an own converter. Every product with a product definition shape becomes a group
+  named after it (sites, buildings, storeys, spaces, openings, annotations and grids are not
+  imported); its placement chain (`IfcLocalPlacement`, 3D and 2D axis placements; none means the
+  origin) and the body representation (identified as `Body`, else the first non-axis one with
+  items) give its geometry in world millimeters after the file's length unit (SI prefixes,
+  foot, inch). Read: triangulated (and irregular-network) and polygonal face sets with point
+  index maps and voids, faceted B-reps with voids, shell-based surface models, extruded area
+  solids of rectangle, circle (24 sides), arbitrary closed profiles (polylines, indexed poly
+  curves) with voids, mapped items with their transformation operators, and the first operand
+  of boolean results (openings are not cut, counted in `W2004` with any other unread item).
+  Surface colors come from styled items (IFC4 styles and IFC2X3 style assignments) and become
+  materials. Each body item is its own part, split further into edge-connected parts, so
+  touching parts never merge; a product of several parts is gathered into one group. Each
+  product's group is tagged with its class without the prefix and gets `ifc`/`class` and
+  `ifc`/`storey` (its spatial container's name), so exporting again keeps both. Checked on
+  files written by IfcOpenShell (walls, slab, round column; IFC4 and IFC2X3; millimeters and
+  meters) against IfcOpenShell's own geometry: the same bounds; a second export keeps classes and
+  storeys and passes its validation.

@@ -71,6 +71,22 @@
     {
       "idx": 12,
       "version": 1
+    },
+    {
+      "idx": 13,
+      "version": 1
+    },
+    {
+      "idx": 14,
+      "version": 1
+    },
+    {
+      "idx": 15,
+      "version": 1
+    },
+    {
+      "idx": 16,
+      "version": 1
     }
   ],
   "definitions": [
@@ -4295,6 +4311,880 @@
           "attrs": [],
           "dimensions": [],
           "groups": [],
+          "guides": [],
+          "hidden": [],
+          "images": [],
+          "instances": [],
+          "locked": [],
+          "mesh": {
+            "curves": [],
+            "edges": [
+              {
+                "a": 0,
+                "b": 1,
+                "curve": null,
+                "flags": 0
+              },
+              {
+                "a": 0,
+                "b": 2,
+                "curve": null,
+                "flags": 0
+              },
+              {
+                "a": 0,
+                "b": 3,
+                "curve": null,
+                "flags": 0
+              },
+              {
+                "a": 1,
+                "b": 4,
+                "curve": null,
+                "flags": 0
+              },
+              {
+                "a": 1,
+                "b": 5,
+                "curve": null,
+                "flags": 0
+              },
+              {
+                "a": 2,
+                "b": 4,
+                "curve": null,
+                "flags": 0
+              },
+              {
+                "a": 2,
+                "b": 6,
+                "curve": null,
+                "flags": 0
+              },
+              {
+                "a": 4,
+                "b": 7,
+                "curve": null,
+                "flags": 0
+              },
+              {
+                "a": 7,
+                "b": 5,
+                "curve": null,
+                "flags": 0
+              },
+              {
+                "a": 7,
+                "b": 6,
+                "curve": null,
+                "flags": 0
+              },
+              {
+                "a": 5,
+                "b": 3,
+                "curve": null,
+                "flags": 0
+              },
+              {
+                "a": 3,
+                "b": 6,
+                "curve": null,
+                "flags": 0
+              }
+            ],
+            "faces": [
+              {
+                "loops": [
+                  [
+                    3,
+                    2147483653,
+                    2147483649,
+                    0
+                  ]
+                ],
+                "plane": {
+                  "d": 0.0,
+                  "normal": [
+                    0.0,
+                    0.0,
+                    -1.0
+                  ]
+                },
+                "sides": {
+                  "material_back": {
+                    "idx": 6,
+                    "version": 1
+                  },
+                  "material_front": {
+                    "idx": 6,
+                    "version": 1
+                  },
+                  "uv_back": null,
+                  "uv_front": null
+                }
+              },
+              {
+                "loops": [
+                  [
+                    4,
+                    2147483656,
+                    2147483655,
+                    2147483651
+                  ]
+                ],
+                "plane": {
+                  "d": 0.0,
+                  "normal": [
+                    -1.0,
+                    0.0,
+                    0.0
+                  ]
+                },
+                "sides": {
+                  "material_back": {
+                    "idx": 6,
+                    "version": 1
+                  },
+                  "material_front": {
+                    "idx": 6,
+                    "version": 1
+                  },
+                  "uv_back": null,
+                  "uv_front": null
+                }
+              },
+              {
+                "loops": [
+                  [
+                    2147483648,
+                    2,
+                    2147483658,
+                    2147483652
+                  ]
+                ],
+                "plane": {
+                  "d": 0.0,
+                  "normal": [
+                    0.0,
+                    -1.0,
+                    0.0
+                  ]
+                },
+                "sides": {
+                  "material_back": {
+                    "idx": 6,
+                    "version": 1
+                  },
+                  "material_front": {
+                    "idx": 6,
+                    "version": 1
+                  },
+                  "uv_back": null,
+                  "uv_front": null
+                }
+              },
+              {
+                "loops": [
+                  [
+                    7,
+                    9,
+                    2147483654,
+                    5
+                  ]
+                ],
+                "plane": {
+                  "d": -400.0,
+                  "normal": [
+                    0.0,
+                    1.0,
+                    0.0
+                  ]
+                },
+                "sides": {
+                  "material_back": {
+                    "idx": 6,
+                    "version": 1
+                  },
+                  "material_front": {
+                    "idx": 6,
+                    "version": 1
+                  },
+                  "uv_back": null,
+                  "uv_front": null
+                }
+              },
+              {
+                "loops": [
+                  [
+                    1,
+                    6,
+                    2147483659,
+                    2147483650
+                  ]
+                ],
+                "plane": {
+                  "d": -600.0,
+                  "normal": [
+                    1.0,
+                    0.0,
+                    0.0
+                  ]
+                },
+                "sides": {
+                  "material_back": {
+                    "idx": 6,
+                    "version": 1
+                  },
+                  "material_front": {
+                    "idx": 6,
+                    "version": 1
+                  },
+                  "uv_back": null,
+                  "uv_front": null
+                }
+              }
+            ],
+            "vertices": [
+              [
+                600.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                0.0
+              ],
+              [
+                600.0,
+                400.0,
+                0.0
+              ],
+              [
+                600.0,
+                0.0,
+                300.0
+              ],
+              [
+                0.0,
+                400.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                300.0
+              ],
+              [
+                600.0,
+                400.0,
+                300.0
+              ],
+              [
+                0.0,
+                400.0,
+                300.0
+              ]
+            ]
+          },
+          "order": [
+            [
+              {
+                "Edge": 0
+              },
+              194
+            ],
+            [
+              {
+                "Edge": 1
+              },
+              195
+            ],
+            [
+              {
+                "Edge": 2
+              },
+              196
+            ],
+            [
+              {
+                "Edge": 3
+              },
+              197
+            ],
+            [
+              {
+                "Edge": 4
+              },
+              198
+            ],
+            [
+              {
+                "Edge": 5
+              },
+              199
+            ],
+            [
+              {
+                "Edge": 6
+              },
+              200
+            ],
+            [
+              {
+                "Edge": 7
+              },
+              201
+            ],
+            [
+              {
+                "Edge": 8
+              },
+              202
+            ],
+            [
+              {
+                "Edge": 9
+              },
+              203
+            ],
+            [
+              {
+                "Edge": 10
+              },
+              204
+            ],
+            [
+              {
+                "Edge": 11
+              },
+              205
+            ],
+            [
+              {
+                "Face": 0
+              },
+              206
+            ],
+            [
+              {
+                "Face": 1
+              },
+              207
+            ],
+            [
+              {
+                "Face": 2
+              },
+              208
+            ],
+            [
+              {
+                "Face": 3
+              },
+              209
+            ],
+            [
+              {
+                "Face": 4
+              },
+              210
+            ]
+          ],
+          "section_planes": [],
+          "tag_of": [],
+          "texts": []
+        },
+        "is_internal_group": true,
+        "name": "Group 194",
+        "thumbnail": null,
+        "usage_count": 1,
+        "uuid": "a0abd96c-8ec2-83d7-8125-459329dd3b05"
+      }
+    ],
+    [
+      {
+        "idx": 13,
+        "version": 1
+      },
+      {
+        "attrs": {},
+        "behavior": {
+          "always_face_camera": false,
+          "axes": [
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "cuts_opening": false,
+          "glue_to": "none",
+          "insertion_point": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "shadows_face_sun": false,
+          "snap_to": "none"
+        },
+        "description": "",
+        "entities": {
+          "attrs": [],
+          "dimensions": [],
+          "groups": [],
+          "guides": [],
+          "hidden": [],
+          "images": [],
+          "instances": [],
+          "locked": [],
+          "mesh": {
+            "curves": [],
+            "edges": [
+              {
+                "a": 0,
+                "b": 1,
+                "curve": null,
+                "flags": 0
+              },
+              {
+                "a": 0,
+                "b": 2,
+                "curve": null,
+                "flags": 0
+              },
+              {
+                "a": 1,
+                "b": 3,
+                "curve": null,
+                "flags": 0
+              },
+              {
+                "a": 2,
+                "b": 3,
+                "curve": null,
+                "flags": 0
+              }
+            ],
+            "faces": [
+              {
+                "loops": [
+                  [
+                    2,
+                    2147483651,
+                    2147483649,
+                    0
+                  ]
+                ],
+                "plane": {
+                  "d": -300.0,
+                  "normal": [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                },
+                "sides": {
+                  "material_back": {
+                    "idx": 7,
+                    "version": 1
+                  },
+                  "material_front": {
+                    "idx": 7,
+                    "version": 1
+                  },
+                  "uv_back": null,
+                  "uv_front": null
+                }
+              }
+            ],
+            "vertices": [
+              [
+                0.0,
+                400.0,
+                300.0
+              ],
+              [
+                0.0,
+                0.0,
+                300.0
+              ],
+              [
+                600.0,
+                400.0,
+                300.0
+              ],
+              [
+                600.0,
+                0.0,
+                300.0
+              ]
+            ]
+          },
+          "order": [
+            [
+              {
+                "Edge": 0
+              },
+              211
+            ],
+            [
+              {
+                "Edge": 1
+              },
+              212
+            ],
+            [
+              {
+                "Edge": 2
+              },
+              213
+            ],
+            [
+              {
+                "Edge": 3
+              },
+              214
+            ],
+            [
+              {
+                "Face": 0
+              },
+              215
+            ]
+          ],
+          "section_planes": [],
+          "tag_of": [],
+          "texts": []
+        },
+        "is_internal_group": true,
+        "name": "Group 211",
+        "thumbnail": null,
+        "usage_count": 1,
+        "uuid": "a79ff0df-1b96-8a5f-8a8c-d5cbc6259ff8"
+      }
+    ],
+    [
+      {
+        "idx": 14,
+        "version": 1
+      },
+      {
+        "attrs": {},
+        "behavior": {
+          "always_face_camera": false,
+          "axes": [
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "cuts_opening": false,
+          "glue_to": "none",
+          "insertion_point": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "shadows_face_sun": false,
+          "snap_to": "none"
+        },
+        "description": "",
+        "entities": {
+          "attrs": [
+            [
+              {
+                "Entity": {
+                  "Group": {
+                    "idx": 3,
+                    "version": 1
+                  }
+                }
+              },
+              {
+                "ifc": {
+                  "class": {
+                    "Str": "IfcBuildingElementProxy"
+                  },
+                  "storey": {
+                    "Str": "Level 0"
+                  }
+                }
+              }
+            ]
+          ],
+          "dimensions": [],
+          "groups": [
+            [
+              {
+                "idx": 3,
+                "version": 1
+              },
+              {
+                "definition": {
+                  "idx": 15,
+                  "version": 1
+                },
+                "name": "Crate",
+                "transform": [
+                  1.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0,
+                  0.0
+                ]
+              }
+            ]
+          ],
+          "guides": [],
+          "hidden": [],
+          "images": [],
+          "instances": [],
+          "locked": [],
+          "mesh": {
+            "curves": [],
+            "edges": [],
+            "faces": [],
+            "vertices": []
+          },
+          "order": [
+            [
+              {
+                "Entity": {
+                  "Group": {
+                    "idx": 3,
+                    "version": 1
+                  }
+                }
+              },
+              222
+            ]
+          ],
+          "section_planes": [],
+          "tag_of": [
+            [
+              {
+                "Entity": {
+                  "Group": {
+                    "idx": 3,
+                    "version": 1
+                  }
+                }
+              },
+              {
+                "idx": 2,
+                "version": 1
+              }
+            ]
+          ],
+          "texts": []
+        },
+        "is_internal_group": true,
+        "name": "Group 194",
+        "thumbnail": null,
+        "usage_count": 1,
+        "uuid": "0584ca79-16fa-8e66-bf65-c28f23813a23"
+      }
+    ],
+    [
+      {
+        "idx": 15,
+        "version": 1
+      },
+      {
+        "attrs": {},
+        "behavior": {
+          "always_face_camera": false,
+          "axes": [
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "cuts_opening": false,
+          "glue_to": "none",
+          "insertion_point": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "shadows_face_sun": false,
+          "snap_to": "none"
+        },
+        "description": "",
+        "entities": {
+          "attrs": [],
+          "dimensions": [],
+          "groups": [
+            [
+              {
+                "idx": 1,
+                "version": 1
+              },
+              {
+                "definition": {
+                  "idx": 12,
+                  "version": 1
+                },
+                "name": "Crate",
+                "transform": [
+                  1.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0,
+                  0.0
+                ]
+              }
+            ],
+            [
+              {
+                "idx": 2,
+                "version": 1
+              },
+              {
+                "definition": {
+                  "idx": 13,
+                  "version": 1
+                },
+                "name": "Crate",
+                "transform": [
+                  1.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0,
+                  0.0
+                ]
+              }
+            ]
+          ],
+          "guides": [],
+          "hidden": [],
+          "images": [],
+          "instances": [],
+          "locked": [],
+          "mesh": {
+            "curves": [],
+            "edges": [],
+            "faces": [],
+            "vertices": []
+          },
+          "order": [
+            [
+              {
+                "Entity": {
+                  "Group": {
+                    "idx": 1,
+                    "version": 1
+                  }
+                }
+              },
+              220
+            ],
+            [
+              {
+                "Entity": {
+                  "Group": {
+                    "idx": 2,
+                    "version": 1
+                  }
+                }
+              },
+              221
+            ]
+          ],
+          "section_planes": [],
+          "tag_of": [],
+          "texts": []
+        },
+        "is_internal_group": true,
+        "name": "Group 220",
+        "thumbnail": null,
+        "usage_count": 1,
+        "uuid": "4d235f4e-1b17-8e7e-b0fa-a047a1ad7d94"
+      }
+    ],
+    [
+      {
+        "idx": 16,
+        "version": 1
+      },
+      {
+        "attrs": {},
+        "behavior": {
+          "always_face_camera": false,
+          "axes": [
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "cuts_opening": false,
+          "glue_to": "none",
+          "insertion_point": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "shadows_face_sun": false,
+          "snap_to": "none"
+        },
+        "description": "",
+        "entities": {
+          "attrs": [],
+          "dimensions": [],
+          "groups": [],
           "guides": [
             [
               {
@@ -4362,7 +5252,7 @@
                   }
                 }
               },
-              195
+              224
             ],
             [
               {
@@ -4373,7 +5263,7 @@
                   }
                 }
               },
-              196
+              225
             ],
             [
               {
@@ -4384,7 +5274,7 @@
                   }
                 }
               },
-              197
+              226
             ]
           ],
           "section_planes": [],
@@ -4392,10 +5282,10 @@
           "texts": []
         },
         "is_internal_group": true,
-        "name": "Group 198",
+        "name": "Group 227",
         "thumbnail": null,
         "usage_count": 1,
-        "uuid": "d294270b-d56a-8ec4-ab21-088cb1d78a7c"
+        "uuid": "f095f529-7893-8339-882c-abe0df1ab152"
       }
     ]
   ],
@@ -4425,7 +5315,7 @@
     "format_version": 1,
     "geo": null,
     "length_snap": null,
-    "next_pid": 199,
+    "next_pid": 228,
     "precision": 1,
     "title": "",
     "tolerances": {
@@ -5107,7 +5997,34 @@
         },
         {
           "definition": {
-            "idx": 12,
+            "idx": 14,
+            "version": 1
+          },
+          "name": "import-box",
+          "transform": [
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            4000.0,
+            1000.0,
+            0.0
+          ]
+        }
+      ],
+      [
+        {
+          "idx": 10,
+          "version": 1
+        },
+        {
+          "definition": {
+            "idx": 16,
             "version": 1
           },
           "name": "survey",
@@ -5302,24 +6219,35 @@
       [
         {
           "Entity": {
-            "Image": {
-              "idx": 1,
-              "version": 1
-            }
-          }
-        },
-        194
-      ],
-      [
-        {
-          "Entity": {
             "Group": {
               "idx": 9,
               "version": 1
             }
           }
         },
-        198
+        219
+      ],
+      [
+        {
+          "Entity": {
+            "Image": {
+              "idx": 1,
+              "version": 1
+            }
+          }
+        },
+        223
+      ],
+      [
+        {
+          "Entity": {
+            "Group": {
+              "idx": 10,
+              "version": 1
+            }
+          }
+        },
+        227
       ]
     ],
     "section_planes": [],
@@ -5459,6 +6387,10 @@
       {
         "idx": 1,
         "version": 1
+      },
+      {
+        "idx": 2,
+        "version": 1
       }
     ],
     "tags": [
@@ -5477,6 +6409,24 @@
           "folder": null,
           "line_style": "solid",
           "name": "Untagged",
+          "visible": true
+        }
+      ],
+      [
+        {
+          "idx": 2,
+          "version": 1
+        },
+        {
+          "color": {
+            "a": 255,
+            "b": 128,
+            "g": 128,
+            "r": 128
+          },
+          "folder": null,
+          "line_style": "solid",
+          "name": "BuildingElementProxy",
           "visible": true
         }
       ]
