@@ -6,6 +6,11 @@ All notable changes to Planyrith are recorded here. Versions follow
 
 ## Unreleased
 
+- Parametric components: give a component parameters such as `width = 80cm`
+  and its parts rules such as "shelf width = width - 2 * board"
+  (`parameter-set`, `part-rule-set`), then `parametric-update` resizes and
+  places the parts. A copy can have its own values (in Entity Info or with
+  `instance-parameter-set`) and becomes a component of its own.
 - IFC import (IFC2X3 and IFC4): walls, slabs, columns, doors and the rest
   arrive as named groups tagged with their class, on their storeys, with their
   colors; extruded, faceted and tessellated geometry is read. Exporting again

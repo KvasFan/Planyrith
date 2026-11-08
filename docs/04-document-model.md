@@ -202,6 +202,18 @@ pub enum Value { Bool, Int(i64), Float(f64), Length(f64), Str(String), Bytes, Ve
 ```
 Reserved dictionary prefixes: `plyr.*` (core), `sheets.*` (`docs/15`), `ext.<plugin-id>.*`.
 
+### 9.1 Parametric components
+A component is parametric when its definition, or one of its instances, carries a
+`parameters` dictionary: parameter name → formula (`Str`). An instance's own `parameters`
+override the definition's values of the same name. A part (a group or instance directly inside
+the definition) carries a `rules` dictionary: property → formula, the properties being `x`, `y`,
+`z` (the lowest corner of the part's box in the component), `size_x`, `size_y`, `size_z` (the
+part's extent along its own axes) and `visible` (0 hides the part). Formulas are arithmetic on
+millimeters, lengths with units (`18mm`, `60cm`, `1in`), other parameters and `min`, `max`,
+`round`, `floor`, `ceil`, `abs` (`crate::params`). Parameters and rules are ordinary
+attributes, so they travel with the native format and scripts can read them; applying them is
+the explicit command `parametric-update` (docs/05 §5.14), never a side effect of loading.
+
 ## 10. ModelInfo
 
 ```rust
@@ -249,6 +261,13 @@ tags, non-invertible transforms, `next_pid` monotonicity. `repair` fixes what it
 | Scenes | 500 | 65 535 |
 
 ## Decisions
+
+- 2026-11-08 — **Parametric components as attributes** (§9.1). Parameters and part rules are
+  stored as attribute dictionaries instead of new document fields, because the native format
+  is frozen (fields may only be added, enum variants may not) and attributes already round-trip
+  through every path: undo, copy, components saved to files, scripts. The dictionaries are
+  named `parameters` and `rules` without the `plyr.` prefix, as the `ifc` dictionary of
+  docs/09 is: users and scripts edit them directly, and the Entity Info panel shows them.
 
 - 2026-10-30 — **Imported annotation layout and parametric attachments.** Optional
   `Text.layout` stores normalized screen position, model-space leader offset (mm),

@@ -189,6 +189,93 @@ pub fn entity_info(ui: &mut egui::Ui, session: &mut Session, error: &mut Option<
                 ui.end_row();
             }
         });
+    // Parametric components (docs/05 §5.14): the instance's values.
+    if let [(_, r)] = resolved.as_slice()
+        && let Some(entities) = doc.container(r.container)
+        && let Some(EntityView::Instance(i)) = entities.view(r.entity)
+    {
+        let read = |attrs: Option<&planyrith_core::document::AttributeDictionaries>| {
+            attrs
+                .and_then(|a| a.dictionary("parameters"))
+                .map(|d| {
+                    d.iter()
+                        .filter_map(|(k, v)| match v {
+                            planyrith_core::document::Value::Str(s) => Some((k.clone(), s.clone())),
+                            _ => None,
+                        })
+                        .collect::<std::collections::BTreeMap<_, _>>()
+                })
+                .unwrap_or_default()
+        };
+        let defaults = read(doc.definition(i.definition).map(|d| &d.attrs));
+        let own = read(entities.attrs(r.entity));
+        if !defaults.is_empty() || !own.is_empty() {
+            let pid = r.pid.0;
+            let mut names: Vec<&String> = defaults.keys().chain(own.keys()).collect();
+            names.sort();
+            names.dedup();
+            let mut change: Option<(String, Option<String>)> = None;
+            ui.separator();
+            ui.strong(t("Parameters"));
+            egui::Grid::new("parameters").num_columns(3).show(ui, |ui| {
+                for name in names {
+                    ui.label(name.as_str());
+                    let shown = own
+                        .get(name)
+                        .or(defaults.get(name))
+                        .cloned()
+                        .unwrap_or_default();
+                    let id = ui.id().with(("parameter", pid, name.as_str()));
+                    let mut text: String = ui.data(|d| d.get_temp(id)).unwrap_or(shown.clone());
+                    let response =
+                        ui.add(egui::TextEdit::singleline(&mut text).desired_width(120.0));
+                    if response.has_focus() {
+                        ui.data_mut(|d| d.insert_temp(id, text.clone()));
+                    } else {
+                        ui.data_mut(|d| d.remove::<String>(id));
+                    }
+                    if response.lost_focus() && text.trim() != shown.trim() {
+                        change = Some((name.clone(), Some(text.trim().to_string())));
+                    }
+                    if own.contains_key(name) {
+                        if ui
+                            .small_button(t("Reset"))
+                            .on_hover_text(t("Back to the component's value"))
+                            .clicked()
+                        {
+                            change = Some((name.clone(), None));
+                        }
+                    } else {
+                        ui.weak(t("From the component"));
+                    }
+                    ui.end_row();
+                }
+            });
+            if let Some((name, formula)) = change {
+                let params = match formula {
+                    Some(f) => {
+                        serde_json::json!({ "targets": format!("@{pid}"), "name": name, "formula": f })
+                    }
+                    None => {
+                        serde_json::json!({ "targets": format!("@{pid}"), "name": name, "remove": true })
+                    }
+                };
+                let outcome = session
+                    .execute("instance-parameter-set", params)
+                    .and_then(|_| {
+                        session.execute(
+                            "parametric-update",
+                            serde_json::json!({ "targets": format!("@{pid}") }),
+                        )
+                    });
+                if let Err(e) = outcome {
+                    *error = Some(e);
+                }
+                return;
+            }
+        }
+    }
+    let doc = session.doc();
     ui.separator();
 
     // Tag (docs/05 §5.6) for the whole selection.

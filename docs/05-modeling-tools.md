@@ -403,6 +403,36 @@ perpendicular to hovered edge); `Esc` = cancel current step (second `Esc` = canc
 - **Params:** `targets: Sel` (groups/instances). Locked entities cannot be selected for editing
   (they still infer).
 
+### 5.14 `parameter-set`, `instance-parameter-set`, `part-rule-set`, `parametric-update`
+Parametric components (docs/04 §9.1): a cabinet whose width, height and shelf count are
+parameters, and whose sides, shelves and doors follow them.
+- `parameter-set { component: String, name, formula?, remove: bool }` sets (or removes) a
+  parameter of the named component. Names are letters, digits and `_`, do not start with a digit and
+  are not function names. The formula is checked at once.
+- `instance-parameter-set { targets: Sel, name, formula?, remove }` gives instances their own
+  value of a parameter (or removes it, returning to the component's value).
+- `part-rule-set { targets?: Sel, component?, part?, property, formula?, remove }` sets a rule
+  on parts: either `targets` inside the component open for editing, or `component` and `part`
+  (the parts of that component with that name; an unnamed instance goes by its component's
+  name). `property` is one of `x`, `y`, `z`, `size_x`, `size_y`, `size_z`, `visible`.
+- `parametric-update { targets?: Sel }` evaluates and applies the rules of the parametric
+  instances in the edit context (all of them when `targets` is absent). Sizes scale a part
+  along its own axes to the evaluated extent of its geometry box; positions then move the box's
+  lowest corner to the evaluated point; `visible` 0 hides the part. An instance with values of
+  its own whose component is shared is first made unique (§5.4), so the other copies keep their
+  shape. Output: `{ instances, parts, made_unique }`.
+- **Edge cases:** an unknown parameter, a cycle (`a = b`, `b = a`), a division by zero or a size
+  that is zero or negative fails the whole update and changes nothing. A part with no geometry
+  ignores size and position rules.
+- **Interactive:** the Entity Info panel lists a selected instance's parameters with their values;
+  editing one runs `instance-parameter-set` and `parametric-update` as one step; clearing it
+  goes back to the component's value.
+- **Undo:** each command is one undo step.
+- **Acceptance:** a cabinet with `width = 800`, `board = 18mm` and a shelf rule
+  `size_x = width - 2 * board` gives a 764 mm shelf; a copy with its own `width = 1000` gets a
+  component of its own with a 964 mm shelf while the first stays at 764 mm; cycles and bad
+  formulas are refused.
+
 ## 6. Guide tools (category `guide`)
 
 ### 6.1 `tape-measure`

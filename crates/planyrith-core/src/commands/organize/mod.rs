@@ -15,6 +15,7 @@ mod groups;
 pub(crate) mod images;
 pub(crate) mod libraries;
 mod materials;
+pub(crate) mod parametric;
 mod scenes;
 pub(crate) mod sections;
 mod styles;
@@ -66,6 +67,7 @@ use crate::commands::CommandRegistry;
 /// Registers this category's commands (called by
 /// [`CommandRegistry::with_builtins`]).
 pub fn register(registry: &mut CommandRegistry) {
+    parametric::register(registry);
     registry.register(MakeGroup);
     registry.register(MakeComponent);
     registry.register(Explode);

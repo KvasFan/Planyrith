@@ -36,6 +36,7 @@ pub mod ids;
 pub mod inference;
 pub mod io;
 pub mod math;
+pub mod params;
 #[cfg(feature = "scripting")]
 pub mod scripting;
 pub mod sheets;

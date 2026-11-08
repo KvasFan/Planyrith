@@ -158,7 +158,8 @@ FBX, WASM native plugins, collaborative editing, GPU path-traced preview, mobile
 ## Decisions
 
 - 2026-11-08 — **1.2 progress.** COLLADA import and export and IFC import are done (docs/09
-  Decisions); parametric components and the camera from a photograph remain.
+  Decisions); parametric components are done (docs/04 §9.1, docs/05 §5.14); the camera from a
+  photograph remains.
 
 - 2026-11-08 — **Milestone 1.2.** The user asked to keep implementing and committing without
   stopping after each milestone (2026-11-07). With 1.1 implemented, the next items come from the

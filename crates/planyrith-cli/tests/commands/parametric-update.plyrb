@@ -1,0 +1,11 @@
+# The rules applied: the shelf grows to 764 mm.
+rectangle --corner-a 0,0,0 --corner-b 18,400,0
+push-pull --face '{face & last}' --distance 700
+make-group --targets 'edge | face' --name Left
+rectangle --corner-a 18,0,300 --corner-b 582,400,300
+push-pull --face '{face & last}' --distance 18
+make-group --targets 'edge | face' --name Shelf
+make-component --targets group --name Cabinet
+parameter-set --component Cabinet --name width --formula 800
+part-rule-set --component Cabinet --part Shelf --property size_x --formula 'width - 36'
+parametric-update
