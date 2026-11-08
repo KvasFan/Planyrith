@@ -1683,6 +1683,8 @@ impl App {
                 self.tool_button(ui, "Sweep");
                 self.tool_button(ui, "Fillet");
                 self.tool_button(ui, "Chamfer");
+                self.tool_button(ui, "Thicken");
+                self.tool_button(ui, "Loft");
                 if ui.button(t("Round Edges…")).clicked() {
                     self.round_edges.open = true;
                     ui.close();
@@ -3490,6 +3492,83 @@ mod tests {
                 self.app.message
             );
         }
+    }
+
+    #[test]
+    fn thicken_and_loft_tools_work_by_clicking_faces() {
+        let mut shell = Shell::new();
+        let session = &mut shell.app.session;
+        session
+            .execute(
+                "position-camera",
+                json!({ "eye": [2500, -3500, 4000], "target": [500, 500, 300] }),
+            )
+            .unwrap();
+        for (a, b) in [
+            ([0, 0, 0], [1000, 1000, 0]),
+            ([200, 200, 600], [800, 800, 600]),
+        ] {
+            session
+                .execute("rectangle", json!({ "corner_a": a, "corner_b": b }))
+                .unwrap();
+        }
+        shell.frame(Vec::new());
+        let activate = |shell: &mut Shell, command: &str| {
+            let i = shell
+                .app
+                .tools
+                .iter()
+                .position(|(t, _)| t.command() == command)
+                .expect("the tool");
+            shell.app.activate(i);
+            shell.frame(Vec::new());
+        };
+        let groups = |shell: &Shell| {
+            let model = &shell.app.session.doc().model;
+            model
+                .order()
+                .iter()
+                .filter(|&&id| {
+                    matches!(
+                        model.view(id),
+                        Some(planyrith_core::document::EntityView::Group(_))
+                    )
+                })
+                .count()
+        };
+        // Loft: the lower face, then a double click on the upper one.
+        activate(&mut shell, "loft");
+        shell.click(DVec3::new(100.0, 100.0, 0.0));
+        let pos = shell.screen(DVec3::new(500.0, 500.0, 600.0));
+        shell.frame(vec![egui::Event::PointerMoved(pos)]);
+        for _ in 0..2 {
+            for pressed in [true, false] {
+                shell.frame(vec![egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                }]);
+            }
+        }
+        shell.time += 1.0;
+        shell.ok("loft");
+        assert_eq!(groups(&shell), 1, "the loft");
+        // Thicken: a new sheet beside it, clicked and given 30 mm.
+        shell
+            .app
+            .session
+            .execute(
+                "rectangle",
+                json!({ "corner_a": [1500, 0, 0], "corner_b": [2000, 500, 0] }),
+            )
+            .unwrap();
+        shell.frame(Vec::new());
+        activate(&mut shell, "thicken");
+        shell.click(DVec3::new(1750.0, 250.0, 0.0));
+        shell.type_text("30", true);
+        shell.ok("thicken");
+        assert_eq!(groups(&shell), 2, "the thickened sheet");
     }
 
     #[test]

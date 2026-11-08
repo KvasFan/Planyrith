@@ -194,3 +194,214 @@ impl Tool for EdgeRoundTool {
         ));
     }
 }
+
+/// What a face-picking tool makes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FacesKind {
+    Thicken,
+    Loft,
+}
+
+/// Thicken (docs/05 §4.19) or Loft (§4.20) by picking faces: Thicken takes
+/// the typed thickness; Loft takes the profiles in click order and is made
+/// by double-clicking the last one.
+pub struct FacesTool {
+    kind: FacesKind,
+    /// Picked faces with their outlines (world).
+    faces: Vec<(EntityPath, Vec<DVec3>)>,
+    hover: Option<Vec<DVec3>>,
+    /// Thickness, mm.
+    size: f64,
+}
+
+impl FacesTool {
+    /// The Thicken tool.
+    pub fn thicken() -> Self {
+        FacesTool {
+            kind: FacesKind::Thicken,
+            faces: Vec::new(),
+            hover: None,
+            size: 10.0,
+        }
+    }
+
+    /// The Loft tool.
+    pub fn loft() -> Self {
+        FacesTool {
+            kind: FacesKind::Loft,
+            ..FacesTool::thicken()
+        }
+    }
+
+    fn face(p: &Pointer, cx: &Cx<'_>) -> Option<(EntityPath, Vec<DVec3>)> {
+        let path = p.face.as_ref()?.canonical(cx.doc);
+        if path.instances != cx.context.path.canonical(cx.doc) {
+            return None;
+        }
+        let r = cx.doc.resolve(&path).ok()?;
+        let EntityId::Face(f) = r.entity else {
+            return None;
+        };
+        let mesh = cx.doc.container(r.container)?.mesh();
+        let outline = mesh
+            .face_vertices(f)
+            .ok()?
+            .into_iter()
+            .filter_map(|v| mesh.position(v).ok())
+            .map(|q| r.world.transform_point3(q))
+            .collect();
+        Some((path, outline))
+    }
+
+    fn ids(&self, cx: &Cx<'_>) -> Vec<String> {
+        self.faces
+            .iter()
+            .filter_map(|(path, _)| cx.doc.resolve(path).ok())
+            .map(|r| format!("@{}", r.pid.0))
+            .collect()
+    }
+
+    fn params(&self, cx: &Cx<'_>) -> Option<Value> {
+        let ids = self.ids(cx);
+        match self.kind {
+            FacesKind::Thicken if !ids.is_empty() => {
+                Some(json!({ "faces": ids.join(" | "), "thickness": self.size }))
+            }
+            FacesKind::Loft if ids.len() >= 2 => Some(json!({ "profiles": ids })),
+            _ => None,
+        }
+    }
+}
+
+impl Tool for FacesTool {
+    fn command(&self) -> &'static str {
+        match self.kind {
+            FacesKind::Thicken => "thicken",
+            FacesKind::Loft => "loft",
+        }
+    }
+
+    fn label(&self) -> &'static str {
+        match self.kind {
+            FacesKind::Thicken => en("Thicken"),
+            FacesKind::Loft => en("Loft"),
+        }
+    }
+
+    fn step(&self) -> usize {
+        0
+    }
+
+    fn hover(&mut self, p: &Pointer, cx: &Cx<'_>) {
+        self.hover = Self::face(p, cx).map(|(_, o)| o);
+    }
+
+    fn click(&mut self, p: &Pointer, cx: &Cx<'_>) -> Flow {
+        if let Some((path, outline)) = Self::face(p, cx) {
+            match self.faces.iter().position(|(f, _)| *f == path) {
+                Some(i) => {
+                    self.faces.remove(i);
+                }
+                None => self.faces.push((path, outline)),
+            }
+        }
+        Flow::Continue
+    }
+
+    fn double_click(&mut self, p: &Pointer, cx: &Cx<'_>) -> Flow {
+        if self.kind != FacesKind::Loft {
+            return Flow::Continue;
+        }
+        // The double click's first click toggled the face off again.
+        if let Some((path, outline)) = Self::face(p, cx)
+            && !self.faces.iter().any(|(f, _)| *f == path)
+        {
+            self.faces.push((path, outline));
+        }
+        match self.params(cx) {
+            Some(params) => {
+                self.faces.clear();
+                Flow::run("loft", params)
+            }
+            None => Flow::Continue,
+        }
+    }
+
+    fn value(&mut self, text: &str, cx: &Cx<'_>) -> Result<Flow, String> {
+        if self.kind == FacesKind::Loft {
+            return Err(t("Double-click the last profile to make the loft"));
+        }
+        let size = length(text, cx)?;
+        if size == 0.0 {
+            return Err(t("Type a non-zero thickness"));
+        }
+        self.size = size;
+        let params = self.params(cx).ok_or_else(|| t("Pick the faces first"))?;
+        self.faces.clear();
+        Ok(Flow::run("thicken", params))
+    }
+
+    fn escape(&mut self) -> bool {
+        let busy = !self.faces.is_empty();
+        self.faces.clear();
+        busy
+    }
+
+    fn back(&mut self) -> bool {
+        self.faces.pop();
+        false
+    }
+
+    fn takes_points(&self) -> bool {
+        false
+    }
+
+    fn shapes(&self, out: &mut Vec<Shape>) {
+        for (_, outline) in &self.faces {
+            out.push(Shape::Path {
+                points: outline.clone(),
+                closed: true,
+                color: PICKED,
+            });
+        }
+        if let Some(outline) = &self.hover {
+            out.push(Shape::Path {
+                points: outline.clone(),
+                closed: true,
+                color: PICKED,
+            });
+        }
+    }
+
+    fn preview(&self, cx: &Cx<'_>) -> Option<(String, Value)> {
+        self.params(cx).map(|p| (self.command().to_string(), p))
+    }
+
+    fn options(&mut self, ui: &mut egui::Ui, _cx: &Cx<'_>) {
+        match self.kind {
+            FacesKind::Thicken => {
+                ui.label(t(
+                    "Click the faces of a surface (again to drop one), then type the thickness and press Enter.",
+                ));
+                ui.horizontal(|ui| {
+                    ui.label(t("Thickness"));
+                    ui.add(
+                        egui::DragValue::new(&mut self.size)
+                            .range(-100_000.0..=100_000.0)
+                            .speed(0.5)
+                            .suffix(" mm"),
+                    );
+                });
+            }
+            FacesKind::Loft => {
+                ui.label(t(
+                    "Click the profile faces in order and double-click the last one.",
+                ));
+            }
+        }
+        ui.label(crate::i18n::t_args(
+            "Faces picked: { $count }",
+            &[("count", self.faces.len().to_string().into())],
+        ));
+    }
+}

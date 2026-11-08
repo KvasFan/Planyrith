@@ -312,7 +312,8 @@ perpendicular to hovered edge); `Esc` = cancel current step (second `Esc` = canc
 - **Behavior:** `docs/03 §4.16`; the solid goes into a new group named "Thickened" in the edit
   context; the faces give way to it unless `keep_surface`.
 - **Output:** `{ group, faces, volume_mm3 }`. **Undo:** one step.
-- **GUI:** Tools › Thicken… acts on the selected faces.
+- **GUI:** the Thicken tool: click faces (again to drop one), type the thickness and Enter; the
+  solid shows while picking. Tools › Thicken… acts on the selected faces.
 - **Tests:** a rectangle becomes a slab of its area times the thickness; a sheet bent at a
   right angle keeps the thickness on both leaves; centered thickening is symmetric.
 
@@ -322,7 +323,9 @@ perpendicular to hovered edge); `Esc` = cancel current step (second `Esc` = canc
 - **Behavior:** `docs/03 §4.17`; the solid goes into a new group named "Loft"; the profile faces
   give way to it unless `keep_profiles`. Profiles with holes are refused.
 - **Output:** `{ group, faces, volume_mm3 }`. **Undo:** one step.
-- **GUI:** Tools › Loft Selected Faces uses the selected faces from the lowest to the highest.
+- **GUI:** the Loft tool: click the profile faces in order and double-click the last one; the
+  solid shows from the second profile on. Tools › Loft Selected Faces uses the selected faces
+  from the lowest to the highest.
 - **Tests:** two equal squares make a box; a square to a smaller, turned square is an exact
   frustum; a square to a circle is a printable solid.
 

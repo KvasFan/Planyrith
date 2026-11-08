@@ -154,8 +154,8 @@ parametric/dynamic components, GPU path-traced preview, mobile UI.
   checked by the reference libraries in `tools/validate-exports.sh`; USD carries textures.
   IFC elements take their class from an attribute or their tag; `render --path-traced` traces
   final images on the CPU (and from File › Export › Rendered Image…). IFC storeys come from
-  an attribute and elements carry volumes and property sets. Fillet and Chamfer are picking
-  tools with a live preview. Still open in 1.1: picking versions of Thicken and Loft.
+  an attribute and elements carry volumes and property sets. Fillet, Chamfer, Thicken
+  and Loft are picking tools with a live preview. Every 1.1 item is implemented.
 
 - 2026-11-05 — **Milestone 1.1.** The user asked what is missing for 3D printing, useful 3D tools,
   other exchange formats and a more attractive rendering, then to proceed. These are not part of

@@ -23,14 +23,15 @@ All notable changes to Planyrith are recorded here. Versions follow
   with vertex or face colors, both ways.
 - Bézier curves (Draw › Bézier Curve, `bezier`): click the start, two handles
   and the end of each span; closed flat curves form faces.
-- Loft (`loft`, Tools › Loft Selected Faces): a solid through two or more
-  profiles, such as a square base rising into a circle.
+- Loft (`loft`, the Loft tool or Tools › Loft Selected Faces): a solid through
+  two or more profiles, such as a square base rising into a circle.
 - Round or cut the edges of solids: `fillet` (an arc of a given radius,
   smooth-shaded) and `chamfer` (a flat cut), on convex edges and inside
   corners alike; the Fillet and Chamfer tools round the edges you click with a
   live preview, and Tools › Round Edges… works on the selected edges.
-- Thicken a surface into a solid (`thicken`, Tools › Thicken…): flat or bent
-  sheets keep their thickness on every face, optionally half on each side.
+- Thicken a surface into a solid (`thicken`, the Thicken tool or Tools ›
+  Thicken…): flat or bent sheets keep their thickness on every face,
+  optionally half on each side.
 - A realistic look for styles (Styles › Realistic lighting, or `style-edit
   --realistic`): light from the sky as well as the sun, highlights after each
   material's new roughness and metallic settings, ambient occlusion in creases

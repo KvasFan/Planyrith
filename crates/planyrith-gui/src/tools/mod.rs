@@ -29,7 +29,7 @@ pub use annotate::{
 pub use component::ComponentTool;
 pub use draw::{ArcKind, ArcTool, BezierTool, LineTool, RectangleTool, RoundTool};
 pub use edit::{EraserTool, MoveTool, OffsetTool, PaintTool, PushPullTool, RotateTool, ScaleTool};
-pub use rounding::EdgeRoundTool;
+pub use rounding::{EdgeRoundTool, FacesTool};
 pub use select::SelectTool;
 pub use sketch::{FreehandTool, RotatedRectangleTool};
 pub use texture::TexturePinTool;
@@ -249,6 +249,8 @@ pub fn catalogue() -> Vec<(Box<dyn Tool>, Option<egui::Key>)> {
         (Box::new(BezierTool::default()), None),
         (Box::new(EdgeRoundTool::fillet()), None),
         (Box::new(EdgeRoundTool::chamfer()), None),
+        (Box::new(FacesTool::thicken()), None),
+        (Box::new(FacesTool::loft()), None),
         (Box::new(RectangleTool::default()), Some(Key::R)),
         (Box::new(RotatedRectangleTool::default()), None),
         (Box::new(RoundTool::circle()), Some(Key::C)),
