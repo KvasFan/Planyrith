@@ -109,7 +109,146 @@ type Part = (Vec<DVec3>, BTreeMap<[u64; 3], usize>, Vec<[usize; 3]>);
 struct Element {
     name: String,
     key: String,
+    /// Its IFC class (`IfcBuildingElementProxy` unless told otherwise).
+    class: &'static str,
     parts: BTreeMap<MaterialId, Part>,
+}
+
+/// The building element classes written, with the attributes that follow
+/// `Tag` in each (all IFC4 element classes share the first eight).
+const CLASSES: [(&str, &str); 14] = [
+    ("IfcBuildingElementProxy", ".NOTDEFINED."),
+    ("IfcWall", ".NOTDEFINED."),
+    ("IfcSlab", ".NOTDEFINED."),
+    ("IfcRoof", ".NOTDEFINED."),
+    ("IfcColumn", ".NOTDEFINED."),
+    ("IfcBeam", ".NOTDEFINED."),
+    ("IfcStair", ".NOTDEFINED."),
+    ("IfcRailing", ".NOTDEFINED."),
+    ("IfcCovering", ".NOTDEFINED."),
+    ("IfcPlate", ".NOTDEFINED."),
+    ("IfcMember", ".NOTDEFINED."),
+    ("IfcFurniture", ".NOTDEFINED."),
+    ("IfcDoor", "$,$,.NOTDEFINED.,.NOTDEFINED.,$"),
+    ("IfcWindow", "$,$,.NOTDEFINED.,.NOTDEFINED.,$"),
+];
+
+/// The class a tag name stands for: its words (English or Italian,
+/// singular or plural) against the classes (docs/09 Decisions, IFC).
+fn class_of_tag(name: &str) -> Option<&'static str> {
+    let words: Vec<String> = name
+        .to_lowercase()
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .map(str::to_owned)
+        .collect();
+    let table: [(&[&str], &'static str); 13] = [
+        (
+            &["wall", "walls", "muro", "muri", "parete", "pareti"],
+            "IfcWall",
+        ),
+        (
+            &[
+                "slab",
+                "slabs",
+                "floor",
+                "floors",
+                "solaio",
+                "solai",
+                "pavimento",
+                "pavimenti",
+            ],
+            "IfcSlab",
+        ),
+        (
+            &["roof", "roofs", "tetto", "tetti", "copertura", "coperture"],
+            "IfcRoof",
+        ),
+        (
+            &[
+                "column", "columns", "pillar", "pillars", "colonna", "colonne", "pilastro",
+                "pilastri",
+            ],
+            "IfcColumn",
+        ),
+        (&["beam", "beams", "trave", "travi"], "IfcBeam"),
+        (
+            &["stair", "stairs", "staircase", "scala", "scale"],
+            "IfcStair",
+        ),
+        (
+            &[
+                "railing",
+                "railings",
+                "ringhiera",
+                "ringhiere",
+                "parapetto",
+                "parapetti",
+            ],
+            "IfcRailing",
+        ),
+        (
+            &[
+                "ceiling",
+                "ceilings",
+                "covering",
+                "coverings",
+                "controsoffitto",
+                "rivestimento",
+                "rivestimenti",
+            ],
+            "IfcCovering",
+        ),
+        (&["plate", "plates", "lastra", "lastre"], "IfcPlate"),
+        (&["member", "members", "elemento"], "IfcMember"),
+        (
+            &[
+                "furniture",
+                "furnishing",
+                "arredo",
+                "arredi",
+                "mobile",
+                "mobili",
+            ],
+            "IfcFurniture",
+        ),
+        (&["door", "doors", "porta", "porte"], "IfcDoor"),
+        (&["window", "windows", "finestra", "finestre"], "IfcWindow"),
+    ];
+    table
+        .iter()
+        .find(|(keys, _)| words.iter().any(|w| keys.contains(&w.as_str())))
+        .map(|(_, class)| *class)
+}
+
+/// The class of a top-level entity: an `ifc`/`class` attribute naming one
+/// of [`CLASSES`] (with or without the `Ifc` prefix, any case), else its
+/// tag's name, else the proxy.
+fn class_of(doc: &Document, key: Option<EntityKey>) -> &'static str {
+    let proxy = CLASSES[0].0;
+    let Some(model) = doc.container(crate::document::ContainerRef::Model) else {
+        return proxy;
+    };
+    let Some(id) = key.and_then(|k| model.key_to_id(k)) else {
+        return proxy;
+    };
+    if let Some(crate::document::Value::Str(text)) =
+        model.attrs(id).and_then(|a| a.get("ifc", "class"))
+    {
+        let wanted = text.trim().to_lowercase();
+        let wanted = wanted.strip_prefix("ifc").unwrap_or(&wanted).to_string();
+        if let Some((class, _)) = CLASSES
+            .iter()
+            .find(|(c, _)| c[3..].to_lowercase() == wanted)
+        {
+            return class;
+        }
+    }
+    model
+        .tag_of(id)
+        .and_then(|t| doc.tags.get(t))
+        .and_then(|t| class_of_tag(&t.name))
+        .unwrap_or(proxy)
 }
 
 fn elements(doc: &Document, scope: &ExportScope) -> Vec<Element> {
@@ -130,6 +269,7 @@ fn elements(doc: &Document, scope: &ExportScope) -> Vec<Element> {
             Element {
                 name: occurrence_name(doc, &path),
                 key: top.map_or("model".into(), |k| k.to_string()),
+                class: class_of(doc, top),
                 parts: BTreeMap::new(),
             }
         });
@@ -285,8 +425,13 @@ fn file(doc: &Document, elements: &[Element], name: &str) -> (String, usize) {
         ));
         let definition = d.add(format!("IFCPRODUCTDEFINITIONSHAPE($,$,(#{shape}))"));
         let place = d.add(format!("IFCLOCALPLACEMENT(#{storey_place},#{axes})"));
+        let tail = CLASSES
+            .iter()
+            .find(|(c, _)| *c == element.class)
+            .map_or(".NOTDEFINED.", |(_, t)| *t);
         let product = d.add(format!(
-            "IFCBUILDINGELEMENTPROXY({},$,{},$,$,#{place},#{definition},$,.NOTDEFINED.)",
+            "{}({},$,{},$,$,#{place},#{definition},$,{tail})",
+            element.class.to_uppercase(),
             text(&stable_guid(&format!("element {}", element.key))),
             text(&element.name)
         ));
@@ -355,6 +500,15 @@ impl Exporter for IfcExporter {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tags_name_classes_in_two_languages() {
+        assert_eq!(class_of_tag("Walls"), Some("IfcWall"));
+        assert_eq!(class_of_tag("Muri esterni"), Some("IfcWall"));
+        assert_eq!(class_of_tag("Ground floor"), Some("IfcSlab"));
+        assert_eq!(class_of_tag("Finestre"), Some("IfcWindow"));
+        assert_eq!(class_of_tag("Untagged"), None);
+    }
 
     #[test]
     fn guids_texts_and_reals_follow_the_encoding() {

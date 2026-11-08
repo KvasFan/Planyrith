@@ -589,7 +589,15 @@ save unless `--no-thumbnail`. `manifest.json` carries `title`, `author`, `descri
   `IfcTriangulatedFaceSet` per material in world millimeters, styled with the material's color
   and transparency. GUIDs are the format's 22-character encoding of a hash of fixed labels and
   the element's pid, so exporting a model twice gives the same ids; the header's timestamp is
-  fixed (docs/08 §10). Element classes beyond the proxy (walls, slabs…), storeys from tags and
-  property sets are later work. `tools/validate-exports.sh` checks the file with IfcOpenShell's
+  fixed (docs/08 §10). Property sets and storeys other than "Level 0" are later work. `tools/validate-exports.sh` checks the file with IfcOpenShell's
   schema and rule validation and its geometry kernel (a local check; the tool is not a
   dependency).
+- 2026-11-08 — **IFC element classes.** An element's class comes from an `ifc` / `class`
+  attribute on the top-level group or instance naming one of `IfcWall`, `IfcSlab`, `IfcRoof`,
+  `IfcColumn`, `IfcBeam`, `IfcStair`, `IfcRailing`, `IfcCovering`, `IfcPlate`, `IfcMember`,
+  `IfcFurniture`, `IfcDoor`, `IfcWindow` (prefix and case optional), else from its tag's name:
+  a word of it in English or Italian, singular or plural (walls/muri/pareti, floors/solai,
+  roof/tetti, columns/pilastri, beams/travi, stairs/scale, railings/ringhiere,
+  ceilings/controsoffitto, plates/lastre, members, furniture/arredi/mobili, doors/porte,
+  windows/finestre), else `IfcBuildingElementProxy`. Doors and windows leave their sizes and
+  operation unset. All fourteen classes pass IfcOpenShell's validation.

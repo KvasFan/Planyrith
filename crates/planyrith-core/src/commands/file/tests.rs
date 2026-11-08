@@ -2209,13 +2209,28 @@ fn ifc_writes_one_element_per_top_level_object() {
         "material-apply",
         json!({ "targets": "group & name:Wall", "material": "Concrete" }),
     );
+    // The wall's class from its tag, the slab's from an attribute.
+    run(&mut e, "tag-create", json!({ "name": "Muri" }));
+    run(
+        &mut e,
+        "tag-assign",
+        json!({ "targets": "group & name:Wall", "tag": "Muri" }),
+    );
+    #[cfg(feature = "scripting")]
+    run(
+        &mut e,
+        "attribute-set",
+        json!({ "targets": "group & name:Slab", "dictionary": "ifc", "key": "class", "value": "IfcSlab" }),
+    );
     let out = run(&mut e, "export", json!({ "path": "site.ifc" }));
     assert_eq!(out["format"], "ifc");
     assert_eq!(out["entities"], 24);
     let text = String::from_utf8(storage.read(&StorageKey::new("site.ifc")).unwrap()).unwrap();
     assert!(text.starts_with("ISO-10303-21;"));
     assert!(text.contains("FILE_SCHEMA(('IFC4'));"));
-    assert_eq!(text.matches("IFCBUILDINGELEMENTPROXY(").count(), 2);
+    assert_eq!(text.matches("IFCWALL(").count(), 1, "{text}");
+    #[cfg(feature = "scripting")]
+    assert_eq!(text.matches("IFCSLAB(").count(), 1);
     assert_eq!(text.matches("IFCTRIANGULATEDFACESET(").count(), 2);
     assert!(text.contains("'Wall'") && text.contains("'Slab'"));
     assert!(text.contains("IFCSURFACESTYLE('Concrete'"));

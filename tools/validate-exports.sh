@@ -128,7 +128,7 @@ import ifcopenshell, ifcopenshell.validate, ifcopenshell.geom
 f = ifcopenshell.open(sys.argv[1])
 logger = ifcopenshell.validate.json_logger()
 ifcopenshell.validate.validate(f, logger, express_rules=True)
-elements = f.by_type("IfcBuildingElementProxy")
+elements = f.by_type("IfcElement")
 settings = ifcopenshell.geom.settings()
 shaped = sum(1 for e in elements
              if len(ifcopenshell.geom.create_shape(settings, e).geometry.faces) > 0)
