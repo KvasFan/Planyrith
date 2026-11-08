@@ -111,6 +111,8 @@ struct Element {
     key: String,
     /// Its IFC class (`IfcBuildingElementProxy` unless told otherwise).
     class: &'static str,
+    /// Its storey's name (`Level 0` unless told otherwise).
+    storey: String,
     parts: BTreeMap<MaterialId, Part>,
 }
 
@@ -251,6 +253,25 @@ fn class_of(doc: &Document, key: Option<EntityKey>) -> &'static str {
         .unwrap_or(proxy)
 }
 
+/// The storey of a top-level entity: its `ifc`/`storey` attribute, else
+/// `Level 0`.
+fn storey_of(doc: &Document, key: Option<EntityKey>) -> String {
+    let named = || {
+        let model = doc.container(crate::document::ContainerRef::Model)?;
+        let id = model.key_to_id(key?)?;
+        match model.attrs(id)?.get("ifc", "storey")? {
+            crate::document::Value::Str(text) if !text.trim().is_empty() => {
+                Some(text.trim().to_string())
+            }
+            _ => None,
+        }
+    };
+    named().unwrap_or_else(|| DEFAULT_STOREY.to_string())
+}
+
+/// The storey of elements that name none.
+const DEFAULT_STOREY: &str = "Level 0";
+
 fn elements(doc: &Document, scope: &ExportScope) -> Vec<Element> {
     let scene = collect(doc, scope);
     let mut order: Vec<Option<EntityKey>> = Vec::new();
@@ -270,6 +291,7 @@ fn elements(doc: &Document, scope: &ExportScope) -> Vec<Element> {
                 name: occurrence_name(doc, &path),
                 key: top.map_or("model".into(), |k| k.to_string()),
                 class: class_of(doc, top),
+                storey: storey_of(doc, top),
                 parts: BTreeMap::new(),
             }
         });
@@ -347,24 +369,61 @@ fn file(doc: &Document, elements: &[Element], name: &str) -> (String, usize) {
         "IFCBUILDING({},$,'Building',$,$,#{building_place},$,$,.ELEMENT.,$,$,$)",
         text(&stable_guid("building"))
     ));
-    let storey_place = d.add(format!("IFCLOCALPLACEMENT(#{building_place},#{axes})"));
-    let storey = d.add(format!(
-        "IFCBUILDINGSTOREY({},$,'Level 0',$,$,#{storey_place},$,$,.ELEMENT.,0.)",
-        text(&stable_guid("storey"))
-    ));
-    for (whole, part, what) in [
-        (project, site, "project-site"),
-        (site, building, "site-building"),
-        (building, storey, "building-storey"),
-    ] {
-        d.add(format!(
-            "IFCRELAGGREGATES({},$,$,$,#{whole},(#{part}))",
-            text(&stable_guid(what))
-        ));
+    // Storeys by name, lowest first; each at its elements' lowest point
+    // (the default one at 0 when it holds nothing lower).
+    let mut levels: BTreeMap<&str, f64> = BTreeMap::new();
+    for e in elements {
+        let low = e
+            .parts
+            .values()
+            .flat_map(|(points, ..)| points.iter().map(|p| p.z))
+            .fold(f64::INFINITY, f64::min);
+        let entry = levels.entry(e.storey.as_str()).or_insert(f64::INFINITY);
+        *entry = entry.min(low);
     }
+    if levels.is_empty() {
+        levels.insert(DEFAULT_STOREY, 0.0);
+    }
+    let mut ordered: Vec<(&str, f64)> = levels
+        .into_iter()
+        .map(|(n, z)| (n, if z.is_finite() { z } else { 0.0 }))
+        .collect();
+    ordered.sort_by(|a, b| a.1.total_cmp(&b.1).then(a.0.cmp(b.0)));
+    let mut storeys: BTreeMap<&str, (u64, u64)> = BTreeMap::new();
+    for (name, z) in &ordered {
+        let point = d.add(format!("IFCCARTESIANPOINT((0.,0.,{}))", real(*z)));
+        let level_axes = d.add(format!("IFCAXIS2PLACEMENT3D(#{point},#{up},#{east})"));
+        let place = d.add(format!(
+            "IFCLOCALPLACEMENT(#{building_place},#{level_axes})"
+        ));
+        let storey = d.add(format!(
+            "IFCBUILDINGSTOREY({},$,{},$,$,#{place},$,$,.ELEMENT.,{})",
+            text(&stable_guid(&format!("storey {name}"))),
+            text(name),
+            real(*z)
+        ));
+        storeys.insert(name, (storey, place));
+    }
+    let storey_list: Vec<String> = ordered
+        .iter()
+        .filter_map(|(n, _)| storeys.get(n).map(|(s, _)| format!("#{s}")))
+        .collect();
+    d.add(format!(
+        "IFCRELAGGREGATES({},$,$,$,#{project},(#{site}))",
+        text(&stable_guid("project-site"))
+    ));
+    d.add(format!(
+        "IFCRELAGGREGATES({},$,$,$,#{site},(#{building}))",
+        text(&stable_guid("site-building"))
+    ));
+    d.add(format!(
+        "IFCRELAGGREGATES({},$,$,$,#{building},({}))",
+        text(&stable_guid("building-storey")),
+        storey_list.join(",")
+    ));
     // One surface style per material.
     let mut styles: BTreeMap<MaterialId, u64> = BTreeMap::new();
-    let mut products = Vec::new();
+    let mut products: BTreeMap<&str, Vec<String>> = BTreeMap::new();
     let mut triangles_total = 0;
     for element in elements {
         let mut items = Vec::new();
@@ -424,7 +483,18 @@ fn file(doc: &Document, elements: &[Element], name: &str) -> (String, usize) {
             items.join(",")
         ));
         let definition = d.add(format!("IFCPRODUCTDEFINITIONSHAPE($,$,(#{shape}))"));
-        let place = d.add(format!("IFCLOCALPLACEMENT(#{storey_place},#{axes})"));
+        let Some(&(_, storey_place)) = storeys.get(element.storey.as_str()) else {
+            continue;
+        };
+        // Element points are in world millimeters: the placement undoes
+        // the storey's elevation.
+        let level = ordered
+            .iter()
+            .find(|(n, _)| *n == element.storey)
+            .map_or(0.0, |(_, z)| *z);
+        let back = d.add(format!("IFCCARTESIANPOINT((0.,0.,{}))", real(-level)));
+        let back_axes = d.add(format!("IFCAXIS2PLACEMENT3D(#{back},#{up},#{east})"));
+        let place = d.add(format!("IFCLOCALPLACEMENT(#{storey_place},#{back_axes})"));
         let tail = CLASSES
             .iter()
             .find(|(c, _)| *c == element.class)
@@ -435,14 +505,19 @@ fn file(doc: &Document, elements: &[Element], name: &str) -> (String, usize) {
             text(&stable_guid(&format!("element {}", element.key))),
             text(&element.name)
         ));
-        products.push(format!("#{product}"));
+        products
+            .entry(element.storey.as_str())
+            .or_default()
+            .push(format!("#{product}"));
     }
-    if !products.is_empty() {
-        d.add(format!(
-            "IFCRELCONTAINEDINSPATIALSTRUCTURE({},$,$,$,({}),#{storey})",
-            text(&stable_guid("contained")),
-            products.join(",")
-        ));
+    for (name, list) in &products {
+        if let Some(&(storey, _)) = storeys.get(name) {
+            d.add(format!(
+                "IFCRELCONTAINEDINSPATIALSTRUCTURE({},$,$,$,({}),#{storey})",
+                text(&stable_guid(&format!("contained {name}"))),
+                list.join(",")
+            ));
+        }
     }
     let mut out = String::new();
     let _ = writeln!(out, "ISO-10303-21;");

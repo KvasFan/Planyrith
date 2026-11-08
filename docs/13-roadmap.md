@@ -153,8 +153,8 @@ parametric/dynamic components, GPU path-traced preview, mobile UI.
   `thicken`, `bezier`, `loft`. Exchange: PLY both ways, USD (`usda`, `usdz`) and IFC4 export,
   checked by the reference libraries in `tools/validate-exports.sh`; USD carries textures.
   IFC elements take their class from an attribute or their tag; `render --path-traced` traces
-  final images on the CPU (and from File › Export › Rendered Image…). Still open in 1.1: IFC
-  storeys and property sets, and interactive (picking) versions of the rounding, thicken and loft
+  final images on the CPU (and from File › Export › Rendered Image…). IFC storeys come from
+  an attribute. Still open in 1.1: IFC property sets and interactive (picking) versions of the rounding, thicken and loft
   dialogs.
 
 - 2026-11-05 — **Milestone 1.1.** The user asked what is missing for 3D printing, useful 3D tools,

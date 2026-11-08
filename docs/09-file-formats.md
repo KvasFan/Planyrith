@@ -589,7 +589,7 @@ save unless `--no-thumbnail`. `manifest.json` carries `title`, `author`, `descri
   `IfcTriangulatedFaceSet` per material in world millimeters, styled with the material's color
   and transparency. GUIDs are the format's 22-character encoding of a hash of fixed labels and
   the element's pid, so exporting a model twice gives the same ids; the header's timestamp is
-  fixed (docs/08 §10). Property sets and storeys other than "Level 0" are later work. `tools/validate-exports.sh` checks the file with IfcOpenShell's
+  fixed (docs/08 §10). Property sets are later work. `tools/validate-exports.sh` checks the file with IfcOpenShell's
   schema and rule validation and its geometry kernel (a local check; the tool is not a
   dependency).
 - 2026-11-08 — **IFC element classes.** An element's class comes from an `ifc` / `class`
@@ -601,3 +601,9 @@ save unless `--no-thumbnail`. `manifest.json` carries `title`, `author`, `descri
   ceilings/controsoffitto, plates/lastre, members, furniture/arredi/mobili, doors/porte,
   windows/finestre), else `IfcBuildingElementProxy`. Doors and windows leave their sizes and
   operation unset. All fourteen classes pass IfcOpenShell's validation.
+- 2026-11-08 — **IFC storeys.** An `ifc` / `storey` attribute (text) on a top-level group or
+  instance names its storey; elements without one go to "Level 0". Each storey stands at the
+  lowest point of its elements (Level 0 at 0 when it holds none lower), the building aggregates
+  them lowest first, and each element's placement undoes its storey's elevation, since element
+  points are written in world millimeters. IfcOpenShell places a two-storey file's geometry
+  at its world heights.

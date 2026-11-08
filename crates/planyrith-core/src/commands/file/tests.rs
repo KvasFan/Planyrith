@@ -2294,3 +2294,44 @@ fn usd_carries_textures() {
         "textures/Oak.png"
     );
 }
+
+/// docs/09 Decisions 2026-11-08: an `ifc`/`storey` attribute puts an
+/// element on a storey of its own, at the element's lowest point.
+#[cfg(feature = "scripting")]
+#[test]
+fn ifc_storeys_come_from_an_attribute() {
+    let (mut e, storage) = engine();
+    for (z, name) in [(0, "Ground"), (3000, "Upper")] {
+        run(
+            &mut e,
+            "rectangle",
+            json!({ "corner_a": [0, 0, z], "corner_b": [4000, 3000, z] }),
+        );
+        run(
+            &mut e,
+            "push-pull",
+            json!({ "face": { "Query": "face & last" }, "distance": 200 }),
+        );
+        run(
+            &mut e,
+            "make-group",
+            json!({ "targets": "edge | face", "name": name }),
+        );
+    }
+    run(
+        &mut e,
+        "attribute-set",
+        json!({ "targets": "group & name:Upper", "dictionary": "ifc", "key": "storey", "value": "Piano 1" }),
+    );
+    run(&mut e, "export", json!({ "path": "two.ifc" }));
+    let text = String::from_utf8(storage.read(&StorageKey::new("two.ifc")).unwrap()).unwrap();
+    assert_eq!(text.matches("IFCBUILDINGSTOREY(").count(), 2);
+    assert!(
+        text.contains(",'Piano 1',$,$,") && text.contains(",.ELEMENT.,3000.)"),
+        "{text}"
+    );
+    assert_eq!(
+        text.matches("IFCRELCONTAINEDINSPATIALSTRUCTURE(").count(),
+        2
+    );
+}

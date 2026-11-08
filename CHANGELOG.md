@@ -13,7 +13,8 @@ All notable changes to Planyrith are recorded here. Versions follow
 - IFC export (IFC4) for BIM tools: each top-level group or component becomes
   a building element with its geometry and colors, in one storey — a wall, slab,
   door, window and so on when its tag says so ("Walls", "Muri", "Finestre"…) or
-  an `ifc`/`class` attribute names the class; checked with IfcOpenShell.
+  an `ifc`/`class` attribute names the class, on the storey an `ifc`/`storey`
+  attribute names; checked with IfcOpenShell.
 - USD export (`.usda` text and `.usdz` packages for augmented-reality viewers),
   with colors, textures, roughness and metalness; checked with the reference
   USD library's validators.
