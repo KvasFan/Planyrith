@@ -251,6 +251,22 @@ into triangles joined by new edges, and a hole that folds over itself in that pr
 reverse inside-out shells. The back of a lone face is not a hole (filling it would put a second
 face on the same corners) and is left open. New faces take the default materials.
 
+### 4.15 Edge rounding (`geom::rounding`)
+`round_edges(solid, edges, Fillet{radius, segments} | Chamfer{distance})` reads every edge first
+(endpoints, the outward normals `na`, `nb` of its faces and the in-face directions `ta`, `tb`
+square to the edge and away from it), then rounds them one after another on the evolving
+solid. The edge is convex when `na · tb < 0`. The two faces enclose the angle
+`φ = acos(ta · tb)`; a fillet's arc of radius `r` touches the faces `r / tan(φ/2)` from the edge
+around a center on the bisector `r / sin(φ/2)` from it, in `segments` chords; a chamfer joins the
+points `distance` along each face. The section — tangent point, arc or chamfer line, tangent
+point, then back through points a margin past the faces (outward for a convex edge, inward for a
+concave one) — is extruded along the edge, past both ends when it cuts (into the air there) and
+exactly between them when it adds, so its sides never lie in a face of the solid. Convex edges
+subtract it, concave ones unite with it (§4.13). Fillet chords and their tangent lines are
+marked `SOFT | SMOOTH` (edges near the rounded edges that turn by at most π / segments).
+Rounding all edges of a box mitres the corners where three roundings meet rather than blending
+them into a sphere.
+
 ## 5. Tessellation (for rendering and export)
 
 `tessellate_face(f) -> Vec<[u32; 3]>`: project loops to the face's 2D frame, run ear clipping

@@ -21,6 +21,7 @@ mod printing;
 #[cfg(not(target_arch = "wasm32"))]
 mod remote;
 mod resources;
+mod rounding;
 pub mod samples;
 pub mod session;
 mod theme;

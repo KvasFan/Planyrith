@@ -1,0 +1,4 @@
+# Cut the vertical edges of a box flat.
+rectangle --corner-a 0,0,0 --corner-b 1000,500,0
+push-pull --face '{face & last}' --distance 400
+chamfer --edges 'edge & length=400' --distance 60

@@ -1,0 +1,8 @@
+# Round the four long edges of a box, then every edge of a second one.
+rectangle --corner-a 0,0,0 --corner-b 1000,500,0
+push-pull --face '{face & last}' --distance 400
+fillet --edges 'edge & length=1000' --radius 50 --segments 4
+make-group --targets 'edge | face' --name Rounded
+rectangle --corner-a 2000,0,0 --corner-b 2400,400,0
+push-pull --face '{face & last}' --distance 400
+fillet --edges 'edge' --radius 40 --segments 3

@@ -339,6 +339,8 @@ pub struct App {
     preferences_open: bool,
     /// Tools › Solids › Check for 3D Printing (docs/05 §8.1).
     print_check: crate::printing::PrintCheck,
+    /// Tools › Round Edges (docs/05 §4.17).
+    round_edges: crate::rounding::RoundEdges,
     extensions: crate::extensions::Extensions,
     sheets: crate::sheets::Sheets,
     /// Journal and snapshot the documents (off in tests).
@@ -473,6 +475,7 @@ impl App {
             shadows_open: false,
             preferences_open: false,
             print_check: Default::default(),
+            round_edges: Default::default(),
             extensions: Default::default(),
             sheets: Default::default(),
             autosave: false,
@@ -1661,6 +1664,10 @@ impl App {
                     }
                 });
                 self.tool_button(ui, "Sweep");
+                if ui.button(t("Round Edges…")).clicked() {
+                    self.round_edges.open = true;
+                    ui.close();
+                }
                 if ui.button(t("Soften / Smooth…")).clicked() {
                     self.extensions.soften_open = true;
                     ui.close();
@@ -3081,6 +3088,7 @@ impl App {
         self.shadows_window(&ctx);
         self.preferences_window(&ctx);
         self.print_check.window(&ctx, &mut self.session);
+        self.round_edges.window(&ctx, &mut self.session);
         self.extensions.ui(&ctx, &mut self.session);
         self.file_dialog(&ctx);
         self.discard_prompt(&ctx);

@@ -269,6 +269,26 @@ perpendicular to hovered edge); `Esc` = cancel current step (second `Esc` = canc
 ### 4.16 `explode-curve`, `set-curve-segments`
 - `set-curve-segments { curve: EntityRef, segments: Count }` only while the curve is intact.
 
+### 4.17 `fillet`
+- **Params:** `edges: Sel` (edges of the solid in the edit context), `radius: Length`,
+  `segments: u32` (8; 1–64 straight pieces per arc).
+- **Behavior:** `docs/03 §4.15`. The container's mesh must be a solid; every selected edge must
+  join two faces at a corner. A convex edge loses the material outside an arc tangent to both
+  faces; a concave edge gains the material inside it. The arc's pieces and the lines where it
+  meets the faces become soft and smooth. The new faces take the first face's materials. The
+  container's geometry is replaced by the result (new pids).
+- **Output:** `{ rounded, faces, volume_mm3 }`.
+- **Undo:** one step.
+- **GUI:** Tools › Round Edges… acts on the selected edges.
+- **Tests:** the long edges of a box lose exactly the corner area outside the polygonal arc; all
+  twelve edges of a box give a printable solid; undo restores the six faces.
+
+### 4.18 `chamfer`
+- **Params:** `edges: Sel`, `distance: Length` (along both faces from the edge).
+- **Behavior:** as `fillet` with a flat cut instead of the arc.
+- **Output:** `{ rounded, faces, volume_mm3 }`. **Undo:** one step.
+- **Tests:** a box edge loses a triangular prism; a concave edge of an L block gains one.
+
 ## 5. Organization tools (category `organize`)
 
 ### 5.1 `make-group`

@@ -6,6 +6,9 @@ All notable changes to Planyrith are recorded here. Versions follow
 
 ## Unreleased
 
+- Round or cut the edges of solids: `fillet` (an arc of a given radius,
+  smooth-shaded) and `chamfer` (a flat cut), on convex edges and inside
+  corners alike; Tools › Round Edges… works on the selected edges.
 - A realistic look for styles (Styles › Realistic lighting, or `style-edit
   --realistic`): light from the sky as well as the sun, highlights after each
   material's new roughness and metallic settings, ambient occlusion in creases

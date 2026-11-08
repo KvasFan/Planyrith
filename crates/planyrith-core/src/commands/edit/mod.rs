@@ -17,6 +17,7 @@ pub use modeling::{
     SoftenSmoothParams, Sweep, SweepOutput, SweepParams,
 };
 mod push_pull;
+mod rounding;
 mod select;
 pub(crate) mod transform;
 
@@ -26,6 +27,7 @@ pub use erase::{
 };
 pub use offset::{Offset, OffsetOutput, OffsetParams};
 pub use push_pull::{PushPull, PushPullOutput, PushPullParams};
+pub use rounding::{Chamfer, ChamferParams, Fillet, FilletParams, RoundingOutput};
 pub use select::{Select, SelectOutput, SelectParams};
 pub use transform::{
     Move, MoveParams, Rotate, RotateParams, Scale, ScaleAbout, ScaleOutput, ScaleParams, Spacing,
@@ -52,6 +54,8 @@ pub fn register(registry: &mut CommandRegistry) {
     registry.register(Move);
     registry.register(Rotate);
     registry.register(Scale);
+    registry.register(Fillet);
+    registry.register(Chamfer);
 }
 
 #[cfg(test)]
