@@ -341,6 +341,8 @@ pub struct App {
     print_check: crate::printing::PrintCheck,
     /// Tools › Round Edges (docs/05 §4.17).
     round_edges: crate::rounding::RoundEdges,
+    /// Tools › Thicken (docs/05 §4.19).
+    thicken: crate::rounding::ThickenWindow,
     extensions: crate::extensions::Extensions,
     sheets: crate::sheets::Sheets,
     /// Journal and snapshot the documents (off in tests).
@@ -476,6 +478,7 @@ impl App {
             preferences_open: false,
             print_check: Default::default(),
             round_edges: Default::default(),
+            thicken: Default::default(),
             extensions: Default::default(),
             sheets: Default::default(),
             autosave: false,
@@ -1666,6 +1669,10 @@ impl App {
                 self.tool_button(ui, "Sweep");
                 if ui.button(t("Round Edges…")).clicked() {
                     self.round_edges.open = true;
+                    ui.close();
+                }
+                if ui.button(t("Thicken…")).clicked() {
+                    self.thicken.open = true;
                     ui.close();
                 }
                 if ui.button(t("Soften / Smooth…")).clicked() {
@@ -3089,6 +3096,7 @@ impl App {
         self.preferences_window(&ctx);
         self.print_check.window(&ctx, &mut self.session);
         self.round_edges.window(&ctx, &mut self.session);
+        self.thicken.window(&ctx, &mut self.session);
         self.extensions.ui(&ctx, &mut self.session);
         self.file_dialog(&ctx);
         self.discard_prompt(&ctx);

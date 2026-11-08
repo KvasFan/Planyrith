@@ -267,6 +267,17 @@ marked `SOFT | SMOOTH` (edges near the rounded edges that turn by at most π / s
 Rounding all edges of a box mitres the corners where three roundings meet rather than blending
 them into a sphere.
 
+### 4.16 Thicken (`geom::thicken`)
+`thicken(mesh, faces, t, centered)` moves every vertex of the selected faces by `d` with
+`n·d = t` for each distinct normal `n` of the selected faces around it: one normal gives `t n`,
+two the shortest such `d` (in their span), three or more the least-squares solution (their
+average when they lie in one plane). So moved faces stay parallel to their originals at the
+thickness, and flat when at most three directions meet at each corner; a moved face that leaves
+its plane goes in as triangles. The moved faces (front side kept) and the original faces turned
+over cap the solid; a quad along every half-edge whose other side is not a selected face closes
+it. The pieces are stitched (§4.13) and the result must be a solid; it is turned to face
+outward.
+
 ## 5. Tessellation (for rendering and export)
 
 `tessellate_face(f) -> Vec<[u32; 3]>`: project loops to the face's 2D frame, run ear clipping

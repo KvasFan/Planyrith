@@ -27,6 +27,7 @@ pub mod section;
 pub mod solid_check;
 pub mod sweep;
 pub mod tessellate;
+pub mod thicken;
 
 pub use mesh::{
     AddEdgeResult, CurveDescriptor, Edge, EdgeFlags, EraseEdgeResult, EraseFaceResult, Face,

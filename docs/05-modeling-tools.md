@@ -289,6 +289,17 @@ perpendicular to hovered edge); `Esc` = cancel current step (second `Esc` = canc
 - **Output:** `{ rounded, faces, volume_mm3 }`. **Undo:** one step.
 - **Tests:** a box edge loses a triangular prism; a concave edge of an L block gains one.
 
+### 4.19 `thicken`
+- **Params:** `faces: Sel` (faces of the edit context: a sheet, open or closed, flat or bent),
+  `thickness: Length` (along the faces' fronts; negative behind them), `centered: bool` (false;
+  half each way), `keep_surface: bool` (false).
+- **Behavior:** `docs/03 §4.16`; the solid goes into a new group named "Thickened" in the edit
+  context; the faces give way to it unless `keep_surface`.
+- **Output:** `{ group, faces, volume_mm3 }`. **Undo:** one step.
+- **GUI:** Tools › Thicken… acts on the selected faces.
+- **Tests:** a rectangle becomes a slab of its area times the thickness; a sheet bent at a
+  right angle keeps the thickness on both leaves; centered thickening is symmetric.
+
 ## 5. Organization tools (category `organize`)
 
 ### 5.1 `make-group`

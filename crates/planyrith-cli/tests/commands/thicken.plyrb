@@ -1,0 +1,6 @@
+# A floor plate and a bent sheet made into solids.
+rectangle --corner-a 0,0,0 --corner-b 1000,600,0
+thicken --faces 'face' --thickness 20
+line --points 2000,0,0 --points 3000,0,0 --points 3000,0,500 --points 2000,0,500 --close
+line --points 3000,0,0 --points 3000,400,0 --points 3000,400,500 --points 3000,0,500
+thicken --faces 'face' --thickness 10 --centered

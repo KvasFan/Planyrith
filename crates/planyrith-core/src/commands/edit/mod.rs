@@ -19,6 +19,7 @@ pub use modeling::{
 mod push_pull;
 mod rounding;
 mod select;
+mod thicken;
 pub(crate) mod transform;
 
 pub use erase::{
@@ -29,6 +30,7 @@ pub use offset::{Offset, OffsetOutput, OffsetParams};
 pub use push_pull::{PushPull, PushPullOutput, PushPullParams};
 pub use rounding::{Chamfer, ChamferParams, Fillet, FilletParams, RoundingOutput};
 pub use select::{Select, SelectOutput, SelectParams};
+pub use thicken::{Thicken, ThickenOutput, ThickenParams};
 pub use transform::{
     Move, MoveParams, Rotate, RotateParams, Scale, ScaleAbout, ScaleOutput, ScaleParams, Spacing,
     TransformOutput,
@@ -56,6 +58,7 @@ pub fn register(registry: &mut CommandRegistry) {
     registry.register(Scale);
     registry.register(Fillet);
     registry.register(Chamfer);
+    registry.register(Thicken);
 }
 
 #[cfg(test)]

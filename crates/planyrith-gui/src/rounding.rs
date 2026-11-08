@@ -1,5 +1,6 @@
 //! Tools › Round Edges… (docs/05 §4.17–§4.18): `fillet` and `chamfer` on
-//! the selected edges of the solid being edited.
+//! the selected edges of the solid being edited; Tools › Thicken… (§4.19)
+//! on the selected faces.
 
 use serde_json::json;
 
@@ -93,6 +94,77 @@ impl RoundEdges {
             ),
             Err(e) => e,
         });
+    }
+}
+
+/// The Thicken window's state.
+pub struct ThickenWindow {
+    /// The window is shown.
+    pub open: bool,
+    thickness_mm: f64,
+    centered: bool,
+    note: Option<String>,
+}
+
+impl Default for ThickenWindow {
+    fn default() -> Self {
+        ThickenWindow {
+            open: false,
+            thickness_mm: 10.0,
+            centered: false,
+            note: None,
+        }
+    }
+}
+
+impl ThickenWindow {
+    /// Draws the window.
+    pub fn window(&mut self, ctx: &egui::Context, session: &mut Session) {
+        if !self.open {
+            return;
+        }
+        let mut open = true;
+        egui::Window::new(t("Thicken"))
+            .open(&mut open)
+            .resizable(false)
+            .show(ctx, |ui| {
+                ui.label(t("Select the faces of a surface, then:"));
+                ui.horizontal(|ui| {
+                    ui.label(t("Thickness"));
+                    ui.add(
+                        egui::DragValue::new(&mut self.thickness_mm)
+                            .range(-100_000.0..=100_000.0)
+                            .speed(0.5)
+                            .suffix(" mm"),
+                    );
+                });
+                ui.checkbox(&mut self.centered, t("Half on each side"));
+                if ui.button(t("Thicken")).clicked() {
+                    self.note = Some(
+                        match session.execute(
+                            "thicken",
+                            json!({ "faces": "selection", "thickness": self.thickness_mm, "centered": self.centered }),
+                        ) {
+                            Ok(out) => crate::i18n::t_args(
+                                "Solid made: { $volume } cm³.",
+                                &[(
+                                    "volume",
+                                    format!(
+                                        "{:.1}",
+                                        out["volume_mm3"].as_f64().unwrap_or(0.0) / 1000.0
+                                    )
+                                    .into(),
+                                )],
+                            ),
+                            Err(e) => e,
+                        },
+                    );
+                }
+                if let Some(note) = &self.note {
+                    ui.label(note);
+                }
+            });
+        self.open = open;
     }
 }
 
