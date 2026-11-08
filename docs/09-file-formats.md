@@ -95,6 +95,7 @@ control via `planyrith export --format json`. It is **not** required to load the
 | PLY (ASCII/binary) | ✔ | ✔ | polygon meshes, e.g. from 3D scanning: vertex and face colors become materials on import; export writes triangles with the front color on each vertex (binary little-endian unless `--ascii`). |
 | USD (`.usda`, `.usdz`) | — | ✔ | a text stage, or packed (stored, 64-byte aligned) for augmented-reality viewers: one mesh per occurrence and material, Z up, `metersPerUnit` from `--file-units`, preview-surface materials with their textures. |
 | IFC (IFC4) | — | ✔ | a building model for BIM tools: one storey holding an element per top-level group or component and the loose faces, triangulated face sets per material with surface colors, millimeters. |
+| COLLADA (`.dae`, 1.4/1.5) | ✔ | ✔ | geometry (triangles, polylists, polygons with holes), materials with colors, textures and transparency, the node tree with instanced nodes, unit and up axis; export shares a component's geometry among its instances. |
 | STL (ASCII/binary) | ✔ | ✔ | triangles merged into coplanar faces on import (`--merge-coplanar`, default on); binary default on export. |
 | glTF 2.0 / GLB | ✔ | ✔ | nodes → groups/instances (meshes shared → components), PBR base color + texture, transforms, cameras → scenes. KHR_texture_transform supported. |
 | DXF (R12–2018 ASCII) | ✔ | ✔ (3D and 2D) | LINE, LWPOLYLINE/POLYLINE, ARC, CIRCLE, ELLIPSE (segmented), SPLINE (flattened), 3DFACE, POLYFACE mesh, INSERT/BLOCK → components, LAYER → tags, TEXT/MTEXT, DIMENSION (as text+lines on export). |
@@ -106,7 +107,7 @@ control via `planyrith export --format json`. It is **not** required to load the
 | SVG / PDF | — | ✔ | 2D export of a view (`--2d`) and of sheets (`docs/15`). Hidden-line removal in software; vector output. |
 | `.plyr/.plyrc` | ✔ | ✔ | merge another document as a group/component. |
 
-Out of scope for 1.0 (documented as future work): FBX, 3DS, DWG, COLLADA; USD and IFC import.
+Out of scope for 1.0 (documented as future work): FBX, 3DS, DWG; USD and IFC import.
 Import of any unsupported entity yields `W2004` with counts, never a failure.
 
 ## 6. Importer/exporter contracts
@@ -612,3 +613,19 @@ save unless `--no-thumbnail`. `manifest.json` carries `title`, `author`, `descri
   element gets a property set "Planyrith" with its `Tag`, the `Material` covering most of its
   triangles, and its other `ifc` attributes (booleans, integers, reals, lengths in mm and texts;
   other kinds are skipped). IfcOpenShell reads both back.
+- 2026-11-08 — **COLLADA** (milestone 1.2, docs/13). Own reader on a light element tree (read
+  with `quick-xml`) and own writer. Import: `triangles`, `polylist` and `polygons` (fanned),
+  `ph` polygons with holes (ear clipping in the outer ring's plane, keeping its side), the
+  effect's diffuse color (linear, turned to sRGB) or texture (through `newparam` samplers and
+  surfaces to the image, read beside the file, `%`-escapes decoded), transparency as opacity,
+  the visual scene's nodes (`matrix`, `translate`, `rotate`, `scale` in order, `instance_node`
+  from `library_nodes`, 64 levels at most) with each instance's material bindings; a mesh placed
+  with different bindings is copied per binding. The asset's unit maps to a named unit when it
+  matches, else millimeters scaled; Y up is turned to Z up; `lines`/`linestrips` are counted in
+  `W2004`. Export: one geometry per container and material override, shared by its
+  occurrences, flat-shaded triangles with texture coordinates, one node per occurrence with
+  its world matrix, lambert effects (linear color or the texture, written to
+  `<stem>_textures/`), transparency, the file unit and `Z_UP`. On the public corpus's 48
+  COLLADA files from the original application every file imports; 41 have the same bounds as
+  the SKP import of the same model within 0.5 mm, the others hold content COLLADA does not
+  carry (edges without faces, dimensions, guides, texts, images).

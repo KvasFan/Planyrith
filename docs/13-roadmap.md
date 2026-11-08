@@ -140,11 +140,30 @@ Added at the user's request on 2026-11-05 (see Decisions). In order:
 - **Accept:** each item has its commands, CLI batches, golden files and GUI; the CI gates stay
   green.
 
+## 1.2.0 — Exchange and parametric modeling
+Continues 1.1 without a pause, at the user's request (2026-11-07, see Decisions). In order:
+1. **COLLADA** import and export (geometry, components as shared geometry, materials and
+   textures, units and up axis).
+2. **IFC import** (tessellated and extruded geometry, element names, classes as tags, storeys
+   as tags).
+3. **Parametric components:** attributes with formulas that size and position a component's
+   parts.
+4. **Camera from a photograph:** match the view to a picture by its vanishing lines.
+- **Accept:** each item has its commands, CLI batches, golden files, GUI and validation by an
+  external tool where one exists; the CI gates stay green.
+
 ## Post-1.0 candidates
-IFC import/export, FBX/COLLADA, camera calibration from photographs, WASM native plugins, collaborative editing,
-parametric/dynamic components, GPU path-traced preview, mobile UI.
+FBX, WASM native plugins, collaborative editing, GPU path-traced preview, mobile UI.
 
 ## Decisions
+
+- 2026-11-08 — **Milestone 1.2.** The user asked to keep implementing and committing without
+  stopping after each milestone (2026-11-07). With 1.1 implemented, the next items come from the
+  post-1.0 candidates, ordered by use for the project's audience (architecture, interiors,
+  woodworking, printing): COLLADA is the most common exchange format still missing, IFC import
+  completes BIM exchange, parametric components serve furniture and joinery, and photo matching
+  serves renovation work. Collaborative editing, native plugins and a mobile interface stay
+  candidates.
 
 - 2026-11-08 — **1.1 as built so far.** 3D printing: `solid-check`, `solid-repair`, 3MF both
   ways, `per_object` and `on_plate` exports. Presentation: the realistic look (`realism` in a

@@ -2343,3 +2343,94 @@ fn ifc_storeys_come_from_an_attribute() {
     );
     assert!(text.contains("IFCPROPERTYSINGLEVALUE('Material',$,IFCLABEL('Default'),$)"));
 }
+
+/// docs/09 §5 COLLADA: a component placed twice and a textured box go out
+/// with shared geometry and come back with their sizes, placements and
+/// texture.
+#[test]
+fn collada_round_trips_components_and_textures() {
+    let (mut e, storage) = engine();
+    let png = {
+        let mut bytes = Vec::new();
+        image::RgbImage::from_pixel(4, 4, image::Rgb([160, 82, 45]))
+            .write_to(
+                &mut std::io::Cursor::new(&mut bytes),
+                image::ImageFormat::Png,
+            )
+            .unwrap();
+        bytes
+    };
+    storage.write(&StorageKey::new("oak.png"), &png).unwrap();
+    run(
+        &mut e,
+        "material-create",
+        json!({ "name": "Oak", "color": "#A0522D", "texture": "oak.png" }),
+    );
+    run(
+        &mut e,
+        "rectangle",
+        json!({ "corner_a": [0, 0, 0], "corner_b": [300, 200, 0] }),
+    );
+    run(
+        &mut e,
+        "push-pull",
+        json!({ "face": { "Query": "face & last" }, "distance": 100 }),
+    );
+    run(
+        &mut e,
+        "material-apply",
+        json!({ "targets": "face", "material": "Oak" }),
+    );
+    run(
+        &mut e,
+        "make-component",
+        json!({ "targets": "all", "name": "Block" }),
+    );
+    run(
+        &mut e,
+        "move",
+        json!({ "targets": "instance", "delta": [1000, 0, 0], "copy": true }),
+    );
+    let out = run(&mut e, "export", json!({ "path": "out/blocks.dae" }));
+    assert_eq!(out["format"], "dae");
+    let text =
+        String::from_utf8(storage.read(&StorageKey::new("out/blocks.dae")).unwrap()).unwrap();
+    assert_eq!(
+        text.matches("<geometry ").count(),
+        1,
+        "the component's geometry is shared"
+    );
+    assert_eq!(text.matches("<node ").count(), 2);
+    assert!(
+        storage
+            .read(&StorageKey::new("out/blocks_textures/Oak.png"))
+            .is_ok()
+    );
+
+    let (mut e2, storage2) = engine();
+    let bytes = storage.read(&StorageKey::new("out/blocks.dae")).unwrap();
+    storage2
+        .write(&StorageKey::new("in/blocks.dae"), &bytes)
+        .unwrap();
+    storage2
+        .write(&StorageKey::new("in/blocks_textures/Oak.png"), &png)
+        .unwrap();
+    let out = run(&mut e2, "import", json!({ "path": "in/blocks.dae" }));
+    assert_eq!(out["format"], "dae");
+    assert_eq!(out["faces"], 6, "faces counted once per definition");
+    let doc = e2.document();
+    let oak = doc
+        .materials
+        .iter()
+        .find(|(_, m)| m.name == "Oak")
+        .unwrap()
+        .1;
+    assert!(oak.texture.is_some(), "the texture came back");
+    let check = run(&mut e2, "solid-check", json!({}));
+    let objects = check["objects"].as_array().unwrap();
+    assert_eq!(objects.len(), 2);
+    for o in objects {
+        assert_eq!(o["size_mm"], json!([300.0, 200.0, 100.0]));
+        assert_eq!(o["printable"], true);
+    }
+}

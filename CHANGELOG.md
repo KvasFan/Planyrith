@@ -6,6 +6,8 @@ All notable changes to Planyrith are recorded here. Versions follow
 
 ## Unreleased
 
+- COLLADA (`.dae`) import and export: geometry, components shared between
+  their copies, materials with colors and textures, units and up axis.
 - Path-traced final images: `planyrith render --path-traced` traces the sun,
   the sky and light bouncing between surfaces, with reflections after each
   material's roughness and metalness; it runs on the CPU and gives the same

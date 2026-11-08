@@ -10,6 +10,7 @@
 //! Owner key: `later`.
 
 pub mod build;
+pub mod collada;
 pub mod csv;
 pub mod dxf;
 pub mod gltf;
@@ -60,11 +61,13 @@ pub enum ImportFormat {
     ThreeMf,
     /// PLY polygon mesh (ASCII or binary), e.g. from 3D scanning.
     Ply,
+    /// COLLADA 1.4/1.5.
+    Dae,
 }
 
 impl ImportFormat {
     /// Every import format.
-    pub const ALL: [ImportFormat; 11] = [
+    pub const ALL: [ImportFormat; 12] = [
         ImportFormat::Obj,
         ImportFormat::Stl,
         ImportFormat::Gltf,
@@ -76,6 +79,7 @@ impl ImportFormat {
         ImportFormat::Skp,
         ImportFormat::ThreeMf,
         ImportFormat::Ply,
+        ImportFormat::Dae,
     ];
 
     /// Registered formats; SKP additionally requires a converter-capable backend.
@@ -100,6 +104,7 @@ impl ImportFormat {
             "skp" | "skb" => ImportFormat::Skp,
             "3mf" => ImportFormat::ThreeMf,
             "ply" => ImportFormat::Ply,
+            "dae" => ImportFormat::Dae,
             _ => return None,
         })
     }
@@ -251,6 +256,7 @@ pub fn importer(format: ImportFormat) -> Option<Box<dyn Importer>> {
         ImportFormat::Stl => Some(Box::new(stl::StlImporter)),
         ImportFormat::ThreeMf => Some(Box::new(three_mf::ThreeMfImporter)),
         ImportFormat::Ply => Some(Box::new(ply::PlyImporter)),
+        ImportFormat::Dae => Some(Box::new(collada::ColladaImporter)),
         #[cfg(not(feature = "brep"))]
         ImportFormat::Step => None,
     }

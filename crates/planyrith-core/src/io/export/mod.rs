@@ -6,6 +6,7 @@
 //! Rules (docs/09 §6): exporters are deterministic (stable ordering by pid) and
 //! stream their output.
 
+pub mod collada;
 pub mod csv;
 pub mod dxf;
 pub mod gltf;
@@ -70,11 +71,13 @@ pub enum ExportFormat {
     Usdz,
     /// IFC4 building model.
     Ifc,
+    /// COLLADA 1.4.1.
+    Dae,
 }
 
 impl ExportFormat {
     /// Every export format.
-    pub const ALL: [ExportFormat; 17] = [
+    pub const ALL: [ExportFormat; 18] = [
         ExportFormat::Obj,
         ExportFormat::Stl,
         ExportFormat::Gltf,
@@ -92,6 +95,7 @@ impl ExportFormat {
         ExportFormat::Usda,
         ExportFormat::Usdz,
         ExportFormat::Ifc,
+        ExportFormat::Dae,
     ];
 
     /// Registered formats; SKP additionally requires a converter-capable backend.
@@ -122,6 +126,7 @@ impl ExportFormat {
             "usda" => ExportFormat::Usda,
             "usdz" => ExportFormat::Usdz,
             "ifc" => ExportFormat::Ifc,
+            "dae" => ExportFormat::Dae,
             _ => return None,
         })
     }
@@ -263,6 +268,7 @@ pub fn exporter(format: ExportFormat) -> Option<Box<dyn Exporter>> {
         ExportFormat::Usda => Some(Box::new(usd::UsdExporter { packed: false })),
         ExportFormat::Usdz => Some(Box::new(usd::UsdExporter { packed: true })),
         ExportFormat::Ifc => Some(Box::new(ifc::IfcExporter)),
+        ExportFormat::Dae => Some(Box::new(collada::ColladaExporter)),
         ExportFormat::Svg => Some(Box::new(view2d::SvgExporter)),
         ExportFormat::Pdf => Some(Box::new(view2d::PdfExporter)),
         #[cfg(not(feature = "brep"))]

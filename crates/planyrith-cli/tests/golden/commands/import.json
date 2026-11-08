@@ -67,6 +67,10 @@
     {
       "idx": 11,
       "version": 1
+    },
+    {
+      "idx": 12,
+      "version": 1
     }
   ],
   "definitions": [
@@ -3838,6 +3842,459 @@
           "attrs": [],
           "dimensions": [],
           "groups": [],
+          "guides": [],
+          "hidden": [],
+          "images": [],
+          "instances": [],
+          "locked": [],
+          "mesh": {
+            "curves": [],
+            "edges": [
+              {
+                "a": 0,
+                "b": 1,
+                "curve": null,
+                "flags": 0
+              },
+              {
+                "a": 0,
+                "b": 2,
+                "curve": null,
+                "flags": 0
+              },
+              {
+                "a": 0,
+                "b": 3,
+                "curve": null,
+                "flags": 0
+              },
+              {
+                "a": 1,
+                "b": 4,
+                "curve": null,
+                "flags": 0
+              },
+              {
+                "a": 1,
+                "b": 5,
+                "curve": null,
+                "flags": 0
+              },
+              {
+                "a": 4,
+                "b": 2,
+                "curve": null,
+                "flags": 0
+              },
+              {
+                "a": 4,
+                "b": 6,
+                "curve": null,
+                "flags": 0
+              },
+              {
+                "a": 2,
+                "b": 7,
+                "curve": null,
+                "flags": 0
+              },
+              {
+                "a": 7,
+                "b": 6,
+                "curve": null,
+                "flags": 0
+              },
+              {
+                "a": 7,
+                "b": 3,
+                "curve": null,
+                "flags": 0
+              },
+              {
+                "a": 6,
+                "b": 5,
+                "curve": null,
+                "flags": 0
+              },
+              {
+                "a": 5,
+                "b": 3,
+                "curve": null,
+                "flags": 0
+              }
+            ],
+            "faces": [
+              {
+                "loops": [
+                  [
+                    5,
+                    2147483649,
+                    0,
+                    3
+                  ]
+                ],
+                "plane": {
+                  "d": 0.0,
+                  "normal": [
+                    0.0,
+                    0.0,
+                    -1.0
+                  ]
+                },
+                "sides": {
+                  "material_back": null,
+                  "material_front": null,
+                  "uv_back": null,
+                  "uv_front": null
+                }
+              },
+              {
+                "loops": [
+                  [
+                    6,
+                    2147483656,
+                    2147483655,
+                    2147483653
+                  ]
+                ],
+                "plane": {
+                  "d": 0.0,
+                  "normal": [
+                    -1.0,
+                    0.0,
+                    0.0
+                  ]
+                },
+                "sides": {
+                  "material_back": null,
+                  "material_front": null,
+                  "uv_back": null,
+                  "uv_front": null
+                }
+              },
+              {
+                "loops": [
+                  [
+                    2147483651,
+                    4,
+                    2147483658,
+                    2147483654
+                  ]
+                ],
+                "plane": {
+                  "d": 0.0,
+                  "normal": [
+                    0.0,
+                    -1.0,
+                    0.0
+                  ]
+                },
+                "sides": {
+                  "material_back": null,
+                  "material_front": null,
+                  "uv_back": null,
+                  "uv_front": null
+                }
+              },
+              {
+                "loops": [
+                  [
+                    7,
+                    9,
+                    2147483650,
+                    1
+                  ]
+                ],
+                "plane": {
+                  "d": -400.0,
+                  "normal": [
+                    0.0,
+                    1.0,
+                    0.0
+                  ]
+                },
+                "sides": {
+                  "material_back": null,
+                  "material_front": null,
+                  "uv_back": null,
+                  "uv_front": null
+                }
+              },
+              {
+                "loops": [
+                  [
+                    2147483648,
+                    2,
+                    2147483659,
+                    2147483652
+                  ]
+                ],
+                "plane": {
+                  "d": -600.0,
+                  "normal": [
+                    1.0,
+                    0.0,
+                    0.0
+                  ]
+                },
+                "sides": {
+                  "material_back": null,
+                  "material_front": null,
+                  "uv_back": null,
+                  "uv_front": null
+                }
+              },
+              {
+                "loops": [
+                  [
+                    10,
+                    11,
+                    2147483657,
+                    8
+                  ]
+                ],
+                "plane": {
+                  "d": -300.0,
+                  "normal": [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                },
+                "sides": {
+                  "material_back": {
+                    "idx": 8,
+                    "version": 1
+                  },
+                  "material_front": {
+                    "idx": 8,
+                    "version": 1
+                  },
+                  "uv_back": {
+                    "Affine": [
+                      1.0,
+                      0.0,
+                      0.0,
+                      2.0,
+                      0.0,
+                      0.0
+                    ]
+                  },
+                  "uv_front": {
+                    "Affine": [
+                      1.0,
+                      0.0,
+                      0.0,
+                      2.0,
+                      0.0,
+                      0.0
+                    ]
+                  }
+                }
+              }
+            ],
+            "vertices": [
+              [
+                600.0,
+                400.0,
+                0.0
+              ],
+              [
+                600.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                400.0,
+                0.0
+              ],
+              [
+                600.0,
+                400.0,
+                300.0
+              ],
+              [
+                0.0,
+                0.0,
+                0.0
+              ],
+              [
+                600.0,
+                0.0,
+                300.0
+              ],
+              [
+                0.0,
+                0.0,
+                300.0
+              ],
+              [
+                0.0,
+                400.0,
+                300.0
+              ]
+            ]
+          },
+          "order": [
+            [
+              {
+                "Edge": 0
+              },
+              175
+            ],
+            [
+              {
+                "Edge": 1
+              },
+              176
+            ],
+            [
+              {
+                "Edge": 2
+              },
+              177
+            ],
+            [
+              {
+                "Edge": 3
+              },
+              178
+            ],
+            [
+              {
+                "Edge": 4
+              },
+              179
+            ],
+            [
+              {
+                "Edge": 5
+              },
+              180
+            ],
+            [
+              {
+                "Edge": 6
+              },
+              181
+            ],
+            [
+              {
+                "Edge": 7
+              },
+              182
+            ],
+            [
+              {
+                "Edge": 8
+              },
+              183
+            ],
+            [
+              {
+                "Edge": 9
+              },
+              184
+            ],
+            [
+              {
+                "Edge": 10
+              },
+              185
+            ],
+            [
+              {
+                "Edge": 11
+              },
+              186
+            ],
+            [
+              {
+                "Face": 0
+              },
+              187
+            ],
+            [
+              {
+                "Face": 1
+              },
+              188
+            ],
+            [
+              {
+                "Face": 2
+              },
+              189
+            ],
+            [
+              {
+                "Face": 3
+              },
+              190
+            ],
+            [
+              {
+                "Face": 4
+              },
+              191
+            ],
+            [
+              {
+                "Face": 5
+              },
+              192
+            ]
+          ],
+          "section_planes": [],
+          "tag_of": [],
+          "texts": []
+        },
+        "is_internal_group": true,
+        "name": "Group 175",
+        "thumbnail": null,
+        "usage_count": 1,
+        "uuid": "0d11ccb8-47c5-86cf-a970-d632dfb15221"
+      }
+    ],
+    [
+      {
+        "idx": 12,
+        "version": 1
+      },
+      {
+        "attrs": {},
+        "behavior": {
+          "always_face_camera": false,
+          "axes": [
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "cuts_opening": false,
+          "glue_to": "none",
+          "insertion_point": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "shadows_face_sun": false,
+          "snap_to": "none"
+        },
+        "description": "",
+        "entities": {
+          "attrs": [],
+          "dimensions": [],
+          "groups": [],
           "guides": [
             [
               {
@@ -3905,7 +4362,7 @@
                   }
                 }
               },
-              176
+              195
             ],
             [
               {
@@ -3916,7 +4373,7 @@
                   }
                 }
               },
-              177
+              196
             ],
             [
               {
@@ -3927,7 +4384,7 @@
                   }
                 }
               },
-              178
+              197
             ]
           ],
           "section_planes": [],
@@ -3935,10 +4392,10 @@
           "texts": []
         },
         "is_internal_group": true,
-        "name": "Group 179",
+        "name": "Group 198",
         "thumbnail": null,
         "usage_count": 1,
-        "uuid": "c25be7e8-7aea-8e5c-98cd-e48de5f05e7e"
+        "uuid": "d294270b-d56a-8ec4-ab21-088cb1d78a7c"
       }
     ]
   ],
@@ -3968,7 +4425,7 @@
     "format_version": 1,
     "geo": null,
     "length_snap": null,
-    "next_pid": 180,
+    "next_pid": 199,
     "precision": 1,
     "title": "",
     "tolerances": {
@@ -4211,6 +4668,65 @@
           "attrs": {},
           "color": {
             "a": 255,
+            "b": 200,
+            "g": 200,
+            "r": 200
+          },
+          "is_default_for": null,
+          "name": "Oak #4",
+          "opacity": 1.0,
+          "texture": {
+            "colorize": null,
+            "image": [
+              92,
+              247,
+              213,
+              213,
+              29,
+              46,
+              58,
+              220,
+              117,
+              35,
+              222,
+              22,
+              55,
+              135,
+              177,
+              217,
+              176,
+              141,
+              183,
+              230,
+              82,
+              92,
+              94,
+              58,
+              49,
+              38,
+              98,
+              147,
+              220,
+              240,
+              221,
+              113
+            ],
+            "size_mm": [
+              1000.0,
+              1000.0
+            ]
+          }
+        }
+      ],
+      [
+        {
+          "idx": 9,
+          "version": 1
+        },
+        {
+          "attrs": {},
+          "color": {
+            "a": 255,
             "b": 255,
             "g": 255,
             "r": 255
@@ -4263,7 +4779,7 @@
       ],
       [
         {
-          "idx": 9,
+          "idx": 10,
           "version": 1
         },
         {
@@ -4356,6 +4872,10 @@
       },
       {
         "idx": 9,
+        "version": 1
+      },
+      {
+        "idx": 10,
         "version": 1
       }
     ]
@@ -4563,6 +5083,33 @@
             "idx": 11,
             "version": 1
           },
+          "name": "import-box",
+          "transform": [
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            4000.0,
+            0.0,
+            0.0
+          ]
+        }
+      ],
+      [
+        {
+          "idx": 9,
+          "version": 1
+        },
+        {
+          "definition": {
+            "idx": 12,
+            "version": 1
+          },
           "name": "survey",
           "transform": [
             1.0,
@@ -4592,7 +5139,7 @@
         {
           "height": 1000.0,
           "material": {
-            "idx": 8,
+            "idx": 9,
             "version": 1
           },
           "transform": [
@@ -4744,24 +5291,35 @@
       [
         {
           "Entity": {
-            "Image": {
-              "idx": 1,
-              "version": 1
-            }
-          }
-        },
-        175
-      ],
-      [
-        {
-          "Entity": {
             "Group": {
               "idx": 8,
               "version": 1
             }
           }
         },
-        179
+        193
+      ],
+      [
+        {
+          "Entity": {
+            "Image": {
+              "idx": 1,
+              "version": 1
+            }
+          }
+        },
+        194
+      ],
+      [
+        {
+          "Entity": {
+            "Group": {
+              "idx": 9,
+              "version": 1
+            }
+          }
+        },
+        198
       ]
     ],
     "section_planes": [],
