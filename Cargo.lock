@@ -3533,6 +3533,7 @@ dependencies = [
  "bytemuck",
  "glam",
  "image",
+ "libm",
  "planyrith-core",
  "pollster",
  "serde_json",

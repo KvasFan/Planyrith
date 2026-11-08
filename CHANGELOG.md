@@ -6,6 +6,10 @@ All notable changes to Planyrith are recorded here. Versions follow
 
 ## Unreleased
 
+- Path-traced final images: `planyrith render --path-traced` traces the sun,
+  the sky and light bouncing between surfaces, with reflections after each
+  material's roughness and metalness; it runs on the CPU and gives the same
+  image every time.
 - IFC export (IFC4) for BIM tools: each top-level group or component becomes
   a building element with its geometry and colors, in one storey — a wall, slab,
   door, window and so on when its tag says so ("Walls", "Muri", "Finestre"…) or

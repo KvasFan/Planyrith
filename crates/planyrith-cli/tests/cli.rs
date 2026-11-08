@@ -915,6 +915,55 @@ fn serve_answers_json_rpc_over_stdio() {
 }
 
 /// docs/06 §11: `render` writes images of one view or of every scene.
+/// docs/06 §11.1: `--path-traced` needs no graphics adapter and gives the
+/// same image every time.
+#[cfg(feature = "render")]
+#[test]
+fn render_path_traced_is_reproducible() {
+    let dir = scratch("path-traced");
+    let file = build_table(&dir, "table.plyr");
+    let f = file.to_str().unwrap();
+    let mut images = Vec::new();
+    for name in ["a.png", "b.png"] {
+        let out = dir.join(name);
+        let result = planyrith()
+            .args(["render", "-f", f, out.to_str().unwrap(), "--path-traced"])
+            .args([
+                "--samples",
+                "4",
+                "--bounces",
+                "2",
+                "--width",
+                "64",
+                "--height",
+                "40",
+            ])
+            .args([
+                "--camera",
+                "eye=3m,-2m,2m;target=600,400,400;fov=40",
+                "--json",
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let report = json_of(&result.stdout);
+        assert_eq!(report["output"]["adapter"], "path tracer (CPU)");
+        images.push(std::fs::read(&out).unwrap());
+    }
+    assert_eq!(images[0], images[1]);
+    let image = image::load_from_memory(&images[0]).unwrap().to_rgba8();
+    let first = image.get_pixel(0, 0).0;
+    assert!(image.pixels().any(|p| p.0 != first), "the table shows");
+    planyrith()
+        .args(["render", "-f", f, "x.png", "--samples", "4"])
+        .assert()
+        .failure();
+}
+
 #[cfg(feature = "render")]
 #[test]
 fn render_writes_images() {

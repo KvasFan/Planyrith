@@ -26,11 +26,13 @@ mod ao;
 mod gpu;
 mod headless;
 mod labels;
+mod pathtrace;
 mod renderer;
 
 pub use gpu::Gpu;
 pub use headless::{HeadlessOptions, render_image};
 pub use labels::draw_labels;
+pub use pathtrace::{PathTraceOptions, path_trace};
 pub use renderer::{AXIS_COLORS, FrameRequest, PickHit, PickKind, Renderer, RendererOptions};
 
 /// Rendering failures.

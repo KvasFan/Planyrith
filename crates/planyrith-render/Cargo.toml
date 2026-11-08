@@ -17,6 +17,7 @@ path = "src/lib.rs"
 planyrith-core = { workspace = true }
 wgpu = { workspace = true }
 glam = { workspace = true }
+libm = { workspace = true }
 bytemuck = { workspace = true }
 image = { workspace = true }
 pollster = { workspace = true }

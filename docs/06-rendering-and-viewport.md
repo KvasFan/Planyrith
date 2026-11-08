@@ -196,6 +196,28 @@ Labels appear after 300 ms hover near the cursor (tooltip style), never obscurin
 - Snapshot tests compare against golden images with per-pixel tolerance 2/255 and ≤ 0.1 %
   differing pixels, with `--update-goldens` in CI tooling.
 
+### 11.1 Path-traced images (`planyrith render --path-traced`)
+A final image traced on the CPU, so it needs no graphics adapter (`planyrith-render::path_trace`):
+- **Scene:** the visible occurrences as the viewport extracts them (smooth normals across soft
+  edges, texture coordinates, front and back of each face as separate triangles, only a
+  triangle's front counting), in world coordinates, in a bounding-volume hierarchy (median
+  splits on the longest axis, four triangles per leaf); a ground plane at the model's lowest
+  point in the style's ground color (else a warm light gray).
+- **Light:** the sun of the Shadows settings (or a default afternoon sun when they are off or
+  below the horizon), a disc of about half a degree sampled at every hit (next-event estimation,
+  so shadows are soft and exact), scaled by the light setting; the sky and the horizon in the
+  style's sky color times the realistic look's `sky_light` (0.6 without one), the ground below.
+  Camera rays that miss show the style's background color.
+- **Surfaces:** the same model as §4.1: diffuse after the albedo (texture × color when the
+  material colorizes it), GGX highlights after roughness, Fresnel, metalness; each bounce picks
+  a microfacet reflection (importance-sampled) or a cosine-weighted diffuse direction;
+  see-through materials pass a path on with probability 1 − opacity; Russian roulette after
+  two bounces; a single path counts at most 6 light units (no bright dots).
+- **Output:** `--samples` paths per pixel (64) with `--bounces` (4), times 2^exposure, through
+  the filmic curve, sRGB. Random numbers come from a generator seeded by pixel and sample, so
+  the image is the same on every run, thread count and platform. Rows are shared among all
+  cores.
+
 ## 12. Performance budget (1080p, integrated GPU, 1 M tris / 200 k edges)
 
 | Pass | Budget |

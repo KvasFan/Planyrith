@@ -8,7 +8,7 @@ use glam::DVec3;
 use planyrith_core::commands::params::{CliType, parse_cli_value};
 use planyrith_core::document::{Camera, Document, Projection};
 use planyrith_core::units::LengthUnit;
-use planyrith_render::{Gpu, HeadlessOptions, render_image};
+use planyrith_render::{Gpu, HeadlessOptions, PathTraceOptions, path_trace, render_image};
 use serde_json::{Value, json};
 
 use crate::session::Session;
@@ -53,6 +53,16 @@ pub struct RenderArgs {
     /// Draw hidden geometry.
     #[arg(long)]
     pub show_hidden: bool,
+    /// A path-traced final image on the CPU (docs/06 §11.1): sun, sky,
+    /// reflections and soft light; slower, needs no graphics adapter.
+    #[arg(long, conflicts_with_all = ["transparent", "show_hidden"])]
+    pub path_traced: bool,
+    /// Paths per pixel of a path-traced image.
+    #[arg(long, default_value_t = 64, requires = "path_traced")]
+    pub samples: u32,
+    /// Light bounces of a path-traced image.
+    #[arg(long, default_value_t = 4, requires = "path_traced")]
+    pub bounces: u32,
 }
 
 /// Runs the verb.
@@ -80,7 +90,12 @@ pub fn render(global: &Global, args: &RenderArgs) -> Result<(), CliError> {
     } else {
         doc
     };
-    let gpu = Gpu::headless().map_err(render_error)?;
+    // A path-traced image needs no adapter.
+    let gpu = if args.path_traced {
+        None
+    } else {
+        Some(Gpu::headless().map_err(render_error)?)
+    };
     let mut outputs = Vec::new();
     let mut views: Vec<(PathBuf, Camera)> = Vec::new();
     if let Some(dir) = &args.all_scenes {
@@ -110,20 +125,34 @@ pub fn render(global: &Global, args: &RenderArgs) -> Result<(), CliError> {
         views.push((output, camera));
     }
     for (path, camera) in views {
-        let image = render_image(
-            doc,
-            &HeadlessOptions {
-                width: args.width,
-                height: args.height,
-                msaa: args.msaa,
-                camera: Some(camera),
-                style: style.clone(),
-                show_hidden: args.show_hidden,
-                transparent_background: args.transparent,
-            },
-            Some(&gpu),
-        )
-        .map_err(render_error)?;
+        let image = match &gpu {
+            None => path_trace(
+                doc,
+                &PathTraceOptions {
+                    width: args.width,
+                    height: args.height,
+                    samples: args.samples.clamp(1, 65_536),
+                    bounces: args.bounces.min(64),
+                    camera: Some(camera),
+                    style: style.clone(),
+                    threads: 0,
+                },
+            ),
+            Some(gpu) => render_image(
+                doc,
+                &HeadlessOptions {
+                    width: args.width,
+                    height: args.height,
+                    msaa: args.msaa,
+                    camera: Some(camera),
+                    style: style.clone(),
+                    show_hidden: args.show_hidden,
+                    transparent_background: args.transparent,
+                },
+                Some(gpu),
+            )
+            .map_err(render_error)?,
+        };
         save(&image, &path, args.format.as_deref())?;
         outputs.push(json!(path.display().to_string()));
     }
@@ -131,7 +160,7 @@ pub fn render(global: &Global, args: &RenderArgs) -> Result<(), CliError> {
         "images": outputs,
         "width": args.width,
         "height": args.height,
-        "adapter": gpu.adapter.name,
+        "adapter": gpu.as_ref().map_or_else(|| "path tracer (CPU)".to_string(), |g| g.adapter.name.clone()),
     });
     if global.json || global.jsonl {
         out::line(json!({

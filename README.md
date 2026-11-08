@@ -73,16 +73,23 @@ macOS and the browser edition can be built from source.
 
 ## What works today
 
-- **Direct modeling.** Lines, rectangles, circles, arcs, freehand, Push/Pull,
-  offsets, transforms, solids, Sweep, intersections and softened edges.
+- **Direct modeling.** Lines, rectangles, circles, arcs, Bézier curves, freehand,
+  Push/Pull, offsets, transforms, solids, Sweep, loft, fillets and chamfers,
+  thickened surfaces, intersections and softened edges.
 - **Precise placement.** Endpoint, midpoint, intersection, axis and plane
   inference; axis locking and exact value entry. Geometry uses millimeters internally.
 - **Reusable models.** Groups, shared components, tags, materials, scenes,
   section cuts, guides, text and associative dimensions, with undo/redo.
 - **Drawings.** Paper-space Sheets with scaled model views, annotations, tables
   and title blocks; multi-page PDF and SVG/DXF output.
-- **Interchange.** SKP/SKB on desktop, OBJ, STL, glTF/GLB, DXF, STEP, images and
-  CSV, plus the native `.plyr` container. Conversion limits are reported.
+- **3D printing.** A solid check that finds holes, stray edges and inside-out
+  parts, one-click repair, and 3MF or STL export with the parts resting on the
+  build plate, one file per part if wanted.
+- **Presentation.** A realistic style with sky light, highlights after each
+  material's roughness and metalness, ambient occlusion and soft shadows.
+- **Interchange.** SKP/SKB on desktop, OBJ, STL, 3MF, PLY, glTF/GLB, DXF, STEP,
+  images and CSV, plus the native `.plyr` container; USD/USDZ and IFC4 export.
+  Conversion limits are reported.
 - **Automation.** Every modeling tool is a typed core command. The GUI,
   CLI, JSON-RPC server, Rhai scripts and declarative extensions share those commands.
 - **Recovery.** Autosaves, crash recovery and native working copies preserve the
