@@ -113,6 +113,12 @@ struct Element {
     class: &'static str,
     /// Its storey's name (`Level 0` unless told otherwise).
     storey: String,
+    /// Every container in it is a closed solid (its volume means something).
+    closed: bool,
+    /// Its tag's name, if any.
+    tag: Option<String>,
+    /// Further `ifc` attributes, written as properties.
+    properties: Vec<(String, crate::document::Value)>,
     parts: BTreeMap<MaterialId, Part>,
 }
 
@@ -253,6 +259,48 @@ fn class_of(doc: &Document, key: Option<EntityKey>) -> &'static str {
         .unwrap_or(proxy)
 }
 
+/// The tag name and the `ifc` attributes other than `class` and `storey`
+/// of a top-level entity.
+fn tag_and_properties(
+    doc: &Document,
+    key: Option<EntityKey>,
+) -> (Option<String>, Vec<(String, crate::document::Value)>) {
+    let Some(model) = doc.container(crate::document::ContainerRef::Model) else {
+        return (None, Vec::new());
+    };
+    let Some(id) = key.and_then(|k| model.key_to_id(k)) else {
+        return (None, Vec::new());
+    };
+    let tag = model
+        .tag_of(id)
+        .and_then(|t| doc.tags.get(t))
+        .map(|t| t.name.clone());
+    let properties = model
+        .attrs(id)
+        .and_then(|a| a.dictionary("ifc"))
+        .map(|d| {
+            d.iter()
+                .filter(|(k, _)| !matches!(k.as_str(), "class" | "storey"))
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect()
+        })
+        .unwrap_or_default();
+    (tag, properties)
+}
+
+/// A property's value as an IFC measure, if it has one.
+fn property_value(value: &crate::document::Value) -> Option<String> {
+    use crate::document::Value;
+    Some(match value {
+        Value::Bool(b) => format!("IFCBOOLEAN(.{}.)", if *b { "T" } else { "F" }),
+        Value::Int(i) => format!("IFCINTEGER({i})"),
+        Value::Float(f) if f.is_finite() => format!("IFCREAL({})", real(*f)),
+        Value::Length(l) => format!("IFCLENGTHMEASURE({})", real(l.as_mm())),
+        Value::Str(label) => format!("IFCLABEL({})", text(label)),
+        _ => return None,
+    })
+}
+
 /// The storey of a top-level entity: its `ifc`/`storey` attribute, else
 /// `Level 0`.
 fn storey_of(doc: &Document, key: Option<EntityKey>) -> String {
@@ -292,9 +340,15 @@ fn elements(doc: &Document, scope: &ExportScope) -> Vec<Element> {
                 key: top.map_or("model".into(), |k| k.to_string()),
                 class: class_of(doc, top),
                 storey: storey_of(doc, top),
+                closed: true,
+                tag: tag_and_properties(doc, top).0,
+                properties: tag_and_properties(doc, top).1,
                 parts: BTreeMap::new(),
             }
         });
+        element.closed &= doc
+            .container(occ.container)
+            .is_some_and(|c| c.mesh().is_solid());
         let flip = occ.world.matrix3.determinant() < 0.0;
         for face in &mesh.faces {
             let material = doc
@@ -324,6 +378,81 @@ fn elements(doc: &Document, scope: &ExportScope) -> Vec<Element> {
         .into_iter()
         .filter_map(|k| by_top.remove(&k))
         .collect()
+}
+
+/// The element's quantities (its volume, when closed) and properties
+/// (tag, main material, further `ifc` attributes).
+fn write_properties(d: &mut Data, doc: &Document, element: &Element, product: u64) {
+    let key = &element.key;
+    if element.closed {
+        // Signed tetrahedra from the origin, mm³ → m³.
+        let mm3: f64 = element
+            .parts
+            .values()
+            .flat_map(|(points, _, triangles)| {
+                triangles
+                    .iter()
+                    .map(move |[a, b, c]| points[*a].dot(points[*b].cross(points[*c])) / 6.0)
+            })
+            .sum();
+        if mm3 > 0.0 {
+            let volume = d.add(format!(
+                "IFCQUANTITYVOLUME('GrossVolume',$,$,{},$)",
+                real(mm3 / 1e9)
+            ));
+            let set = d.add(format!(
+                "IFCELEMENTQUANTITY({},$,'BaseQuantities',$,$,(#{volume}))",
+                text(&stable_guid(&format!("quantities {key}")))
+            ));
+            d.add(format!(
+                "IFCRELDEFINESBYPROPERTIES({},$,$,$,(#{product}),#{set})",
+                text(&stable_guid(&format!("quantities rel {key}")))
+            ));
+        }
+    }
+    let mut values: Vec<(String, String)> = Vec::new();
+    if let Some(tag) = &element.tag {
+        values.push(("Tag".into(), format!("IFCLABEL({})", text(tag))));
+    }
+    // The material covering the most triangles.
+    if let Some(name) = element
+        .parts
+        .iter()
+        .max_by_key(|(_, (_, _, t))| t.len())
+        .and_then(|(m, _)| doc.materials.get(*m))
+        .map(|m| m.name.clone())
+    {
+        values.push(("Material".into(), format!("IFCLABEL({})", text(&name))));
+    }
+    for (k, v) in &element.properties {
+        if let Some(value) = property_value(v) {
+            values.push((k.clone(), value));
+        }
+    }
+    if values.is_empty() {
+        return;
+    }
+    let ids: Vec<String> = values
+        .iter()
+        .map(|(name, value)| {
+            format!(
+                "#{}",
+                d.add(format!(
+                    "IFCPROPERTYSINGLEVALUE({},$,{value},$)",
+                    text(name)
+                ))
+            )
+        })
+        .collect();
+    let set = d.add(format!(
+        "IFCPROPERTYSET({},$,'Planyrith',$,({}))",
+        text(&stable_guid(&format!("properties {key}"))),
+        ids.join(",")
+    ));
+    d.add(format!(
+        "IFCRELDEFINESBYPROPERTIES({},$,$,$,(#{product}),#{set})",
+        text(&stable_guid(&format!("properties rel {key}")))
+    ));
 }
 
 /// The whole file.
@@ -509,6 +638,7 @@ fn file(doc: &Document, elements: &[Element], name: &str) -> (String, usize) {
             .entry(element.storey.as_str())
             .or_default()
             .push(format!("#{product}"));
+        write_properties(&mut d, doc, element, product);
     }
     for (name, list) in &products {
         if let Some(&(storey, _)) = storeys.get(name) {

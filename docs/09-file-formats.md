@@ -589,7 +589,7 @@ save unless `--no-thumbnail`. `manifest.json` carries `title`, `author`, `descri
   `IfcTriangulatedFaceSet` per material in world millimeters, styled with the material's color
   and transparency. GUIDs are the format's 22-character encoding of a hash of fixed labels and
   the element's pid, so exporting a model twice gives the same ids; the header's timestamp is
-  fixed (docs/08 §10). Property sets are later work. `tools/validate-exports.sh` checks the file with IfcOpenShell's
+  fixed (docs/08 §10). `tools/validate-exports.sh` checks the file with IfcOpenShell's
   schema and rule validation and its geometry kernel (a local check; the tool is not a
   dependency).
 - 2026-11-08 — **IFC element classes.** An element's class comes from an `ifc` / `class`
@@ -607,3 +607,8 @@ save unless `--no-thumbnail`. `manifest.json` carries `title`, `author`, `descri
   them lowest first, and each element's placement undoes its storey's elevation, since element
   points are written in world millimeters. IfcOpenShell places a two-storey file's geometry
   at its world heights.
+- 2026-11-08 — **IFC quantities and properties.** An element whose containers are all closed
+  solids gets `BaseQuantities` with its `GrossVolume` (m³, from its world triangles). Every
+  element gets a property set "Planyrith" with its `Tag`, the `Material` covering most of its
+  triangles, and its other `ifc` attributes (booleans, integers, reals, lengths in mm and texts;
+  other kinds are skipped). IfcOpenShell reads both back.

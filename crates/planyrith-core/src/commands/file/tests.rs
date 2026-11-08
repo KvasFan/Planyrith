@@ -2334,4 +2334,12 @@ fn ifc_storeys_come_from_an_attribute() {
         text.matches("IFCRELCONTAINEDINSPATIALSTRUCTURE(").count(),
         2
     );
+    // Closed boxes carry their volume (4 × 3 × 0.2 m) and a property set.
+    assert_eq!(
+        text.matches("IFCQUANTITYVOLUME('GrossVolume',$,$,2.4,$)")
+            .count(),
+        2,
+        "{text}"
+    );
+    assert!(text.contains("IFCPROPERTYSINGLEVALUE('Material',$,IFCLABEL('Default'),$)"));
 }
