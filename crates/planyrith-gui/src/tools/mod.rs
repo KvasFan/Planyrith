@@ -26,7 +26,7 @@ pub use annotate::{
     TextTool,
 };
 pub use component::ComponentTool;
-pub use draw::{ArcKind, ArcTool, LineTool, RectangleTool, RoundTool};
+pub use draw::{ArcKind, ArcTool, BezierTool, LineTool, RectangleTool, RoundTool};
 pub use edit::{EraserTool, MoveTool, OffsetTool, PaintTool, PushPullTool, RotateTool, ScaleTool};
 pub use select::SelectTool;
 pub use sketch::{FreehandTool, RotatedRectangleTool};
@@ -244,6 +244,7 @@ pub fn catalogue() -> Vec<(Box<dyn Tool>, Option<egui::Key>)> {
         (Box::new(SelectTool::default()), Some(Key::Space)),
         (Box::new(LineTool::default()), Some(Key::L)),
         (Box::new(FreehandTool::default()), None),
+        (Box::new(BezierTool::default()), None),
         (Box::new(RectangleTool::default()), Some(Key::R)),
         (Box::new(RotatedRectangleTool::default()), None),
         (Box::new(RoundTool::circle()), Some(Key::C)),

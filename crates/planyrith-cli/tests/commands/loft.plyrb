@@ -1,0 +1,8 @@
+# A square base lofted to a circle 1 m above, and a three-profile loft.
+rectangle --corner-a -300,-300,0 --corner-b 300,300,0
+circle --center 0,0,1000 --radius 200 --normal 0,0,1 --segments 24
+loft --profiles 'face & plane:xy@0' --profiles 'face & plane:xy@1000'
+rectangle --corner-a 1000,-200,0 --corner-b 1400,200,0
+rectangle --corner-a 1100,-100,500 --corner-b 1300,100,500
+rectangle --corner-a 1000,-200,1000 --corner-b 1400,200,1000
+loft --profiles 'face & plane:xy@0' --profiles 'face & plane:xy@500' --profiles 'face & plane:xy@1000'

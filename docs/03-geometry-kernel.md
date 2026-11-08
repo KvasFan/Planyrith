@@ -278,6 +278,22 @@ over cap the solid; a quad along every half-edge whose other side is not a selec
 it. The pieces are stitched (§4.13) and the result must be a solid; it is turned to face
 outward.
 
+### 4.17 Loft (`geom::loft`)
+`loft(profiles)` takes closed outer loops in order. Every profile gets as many points as the
+largest by adding points on its edges in proportion to their lengths (largest remainders, then
+the earlier edge), so corners stay. Each loop is turned to run counter-clockwise about the
+direction from the first profile's centroid to the last's, then rotated to start where the sum
+of squared distances to the previous profile's points (centroids aligned) is least. Sides are
+quads between corresponding points, split into two triangles where not flat; the first profile
+(turned over) and the last cap the ends. The pieces are stitched (§4.13), must form a solid and
+are turned to face outward. Side edges between pieces meeting within 20° (the importers' soften
+angle) become `SOFT | SMOOTH`, so a square rising into a circle reads as one surface while
+creases between profiles stay.
+
+### 4.18 Bézier sampling
+A cubic span `p0, p1, p2, p3` is sampled at `t = k / segments`, `k = 1…segments`, as
+`(1−t)³p0 + 3(1−t)²t p1 + 3(1−t)t² p2 + t³p3`; spans follow each other from the start point.
+
 ## 5. Tessellation (for rendering and export)
 
 `tessellate_face(f) -> Vec<[u32; 3]>`: project loops to the face's 2D frame, run ear clipping

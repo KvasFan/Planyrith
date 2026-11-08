@@ -138,6 +138,19 @@ perpendicular to hovered edge); `Esc` = cancel current step (second `Esc` = canc
   tolerance, holes handled by orientation; result is a **group** (`Text3D` is not an entity).
 - **Output:** `{ group: Pid }`.
 
+### 3.9 `bezier`
+- **Params:** `points: Vec<Point>` — `3n + 1` control points: start, two handles and an end per
+  span, spans sharing their ends; `segments: u32` (12; 1–256 straight pieces per span).
+- **Interactive:** click the start, the two handles and the end; each finished span is drawn and
+  the next starts at its end; Esc ends; Backspace drops the last point. The control polygon and
+  the span's curve follow the cursor.
+- **Behavior:** `docs/03 §4.18`; the samples are drawn as one curve (a sampled-curve descriptor,
+  like `freehand`), so the edges select and extrude together. A last control point on the first
+  closes the curve, and a closed flat curve forms a face.
+- **Output:** `{ edges, curve, faces_created }`.
+- **Tests:** a span gives `segments` edges through its ends; a closed two-span outline forms a
+  face; a control count that is not `3n + 1` is refused.
+
 ## 4. Editing tools (category `edit`)
 
 ### 4.1 `select`
@@ -299,6 +312,16 @@ perpendicular to hovered edge); `Esc` = cancel current step (second `Esc` = canc
 - **GUI:** Tools › Thicken… acts on the selected faces.
 - **Tests:** a rectangle becomes a slab of its area times the thickness; a sheet bent at a
   right angle keeps the thickness on both leaves; centered thickening is symmetric.
+
+### 4.20 `loft`
+- **Params:** `profiles: Vec<Sel>` — two or more queries in order, each naming one face of the
+  edit context (its outer loop is the profile); `keep_profiles: bool` (false).
+- **Behavior:** `docs/03 §4.17`; the solid goes into a new group named "Loft"; the profile faces
+  give way to it unless `keep_profiles`. Profiles with holes are refused.
+- **Output:** `{ group, faces, volume_mm3 }`. **Undo:** one step.
+- **GUI:** Tools › Loft Selected Faces uses the selected faces from the lowest to the highest.
+- **Tests:** two equal squares make a box; a square to a smaller, turned square is an exact
+  frustum; a square to a circle is a printable solid.
 
 ## 5. Organization tools (category `organize`)
 

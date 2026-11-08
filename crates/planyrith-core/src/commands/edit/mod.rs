@@ -10,6 +10,7 @@
 #![warn(unused_variables, dead_code)]
 
 mod erase;
+mod loft;
 mod modeling;
 mod offset;
 pub use modeling::{
@@ -26,6 +27,7 @@ pub use erase::{
     Delete, DeleteOutput, DeleteParams, Erase, EraseMode, EraseOutput, EraseParams, Hide, Lock,
     StateOutput, StateParams, Unhide, Unlock,
 };
+pub use loft::{Loft, LoftOutput, LoftParams};
 pub use offset::{Offset, OffsetOutput, OffsetParams};
 pub use push_pull::{PushPull, PushPullOutput, PushPullParams};
 pub use rounding::{Chamfer, ChamferParams, Fillet, FilletParams, RoundingOutput};
@@ -59,6 +61,7 @@ pub fn register(registry: &mut CommandRegistry) {
     registry.register(Fillet);
     registry.register(Chamfer);
     registry.register(Thicken);
+    registry.register(Loft);
 }
 
 #[cfg(test)]

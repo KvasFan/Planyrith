@@ -6,6 +6,10 @@ All notable changes to Planyrith are recorded here. Versions follow
 
 ## Unreleased
 
+- Bézier curves (Draw › Bézier Curve, `bezier`): click the start, two handles
+  and the end of each span; closed flat curves form faces.
+- Loft (`loft`, Tools › Loft Selected Faces): a solid through two or more
+  profiles, such as a square base rising into a circle.
 - Round or cut the edges of solids: `fillet` (an arc of a given radius,
   smooth-shaded) and `chamfer` (a flat cut), on convex edges and inside
   corners alike; Tools › Round Edges… works on the selected edges.

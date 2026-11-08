@@ -15,6 +15,7 @@
 #![warn(unused_variables, dead_code)]
 
 mod arc;
+mod bezier;
 mod circle;
 mod freehand;
 mod line;
@@ -25,6 +26,7 @@ pub mod text3d;
 pub use arc::{
     Arc2Point, Arc2PointParams, Arc3Point, Arc3PointParams, ArcBulge, ArcBulgeParams, Pie,
 };
+pub use bezier::{Bezier, BezierOutput, BezierParams};
 pub use circle::{Circle, CircleParams, Polygon, PolygonParams, ShapeOutput};
 pub use freehand::{Freehand, FreehandOutput, FreehandParams};
 pub use line::{Line, LineOutput, LineParams};
@@ -45,6 +47,7 @@ use crate::ids::{EdgeId, EntityId, FaceId, Pid};
 pub fn register(registry: &mut CommandRegistry) {
     registry.register(Line);
     registry.register(Freehand);
+    registry.register(Bezier);
     registry.register(RotatedRectangle);
     registry.register(Rectangle);
     registry.register(Circle);

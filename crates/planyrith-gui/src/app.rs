@@ -1624,6 +1624,7 @@ impl App {
             });
             ui.menu_button(t("Draw"), |ui| {
                 self.tool_button(ui, "Line");
+                self.tool_button(ui, "Bézier Curve");
                 ui.menu_button(t("Arcs"), |ui| {
                     for label in ["Arc", "2 Point Arc", "3 Point Arc", "Pie"] {
                         self.tool_button(ui, label);
@@ -1673,6 +1674,13 @@ impl App {
                 }
                 if ui.button(t("Thicken…")).clicked() {
                     self.thicken.open = true;
+                    ui.close();
+                }
+                if ui.button(t("Loft Selected Faces")).clicked() {
+                    match crate::rounding::loft_selected(&mut self.session) {
+                        Ok(note) => self.info(note),
+                        Err(e) => self.error(e),
+                    }
                     ui.close();
                 }
                 if ui.button(t("Soften / Smooth…")).clicked() {

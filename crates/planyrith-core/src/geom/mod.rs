@@ -19,6 +19,7 @@ pub mod boolean;
 pub mod brep;
 pub mod extrude;
 pub mod intersect;
+pub mod loft;
 pub mod mesh;
 pub mod offset;
 pub mod planar;

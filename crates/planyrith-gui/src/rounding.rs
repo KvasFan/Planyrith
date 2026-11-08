@@ -168,6 +168,49 @@ impl ThickenWindow {
     }
 }
 
+/// Tools › Loft Selected Faces (docs/05 §4.20): the selected faces of the
+/// edit context are the profiles, from the lowest to the highest (then by
+/// y and x), which is the order of a loft built upward.
+pub fn loft_selected(session: &mut Session) -> Result<String, String> {
+    let doc = session.doc();
+    let mut faces: Vec<(glam::DVec3, u64)> = Vec::new();
+    for path in session.engine.selection().iter() {
+        let Ok(r) = doc.resolve(path) else { continue };
+        let planyrith_core::ids::EntityId::Face(f) = r.entity else {
+            continue;
+        };
+        let Some(mesh) = doc.container(r.container).map(|c| c.mesh()) else {
+            continue;
+        };
+        let Ok(vertices) = mesh.face_vertices(f) else {
+            continue;
+        };
+        let center = vertices
+            .iter()
+            .filter_map(|&v| mesh.position(v).ok())
+            .sum::<glam::DVec3>()
+            / vertices.len().max(1) as f64;
+        faces.push((r.world.transform_point3(center), r.pid.0));
+    }
+    if faces.len() < 2 {
+        return Err(t("Select two or more faces to loft."));
+    }
+    faces.sort_by(|a, b| {
+        (a.0.z, a.0.y, a.0.x)
+            .partial_cmp(&(b.0.z, b.0.y, b.0.x))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    let profiles: Vec<String> = faces.iter().map(|(_, pid)| format!("id={pid}")).collect();
+    let out = session.execute("loft", json!({ "profiles": profiles }))?;
+    Ok(crate::i18n::t_args(
+        "Solid made: { $volume } cm³.",
+        &[(
+            "volume",
+            format!("{:.1}", out["volume_mm3"].as_f64().unwrap_or(0.0) / 1000.0).into(),
+        )],
+    ))
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
@@ -206,5 +249,29 @@ mod tests {
             json!({ "edges": "selection", "distance": 5.0 }),
         );
         assert!(window.note.is_some());
+    }
+
+    #[test]
+    fn lofts_the_selected_faces_bottom_up() {
+        let mut session = Session::new();
+        for (name, params) in [
+            (
+                "rectangle",
+                json!({ "corner_a": [-50, -50, 0], "corner_b": [50, 50, 0] }),
+            ),
+            (
+                "rectangle",
+                json!({ "corner_a": [-20, -20, 300], "corner_b": [20, 20, 300] }),
+            ),
+            ("select", json!({ "query": "face" })),
+        ] {
+            session.execute(name, params).unwrap();
+        }
+        let note = loft_selected(&mut session).unwrap();
+        assert!(note.contains("cm"), "{note}");
+        session
+            .execute("select", json!({ "query": "!all" }))
+            .unwrap();
+        assert!(loft_selected(&mut session).is_err());
     }
 }

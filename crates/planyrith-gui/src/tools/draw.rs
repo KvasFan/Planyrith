@@ -748,3 +748,96 @@ fn bulge_point(a: DVec3, b: DVec3, plane: &Plane, cursor: DVec3, sagitta: f64) -
     };
     mid + side * sign * sagitta
 }
+
+// ----- Bézier -------------------------------------------------------------------------------
+
+/// The Bézier tool (docs/05 §3.9): click the start, two handles and the
+/// end of a span; each finished span is drawn and the next starts at its
+/// end. Esc ends the chain; Backspace drops the last point.
+#[derive(Debug, Default)]
+pub struct BezierTool {
+    points: Vec<DVec3>,
+    cursor: Option<DVec3>,
+}
+
+impl Tool for BezierTool {
+    fn command(&self) -> &'static str {
+        "bezier"
+    }
+
+    fn label(&self) -> &'static str {
+        en("Bézier Curve")
+    }
+
+    fn step(&self) -> usize {
+        0
+    }
+
+    fn setup(&self, _cx: &Cx<'_>) -> super::Setup {
+        super::Setup {
+            constraint: Constraint::Free,
+            reference: self.points.last().copied(),
+        }
+    }
+
+    fn hover(&mut self, p: &Pointer, _cx: &Cx<'_>) {
+        self.cursor = Some(p.inference.point);
+    }
+
+    fn click(&mut self, p: &Pointer, _cx: &Cx<'_>) -> Flow {
+        let q = p.inference.point;
+        if self.points.last().is_some_and(|&last| same(last, q)) {
+            return Flow::Continue;
+        }
+        self.points.push(q);
+        if self.points.len() == 4 {
+            let span: Vec<Value> = self.points.iter().map(|&p| pt(p)).collect();
+            let end = self.points[3];
+            self.points = vec![end];
+            return Flow::run("bezier", json!({ "points": span }));
+        }
+        Flow::Continue
+    }
+
+    fn value(&mut self, _text: &str, _cx: &Cx<'_>) -> Result<Flow, String> {
+        // Typed points arrive as clicks (`takes_points`).
+        Err(t("Type a point: x,y,z"))
+    }
+
+    fn escape(&mut self) -> bool {
+        let busy = self.points.len() > 1;
+        self.points.clear();
+        busy
+    }
+
+    fn back(&mut self) -> bool {
+        self.points.pop();
+        false
+    }
+
+    fn shapes(&self, out: &mut Vec<Shape>) {
+        let mut control = self.points.clone();
+        if let Some(c) = self.cursor {
+            control.push(c);
+        }
+        if control.len() >= 2 {
+            out.push(Shape::Path {
+                points: control.clone(),
+                closed: false,
+                color: BAND,
+            });
+        }
+        for &p in &self.points {
+            out.push(Shape::Marker { p, color: BAND });
+        }
+        if control.len() == 4
+            && let Ok(curve) = planyrith_core::geom::loft::bezier_points(&control, 24)
+        {
+            out.push(Shape::Path {
+                points: curve,
+                closed: false,
+                color: BAND,
+            });
+        }
+    }
+}
