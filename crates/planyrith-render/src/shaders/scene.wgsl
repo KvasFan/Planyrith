@@ -295,6 +295,22 @@ fn fs_face_id(input: FaceOut) -> @location(0) vec2<u32> {
     return vec2<u32>(draw.ids.x, input.face + 1u);
 }
 
+// The camera depth of opaque faces for ambient occlusion (docs/06 §4.1):
+// the float's bits in four bytes, as WebGL2 cannot read depth textures.
+@fragment
+fn fs_ao_depth(input: FaceOut) -> @location(0) vec4<f32> {
+    if (cut_away(input.local)) {
+        discard;
+    }
+    let bits = bitcast<u32>(input.clip.z);
+    return vec4<f32>(
+        f32(bits & 255u),
+        f32((bits >> 8u) & 255u),
+        f32((bits >> 16u) & 255u),
+        f32(bits >> 24u),
+    ) / 255.0;
+}
+
 // The sun's depth (draws whose clip_from_local is the light's).
 @fragment
 fn fs_shadow(input: FaceOut) {

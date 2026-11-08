@@ -22,6 +22,7 @@
 
 #![forbid(unsafe_code)]
 
+mod ao;
 mod gpu;
 mod headless;
 mod labels;

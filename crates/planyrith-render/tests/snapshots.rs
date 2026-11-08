@@ -984,6 +984,21 @@ fn renders_within_webgl2_limits() {
     assert!(image.pixels().any(|p| p.0 != image.get_pixel(0, 0).0));
     assert!(renderer.display_view().is_some());
     assert!(renderer.pick(WIDTH / 2, HEIGHT / 2, 4).unwrap().is_some());
+    // The realistic look, ambient occlusion included, within the same limits.
+    let style = Style {
+        realism: Some(planyrith_core::document::Realism::default()),
+        ..Style::default()
+    };
+    let realistic = frame(
+        &mut renderer,
+        doc,
+        &Selection::new(),
+        &EditContext::model(),
+        &doc.camera,
+        &style,
+        false,
+    );
+    assert_ne!(realistic, image);
 }
 
 /// docs/06 §4.1: the realistic look. The sky lights faces the sun does not
@@ -1072,6 +1087,37 @@ fn realistic_style_lights_from_the_sky() {
         white(&plain)
     );
     check_within("realistic", &image, 24, 100);
+
+    // Ambient occlusion only darkens, and only some of the frame.
+    run(&mut e, "style-edit", json!({ "ambient_occlusion": 0.0 }));
+    let flat = e.document().styles.active_style().cloned().unwrap();
+    let without = frame(
+        &mut renderer,
+        e.document(),
+        &Selection::new(),
+        &context,
+        &e.document().camera,
+        &flat,
+        false,
+    );
+    let (mut darker, mut lighter) = (0, 0);
+    for (a, b) in image.pixels().zip(without.pixels()) {
+        let (x, y): (u32, u32) = (
+            a.0[..3].iter().map(|&c| u32::from(c)).sum(),
+            b.0[..3].iter().map(|&c| u32::from(c)).sum(),
+        );
+        if x + 6 < y {
+            darker += 1;
+        } else if x > y + 6 {
+            lighter += 1;
+        }
+    }
+    let total = (WIDTH * HEIGHT) as usize;
+    assert!(
+        darker > total / 200 && darker < total / 2,
+        "{darker} darker pixels"
+    );
+    assert_eq!(lighter, 0, "occlusion never lightens");
 
     // Off again: the technical look comes back exactly.
     run(&mut e, "style-edit", json!({ "realistic": false }));

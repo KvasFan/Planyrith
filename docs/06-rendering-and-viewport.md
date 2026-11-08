@@ -96,8 +96,14 @@ technical look above stays the default and returns exactly when `realism` is rem
   faces approach white without clipping. Tint, fade and fog apply after it.
 - **Soft shadows:** the shadow filter reads 5×5 texels spread over 1.25 texels each instead of
   3×3.
-- **Ambient occlusion:** `ambient_occlusion` darkens creases and contacts (a screen-space pass,
-  §3.1).
+- **Ambient occlusion:** `ambient_occlusion` darkens creases and contacts. After the scene pass,
+  the opaque faces are drawn again, single-sampled, writing their depth's float bits into an
+  RGBA8 texture (WebGL2 can neither read depth textures nor render to float ones). A full-screen
+  pass rebuilds eye-relative positions through the inverse projection, takes normals from the
+  nearer neighbors, and tests twelve samples in a disk of 4 % of the model's size (20 mm–2 m),
+  turned per 4×4 pixel cell; a sample counts by how far it rises above the surface, fading to
+  nothing at the radius. A last pass averages 4×4 pixels and multiplies the frame by the result,
+  so edges and overlays drawn in the scene pass darken with the faces beneath them.
 - Hidden-line and wireframe faces are unaffected; monochrome faces use the style's colors with
   the same light.
 

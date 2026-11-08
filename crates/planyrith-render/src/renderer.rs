@@ -253,6 +253,8 @@ struct Targets {
     ids: wgpu::Texture,
     ids_view: wgpu::TextureView,
     ids_depth: wgpu::TextureView,
+    /// Ambient occlusion's depth and occlusion textures.
+    ao: crate::ao::AoTargets,
 }
 
 /// Pipelines of one frame kind.
@@ -273,6 +275,8 @@ struct Pipelines {
     shadow_edge: wgpu::RenderPipeline,
     /// Section caps (both windings, so no culling).
     cap: wgpu::RenderPipeline,
+    /// Opaque faces' depth for ambient occlusion (single sample).
+    ao_depth: wgpu::RenderPipeline,
 }
 
 /// One recorded draw.
@@ -368,6 +372,8 @@ pub struct Renderer {
     /// The display pass (color target to `Rgba8Unorm`).
     display_layout: wgpu::BindGroupLayout,
     display_pipeline: wgpu::RenderPipeline,
+    /// Ambient occlusion of the realistic look (docs/06 §4.1).
+    ao: crate::ao::AoPass,
 }
 
 impl std::fmt::Debug for Renderer {
@@ -479,6 +485,7 @@ impl Renderer {
         });
         let pipelines = build_pipelines(&device, &shader, &face_layout, &edge_layout, options.msaa);
         let (display_layout, display_pipeline) = display_pipeline(&device);
+        let ao = crate::ao::AoPass::new(&device, COLOR_FORMAT);
         let shadow_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("shadow"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -538,6 +545,7 @@ impl Renderer {
             caps: BTreeMap::new(),
             display_layout,
             display_pipeline,
+            ao,
         }
     }
 
@@ -698,6 +706,7 @@ impl Renderer {
             ids_view: ids.create_view(&wgpu::TextureViewDescriptor::default()),
             ids,
             ids_depth,
+            ao: self.ao.targets(&self.device, width, height),
         });
     }
 
@@ -1697,6 +1706,83 @@ impl Renderer {
             {
                 self.encode(&mut pass, draw);
             }
+        }
+        // Ambient occlusion (docs/06 §4.1): the opaque faces' depth, then
+        // the occlusion multiplied into the frame.
+        if let Some(r) = realism.filter(|r| r.ambient_occlusion > 0.0)
+            && !model_bounds.is_empty()
+        {
+            {
+                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("ambient occlusion depth"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &targets.ao.packed,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: &targets.ao.depth,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(0.0),
+                            store: wgpu::StoreOp::Discard,
+                        }),
+                        stencil_ops: None,
+                    }),
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                    multiview_mask: None,
+                });
+                pass.set_pipeline(&self.pipelines.ao_depth);
+                for draw in &opaque {
+                    let Draw::Faces {
+                        uniform,
+                        container,
+                        range,
+                        ..
+                    } = draw
+                    else {
+                        continue;
+                    };
+                    let Some(mesh) = self.meshes.get(container) else {
+                        continue;
+                    };
+                    let (Some(vb), Some(ib)) = (&mesh.vertices, &mesh.indices) else {
+                        continue;
+                    };
+                    pass.set_bind_group(
+                        0,
+                        &self.uniform_group,
+                        &[*uniform * UNIFORM_STRIDE as u32],
+                    );
+                    pass.set_vertex_buffer(0, vb.slice(..));
+                    pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
+                    pass.draw_indexed(range.clone(), 0, 0..1);
+                }
+            }
+            let eye = glam::DAffine3::from_translation(camera.eye);
+            let eye_from_clip = camera.clip_from_local(&eye, depth).inverse();
+            // Creases of about 4 % of the model's size.
+            let radius = (model_bounds.max - model_bounds.min).length() * 0.04;
+            let uniform = crate::ao::AoUniform {
+                eye_from_clip: eye_from_clip.as_mat4().to_cols_array_2d(),
+                params: [
+                    radius.clamp(20.0, 2000.0) as f32,
+                    r.ambient_occlusion.clamp(0.0, 1.0),
+                    req.width as f32,
+                    req.height as f32,
+                ],
+            };
+            self.ao.encode(
+                &self.queue,
+                &mut encoder,
+                &targets.ao,
+                &targets.color_view,
+                &uniform,
+            );
         }
         self.ids_valid = req.ids;
         if req.ids {
@@ -2822,6 +2908,41 @@ fn build_pipelines(
                 entry_point: Some("fs_shadow"),
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
                 targets: &[],
+            }),
+            multiview_mask: None,
+            cache: None,
+        }),
+        ao_depth: device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("ambient occlusion depth"),
+            layout: Some(edge_layout),
+            vertex: wgpu::VertexState {
+                module: shader,
+                entry_point: Some("vs_face"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                buffers: &face_buffers,
+            },
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                cull_mode: None,
+                ..Default::default()
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: crate::ao::AO_DEPTH_FORMAT,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(Greater),
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState::default(),
+            fragment: Some(wgpu::FragmentState {
+                module: shader,
+                entry_point: Some("fs_ao_depth"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: crate::ao::AO_PACKED_FORMAT,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
             }),
             multiview_mask: None,
             cache: None,

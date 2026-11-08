@@ -37,7 +37,8 @@ loft, PLY/USDZ/IFC). Done: `solid-check` and `solid-repair` (docs/05 §8.1–§8
 §4.14) with the Check for 3D Printing window, which marks open edges in red; 3MF import and
 export (docs/09 Decisions, 2026-11-05); the export options `per_object` and `on_plate`
 (docs/05 §10). The 3D printing item of 1.1 is complete. The realistic look (docs/06 §4.1) has
-its lighting, materials' roughness/metalness and soft shadows; ambient occlusion is next.
+its lighting, materials' roughness/metalness, soft shadows and screen-space ambient occlusion.
+Next in 1.1: rounding/chamfering edges and thickening surfaces (docs/13).
 
 **After alpha.3 (unreleased, 2026-11-02):** the renderer draws the style's edge
 effects (depth cue, extension, endpoints, jitter) and shadows from edges without
