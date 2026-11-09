@@ -241,6 +241,10 @@ table) and cosmetic threads, dome, split by a plane or a surface, and scale abou
 Mates between components (coincident, concentric, distance, angle, parallel, perpendicular,
 tangent, fixed) kept by a solver with degrees of freedom shown; exploded views stored in
 scenes; a bill of materials; collision detection while dragging; driving a mate to animate.
+- **Done (2026-11-09):** mates (all but tangent) with the solver and freedom shown, driving by
+  editing a mate's value, exploded views kept in the container (collapsed again on demand rather
+  than per scene), the bill of materials (docs/05 §5.17). Tangency and collision checks while
+  dragging in the viewport remain; interference is checked on demand (§8.4).
 
 ## 1.13.0 — Engineering drawings
 Sheet views tied to the model and kept current: projected, section, detail, auxiliary and

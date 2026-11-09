@@ -14,6 +14,7 @@
 //! Owner key: `later` (first consumer: milestone 0.1 commands).
 
 pub mod annotate;
+pub mod assembly;
 pub(crate) mod common;
 pub mod constrain;
 pub mod draw;
@@ -421,6 +422,7 @@ impl CommandRegistry {
         constrain::register(&mut registry);
         features::register(&mut registry);
         solid_features::register(&mut registry);
+        assembly::register(&mut registry);
         sheets::register(&mut registry);
         #[cfg(feature = "scripting")]
         registry.register(crate::scripting::ScriptEval);

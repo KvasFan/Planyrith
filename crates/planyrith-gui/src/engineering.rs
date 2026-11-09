@@ -1423,6 +1423,296 @@ impl SolidFeaturesWindow {
     }
 }
 
+/// One side of a mate picked in the GUI: the assembly's context, and the
+/// `<occurrence>:<element>` reference.
+#[derive(Debug, Clone, PartialEq)]
+struct Side {
+    assembly: planyrith_core::document::InstancePath,
+    reference: String,
+}
+
+/// The side the selection names: a face or edge selected inside an
+/// occurrence one level below the edit context, or selected in an
+/// occurrence open for editing.
+fn side_of_selection(session: &Session) -> Option<Side> {
+    use planyrith_core::document::{EntityKey, InstancePath};
+    let doc = session.doc();
+    let context = session.engine.context().path.clone();
+    let pid_in = |container: &InstancePath, key: EntityKey| -> Option<u64> {
+        let (c, _) = doc.resolve_container(container).ok()?;
+        let entities = doc.container(c)?;
+        let id = entities.key_to_id(key)?;
+        entities.pid_of(id).map(|p| p.0)
+    };
+    for path in session.engine.selection().iter() {
+        let steps = &path.instances.steps;
+        // Picked from the assembly, one level down.
+        if steps.len() == context.steps.len() + 1
+            && steps[..context.steps.len()] == context.steps[..]
+        {
+            let occ = pid_in(&context, steps[steps.len() - 1])?;
+            let element = pid_in(&path.instances, path.target)?;
+            return Some(Side {
+                assembly: context.clone(),
+                reference: format!("{occ}:{element}"),
+            });
+        }
+        // Picked inside the open occurrence.
+        if *steps == context.steps && !context.steps.is_empty() {
+            let parent = InstancePath {
+                steps: context.steps[..context.steps.len() - 1].to_vec(),
+            };
+            let occ = pid_in(&parent, context.steps[context.steps.len() - 1])?;
+            let element = pid_in(&context, path.target)?;
+            return Some(Side {
+                assembly: parent,
+                reference: format!("{occ}:{element}"),
+            });
+        }
+    }
+    None
+}
+
+/// Tools › Assembly… (docs/05 §5.17): mates between components, driven
+/// values, the exploded view and the bill of materials.
+pub struct AssemblyWindow {
+    /// The window is shown.
+    pub open: bool,
+    a: Option<Side>,
+    b: Option<Side>,
+    length_mm: f64,
+    angle_deg: f64,
+    factor: f64,
+    list: Option<Value>,
+    bom: Option<Value>,
+    seen: u64,
+    note: Option<String>,
+}
+
+impl Default for AssemblyWindow {
+    fn default() -> Self {
+        AssemblyWindow {
+            open: false,
+            a: None,
+            b: None,
+            length_mm: 0.0,
+            angle_deg: 90.0,
+            factor: 1.0,
+            list: None,
+            bom: None,
+            seen: u64::MAX,
+            note: None,
+        }
+    }
+}
+
+impl AssemblyWindow {
+    fn refresh(&mut self, session: &mut Session) {
+        self.seen = session.engine.generation();
+        self.list = session.execute("mate-list", json!({})).ok();
+    }
+
+    fn run(&mut self, session: &mut Session, name: &str, params: Value) {
+        self.note = Some(match session.execute(name, params) {
+            Ok(out) => match out["degrees_of_freedom"].as_u64() {
+                Some(0) => t("Fully constrained"),
+                Some(n) => t_args(
+                    "{ $count } degrees of freedom left.",
+                    &[("count", n.to_string().into())],
+                ),
+                None => t("Done"),
+            },
+            Err(e) => e,
+        });
+        self.refresh(session);
+    }
+
+    fn add(&mut self, session: &mut Session, kind: &str) {
+        let (Some(a), Some(b)) = (self.a.clone(), self.b.clone()) else {
+            self.note = Some(t("Pick both sides first."));
+            return;
+        };
+        if a.assembly != b.assembly {
+            self.note = Some(t("Both sides must be in the same assembly."));
+            return;
+        }
+        let _ = session
+            .engine
+            .set_context(planyrith_core::document::EditContext {
+                path: a.assembly.clone(),
+            });
+        let mut params = json!({ "kind": kind, "a": a.reference, "b": b.reference });
+        match kind {
+            "distance" => params["length"] = json!(self.length_mm),
+            "angle" => params["angle"] = json!(self.angle_deg.to_radians()),
+            "aligned" => {
+                params["kind"] = json!("coincident");
+                params["aligned"] = json!(true);
+            }
+            _ => {}
+        }
+        self.run(session, "mate-add", params);
+    }
+
+    /// Draws the window.
+    pub fn window(&mut self, ctx: &egui::Context, session: &mut Session) {
+        if !self.open {
+            self.list = None;
+            return;
+        }
+        if self.list.is_none() || self.seen != session.engine.generation() {
+            self.refresh(session);
+        }
+        let mut open = true;
+        egui::Window::new(t("Assembly"))
+            .open(&mut open)
+            .default_width(480.0)
+            .show(ctx, |ui| {
+                ui.label(t("Select a face or edge of a component (open it to reach one), then set it as a side:"));
+                ui.horizontal(|ui| {
+                    if ui.button(t("Side A")).clicked() {
+                        self.a = side_of_selection(session);
+                    }
+                    ui.label(self.a.as_ref().map_or("—".to_string(), |s| s.reference.clone()));
+                    if ui.button(t("Side B")).clicked() {
+                        self.b = side_of_selection(session);
+                    }
+                    ui.label(self.b.as_ref().map_or("—".to_string(), |s| s.reference.clone()));
+                });
+                ui.horizontal_wrapped(|ui| {
+                    for (label, kind) in [
+                        (t("Coincident"), "coincident"),
+                        (t("Aligned"), "aligned"),
+                        (t("Parallel"), "parallel"),
+                        (t("Perpendicular"), "perpendicular"),
+                        (t("Concentric"), "concentric"),
+                    ] {
+                        if ui.button(label).clicked() {
+                            self.add(session, kind);
+                        }
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.add(egui::DragValue::new(&mut self.length_mm).suffix(" mm"));
+                    if ui.button(t("Distance")).clicked() {
+                        self.add(session, "distance");
+                    }
+                    ui.add(egui::DragValue::new(&mut self.angle_deg).range(0.0..=180.0).suffix("°"));
+                    if ui.button(t("Angle")).clicked() {
+                        self.add(session, "angle");
+                    }
+                    if ui.button(t("Fix")).clicked() {
+                        if let Some(a) = self.a.clone() {
+                            let occ = a.reference.split(':').next().unwrap_or_default().to_string();
+                            let _ = session.engine.set_context(
+                                planyrith_core::document::EditContext { path: a.assembly },
+                            );
+                            self.run(session, "mate-add", json!({ "kind": "fixed", "a": occ }));
+                        } else {
+                            self.note = Some(t("Pick both sides first."));
+                        }
+                    }
+                });
+                ui.separator();
+                if let Some(list) = self.list.clone() {
+                    let state = match list["state"].as_str().unwrap_or_default() {
+                        "fully" => t("Fully constrained"),
+                        "under" => t_args(
+                            "Under-constrained: { $count } degrees of freedom",
+                            &[("count", list["degrees_of_freedom"].as_u64().unwrap_or(0).to_string().into())],
+                        ),
+                        "conflict" => t("The mates conflict"),
+                        _ => t("No mates yet"),
+                    };
+                    ui.strong(state);
+                    let mut action: Option<(&str, Value)> = None;
+                    egui::Grid::new("mates").striped(true).num_columns(4).show(ui, |ui| {
+                        for m in list["mates"].as_array().into_iter().flatten() {
+                            let id = m["id"].as_u64().unwrap_or(0);
+                            ui.label(id.to_string());
+                            ui.label(format!(
+                                "{} {} {}",
+                                m["kind"].as_str().unwrap_or_default(),
+                                m["a"].as_str().unwrap_or_default(),
+                                m["b"].as_str().unwrap_or_default()
+                            ));
+                            if let Some(mut l) = m["length_mm"].as_f64() {
+                                // Dragging drives the mate.
+                                if ui.add(egui::DragValue::new(&mut l).suffix(" mm")).changed() {
+                                    action = Some(("mate-edit", json!({ "id": id, "length": l })));
+                                }
+                            } else if let Some(a) = m["angle_rad"].as_f64() {
+                                let mut d = a.to_degrees();
+                                if ui.add(egui::DragValue::new(&mut d).range(0.0..=180.0).suffix("°")).changed() {
+                                    action = Some(("mate-edit", json!({ "id": id, "angle": d.to_radians() })));
+                                }
+                            } else {
+                                ui.label("");
+                            }
+                            if ui.small_button("✕").on_hover_text(t("Delete")).clicked() {
+                                action = Some(("mate-delete", json!({ "ids": [id] })));
+                            }
+                            ui.end_row();
+                        }
+                    });
+                    if ui.button(t("Solve Again")).clicked() {
+                        action = Some(("mate-solve", json!({})));
+                    }
+                    if let Some((name, params)) = action {
+                        self.run(session, name, params);
+                    }
+                }
+                ui.separator();
+                ui.horizontal(|ui| {
+                    ui.label(t("Spread"));
+                    ui.add(egui::DragValue::new(&mut self.factor).range(0.0..=10.0).speed(0.05));
+                    if ui.button(t("Explode")).clicked() {
+                        self.run(session, "explode-view", json!({ "factor": self.factor }));
+                    }
+                    if ui.button(t("Collapse")).clicked() {
+                        self.run(session, "explode-view", json!({ "collapse": true }));
+                    }
+                });
+                ui.horizontal(|ui| {
+                    if ui.button(t("Bill of Materials")).clicked() {
+                        self.bom = session.execute("bill-of-materials", json!({ "nested": true })).ok();
+                    }
+                    if let Some(bom) = &self.bom
+                        && ui.button(t("Copy as CSV")).clicked()
+                    {
+                        let mut csv = String::from("item,name,quantity,part_number,description\n");
+                        for r in bom["rows"].as_array().into_iter().flatten() {
+                            let q = |s: &str| format!("\"{}\"", s.replace('"', "\"\""));
+                            csv.push_str(&format!(
+                                "{},{},{},{},{}\n",
+                                r["item"],
+                                q(r["name"].as_str().unwrap_or_default()),
+                                r["quantity"],
+                                q(r["part_number"].as_str().unwrap_or_default()),
+                                q(r["description"].as_str().unwrap_or_default())
+                            ));
+                        }
+                        ui.ctx().copy_text(csv);
+                    }
+                });
+                if let Some(bom) = &self.bom {
+                    egui::Grid::new("bom").striped(true).num_columns(3).show(ui, |ui| {
+                        for r in bom["rows"].as_array().into_iter().flatten() {
+                            ui.label(r["item"].to_string());
+                            ui.label(r["name"].as_str().unwrap_or_default());
+                            ui.label(format!("× {}", r["quantity"]));
+                            ui.end_row();
+                        }
+                    });
+                }
+                if let Some(n) = &self.note {
+                    ui.label(n);
+                }
+            });
+        self.open = open;
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
@@ -1437,6 +1727,42 @@ mod tests {
             cut_list_csv(&out),
             "name,count,length_mm,width_mm,thickness_mm,material\n\"Side \"\"L\"\"\",2,800.0,400.0,18.0,\"Oak\"\n"
         );
+    }
+
+    /// A face selected inside an open component names the side
+    /// `<component>:<face>` of the assembly around it.
+    #[test]
+    fn a_mate_side_comes_from_the_selection() {
+        let mut s = Session::new();
+        s.execute(
+            "rectangle",
+            json!({ "corner_a": [0, 0, 0], "corner_b": [100, 100, 0] }),
+        )
+        .unwrap();
+        s.execute(
+            "push-pull",
+            json!({ "face": { "Query": "face & last" }, "distance": 100 }),
+        )
+        .unwrap();
+        let out = s
+            .execute(
+                "make-component",
+                json!({ "targets": "all", "name": "Cube" }),
+            )
+            .unwrap();
+        let occ = out["instance"].as_u64().unwrap();
+        assert!(side_of_selection(&s).is_none());
+        let path = planyrith_core::document::InstancePath::root().child(
+            planyrith_core::document::EntityKey::Pid(planyrith_core::ids::Pid(occ)),
+        );
+        s.engine
+            .set_context(planyrith_core::document::EditContext { path })
+            .unwrap();
+        s.execute("select", json!({ "query": "face & plane:xy@100" }))
+            .unwrap();
+        let side = side_of_selection(&s).unwrap();
+        assert!(side.reference.starts_with(&format!("{occ}:")), "{side:?}");
+        assert!(side.assembly.steps.is_empty());
     }
 
     #[test]

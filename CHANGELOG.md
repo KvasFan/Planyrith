@@ -26,6 +26,10 @@ All notable changes to Planyrith are recorded here. Versions follow
 - Milestone 1.11, solid features (docs/05 §8.6–§8.11): `hole` (plain, clearance, tapped with a
   cosmetic thread, counterbore, countersink; metric M2–M24), `shell`, `draft`, `split-solid`,
   `dome` and `rib`, on loose solids and in parts; Tools › Solid Features….
+- Milestone 1.12, assemblies (docs/05 §5.17): mates between groups and components (fixed,
+  coincident, distance, parallel, perpendicular, angle, concentric) kept by a rigid-body
+  solver with the freedom left shown; driving mates; exploded views; the bill of materials;
+  Tools › Assembly….
 - Joining from the browser (docs/08 §3.3): `planyrith serve --web <port|address>` takes
   browsers over an encrypted WebSocket and serves the web build from `--web-root`; the web
   build has File › Work Together…, opened filled in by `?join=<document>`.

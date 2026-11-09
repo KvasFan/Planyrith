@@ -539,6 +539,44 @@ run inside the part. Direct modeling stays the base: a document without parts be
   nothing; features recorded inside the open part; in the GUI, unchecking the extrusion flattens
   the part.
 
+### 5.17 Assemblies: `mate-add`, `mate-edit`, `mate-delete`, `mate-list`, `mate-solve`, `explode-view`, `bill-of-materials`
+Mates place the groups and components of the edit context against each other (milestone 1.12).
+- **References:** a side is `<occurrence pid>:<element pid>`: a group or component of the edit
+  context and, inside it, a face (a plane through its outline's center, along its normal) or an
+  edge (a line; the edge of a circle or arc gives its axis). `fixed` names an occurrence alone.
+- **Kinds:** `fixed`; `coincident` (planes against each other — or facing the same way with
+  `aligned` —, lines on one line, a line in a plane); `distance` (`length` between facing planes,
+  between parallel lines, or of a line from a plane); `parallel`; `perpendicular`; `angle`;
+  `concentric` (axes on one line).
+- **Params:** `mate-add { kind, a, b?, length?, angle?, aligned }`; `mate-edit { id, length?,
+  angle?, aligned? }` (driving a mate: the parts move to the new value); `mate-delete { ids | all }`
+  (placements stay); `mate-list` (changes nothing); `mate-solve` (after moving parts by hand);
+  `explode-view { targets?, factor (1), collapse }`; `bill-of-materials { nested }` (changes
+  nothing).
+- **Behavior:** mates are the container's attribute `planyrith` / `mates` (JSON). Adding,
+  editing and solving run a rigid-body solver: each mated occurrence that is not fixed gets a
+  rotation (about its center) and a translation; occurrences with a `fixed` mate stay, and when
+  none has one the lowest pid among the mated is grounded. Equations are in millimeters
+  (directions weighed by the assembly's size); the solver is that of docs/03 §11.2 (damped
+  least squares toward the current placements, then exact Gauss–Newton), and the Jacobian's rank
+  gives the freedom left. A conflict changes nothing. An exploded view moves each occurrence away
+  from the occurrences' common center by `factor` times its distance from it, keeping the first
+  placements (attribute `planyrith` / `exploded`) for `collapse`. The bill of materials counts
+  occurrences by name (a group's name, else its definition's), with the definition's description
+  and its attribute `properties` / `part_number`.
+- **Output:** `{ id?, moved, degrees_of_freedom, mates }`; `mate-list`: `{ mates, state:
+  none|under|fully|conflict, degrees_of_freedom?, conflict? }`; `explode-view`: `{ moved }`;
+  `bill-of-materials`: `{ rows: [{ item, name, quantity, description, part_number? }] }`.
+- **Undo:** one step each.
+- **GUI:** Tools › Assembly…: a face or edge selected inside a component (opened, or picked one
+  level down) becomes Side A or Side B; buttons add the mates; the list shows the state, driving
+  values to drag (the parts follow) and delete; Explode and Collapse with a spread factor; the
+  bill of materials with Copy as CSV. Interference while moving parts is checked with Tools ›
+  Measure… › Interference (§8.4).
+- **Tests:** a cube mated onto another (face to face, two sides flush) has no freedom left;
+  driving the distance slides it 30 mm; a conflicting distance is refused; exploding and
+  collapsing restore every placement; two equal components count as one row of two.
+
 ## 6. Guide tools (category `guide`)
 
 ### 6.1 `tape-measure`

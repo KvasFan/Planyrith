@@ -1,0 +1,10 @@
+# Two cubes spread apart, then collapsed, then spread twice as far.
+rectangle --corner-a 0,0,0 --corner-b 100,100,0
+push-pull --face '{face & last}' --distance 100
+make-component --targets 'edge & !instance | face & !instance' --name Base
+rectangle --corner-a 300,200,40 --corner-b 400,300,40
+push-pull --face '{face & last}' --distance 100
+make-component --targets 'edge & !instance | face & !instance' --name Top
+explode-view --factor 1
+explode-view --collapse
+explode-view --factor 2

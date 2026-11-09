@@ -1,0 +1,12 @@
+# Listing the mates changes nothing.
+rectangle --corner-a 0,0,0 --corner-b 100,100,0
+push-pull --face '{face & last}' --distance 100
+make-component --targets 'edge & !instance | face & !instance' --name Base
+rectangle --corner-a 300,200,40 --corner-b 400,300,40
+push-pull --face '{face & last}' --distance 100
+make-component --targets 'edge & !instance | face & !instance' --name Top
+mate-add --kind fixed --a 37
+mate-add --kind coincident --a 37:34 --b 74:68
+mate-add --kind coincident --a 37:36 --b 74:73 --aligned
+mate-add --kind distance --a 37:35 --b 74:72 --aligned --length 0
+mate-list
