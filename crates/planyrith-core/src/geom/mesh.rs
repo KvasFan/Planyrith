@@ -895,6 +895,22 @@ impl HalfEdgeMesh {
         })
     }
 
+    /// Moves vertices to the given positions at once, each by its own
+    /// displacement (docs/03 §4.8): merging, folding and re-attaching faces
+    /// as [`HalfEdgeMesh::transform_vertices`] does. Curve descriptors of
+    /// the moved edges are dropped (the shape may no longer be circular).
+    pub fn move_vertices(
+        &mut self,
+        target: &std::collections::BTreeMap<VertexId, DVec3>,
+        opts: TransformOptions,
+        tol: &Tolerances,
+        sink: &mut dyn DeltaSink,
+    ) -> Result<TransformResult, GeometryError> {
+        self.transact(tol, sink, |m, d| {
+            m.move_vertices_inner(target.clone(), None, opts, tol, d)
+        })
+    }
+
     /// Splits face `f` by a chord (a chain of existing interior edges whose
     /// endpoints lie on the face boundary); returns the two new faces with
     /// `[0]` inheriting the pid (docs/03 §4.4). `[0]` is `f` itself, reshaped

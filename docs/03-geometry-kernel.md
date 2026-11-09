@@ -385,6 +385,43 @@ within `tolerances.length`.
   results identical across platforms (golden JSON).
 - `validate()` passes after every fuzzed sequence of operations (cargo-fuzz target).
 
+## 11. Constraints and the solver (`sketch`, milestone 1.9)
+Constraints relate the edges and edge ends of one container; they are stored in the
+container's attributes (`planyrith` / `constraints`, a JSON list, docs/04 §9.2) and name edges
+by pid and points as `<pid>.a` or `<pid>.b` (the ends of `edge_segment`).
+
+### 11.1 Kinds and equations
+Every equation is in millimeters; directions are unit vectors scaled by the mean length of the
+edges involved, so angles weigh like lengths.
+
+| Kind | Takes | Equations |
+|---|---|---|
+| `coincident` | 2 points | `q − p = 0` |
+| `fixed` | points and/or edges | each point at its position when the constraint was made |
+| `along-x`, `along-y`, `along-z` | 1+ edges | the direction's other two components are 0 |
+| `parallel` | 2+ edges | each unit direction × the first's = 0 |
+| `perpendicular` | 2 edges | unit directions' dot product = 0 |
+| `equal` | 2+ edges | each length − the first's = 0 |
+| `collinear` | 2 edges | parallel, and the second's start on the first's line |
+| `midpoint` | point, edge | `p − (a + b)/2 = 0` |
+| `on-line` | point, edge | `(p − a) × unit(b − a) = 0` |
+| `symmetric` | 2 points, edge | their midpoint on the line, `(q − p) · unit(b − a) = 0` |
+| `length` | edge, length | `|b − a| − L = 0` |
+| `distance` | 2 points, length | `|q − p| − L = 0` |
+| `angle` | 2 edges, angle | `atan2(|d₀ × d₁|, d₀ · d₁) − θ = 0` |
+
+### 11.2 Solving
+Unknowns are the positions of the vertices the constraints name; nothing else moves. Each such
+vertex also keeps every adjacent face's plane (one equation per vertex and plane), so faces stay
+flat and a corner shared by faces in three planes cannot move. The solver minimizes
+`|r(x)|² + μ|x − x₀|²` (μ = 10⁻⁶) by damped least squares with a numeric Jacobian — the weak pull
+picks the solution nearest the drawing — then takes minimum-norm Gauss–Newton steps on `r`
+alone until the largest equation is below 10⁻¹⁰ of the model's size. A result whose largest
+equation stays above 10⁻⁶ mm (relative) is a conflict and changes nothing. The new positions are
+applied at once by `move_vertices` (§4.8 with a displacement per vertex). The rank of the
+Jacobian at the solution gives the degrees of freedom left (unknowns − rank) and the redundant
+equations (equations − rank), which include constraints repeating the flat-face equations.
+
 ## Decisions
 
 - 2026-11-09 — **Position keys independent of where a loop starts.** The command fuzzer (60 000

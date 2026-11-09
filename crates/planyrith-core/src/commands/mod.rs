@@ -15,6 +15,7 @@
 
 pub mod annotate;
 pub(crate) mod common;
+pub mod constrain;
 pub mod draw;
 pub mod edit;
 pub mod file;
@@ -415,6 +416,7 @@ impl CommandRegistry {
         solid::register(&mut registry);
         solid_check::register(&mut registry);
         measure::register(&mut registry);
+        constrain::register(&mut registry);
         sheets::register(&mut registry);
         #[cfg(feature = "scripting")]
         registry.register(crate::scripting::ScriptEval);

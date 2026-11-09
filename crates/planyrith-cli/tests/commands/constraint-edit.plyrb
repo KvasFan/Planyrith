@@ -1,0 +1,8 @@
+# The rectangle's driving length changed to 1500.
+line --points 0,0,0 --points 1000,20,0 --points 990,600,0 --points -10,580,0 --close
+constraint-add --kind fixed --points 4.b
+constraint-add --kind along-x --edges @1 --edges @3
+constraint-add --kind along-y --edges @2 --edges @4
+constraint-add --kind length --edges @1 --length 1200
+constraint-add --kind length --edges @4 --length 500
+constraint-edit --id 4 --length 1500

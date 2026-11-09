@@ -40,6 +40,7 @@ pub mod params;
 #[cfg(feature = "scripting")]
 pub mod scripting;
 pub mod sheets;
+pub mod sketch;
 pub mod spatial;
 pub mod tolerance;
 #[cfg(feature = "transport")]

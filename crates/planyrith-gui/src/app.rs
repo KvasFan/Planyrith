@@ -381,6 +381,8 @@ pub struct App {
     pattern: crate::engineering::PatternWindow,
     /// Tools › Measure… (docs/05 §8.3–§8.5).
     measure: crate::engineering::MeasureWindow,
+    /// Tools › Constraints… (docs/05 §5.15).
+    constraints: crate::engineering::ConstraintsWindow,
     /// File › Export › Rendered Image (docs/06 §11.1).
     #[cfg(not(target_arch = "wasm32"))]
     render_job: crate::render_job::RenderJob,
@@ -543,6 +545,7 @@ impl App {
             revolve: Default::default(),
             pattern: Default::default(),
             measure: Default::default(),
+            constraints: Default::default(),
             #[cfg(not(target_arch = "wasm32"))]
             render_job: Default::default(),
             #[cfg(not(target_arch = "wasm32"))]
@@ -961,6 +964,12 @@ impl App {
             }
             Err(e) => self.error(e),
         }
+    }
+
+    /// The session, for tests.
+    #[cfg(test)]
+    pub fn session_for_tests(&self) -> &Session {
+        &self.session
     }
 
     /// Runs commands for the screenshot test, panicking on failure.
@@ -1823,6 +1832,10 @@ impl App {
                 }
                 if ui.button(t("Measure…")).clicked() {
                     self.measure.show_mass();
+                    ui.close();
+                }
+                if ui.button(t("Constraints…")).clicked() {
+                    self.constraints.open = true;
                     ui.close();
                 }
                 ui.separator();
@@ -3407,6 +3420,7 @@ impl App {
         self.revolve.window(&ctx, &mut self.session);
         self.pattern.window(&ctx, &mut self.session);
         self.measure.window(&ctx, &mut self.session);
+        self.constraints.window(&ctx, &mut self.session);
         self.together.window(&ctx, &mut self.session);
         #[cfg(not(target_arch = "wasm32"))]
         {

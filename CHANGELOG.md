@@ -16,6 +16,9 @@ All notable changes to Planyrith are recorded here. Versions follow
   and `pattern` (rows and grids, around an axis, along edges); `mass-properties` (materials
   have a density), `interference-check` and `cut-list`; Tools › Mirror…, Revolve…, Pattern…
   and Measure… in the GUI.
+- Milestone 1.9, constrained sketches (docs/03 §11, docs/05 §5.15): geometric constraints and
+  driving dimensions on edges and edge ends, kept by a solver that keeps faces flat and reports
+  the degrees of freedom left; `constraint-add|edit|delete|list|solve` and Tools › Constraints….
 - Joining from the browser (docs/08 §3.3): `planyrith serve --web <port|address>` takes
   browsers over an encrypted WebSocket and serves the web build from `--web-root`; the web
   build has File › Work Together…, opened filled in by `?join=<document>`.

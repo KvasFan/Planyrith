@@ -649,6 +649,271 @@ fn cut_list_page(ui: &mut egui::Ui, out: &Value) {
     }
 }
 
+/// The pids of the selected edges in the edit context, in selection order.
+fn selected_edges(session: &Session) -> Vec<u64> {
+    let doc = session.doc();
+    let mut out = Vec::new();
+    for path in session.engine.selection().iter() {
+        let Ok(r) = doc.resolve(path) else { continue };
+        if !matches!(r.entity, planyrith_core::ids::EntityId::Edge(_)) {
+            continue;
+        }
+        if let Some(pid) = doc.container(r.container).and_then(|c| c.pid_of(r.entity)) {
+            out.push(pid.0);
+        }
+    }
+    out
+}
+
+/// The ends of two edges that are nearest each other: `[12.a, 15.b]`.
+fn nearest_ends(session: &Session, a: u64, b: u64) -> Option<[String; 2]> {
+    let doc = session.doc();
+    let context = session.engine.context().path.clone();
+    let (container, _) = doc.resolve_container(&context).ok()?;
+    let entities = doc.container(container)?;
+    let seg = |pid: u64| -> Option<planyrith_core::math::Segment> {
+        match entities.id_of(planyrith_core::ids::Pid(pid))? {
+            planyrith_core::ids::EntityId::Edge(e) => entities.mesh().edge_segment(e).ok(),
+            _ => None,
+        }
+    };
+    let (sa, sb) = (seg(a)?, seg(b)?);
+    let mut best = None;
+    for (ea, pa) in [("a", sa.a), ("b", sa.b)] {
+        for (eb, pb) in [("a", sb.a), ("b", sb.b)] {
+            let d = pa.distance(pb);
+            if best.as_ref().is_none_or(|(bd, _)| d < *bd) {
+                best = Some((d, [format!("{a}.{ea}"), format!("{b}.{eb}")]));
+            }
+        }
+    }
+    best.map(|(_, e)| e)
+}
+
+/// Tools › Constraints… (docs/05 §5.15): the edit context's constraints
+/// with their state, driving values to edit, and constraints to add to the
+/// selected edges.
+pub struct ConstraintsWindow {
+    /// The window is shown.
+    pub open: bool,
+    length_mm: f64,
+    angle_deg: f64,
+    list: Option<Value>,
+    note: Option<String>,
+}
+
+impl Default for ConstraintsWindow {
+    fn default() -> Self {
+        ConstraintsWindow {
+            open: false,
+            length_mm: 1000.0,
+            angle_deg: 90.0,
+            list: None,
+            note: None,
+        }
+    }
+}
+
+impl ConstraintsWindow {
+    fn refresh(&mut self, session: &mut Session) {
+        self.list = session.execute("constraint-list", json!({})).ok();
+    }
+
+    fn run(&mut self, session: &mut Session, name: &str, params: Value) {
+        self.note = Some(match session.execute(name, params) {
+            Ok(out) => match out["degrees_of_freedom"].as_u64() {
+                Some(0) => t("Fully constrained"),
+                Some(n) => t_args(
+                    "{ $count } degrees of freedom left.",
+                    &[("count", n.to_string().into())],
+                ),
+                None => t("Done"),
+            },
+            Err(e) => e,
+        });
+        self.refresh(session);
+    }
+
+    /// Draws the window.
+    pub fn window(&mut self, ctx: &egui::Context, session: &mut Session) {
+        if !self.open {
+            self.list = None;
+            return;
+        }
+        if self.list.is_none() {
+            self.refresh(session);
+        }
+        let mut open = true;
+        egui::Window::new(t("Constraints"))
+            .open(&mut open)
+            .default_width(460.0)
+            .show(ctx, |ui| {
+                let edges = selected_edges(session);
+                let q: Vec<String> = edges.iter().map(|p| format!("@{p}")).collect();
+                ui.label(t_args(
+                    "Selected edges: { $count }",
+                    &[("count", edges.len().to_string().into())],
+                ));
+                ui.horizontal_wrapped(|ui| {
+                    let one = !q.is_empty();
+                    let two = q.len() >= 2;
+                    for (label, kind, enabled) in [
+                        ("Fix", "fixed", one),
+                        ("Along red", "along-x", one),
+                        ("Along green", "along-y", one),
+                        ("Along blue", "along-z", one),
+                        ("Parallel", "parallel", two),
+                        ("Equal", "equal", two),
+                    ] {
+                        if ui.add_enabled(enabled, egui::Button::new(t(label))).clicked() {
+                            self.run(session, "constraint-add", json!({ "kind": kind, "edges": q }));
+                        }
+                    }
+                    let pair = q.len() == 2;
+                    for (label, kind) in [("Perpendicular", "perpendicular"), ("Collinear", "collinear")] {
+                        if ui.add_enabled(pair, egui::Button::new(t(label))).clicked() {
+                            self.run(session, "constraint-add", json!({ "kind": kind, "edges": q }));
+                        }
+                    }
+                    if ui
+                        .add_enabled(pair, egui::Button::new(t("Join Ends")))
+                        .clicked()
+                        && let Some(points) = nearest_ends(session, edges[0], edges[1])
+                    {
+                        self.run(
+                            session,
+                            "constraint-add",
+                            json!({ "kind": "coincident", "points": points }),
+                        );
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.add(egui::DragValue::new(&mut self.length_mm).suffix(" mm"));
+                    if ui
+                        .add_enabled(edges.len() == 1, egui::Button::new(t("Length")))
+                        .clicked()
+                    {
+                        self.run(
+                            session,
+                            "constraint-add",
+                            json!({ "kind": "length", "edges": q, "length": self.length_mm }),
+                        );
+                    }
+                    if ui
+                        .add_enabled(edges.len() == 2, egui::Button::new(t("Distance between ends")))
+                        .clicked()
+                        && let Some(points) = nearest_ends(session, edges[0], edges[1])
+                    {
+                        self.run(
+                            session,
+                            "constraint-add",
+                            json!({ "kind": "distance", "points": points, "length": self.length_mm }),
+                        );
+                    }
+                    ui.add(
+                        egui::DragValue::new(&mut self.angle_deg)
+                            .range(0.0..=180.0)
+                            .suffix("°"),
+                    );
+                    if ui
+                        .add_enabled(edges.len() == 2, egui::Button::new(t("Angle")))
+                        .clicked()
+                    {
+                        self.run(
+                            session,
+                            "constraint-add",
+                            json!({ "kind": "angle", "edges": q,
+                                    "angle": self.angle_deg.to_radians() }),
+                        );
+                    }
+                });
+                ui.separator();
+                let Some(list) = self.list.clone() else {
+                    return;
+                };
+                let state = match list["state"].as_str().unwrap_or_default() {
+                    "fully" => t("Fully constrained"),
+                    "under" => t_args(
+                        "Under-constrained: { $count } degrees of freedom",
+                        &[(
+                            "count",
+                            list["degrees_of_freedom"].as_u64().unwrap_or(0).to_string().into(),
+                        )],
+                    ),
+                    "conflict" => t("The constraints conflict"),
+                    _ => t("No constraints yet"),
+                };
+                ui.strong(state);
+                let mut edit: Option<(u64, Value)> = None;
+                let mut delete: Option<u64> = None;
+                egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
+                    egui::Grid::new("constraints").striped(true).num_columns(4).show(ui, |ui| {
+                        for c in list["constraints"].as_array().into_iter().flatten() {
+                            let id = c["id"].as_u64().unwrap_or(0);
+                            ui.label(format!("{id}"));
+                            let mut what = c["kind"].as_str().unwrap_or_default().to_string();
+                            let names: Vec<String> = c["edges"]
+                                .as_array()
+                                .into_iter()
+                                .flatten()
+                                .map(|e| format!("@{}", e.as_u64().unwrap_or(0)))
+                                .chain(
+                                    c["points"]
+                                        .as_array()
+                                        .into_iter()
+                                        .flatten()
+                                        .filter_map(|p| p.as_str().map(str::to_string)),
+                                )
+                                .collect();
+                            what.push_str(&format!(" {}", names.join(" ")));
+                            if c["missing"].as_bool() == Some(true) {
+                                what.push_str(&format!(" ({})", t("missing")));
+                            }
+                            ui.label(what);
+                            if let Some(mut l) = c["length_mm"].as_f64() {
+                                if ui.add(egui::DragValue::new(&mut l).suffix(" mm")).changed() {
+                                    edit = Some((id, json!({ "id": id, "length": l })));
+                                }
+                            } else if let Some(a) = c["angle_rad"].as_f64() {
+                                let mut d = a.to_degrees();
+                                if ui
+                                    .add(egui::DragValue::new(&mut d).range(0.0..=180.0).suffix("°"))
+                                    .changed()
+                                {
+                                    edit = Some((id, json!({ "id": id, "angle": d.to_radians() })));
+                                }
+                            } else {
+                                ui.label("");
+                            }
+                            if ui.small_button("✕").on_hover_text(t("Delete")).clicked() {
+                                delete = Some(id);
+                            }
+                            ui.end_row();
+                        }
+                    });
+                });
+                if let Some((_, params)) = edit {
+                    self.run(session, "constraint-edit", params);
+                }
+                if let Some(id) = delete {
+                    self.run(session, "constraint-delete", json!({ "ids": [id] }));
+                }
+                ui.horizontal(|ui| {
+                    if ui.button(t("Solve Again")).clicked() {
+                        self.run(session, "constraint-solve", json!({}));
+                    }
+                    if ui.button(t("Remove Missing")).clicked() {
+                        self.run(session, "constraint-solve", json!({ "drop_missing": true }));
+                    }
+                });
+                if let Some(n) = &self.note {
+                    ui.label(n);
+                }
+            });
+        self.open = open;
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
@@ -740,5 +1005,53 @@ mod gui_tests {
         assert!(harness.query_by_label("Total").is_some());
         // The cube's row and the total.
         assert_eq!(harness.query_all_by_label("1000.00 cm³").count(), 2);
+    }
+
+    /// Tools › Constraints… squares a skewed quad's bottom edge and gives
+    /// it a length.
+    #[test]
+    fn constraints_through_the_window() {
+        let mut harness = Harness::builder()
+            .with_size(egui::vec2(1400.0, 900.0))
+            .build_eframe(|cc| App::new(cc, None));
+        harness.state_mut().run_for_screens(&[
+            (
+                "line",
+                json!({ "points": [[0, 0, 0], [1000, 20, 0], [990, 600, 0], [-10, 580, 0]],
+                        "close": true }),
+            ),
+            ("select", json!({ "query": "@1" })),
+        ]);
+        harness.run_steps(2);
+        harness.get_by_label(&t("Tools")).click();
+        harness.run_steps(2);
+        harness.get_by_label(&t("Constraints…")).click();
+        harness.run_steps(2);
+        harness.get_by_label(&t("Along red")).click();
+        harness.run_steps(2);
+        assert!(
+            harness
+                .query_all_by_label_contains("degrees of freedom")
+                .count()
+                > 0
+        );
+        harness
+            .get_by_role_and_label(egui::accesskit::Role::Button, &t("Length"))
+            .click();
+        harness.run_steps(2);
+        let doc = harness.state().session_for_tests().doc().clone();
+        let mesh = doc.model.mesh();
+        let (e, _) = mesh
+            .edges()
+            .find(|(e, _)| {
+                doc.model
+                    .pid_of(planyrith_core::ids::EntityId::Edge(*e))
+                    .map(|p| p.0)
+                    == Some(1)
+            })
+            .unwrap();
+        let s = mesh.edge_segment(e).unwrap();
+        assert!((s.a.y - s.b.y).abs() < 1e-6, "along red");
+        assert!((s.a.distance(s.b) - 1000.0).abs() < 1e-6, "the length");
     }
 }

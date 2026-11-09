@@ -214,6 +214,10 @@ milestones 1.8–1.18 (see Decisions). In order:
 Geometric constraints (coincident, horizontal, vertical, parallel, perpendicular, tangent,
 equal, fixed, symmetric, on-curve) and driving dimensions (distance, angle, radius) on the
 edges of a face's plane, kept by a solver; under-, fully and over-constrained states shown.
+- **Done (2026-11-09)** for straight edges: coincident, fixed, along an axis, parallel,
+  perpendicular, equal, collinear, midpoint, on a line, symmetric, and length, distance and angle
+  dimensions (docs/03 §11). Tangency and radius on arcs and circles follow with the feature
+  history (1.10), where curves are regenerated from their parameters.
 
 ## 1.10.0 — Feature history
 Parametric parts: a group whose geometry is regenerated from an ordered list of features —

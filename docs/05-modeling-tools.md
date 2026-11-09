@@ -479,6 +479,28 @@ parameters, and whose sides, shelves and doors follow them.
   component of its own with a 964 mm shelf while the first stays at 764 mm; cycles and bad
   formulas are refused.
 
+### 5.15 Constraints: `constraint-add`, `constraint-edit`, `constraint-delete`, `constraint-list`, `constraint-solve`
+- **Params:** `constraint-add`: `kind` (docs/03 §11.1), `edges: Vec<Sel>` (each names one edge
+  of the edit context, in order), `points: Vec<PointRef>` (`<pid>.a|b`), `length?`, `angle?`.
+  `constraint-edit`: `id`, `length?` or `angle?` (a driving dimension's new value).
+  `constraint-delete`: `ids` or `all`. `constraint-solve`: `drop_missing` (remove constraints
+  naming edges that are gone). `constraint-list`: nothing.
+- **Behavior:** adding, editing and solving run the solver (docs/03 §11.2) on all the edit
+  context's constraints and move the named vertices; a conflict is refused with nothing changed.
+  Other tools do not enforce constraints: after moving constrained geometry by hand,
+  `constraint-solve` meets them again.
+- **Output:** `{ id?, moved, degrees_of_freedom, redundant, constraints }`; `constraint-list`:
+  `{ constraints: [{ …, missing }], state: none|under|fully|conflict, degrees_of_freedom?,
+  conflict? }` (it changes nothing).
+- **Undo:** one step each (positions and the stored list together).
+- **GUI:** Tools › Constraints…: constraints for the selected edges (fix, along an axis,
+  parallel, equal, perpendicular, collinear, join the nearest ends, length, distance between the
+  nearest ends, angle), the list with its state, driving values to edit in place, delete,
+  solve again and remove missing.
+- **Tests:** a skewed quad becomes a fixed 1200 × 500 rectangle with no freedom left; editing a
+  length moves it and undo restores it; a conflicting length is refused; an angle of 60° turns
+  an edge.
+
 ## 6. Guide tools (category `guide`)
 
 ### 6.1 `tape-measure`

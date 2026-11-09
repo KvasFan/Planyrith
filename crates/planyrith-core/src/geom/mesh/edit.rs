@@ -401,14 +401,30 @@ impl HalfEdgeMesh {
         tol: &Tolerances,
         d: &mut dyn DeltaSink,
     ) -> Result<TransformResult, GeometryError> {
-        let moved: BTreeSet<VertexId> = set.iter().copied().collect();
         let mut target: BTreeMap<VertexId, DVec3> = BTreeMap::new();
-        for &v in &moved {
-            let p = t.transform_point3(self.position(v)?);
-            if !tol.in_range(p) {
+        for &v in set {
+            target.insert(v, t.transform_point3(self.position(v)?));
+        }
+        self.move_vertices_inner(target, Some(t), opts, tol, d)
+    }
+
+    /// Moves each vertex of `target` to its position at once (docs/03 §4.8
+    /// with a displacement per vertex). Curves that move as a whole follow
+    /// `rigid` when given and stay circular; otherwise their descriptors are
+    /// dropped.
+    pub(crate) fn move_vertices_inner(
+        &mut self,
+        target: BTreeMap<VertexId, DVec3>,
+        rigid: Option<&DAffine3>,
+        opts: TransformOptions,
+        tol: &Tolerances,
+        d: &mut dyn DeltaSink,
+    ) -> Result<TransformResult, GeometryError> {
+        let moved: BTreeSet<VertexId> = target.keys().copied().collect();
+        for p in target.values() {
+            if !tol.in_range(*p) {
                 return Err(GeometryError::OutOfRange);
             }
-            target.insert(v, p);
         }
         let mut result = TransformResult::default();
 
@@ -458,7 +474,10 @@ impl HalfEdgeMesh {
             }
             let descriptor = self.curve(c).cloned();
             self.drop_curve_inner(c, d)?;
-            if whole && let Some(next) = descriptor.and_then(|x| x.transformed(t)) {
+            if whole
+                && let Some(t) = rigid
+                && let Some(next) = descriptor.and_then(|x| x.transformed(t))
+            {
                 moved_curves.push((next, members));
             }
         }
