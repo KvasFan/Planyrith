@@ -51,6 +51,17 @@ fn check_unit(name: &str, v: Option<f32>) -> Result<(), CommandError> {
     Ok(())
 }
 
+/// A density in kg/m³ (0 clears it on edit).
+fn check_density(v: Option<f64>) -> Result<(), CommandError> {
+    if v.is_some_and(|v| !(v.is_finite() && (0.0..=1.0e6).contains(&v))) {
+        return Err(CommandError::OutOfRange {
+            name: "density".into(),
+            reason: "must be between 0 and 1000000 kg/m³".into(),
+        });
+    }
+    Ok(())
+}
+
 fn check_opacity(o: f32) -> Result<(), CommandError> {
     if !(0.0..=1.0).contains(&o) {
         return Err(CommandError::OutOfRange {
@@ -177,6 +188,9 @@ pub struct MaterialCreateParams {
     /// Metalness 0–1 for realistic styles (0).
     #[serde(default)]
     pub metallic: Option<f32>,
+    /// Density, kg/m³ (for mass properties).
+    #[serde(default)]
+    pub density: Option<f64>,
 }
 
 /// The `material-create` command.
@@ -203,6 +217,7 @@ impl Command for MaterialCreate {
         check_tile("texture_height", p.texture_height)?;
         check_unit("roughness", p.roughness)?;
         check_unit("metallic", p.metallic)?;
+        check_density(p.density)?;
         check_opacity(p.opacity)
     }
 
@@ -215,6 +230,7 @@ impl Command for MaterialCreate {
         let mut material = with_opacity(Material::solid(p.name.clone(), color), p.opacity);
         material.roughness = p.roughness;
         material.metallic = p.metallic;
+        material.density = p.density.filter(|d| *d > 0.0);
         if let Some(path) = &p.texture {
             let (image, aspect) = load_texture_image(tx, path)?;
             material.texture = Some(Texture {
@@ -268,6 +284,9 @@ pub struct MaterialEditParams {
     /// Metalness 0–1 for realistic styles.
     #[serde(default)]
     pub metallic: Option<f32>,
+    /// Density, kg/m³ (for mass properties); 0 clears it.
+    #[serde(default)]
+    pub density: Option<f64>,
 }
 
 /// The `material-edit` command.
@@ -303,6 +322,7 @@ impl Command for MaterialEdit {
         check_tile("texture_height", p.texture_height)?;
         check_unit("roughness", p.roughness)?;
         check_unit("metallic", p.metallic)?;
+        check_density(p.density)?;
         let removes = p.texture.as_deref() == Some("none");
         let has_texture = doc.materials.get(id).is_some_and(|m| m.texture.is_some());
         if !has_texture
@@ -342,6 +362,9 @@ impl Command for MaterialEdit {
         }
         if p.roughness.is_some() {
             m.roughness = p.roughness;
+        }
+        if let Some(d) = p.density {
+            m.density = (d > 0.0).then_some(d);
         }
         if p.metallic.is_some() {
             m.metallic = p.metallic;

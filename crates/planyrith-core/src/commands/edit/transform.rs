@@ -1,5 +1,5 @@
-//! Implements docs/05-modeling-tools.md §4.4 `move`, §4.5 `rotate` and §4.6
-//! `scale`: raw geometry moves its vertices with `transform_vertices`
+//! Implements docs/05-modeling-tools.md §4.4 `move`, §4.5 `rotate`, §4.6
+//! `scale`, §4.21 `mirror` and §4.23 `pattern`: raw geometry moves its vertices with `transform_vertices`
 //! (merging and auto-fold, docs/03 §4.8); groups, instances and images change
 //! their transform; guides and section planes are re-placed. With `copy`,
 //! copies are made instead (linear or radial arrays with `copies`).
@@ -809,5 +809,604 @@ impl Command for Scale {
                 inference: InferenceKind::ALL.to_vec(),
             }],
         }
+    }
+}
+
+// ----- mirror -------------------------------------------------------------------------------
+
+/// A plane named by its axes (docs/05 §4.21).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum AxisPlane {
+    /// The plane of the red and green axes (normal +Z).
+    Xy,
+    /// The plane of the green and blue axes (normal +X).
+    Yz,
+    /// The plane of the red and blue axes (normal +Y).
+    Xz,
+}
+
+/// `mirror` parameters (docs/05 §4.21).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct MirrorParams {
+    /// Common fields.
+    #[serde(flatten)]
+    pub common: CommonParams,
+    /// What to mirror.
+    pub targets: Query,
+    /// A point of the mirror plane (the origin by default).
+    #[serde(default)]
+    #[schemars(with = "Option<PointSchema>")]
+    pub point: Option<DVec3>,
+    /// The plane's normal (instead of `plane`).
+    #[serde(default)]
+    #[schemars(with = "Option<VectorSchema>")]
+    pub normal: Option<DVec3>,
+    /// The plane by its axes, through `point` (instead of `normal`).
+    #[serde(default)]
+    pub plane: Option<AxisPlane>,
+    /// Keep the originals and add mirrored copies (the default); `false`
+    /// mirrors in place.
+    #[serde(default = "yes")]
+    pub copy: bool,
+}
+
+impl MirrorParams {
+    fn normal(&self) -> Result<DVec3, CommandError> {
+        let n = match (self.normal, self.plane) {
+            (Some(n), _) => n,
+            (None, Some(AxisPlane::Xy)) => DVec3::Z,
+            (None, Some(AxisPlane::Yz)) => DVec3::X,
+            (None, Some(AxisPlane::Xz)) => DVec3::Y,
+            (None, None) => {
+                return Err(CommandError::invalid_param(
+                    "normal",
+                    "give normal or plane",
+                ));
+            }
+        };
+        n.try_normalize()
+            .filter(|n| n.is_finite())
+            .ok_or_else(|| CommandError::invalid_param("normal", "must be non-zero"))
+    }
+}
+
+/// The reflection across the plane through `point` with unit `normal`.
+pub fn reflection(point: DVec3, normal: DVec3) -> DAffine3 {
+    let n = normal;
+    let m = glam::DMat3::IDENTITY - 2.0 * glam::DMat3::from_cols(n * n.x, n * n.y, n * n.z);
+    DAffine3::from_mat3_translation(m, 2.0 * n * n.dot(point))
+}
+
+/// The `mirror` command.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct Mirror;
+
+impl Command for Mirror {
+    type Params = MirrorParams;
+    type Output = TransformOutput;
+
+    fn name(&self) -> &'static str {
+        "mirror"
+    }
+
+    fn validate(&self, _doc: &Document, p: &MirrorParams) -> Result<(), CommandError> {
+        parse_targets(&p.targets)?;
+        if let Some(point) = p.point {
+            check_point("point", point)?;
+        }
+        p.normal().map(|_| ())
+    }
+
+    fn apply(
+        &self,
+        tx: &mut Transaction<'_>,
+        p: MirrorParams,
+    ) -> Result<TransformOutput, CommandError> {
+        let world = reflection(p.point.unwrap_or(DVec3::ZERO), p.normal()?);
+        let opts = TransformOptions {
+            auto_fold: true,
+            check_intersections: false,
+        };
+        run_transform(
+            tx,
+            &p.common,
+            &p.targets,
+            p.copy,
+            1,
+            Spacing::Between,
+            opts,
+            |_| world,
+        )
+    }
+
+    fn meta(&self) -> CommandMeta {
+        CommandMeta {
+            name: "mirror".into(),
+            category: CommandCategory::Edit,
+            label: "Mirror".into(),
+            view_only: false,
+            // Collected by Tools › Mirror… (docs/05 §4.21).
+            steps: Vec::new(),
+        }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod mirror_tests {
+    use super::reflection;
+    use crate::commands::{CommandRegistry, Engine};
+    use crate::document::Document;
+    use glam::DVec3;
+    use serde_json::json;
+    use std::sync::Arc;
+
+    #[test]
+    fn a_reflection_is_its_own_inverse_and_keeps_the_plane() {
+        let r = reflection(
+            DVec3::new(100.0, 0.0, 0.0),
+            DVec3::new(1.0, 1.0, 0.0).normalize(),
+        );
+        let p = DVec3::new(3.0, -7.0, 11.0);
+        assert!((r.transform_point3(r.transform_point3(p)) - p).length() < 1e-9);
+        let on = DVec3::new(100.0, 0.0, 5.0);
+        assert!((r.transform_point3(on) - on).length() < 1e-9);
+        assert!(r.matrix3.determinant() < 0.0);
+    }
+
+    #[test]
+    fn a_mirrored_box_is_a_closed_solid_facing_out() {
+        let mut e = Engine::new(Document::new(), Arc::new(CommandRegistry::with_builtins()));
+        e.execute_erased(
+            "rectangle",
+            json!({ "corner_a": [100, 0, 0], "corner_b": [400, 200, 0] }),
+        )
+        .unwrap();
+        e.execute_erased(
+            "push-pull",
+            json!({ "face": { "Query": "face" }, "distance": 150 }),
+        )
+        .unwrap();
+        e.execute_erased("make-group", json!({ "targets": "all" }))
+            .unwrap();
+        let out = e
+            .execute_erased("mirror", json!({ "targets": "group", "plane": "yz" }))
+            .unwrap();
+        assert_eq!(out["copies"].as_array().unwrap().len(), 1);
+        let doc = e.document();
+        let groups: Vec<_> = doc.model.groups().collect();
+        assert_eq!(groups.len(), 2);
+        let bounds = doc.model.local_aabb(&doc.definitions, false);
+        assert!((bounds.min.x + 400.0).abs() < 1e-9 && (bounds.max.x - 400.0).abs() < 1e-9);
+
+        // Loose geometry in place: a face mirrored across a slanted plane
+        // keeps its area and faces the other way.
+        let mut e = Engine::new(Document::new(), Arc::new(CommandRegistry::with_builtins()));
+        e.execute_erased(
+            "rectangle",
+            json!({ "corner_a": [0, 0, 0], "corner_b": [300, 100, 0] }),
+        )
+        .unwrap();
+        e.execute_erased(
+            "mirror",
+            json!({ "targets": "all", "point": [0, 0, 500], "normal": [0, 0, 1], "copy": false }),
+        )
+        .unwrap();
+        let mesh = e.document().model.mesh();
+        let (f, _) = mesh.faces().next().unwrap();
+        assert!((mesh.face_area(f).unwrap() - 30_000.0).abs() < 1e-6);
+        let z = mesh.face_aabb(f).unwrap().min.z;
+        assert!((z - 1000.0).abs() < 1e-9, "{z}");
+        assert!(!crate::diagnostics::validate(e.document()).has_errors());
+    }
+}
+
+// ----- pattern ------------------------------------------------------------------------------
+
+/// What a pattern repeats along (docs/05 §4.23).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum PatternKind {
+    /// In a row, or a grid with a second direction.
+    Linear,
+    /// Around an axis.
+    Circular,
+    /// Along a chain of edges.
+    Path,
+}
+
+fn x_axis() -> DVec3 {
+    DVec3::X
+}
+
+/// `pattern` parameters (docs/05 §4.23).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct PatternParams {
+    /// Common fields.
+    #[serde(flatten)]
+    pub common: CommonParams,
+    /// What to repeat (it stays where it is: the first instance).
+    pub targets: Query,
+    /// Linear, circular or along a path.
+    pub kind: PatternKind,
+    /// Instances in the (first) direction, the original included.
+    pub count: u32,
+    /// Linear: the first direction.
+    #[serde(default = "x_axis")]
+    #[schemars(with = "VectorSchema")]
+    pub direction: DVec3,
+    /// Linear: distance between neighboring instances.
+    #[serde(default)]
+    pub spacing: Option<crate::units::Length>,
+    /// Linear grid: the second direction.
+    #[serde(default)]
+    #[schemars(with = "Option<VectorSchema>")]
+    pub direction2: Option<DVec3>,
+    /// Linear grid: instances in the second direction.
+    #[serde(default = "one")]
+    pub count2: u32,
+    /// Linear grid: spacing in the second direction.
+    #[serde(default)]
+    pub spacing2: Option<crate::units::Length>,
+    /// Circular: a point of the axis.
+    #[serde(default)]
+    #[schemars(with = "Option<PointSchema>")]
+    pub center: Option<DVec3>,
+    /// Circular: the axis (+Z).
+    #[serde(default = "z_axis")]
+    #[schemars(with = "VectorSchema")]
+    pub axis: DVec3,
+    /// Circular: the angle the instances span (a full turn by default,
+    /// shared evenly; less than a turn puts the last instance at its end).
+    #[serde(default)]
+    pub angle: Option<Angle>,
+    /// Path: the edges to follow, from the end nearest the targets.
+    #[serde(default)]
+    pub path: Option<Query>,
+    /// Path: turn each instance with the path's direction.
+    #[serde(default)]
+    pub align: bool,
+}
+
+/// Points along a polyline: the position and the direction at arc length
+/// `s` (clamped to the ends).
+fn along(points: &[DVec3], s: f64) -> (DVec3, DVec3) {
+    let mut left = s.max(0.0);
+    for w in points.windows(2) {
+        let len = w[0].distance(w[1]);
+        let dir = (w[1] - w[0]).normalize_or_zero();
+        if left <= len {
+            return (w[0] + dir * left, dir);
+        }
+        left -= len;
+    }
+    let n = points.len();
+    (
+        points[n - 1],
+        (points[n - 1] - points[n.saturating_sub(2)]).normalize_or_zero(),
+    )
+}
+
+/// The edges `edges` chained into one polyline, starting at the end nearer
+/// `near`; whether it closes.
+fn chain(
+    mesh: &crate::geom::HalfEdgeMesh,
+    edges: &[EdgeId],
+    near: DVec3,
+) -> Result<(Vec<DVec3>, bool), CommandError> {
+    use std::collections::BTreeMap;
+    let mut at: BTreeMap<VertexId, Vec<(EdgeId, VertexId)>> = BTreeMap::new();
+    for &e in edges {
+        let (a, b) = mesh.edge_endpoints(e)?;
+        at.entry(a).or_default().push((e, b));
+        at.entry(b).or_default().push((e, a));
+    }
+    if at.values().any(|v| v.len() > 2) {
+        return Err(CommandError::invalid_param(
+            "path",
+            "the edges must form one chain without branches",
+        ));
+    }
+    let ends: Vec<VertexId> = at
+        .iter()
+        .filter(|(_, v)| v.len() == 1)
+        .map(|(k, _)| *k)
+        .collect();
+    let closed = ends.is_empty();
+    let start = if closed {
+        // The vertex nearest the targets.
+        let mut best = None;
+        for &v in at.keys() {
+            let d = mesh.position(v)?.distance_squared(near);
+            if best.is_none_or(|(bd, _)| d < bd) {
+                best = Some((d, v));
+            }
+        }
+        best.map(|(_, v)| v)
+    } else {
+        let mut best = None;
+        for &v in &ends {
+            let d = mesh.position(v)?.distance_squared(near);
+            if best.is_none_or(|(bd, _)| d < bd) {
+                best = Some((d, v));
+            }
+        }
+        best.map(|(_, v)| v)
+    }
+    .ok_or_else(|| CommandError::invalid_param("path", "name at least one edge"))?;
+    let mut used = BTreeSet::new();
+    let mut points = vec![mesh.position(start)?];
+    let mut here = start;
+    while let Some(&(e, next)) = at
+        .get(&here)
+        .and_then(|v| v.iter().find(|(e, _)| !used.contains(e)))
+    {
+        used.insert(e);
+        points.push(mesh.position(next)?);
+        here = next;
+    }
+    if used.len() != edges.len() {
+        return Err(CommandError::invalid_param(
+            "path",
+            "the edges must form one connected chain",
+        ));
+    }
+    Ok((points, closed))
+}
+
+/// The `pattern` command.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct Pattern;
+
+impl Command for Pattern {
+    type Params = PatternParams;
+    type Output = TransformOutput;
+
+    fn name(&self) -> &'static str {
+        "pattern"
+    }
+
+    fn validate(&self, _doc: &Document, p: &PatternParams) -> Result<(), CommandError> {
+        parse_targets(&p.targets)?;
+        if !(2..=10_000).contains(&p.count) || !(1..=10_000).contains(&p.count2) {
+            return Err(CommandError::OutOfRange {
+                name: "count".into(),
+                reason: "count must be 2 to 10000 and count2 1 to 10000".into(),
+            });
+        }
+        if u64::from(p.count) * u64::from(p.count2) > 10_000 {
+            return Err(CommandError::OutOfRange {
+                name: "count2".into(),
+                reason: "at most 10000 instances in all".into(),
+            });
+        }
+        match p.kind {
+            PatternKind::Linear => {
+                if p.direction.try_normalize().is_none() {
+                    return Err(CommandError::invalid_param("direction", "must be non-zero"));
+                }
+                if p.spacing.is_none() {
+                    return Err(CommandError::invalid_param("spacing", "give the spacing"));
+                }
+                if p.count2 > 1 {
+                    let ok = p.direction2.and_then(|d| d.try_normalize()).is_some()
+                        && p.spacing2.is_some();
+                    if !ok {
+                        return Err(CommandError::invalid_param(
+                            "direction2",
+                            "a grid needs direction2 and spacing2",
+                        ));
+                    }
+                }
+            }
+            PatternKind::Circular => {
+                if p.axis.try_normalize().is_none() {
+                    return Err(CommandError::invalid_param("axis", "must be non-zero"));
+                }
+                if let Some(c) = p.center {
+                    check_point("center", c)?;
+                }
+            }
+            PatternKind::Path => {
+                if p.path.is_none() {
+                    return Err(CommandError::invalid_param("path", "give the path edges"));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn apply(
+        &self,
+        tx: &mut Transaction<'_>,
+        p: PatternParams,
+    ) -> Result<TransformOutput, CommandError> {
+        let target = target_container(tx, &p.common)?;
+        let ids = targets_in(tx, &target, &p.targets)?;
+        if ids.is_empty() {
+            return Err(CommandError::NotFound(crate::document::EntityRef::Query(
+                p.targets.clone(),
+            )));
+        }
+        let n = p.count;
+        let mut placements: Vec<DAffine3> = Vec::new();
+        match p.kind {
+            PatternKind::Linear => {
+                let d1 = p.direction.normalize() * p.spacing.map_or(0.0, |s| s.as_mm());
+                let d2 = p.direction2.map_or(DVec3::ZERO, |d| d.normalize_or_zero())
+                    * p.spacing2.map_or(0.0, |s| s.as_mm());
+                for j in 0..p.count2 {
+                    for i in 0..n {
+                        if i == 0 && j == 0 {
+                            continue;
+                        }
+                        placements.push(translation(d1 * f64::from(i) + d2 * f64::from(j)));
+                    }
+                }
+            }
+            PatternKind::Circular => {
+                let span = p.angle.map_or(std::f64::consts::TAU, |a| a.as_radians());
+                let full = (span.abs() - std::f64::consts::TAU).abs() < 1e-9;
+                let step = if full {
+                    span / f64::from(n)
+                } else {
+                    span / f64::from(n - 1)
+                };
+                let center = p.center.unwrap_or(DVec3::ZERO);
+                let axis = p.axis.normalize();
+                for i in 1..n {
+                    placements.push(rotation_about(
+                        center,
+                        axis,
+                        Angle::radians(step * f64::from(i)),
+                    ));
+                }
+            }
+            PatternKind::Path => {
+                let query = p.path.clone().unwrap_or_default();
+                let edges: Vec<EdgeId> =
+                    crate::commands::common::targets_of(tx, &target, "path", &query)?
+                        .into_iter()
+                        .filter_map(|id| match id {
+                            EntityId::Edge(e) => Some(e),
+                            _ => None,
+                        })
+                        .collect();
+                let near = bounds(tx, &target, &ids)?.center();
+                let near = target.local.transform_point3(near);
+                let mesh = tx
+                    .document()
+                    .container(target.container)
+                    .ok_or_else(|| CommandError::Internal("edit context vanished".into()))?
+                    .mesh();
+                let (mut points, closed) = chain(mesh, &edges, near)?;
+                if closed {
+                    points.push(points[0]);
+                }
+                let length: f64 = points.windows(2).map(|w| w[0].distance(w[1])).sum();
+                let gaps = if closed { n } else { n - 1 };
+                // Placements are world transforms; the path is local.
+                let to_world = target.world;
+                let (start, t0) = along(&points, 0.0);
+                for i in 1..n {
+                    let (at, t) = along(&points, length * f64::from(i) / f64::from(gaps));
+                    let mut local = translation(at - start);
+                    if p.align {
+                        let q = glam::DQuat::from_rotation_arc(t0, t);
+                        local = local
+                            * DAffine3::from_translation(start)
+                            * DAffine3::from_quat(q)
+                            * DAffine3::from_translation(-start);
+                    }
+                    placements.push(to_world * local * target.local);
+                }
+            }
+        }
+        let mut out = TransformOutput {
+            moved: 0,
+            copies: Vec::new(),
+            folded_faces: 0,
+            merged_vertices: 0,
+        };
+        for world in placements {
+            out.copies.extend(copy_entities(tx, &target, &ids, world)?);
+        }
+        Ok(out)
+    }
+
+    fn meta(&self) -> CommandMeta {
+        CommandMeta {
+            name: "pattern".into(),
+            category: CommandCategory::Edit,
+            label: "Pattern".into(),
+            view_only: false,
+            // Collected by Tools › Pattern… (docs/05 §4.23).
+            steps: Vec::new(),
+        }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod pattern_tests {
+    use crate::commands::{CommandRegistry, Engine};
+    use crate::document::Document;
+    use serde_json::json;
+    use std::sync::Arc;
+
+    fn engine_with_box() -> Engine {
+        let mut e = Engine::new(Document::new(), Arc::new(CommandRegistry::with_builtins()));
+        e.execute_erased(
+            "rectangle",
+            json!({ "corner_a": [0, 0, 0], "corner_b": [100, 100, 0] }),
+        )
+        .unwrap();
+        e.execute_erased(
+            "push-pull",
+            json!({ "face": { "Query": "face" }, "distance": 50 }),
+        )
+        .unwrap();
+        e.execute_erased("make-group", json!({ "targets": "all", "name": "Block" }))
+            .unwrap();
+        e
+    }
+
+    #[test]
+    fn a_linear_grid_and_a_circular_pattern() {
+        let mut e = engine_with_box();
+        let out = e
+            .execute_erased(
+                "pattern",
+                json!({ "targets": "group", "kind": "linear", "count": 4, "spacing": 200,
+                        "direction2": [0, 1, 0], "count2": 3, "spacing2": 300 }),
+            )
+            .unwrap();
+        assert_eq!(out["copies"].as_array().unwrap().len(), 11);
+        let doc = e.document();
+        let b = doc.model.local_aabb(&doc.definitions, false);
+        assert!((b.max.x - 700.0).abs() < 1e-9 && (b.max.y - 700.0).abs() < 1e-9);
+
+        let mut e = engine_with_box();
+        e.execute_erased(
+            "pattern",
+            json!({ "targets": "group", "kind": "circular", "count": 6,
+                    "center": [-500, 50, 0], "axis": [0, 0, 1] }),
+        )
+        .unwrap();
+        let doc = e.document();
+        assert_eq!(doc.model.groups().count(), 6);
+        let b = doc.model.local_aabb(&doc.definitions, false);
+        // Symmetric about the center in x: the opposite copy reaches -1100.
+        assert!((b.min.x + 1100.0).abs() < 1e-6, "{b:?}");
+    }
+
+    #[test]
+    fn a_pattern_along_a_path_spreads_evenly_and_can_turn() {
+        let mut e = engine_with_box();
+        e.execute_erased(
+            "line",
+            json!({ "points": [[50, 50, 1000], [1050, 50, 1000], [1050, 1050, 1000]] }),
+        )
+        .unwrap();
+        let out = e
+            .execute_erased(
+                "pattern",
+                json!({ "targets": "group", "kind": "path", "count": 5,
+                        "path": "edge", "align": true }),
+            )
+            .unwrap();
+        assert_eq!(out["copies"].as_array().unwrap().len(), 4);
+        let doc = e.document();
+        let b = doc.model.local_aabb(&doc.definitions, false);
+        // The last copy sits at the path's end, turned a quarter.
+        assert!((b.max.y - 1100.0).abs() < 1e-6, "{b:?}");
+        let err = e
+            .execute_erased(
+                "pattern",
+                json!({ "targets": "group", "kind": "linear", "count": 1, "spacing": 10 }),
+            )
+            .unwrap_err();
+        assert!(err.to_string().contains("count"), "{err}");
     }
 }

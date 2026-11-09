@@ -23,6 +23,7 @@ pub mod loft;
 pub mod mesh;
 pub mod offset;
 pub mod planar;
+pub mod revolve;
 pub mod rounding;
 pub mod section;
 pub mod solid_check;

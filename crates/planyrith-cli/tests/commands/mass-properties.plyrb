@@ -1,0 +1,13 @@
+# A steel block and an oak board; mass properties change nothing.
+material-create --name Steel --color '#888888' --density 7850
+material-create --name Oak --color '#a0522d' --density 700
+rectangle --corner-a 0,0,0 --corner-b 200,100,0
+push-pull --face '{face & last}' --distance 50
+make-group --targets 'edge & !group | face & !group' --name Block
+material-apply --targets 'group & name:Block' --material Steel
+rectangle --corner-a 500,0,0 --corner-b 1300,300,0
+push-pull --face '{face & last}' --distance 18
+make-group --targets 'edge & !group | face & !group' --name Board
+material-apply --targets 'group & name:Board' --material Oak
+mass-properties
+material-edit --material Oak --density 650

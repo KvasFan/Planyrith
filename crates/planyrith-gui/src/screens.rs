@@ -141,6 +141,57 @@ fn screenshots() {
     harness.state_mut().open_print_check();
     save(&mut harness, &dir, "print-check");
 
+    // Tools › Measure… on a cabinet carcass: its cut list (docs/05 §8.5).
+    let mut harness = Harness::builder()
+        .with_size(egui::vec2(1400.0, 900.0))
+        .wgpu()
+        .build_eframe(|cc| App::new(cc, None));
+    theme::apply(&harness.ctx, ThemeChoice::Light);
+    harness.state_mut().run_for_screens(&[
+        (
+            "rectangle",
+            serde_json::json!({ "corner_a": [0, 0, 0], "corner_b": [18, 400, 0] }),
+        ),
+        (
+            "push-pull",
+            serde_json::json!({ "face": { "Query": "face & last" }, "distance": 800 }),
+        ),
+        (
+            "make-group",
+            serde_json::json!({ "targets": "all", "name": "Side" }),
+        ),
+        (
+            "pattern",
+            serde_json::json!({ "targets": "group", "kind": "linear", "count": 2, "spacing": 582 }),
+        ),
+        (
+            "rectangle",
+            serde_json::json!({ "corner_a": [18, 0, 300], "corner_b": [582, 400, 300] }),
+        ),
+        (
+            "push-pull",
+            serde_json::json!({ "face": { "Query": "face & last" }, "distance": 18 }),
+        ),
+        (
+            "make-group",
+            serde_json::json!({ "targets": "face & !group | edge & !group", "name": "Shelf" }),
+        ),
+        ("select", serde_json::json!({ "query": "!all" })),
+        (
+            "camera-standard",
+            serde_json::json!({ "view": "iso", "extents": true }),
+        ),
+    ]);
+    harness.run_steps(2);
+    harness.get_by_label(&crate::i18n::t("Tools")).click();
+    harness.run_steps(2);
+    harness.get_by_label(&crate::i18n::t("Measure…")).click();
+    harness.run_steps(2);
+    harness.get_by_label(&crate::i18n::t("Cut List")).click();
+    harness.run_steps(2);
+    harness.get_by_label(&crate::i18n::t("Compute")).click();
+    save(&mut harness, &dir, "measure-cut-list");
+
     // The context menu over a wall, and Push/Pull's options.
     let mut harness = Harness::builder()
         .with_size(egui::vec2(1400.0, 900.0))

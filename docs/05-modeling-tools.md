@@ -329,6 +329,52 @@ perpendicular to hovered edge); `Esc` = cancel current step (second `Esc` = canc
 - **Tests:** two equal squares make a box; a square to a smaller, turned square is an exact
   frustum; a square to a circle is a printable solid.
 
+### 4.21 `mirror`
+- **Params:** `targets: Sel`; the plane through `point` (origin) with `normal: Vec3`, or
+  `plane: xy|yz|xz` through `point`; `copy: bool` (true: mirrored copies beside the originals;
+  false: mirrored in place).
+- **Behavior:** the reflection `x' = x − 2n(n·(x − p))` applied like `move`/`rotate` (§4.4):
+  loose geometry is redrawn with its faces reversed so they still face out (docs/03 §4.8 with a
+  negative determinant), groups and instances get a mirrored placement, guides and annotations
+  are re-placed. Locked targets are refused when mirroring in place.
+- **Output:** `TransformOutput` (`copies` with `copy`). **Undo:** one step.
+- **GUI:** Tools › Mirror…: a plane by its axes (red–blue, green–blue, red–green); a copy is
+  placed beside the selection (the plane touches the selection's far side), in place through
+  its center.
+- **Tests:** a reflection is its own inverse; a mirrored box stays a closed solid; a face
+  mirrored in place keeps its area.
+
+### 4.22 `revolve`
+- **Params:** `profile: Sel` (one face of the edit context, holes allowed); the axis as
+  `axis_edge: Sel` (one edge) or `axis_point` + `axis`; `angle: Angle` (360°, at most a full
+  turn); `segments: u32` per full turn (24, 3–720); `keep_profile: bool` (false).
+- **Behavior:** `docs/03 §4.19`; the solid goes into a new group named "Revolved"; the profile
+  gives way unless `keep_profile`. Refused when the axis is not in the profile's plane or the
+  profile crosses it.
+- **Output:** `{ group, faces, volume_mm3 }`. **Undo:** one step.
+- **GUI:** Tools › Revolve…: select the face and one edge in its plane, set the angle and the
+  segments.
+- **Tests:** a rectangle off the axis makes a ring of the exact polygonal volume; a quarter turn
+  about a drawn edge is a quarter of it; the result is printable; undo restores.
+
+### 4.23 `pattern`
+- **Params:** `targets: Sel`; `kind: linear|circular|path`; `count` (instances in the first
+  direction, the original included, 2–10 000).
+  - linear: `direction: Vec3` (+X), `spacing: Length`; a grid with `direction2`, `count2` (1),
+    `spacing2`.
+  - circular: `center: Point3` (origin), `axis: Vec3` (+Z), `angle?: Angle` (a full turn, shared
+    evenly; less than a turn puts the last instance at the end of the span).
+  - path: `path: Sel` (edges forming one chain without branches), `align: bool` (turn each
+    instance with the path's direction); instances spread evenly along the chain from the end
+    nearer the targets (around it when closed).
+- **Behavior:** the originals stay; copies as `move`/`rotate` copies (§4.4). At most 10 000
+  instances in all.
+- **Output:** `TransformOutput`. **Undo:** one step.
+- **GUI:** Tools › Pattern…: in rows (with a second row direction), around an axis through a
+  point, or along the selected edges.
+- **Tests:** a 4 × 3 grid makes 11 copies; six instances around an axis are symmetric; five
+  along a bent path end at its end, turned with it.
+
 ## 5. Organization tools (category `organize`)
 
 ### 5.1 `make-group`
@@ -542,6 +588,43 @@ parameters, and whose sides, shelves and doors follow them.
 - **Undo:** one step.
 - **Tests:** a missing top is closed with one face; a bent hole (two missing faces) with
   triangles; a lone face is left open; an inside-out box is reversed while a hollow is kept.
+
+### 8.3 `mass-properties` (measuring, changes nothing)
+- **Params:** `targets?: Sel` (every visible object by default), `include_hidden`,
+  `density?: f64` (kg/m³, for objects whose materials give none).
+- **Behavior:** for each closed object (as `solid-check` decides; others are listed as
+  skipped): volume, surface area, center of the volume, and with a density the mass and the
+  inertia tensor about the center of mass and its principal moments. Exact integrals over the
+  triangulated surface by the divergence theorem, in world coordinates. The density is that of
+  the front material covering most of the object's surface among materials that have one
+  (faces with the default material take the occurrence's override), else `density`. The total
+  combines them (center of mass and inertia when every mass is known, else the center of the
+  volumes).
+- **Output:** `{ objects: [{ path, name, volume_mm3, area_mm2, center_mm, density_kg_m3?,
+  mass_kg?, inertia_kg_mm2?, principal_kg_mm2? }], total, skipped }`.
+- **GUI:** Tools › Measure… › Mass Properties; materials have a Density field.
+- **Tests:** a steel block's mass, center and `m(b² + c²)/12` inertia; a default density.
+
+### 8.4 `interference-check` (measuring, changes nothing)
+- **Params:** `targets?`, `include_hidden`.
+- **Behavior:** every pair of closed objects whose bounds overlap is intersected
+  (docs/03 §4.13); pairs sharing volume are listed, touching ones are not. Pairs whose
+  intersection fails are listed as undecided.
+- **Output:** `{ interferences: [{ a, a_name, b, b_name, volume_mm3, bounds_mm }], checked,
+  undecided }`.
+- **GUI:** Tools › Measure… › Interference.
+- **Tests:** two overlapping cubes share 125 cm³; touching cubes do not interfere.
+
+### 8.5 `cut-list` (measuring, changes nothing)
+- **Params:** `targets?`, `include_hidden`.
+- **Behavior:** each visible group or instance with faces is a part: its sizes along its own
+  axes (its contents' bounds, scaled by its placement), sorted into length ≥ width ≥ thickness,
+  the material covering most of its faces, its volume when closed. Parts with the same name,
+  sizes (to 0.1 mm) and material share a row with a count.
+- **Output:** `{ rows: [{ name, count, length_mm, width_mm, thickness_mm, material,
+  volume_mm3? }], parts }`, longest parts first.
+- **GUI:** Tools › Measure… › Cut List, with Copy as CSV.
+- **Tests:** two equal sides share a row; a shelf has its own.
 
 ## 9. View tools (category `view`) — not undoable, do not dirty the document
 

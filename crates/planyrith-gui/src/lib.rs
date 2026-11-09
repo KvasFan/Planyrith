@@ -12,6 +12,7 @@
 
 mod app;
 mod bundled;
+mod engineering;
 mod extensions;
 pub mod i18n;
 mod icons;

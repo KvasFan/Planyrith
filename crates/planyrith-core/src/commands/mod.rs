@@ -21,6 +21,7 @@ pub mod file;
 mod footprint;
 #[cfg(test)]
 mod fuzz_tests;
+pub mod measure;
 pub mod organize;
 pub mod params;
 pub mod sheets;
@@ -413,6 +414,7 @@ impl CommandRegistry {
         file::register(&mut registry);
         solid::register(&mut registry);
         solid_check::register(&mut registry);
+        measure::register(&mut registry);
         sheets::register(&mut registry);
         #[cfg(feature = "scripting")]
         registry.register(crate::scripting::ScriptEval);

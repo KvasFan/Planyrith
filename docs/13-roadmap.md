@@ -193,10 +193,89 @@ At the user's request ("procedi con altri features", 2026-11-09):
 - **Accept:** a fuzzed property for out-of-order undo, a CLI test with two clients and a GUI
   test with two sessions; a browser session tested against the real server; documentation.
 
+## 1.8.0 — Measuring and making
+At the user's request ("aggiungi tutti feature mancanti senza compromettere quelli già
+esistenti o distruggere interfaccia grafica", 2026-11-09), the start of the engineering
+milestones 1.8–1.18 (see Decisions). In order:
+1. **Mirror** a selection across a plane, as a copy or in place.
+2. **Revolve** a profile about an axis, full or partial.
+3. **Patterns:** linear (one or two directions), circular, and along a path.
+4. **Mass properties:** density on materials; mass, volume, area, center of mass and the
+   inertia tensor of solids, per object and in total.
+5. **Cut list:** boards and members with their lengths, widths, thicknesses and counts.
+6. **Interference check:** which solids overlap, with the volume of each overlap.
+- **Accept:** each item has its command, CLI batch and golden file, GUI and documentation;
+  existing tools and the GUI keep working (all CI gates).
+- **Done (2026-11-09):** all six items, each as a command with tests, a CLI batch and golden
+  file, documentation and a Tools-menu window (the Measure window holds the three
+  measurements). Interactive click-by-click tools for mirror, revolve and pattern can follow.
+
+## 1.9.0 — Constrained sketches
+Geometric constraints (coincident, horizontal, vertical, parallel, perpendicular, tangent,
+equal, fixed, symmetric, on-curve) and driving dimensions (distance, angle, radius) on the
+edges of a face's plane, kept by a solver; under-, fully and over-constrained states shown.
+
+## 1.10.0 — Feature history
+Parametric parts: a group whose geometry is regenerated from an ordered list of features —
+each one a command with its parameters (sketches, extrusions, revolutions, fillets, patterns,
+mirrors, Booleans). A history panel to edit, reorder, suppress and roll back features;
+references by selection queries re-resolved at each regeneration. Configurations as named
+parameter sets; equations between parameters.
+
+## 1.11.0 — Solid features
+Draft, shell, rib, standard holes (clearance, counterbore, countersink, tapped, with a size
+table) and cosmetic threads, dome, split by a plane or a surface, and scale about a point.
+
+## 1.12.0 — Assemblies
+Mates between components (coincident, concentric, distance, angle, parallel, perpendicular,
+tangent, fixed) kept by a solver with degrees of freedom shown; exploded views stored in
+scenes; a bill of materials; collision detection while dragging; driving a mate to animate.
+
+## 1.13.0 — Engineering drawings
+Sheet views tied to the model and kept current: projected, section, detail, auxiliary and
+broken views; geometric tolerances with datums, surface finish and weld symbols; balloons
+and bill-of-materials tables; ISO and ANSI sheet formats with title blocks.
+
+## 1.14.0 — Sheet metal and frames
+Sheet metal parts (base and edge flanges, bends with a bend allowance, the flat pattern with
+its DXF); frames of structural members along lines (a profile library, trimming at joints)
+with their cut list.
+
+## 1.15.0 — Surfaces and analysis
+Boundary and filling surfaces, knitting, extending and trimming surfaces; curvature combs,
+curvature and zebra displays, draft analysis and wall thickness analysis.
+
+## 1.16.0 — Simulation
+Linear static stress analysis of solids (tetrahedral meshing, materials with Young's modulus
+and Poisson's ratio, fixtures and loads, displacement and von Mises results shown in color),
+natural frequencies, steady heat conduction, and motion of assemblies over time.
+
+## 1.17.0 — Product data and exchange
+Custom properties and part numbers; revisions recorded in the document; a library of standard
+parts generated from size tables (screws, nuts, washers, bearings, pins); IGES import and
+export; STEP with product structure and annotations.
+
+## 1.18.0 — Molds and routing
+Mold design (parting line, parting surface, core and cavity, shrink factor) and routing
+(pipes and tubes along paths with standard sizes and fittings).
+
 ## Post-1.0 candidates
-None open.
+None open beyond 1.8–1.18.
 
 ## Decisions
+
+- 2026-11-09 — **Milestones 1.8–1.18: engineering modeling.** Asked to add every feature a
+  feature-based mechanical modeler has and Planyrith lacks, without harming what exists or the
+  interface, the list becomes eleven milestones ordered by value and by what each builds on:
+  measuring and making first (they need nothing new), then constraints, which the feature
+  history and the assemblies need, then features, assemblies, drawings, the specialized
+  part types, surfaces, simulation, data and the rest. Two former non-goals of docs/00 §3 are
+  lifted for this (docs/00 Decisions): the feature history, built *on* direct modeling (a
+  parametric part replays commands, so everything else keeps working unchanged), and
+  simulation. The kernel stays the polygon mesh with exact curve descriptors (docs/03); exact
+  freeform surfaces are approximated by fine tessellation rather than replacing the kernel,
+  which would endanger every existing tool. Each item keeps the usual acceptance: command,
+  CLI, tests, documentation, then GUI.
 
 - 2026-11-09 — **Milestone 1.7.** Asked to go on with more features after the 0.11.0-alpha.4
   release, the two remaining candidates become a milestone. Per-person undo comes first: it

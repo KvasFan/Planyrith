@@ -1,0 +1,8 @@
+# A block mirrored across the green-blue plane as a copy, then a face
+# mirrored in place across a slanted plane.
+rectangle --corner-a 100,0,0 --corner-b 400,200,0
+push-pull --face '{face & last}' --distance 150
+make-group --targets all --name Block
+mirror --targets group --plane yz
+rectangle --corner-a 0,500,0 --corner-b 300,600,0
+mirror --targets 'face & !group & plane:xy@0' --point 0,0,500 --normal 0,0,1 --no-copy

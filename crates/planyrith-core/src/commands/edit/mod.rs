@@ -18,6 +18,7 @@ pub use modeling::{
     SoftenSmoothParams, Sweep, SweepOutput, SweepParams,
 };
 mod push_pull;
+mod revolve;
 mod rounding;
 mod select;
 mod thicken;
@@ -30,12 +31,14 @@ pub use erase::{
 pub use loft::{Loft, LoftOutput, LoftParams};
 pub use offset::{Offset, OffsetOutput, OffsetParams};
 pub use push_pull::{PushPull, PushPullOutput, PushPullParams};
+pub use revolve::{Revolve, RevolveOutput, RevolveParams};
 pub use rounding::{Chamfer, ChamferParams, Fillet, FilletParams, RoundingOutput};
 pub use select::{Select, SelectOutput, SelectParams};
 pub use thicken::{Thicken, ThickenOutput, ThickenParams};
 pub use transform::{
-    Move, MoveParams, Rotate, RotateParams, Scale, ScaleAbout, ScaleOutput, ScaleParams, Spacing,
-    TransformOutput,
+    AxisPlane, Mirror, MirrorParams, Move, MoveParams, Pattern, PatternKind, PatternParams, Rotate,
+    RotateParams, Scale, ScaleAbout, ScaleOutput, ScaleParams, Spacing, TransformOutput,
+    reflection,
 };
 
 use crate::commands::CommandRegistry;
@@ -62,6 +65,9 @@ pub fn register(registry: &mut CommandRegistry) {
     registry.register(Chamfer);
     registry.register(Thicken);
     registry.register(Loft);
+    registry.register(Mirror);
+    registry.register(Revolve);
+    registry.register(Pattern);
 }
 
 #[cfg(test)]

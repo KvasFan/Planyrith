@@ -373,6 +373,14 @@ pub struct App {
     round_edges: crate::rounding::RoundEdges,
     /// Tools › Thicken (docs/05 §4.19).
     thicken: crate::rounding::ThickenWindow,
+    /// Tools › Mirror… (docs/05 §4.21).
+    mirror: crate::engineering::MirrorWindow,
+    /// Tools › Revolve… (docs/05 §4.22).
+    revolve: crate::engineering::RevolveWindow,
+    /// Tools › Pattern… (docs/05 §4.23).
+    pattern: crate::engineering::PatternWindow,
+    /// Tools › Measure… (docs/05 §8.3–§8.5).
+    measure: crate::engineering::MeasureWindow,
     /// File › Export › Rendered Image (docs/06 §11.1).
     #[cfg(not(target_arch = "wasm32"))]
     render_job: crate::render_job::RenderJob,
@@ -531,6 +539,10 @@ impl App {
             print_check: Default::default(),
             round_edges: Default::default(),
             thicken: Default::default(),
+            mirror: Default::default(),
+            revolve: Default::default(),
+            pattern: Default::default(),
+            measure: Default::default(),
             #[cfg(not(target_arch = "wasm32"))]
             render_job: Default::default(),
             #[cfg(not(target_arch = "wasm32"))]
@@ -1795,6 +1807,22 @@ impl App {
                 }
                 if ui.button(t("Soften / Smooth…")).clicked() {
                     self.extensions.soften_open = true;
+                    ui.close();
+                }
+                if ui.button(t("Mirror…")).clicked() {
+                    self.mirror.open = true;
+                    ui.close();
+                }
+                if ui.button(t("Revolve…")).clicked() {
+                    self.revolve.open = true;
+                    ui.close();
+                }
+                if ui.button(t("Pattern…")).clicked() {
+                    self.pattern.open = true;
+                    ui.close();
+                }
+                if ui.button(t("Measure…")).clicked() {
+                    self.measure.show_mass();
                     ui.close();
                 }
                 ui.separator();
@@ -3375,6 +3403,10 @@ impl App {
         }
         self.round_edges.window(&ctx, &mut self.session);
         self.thicken.window(&ctx, &mut self.session);
+        self.mirror.window(&ctx, &mut self.session);
+        self.revolve.window(&ctx, &mut self.session);
+        self.pattern.window(&ctx, &mut self.session);
+        self.measure.window(&ctx, &mut self.session);
         self.together.window(&ctx, &mut self.session);
         #[cfg(not(target_arch = "wasm32"))]
         {

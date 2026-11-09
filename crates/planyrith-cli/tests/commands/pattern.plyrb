@@ -1,0 +1,9 @@
+# A post in a 4 x 3 grid, a spoke around a hub, and blocks along a bent path.
+rectangle --corner-a 0,0,0 --corner-b 100,100,0
+push-pull --face '{face & last}' --distance 50
+make-group --targets all --name Post
+pattern --targets group --kind linear --count 4 --spacing 200 --direction2 0,1,0 --count2 3 --spacing2 300
+rectangle --corner-a 2000,0,0 --corner-b 2300,40,0
+pattern --targets 'face & !group' --kind circular --count 6 --center 2000,20,0 --axis 0,0,1
+line --points 50,-500,0 --points 1050,-500,0 --points 1050,-1500,0
+pattern --targets 'group & name:Post' --kind path --count 5 --path 'edge & !group & length>900' --align

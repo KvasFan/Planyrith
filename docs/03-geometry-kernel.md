@@ -294,6 +294,15 @@ creases between profiles stay.
 A cubic span `p0, p1, p2, p3` is sampled at `t = k / segments`, `k = 1…segments`, as
 `(1−t)³p0 + 3(1−t)²t p1 + 3(1−t)t² p2 + t³p3`; spans follow each other from the start point.
 
+### 4.19 Revolve (`geom::revolve`)
+A planar profile (outer loop and holes) turned about an axis that lies in its plane, with the
+profile on one side of it (points on the axis allowed). The turn is divided into
+`ceil(segments × angle / 360°)` equal steps; consecutive rings of the loops give quads (flat
+ones kept whole, others split into two triangles), collapsing to triangles where a point lies on
+the axis and vanishing where an edge does. A partial turn is closed by the profile at the start
+(reversed) and at the end. The pieces are stitched like a loft (§4.17), turned outward by the
+sign of the volume, and neighboring side pieces closer than 20° are softened and smoothed.
+
 ## 5. Tessellation (for rendering and export)
 
 `tessellate_face(f) -> Vec<[u32; 3]>`: project loops to the face's 2D frame, run ear clipping

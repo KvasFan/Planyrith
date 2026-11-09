@@ -1,0 +1,7 @@
+# A ring turned from a rectangle about the blue axis, and a quarter turn
+# of a second profile about a drawn edge.
+rectangle --corner-a 50,0,0 --corner-b 100,0,40
+revolve --profile face --axis-point 0,0,0 --axis 0,0,1 --segments 36
+rectangle --corner-a 500,0,0 --corner-b 600,0,80
+line --points 400,0,-10 --points 400,0,100
+revolve --profile 'face & !group' --axis-edge 'edge & !group & length>100' --angle 90 --segments 24

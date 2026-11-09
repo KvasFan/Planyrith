@@ -1,0 +1,10 @@
+# A cabinet carcass: two sides and two shelves; the cut list changes nothing.
+rectangle --corner-a 0,0,0 --corner-b 18,400,0
+push-pull --face '{face & last}' --distance 800
+make-group --targets 'edge & !group | face & !group' --name Side
+pattern --targets 'group & name:Side' --kind linear --count 2 --spacing 582
+rectangle --corner-a 18,0,100 --corner-b 582,400,100
+push-pull --face '{face & last}' --distance 18
+make-group --targets 'edge & !group | face & !group' --name Shelf
+move --targets 'group & name:Shelf' --delta 0,0,500 --copy
+cut-list

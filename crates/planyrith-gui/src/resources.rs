@@ -618,6 +618,20 @@ pub fn materials(
                     actions.push(("material-edit", json!({ "material": name, "metallic": v })));
                 }
                 ui.end_row();
+                // Mass properties (docs/05 §8.3); 0 means not known.
+                ui.label(t("Density"))
+                    .on_hover_text(t("Mass per volume, for mass properties; 0 when not known"));
+                if let Some(v) = number_field(
+                    ui,
+                    "density",
+                    m.density.unwrap_or(0.0),
+                    0.0..=100_000.0,
+                    1.0,
+                    " kg/m³",
+                ) {
+                    actions.push(("material-edit", json!({ "material": name, "density": v })));
+                }
+                ui.end_row();
                 ui.label(t("Texture"));
                 ui.horizontal(|ui| {
                     if ui

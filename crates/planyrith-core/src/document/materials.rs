@@ -180,6 +180,10 @@ pub struct Material {
     /// Metalness `0..=1` for realistic styles; `None`: not metallic.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metallic: Option<f32>,
+    /// Density in kilograms per cubic meter, for mass properties
+    /// (docs/05 §8.3); `None`: not known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub density: Option<f64>,
 }
 
 impl Material {
@@ -202,6 +206,7 @@ impl Material {
             attrs: AttributeDictionaries::default(),
             roughness: None,
             metallic: None,
+            density: None,
         }
     }
 }

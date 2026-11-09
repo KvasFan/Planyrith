@@ -12,6 +12,10 @@ All notable changes to Planyrith are recorded here. Versions follow
   changes of others when they touched nothing of it; `session.status` reports one's own
   labels. Joined desktop sessions undo their own changes. The core's `Engine::revert` takes
   back any applied step under the same rule, and undo steps have serial numbers.
+- Milestone 1.8, measuring and making (docs/05 §4.21–§4.23, §8.3–§8.5): `mirror`, `revolve`
+  and `pattern` (rows and grids, around an axis, along edges); `mass-properties` (materials
+  have a density), `interference-check` and `cut-list`; Tools › Mirror…, Revolve…, Pattern…
+  and Measure… in the GUI.
 - Joining from the browser (docs/08 §3.3): `planyrith serve --web <port|address>` takes
   browsers over an encrypted WebSocket and serves the web build from `--web-root`; the web
   build has File › Work Together…, opened filled in by `?join=<document>`.

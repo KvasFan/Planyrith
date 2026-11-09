@@ -132,6 +132,7 @@ pub struct Material {
     is_default_for: Option<FrontOrBack>, // the two built-in "Default" materials
     attrs: AttributeDictionaries,
     roughness: Option<f32>, metallic: Option<f32>, // 0..1, realistic styles only (docs/06 §4.1); None: 0.6 and 0
+    density: Option<f64>,       // kg/m³ for mass properties (docs/05 §8.3); None: unknown
 }
 ```
 - Faces have `material_front: Option<MaterialId>` and `material_back` (None = default material).

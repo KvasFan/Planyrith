@@ -1,0 +1,11 @@
+# Two overlapping blocks and two touching ones; the check changes nothing.
+rectangle --corner-a 0,0,0 --corner-b 100,100,0
+push-pull --face '{face & last}' --distance 100
+make-group --targets 'edge & !group | face & !group' --name A
+rectangle --corner-a 50,50,50 --corner-b 150,150,50
+push-pull --face '{face & last}' --distance 100
+make-group --targets 'edge & !group | face & !group' --name B
+rectangle --corner-a 300,0,0 --corner-b 400,100,0
+push-pull --face '{face & last}' --distance 100
+make-group --targets 'edge & !group | face & !group' --name C
+interference-check

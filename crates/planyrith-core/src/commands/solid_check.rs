@@ -127,7 +127,7 @@ pub struct SolidRepairOutput {
 
 /// The visible occurrences with faces that `targets` names (all of them
 /// without targets).
-fn objects(
+pub(crate) fn objects(
     tx: &Transaction<'_>,
     common: &CommonParams,
     targets: Option<&Query>,
