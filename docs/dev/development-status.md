@@ -5,7 +5,23 @@ implementation stands, what is done, what remains, and how to resume. Update it 
 every working session. Ground truth for *what to build* stays in `docs/00`–`docs/15`; this file
 is only *progress state*. Release packaging is specified in `docs/16`.
 
-_Last updated: 2026-11-09 (0.11.0-alpha.4; milestones 1.1–1.6 in that preview)._
+_Last updated: 2026-11-09 (0.11.0-alpha.4 published; milestone 1.7 after it)._
+
+**Release state (2026-11-09):** `v0.11.0-alpha.4` is published as a GitHub pre-release from
+`c58d1a5`, at the user's request, with packages built on this machine (docs/16 Decisions,
+"Releasing without the hosted runners"): Windows setup, MSI and portable ZIP (GNU target,
+tried under Wine), AppImage, Flatpak, deb, Arch package, Linux archive, sources and
+`SHA256SUMS`. No macOS build: it needs the Apple SDK on Apple hardware, and the hosted macOS
+runners do not start while the account's billing lock lasts; `cargo xtask macos` on a Mac or
+the Release workflow can add it later.
+
+**1.7 implemented (2026-11-09):** per-person undo (`Engine::revert` with step serials and
+footprints; `history.undo/redo {mine}`; joined desktop sessions undo their own changes;
+fuzzed by `reverting_older_steps_is_safe`, 50 000 chains pass) and joining from the browser
+(`serve --web` with an encrypted WebSocket and the web build; `planyrith_gui::link`, a session
+that never waits; the web build's Work Together, `?join=<document>`). The browser test in
+`tests/web.rs` joins a real server only when built with `PLANYRITH_WEB_TEST_SERVER`; the
+native GUI test covers the same path over a native WebSocket. No candidates remain in docs/13.
 
 **Release state (2026-11-01):** `v0.11.0-alpha.3` is prepared at `3d55f6e`: main
 CI and the Release workflow's Windows and Linux package checks passed with
@@ -72,7 +88,7 @@ rendering and round-tripping the user's real house model and by long fuzzing run
 on mesh import, bounds of turned nested components and zoom extents, per-client `last`, three
 results that changed after a save and reopen (split identity, new-face pid order, region owners
 during stretches) and silently lost faces (`W2008`). The command fuzzer passes 100 000 sequences
-and the mesh fuzzer 300 000. Joining from the browser and per-person undo remain candidates.
+and the mesh fuzzer 300 000. Joining from the browser and per-person undo followed as 1.7.
 
 **After alpha.3 (unreleased, 2026-11-02):** the renderer draws the style's edge
 effects (depth cue, extension, endpoints, jitter) and shadows from edges without
