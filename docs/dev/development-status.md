@@ -5,7 +5,7 @@ implementation stands, what is done, what remains, and how to resume. Update it 
 every working session. Ground truth for *what to build* stays in `docs/00`–`docs/15`; this file
 is only *progress state*. Release packaging is specified in `docs/16`.
 
-_Last updated: 2026-11-09 (0.11.0-alpha.3; milestones 1.1–1.6 implemented, unreleased)._
+_Last updated: 2026-11-09 (0.11.0-alpha.4; milestones 1.1–1.6 in that preview)._
 
 **Release state (2026-11-01):** `v0.11.0-alpha.3` is prepared at `3d55f6e`: main
 CI and the Release workflow's Windows and Linux package checks passed with

@@ -6,6 +6,13 @@ All notable changes to Planyrith are recorded here. Versions follow
 
 ## Unreleased
 
+## 0.11.0-alpha.4 — 1.0 groundwork and the 1.1–1.6 previews (2026-11-09)
+
+A preview of everything since alpha.3: the 1.0 groundwork (frozen file format
+and API, installers, Italian interface, accessibility) and the features
+planned for 1.1 to 1.6. The 0.11 and 1.0 acceptance criteria are not met yet,
+so this stays a pre-release.
+
 - Fixed: a push/pull could fail with an internal mesh error after the document
   had been saved and reopened, where it succeeded in the original session.
 - Fixed: faces created by one operation could get their ids in a different
@@ -186,7 +193,7 @@ All notable changes to Planyrith are recorded here. Versions follow
 - `planyrith render --shadows` now draws the sun's shadows, from the document's
   sun settings, without changing the document. It used to only print a warning.
 
-## 0.11.0-alpha.3 — Real models and verified exchange (2026-11-01)
+## 0.11.0-alpha.3 — Real models and verified exchange (2026-11-01, prepared but not published; included in alpha.4)
 
 - Keep the window responsive while a document opens, with a progress dialog.
 - Open large foreign models about three times faster: attributes are found by

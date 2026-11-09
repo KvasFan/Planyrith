@@ -209,12 +209,25 @@ pub(super) fn windows(options: &Options) -> Result<()> {
     let zip = options
         .out
         .join(format!("planyrith-{VERSION}-windows-x86_64-portable.zip"));
-    // Use structured PowerShell parameters rather than interpolated commands.
-    run(Command::new("powershell")
-        .args(["-NoProfile", "-File"])
-        .arg(options.root.join("packaging/windows/portable.ps1"))
-        .arg(&stage)
-        .arg(&zip))?;
+    if cfg!(windows) {
+        // Use structured PowerShell parameters rather than interpolated commands.
+        run(Command::new("powershell")
+            .args(["-NoProfile", "-File"])
+            .arg(options.root.join("packaging/windows/portable.ps1"))
+            .arg(&stage)
+            .arg(&zip))?;
+    } else {
+        // Packaging cross-built binaries elsewhere (docs/16 Decisions): the
+        // same archive, the payload's contents at its root.
+        if zip.exists() {
+            std::fs::remove_file(&zip)?;
+        }
+        run(Command::new("zip")
+            .args(["-q", "-r", "-X"])
+            .arg(std::path::absolute(&zip)?)
+            .arg(".")
+            .current_dir(&stage))?;
+    }
     for name in BINARIES {
         if !stage.join(format!("{name}.exe")).is_file() {
             return Err("incomplete Windows payload".into());

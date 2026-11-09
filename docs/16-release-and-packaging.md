@@ -117,6 +117,19 @@ taken by running the workflow, never a side effect of a push.
 
 ## Decisions
 
+- 2026-11-09 — **Releasing without the hosted runners.** GitHub Actions jobs do not start for
+  this account (billing lock since 2026-11-08), so `v0.11.0-alpha.4` is built on the maintainer's
+  Linux machine. Linux packages are built in an Ubuntu 22.04 container (the glibc 2.35 baseline
+  of §1). Windows programs are cross-built for `x86_64-pc-windows-gnu` with mingw-w64 and the C
+  runtime linked statically (they import only system DLLs, the Universal CRT among them);
+  `cargo xtask windows` makes the portable zip with `zip` where PowerShell is missing and runs
+  NSIS from a container through `MAKENSIS`, and `cargo xtask msi` uses `wixl` as before. The
+  setup and the MSI were installed, run and removed under Wine, the CLI opened an SKP model
+  through the format module and rendered, and the GUI started with the OpenGL backend (Wine's
+  Direct3D shader compiler lacks what the default backend needs). The macOS disk image needs
+  Apple's SDK, which may only be used on Apple hardware, so it is missing from this release;
+  `cargo xtask macos` on a Mac makes it. The MSVC build of §2 stays the official recipe.
+
 - 2026-11-03 — The 1.0 macOS package is a disk image with one universal
   application bundle (both architectures, `lipo`), macOS 11 or later, holding the
   three programs side by side in `Contents/MacOS` as on other platforms. The

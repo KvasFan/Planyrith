@@ -4,7 +4,7 @@
 //!
 //! Component and product codes are derived from each file's path and the
 //! version, so rebuilding a version keeps them. Windows Installer versions are
-//! numeric: `0.11.0-alpha.3` installs as `0.11.0`, and a later pre-release of
+//! numeric: `0.11.0-alpha.4` installs as `0.11.0`, and a later pre-release of
 //! the same numeric version still replaces it.
 use super::{Options, Result, VERSION, run, stage, write};
 use std::collections::BTreeSet;
