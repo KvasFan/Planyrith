@@ -719,6 +719,58 @@ pub fn section_cap(
     cap
 }
 
+/// The bounds of what is drawn (docs/06 §7 zoom extents): the faces and
+/// edges of every occurrence that is not hidden by its flag or tag, placed
+/// where it is, measured by their points (not by turned boxes).
+pub fn visible_bounds(doc: &Document) -> Aabb {
+    let items = draw_list(doc, &Selection::new(), &EditContext::model(), false);
+    let mut points: BTreeMap<ContainerRef, Vec<DVec3>> = BTreeMap::new();
+    let mut bounds = Aabb::EMPTY;
+    for item in items.iter().filter(|i| !i.hidden) {
+        let own = points.entry(item.container).or_insert_with(|| {
+            let Some(entities) = doc.container(item.container) else {
+                return Vec::new();
+            };
+            let mesh = entities.mesh();
+            let mut out = Vec::new();
+            for (f, face) in mesh.faces() {
+                if entity_hidden(doc, entities, EntityId::Face(f)) {
+                    continue;
+                }
+                if let Ok(vs) = mesh.loop_vertices(face.outer) {
+                    out.extend(vs.into_iter().filter_map(|v| mesh.position(v).ok()));
+                }
+            }
+            for (e, _) in mesh.edges() {
+                if entity_hidden(doc, entities, EntityId::Edge(e)) {
+                    continue;
+                }
+                if let Ok(seg) = mesh.edge_segment(e) {
+                    out.extend([seg.a, seg.b]);
+                }
+            }
+            for &id in entities.order() {
+                if let EntityId::Image(i) = id
+                    && !entity_hidden(doc, entities, id)
+                    && let Some(image) = entities.image(i)
+                {
+                    out.extend(image.corners());
+                }
+            }
+            // Their extreme points stand for them (docs/04 Decisions).
+            let mut ext = crate::document::hierarchy::Extremes::default();
+            for p in out {
+                ext.add(p);
+            }
+            ext.points()
+        });
+        for p in own.iter() {
+            bounds = bounds.including(item.world.transform_point3(*p));
+        }
+    }
+    bounds
+}
+
 /// The draw list of a document (docs/06 §2): every container occurrence in
 /// depth-first container order, with selection and edit-context state.
 /// Hidden occurrences are left out unless `include_hidden`.

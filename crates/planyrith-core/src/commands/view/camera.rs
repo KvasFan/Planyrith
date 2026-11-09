@@ -255,7 +255,10 @@ impl Command for CameraStandard {
         let mut camera = tx.camera();
         camera.standard_view(p.view);
         if p.extents {
-            camera.zoom_extents(&tx.document().aabb(), ZOOM_MARGIN);
+            camera.zoom_extents(
+                &crate::io::render_mesh::visible_bounds(tx.document()),
+                ZOOM_MARGIN,
+            );
         }
         tx.set_camera(camera);
         Ok(CameraOutput { camera })
@@ -511,7 +514,7 @@ impl Command for ZoomExtents {
         p: ZoomExtentsParams,
     ) -> Result<CameraOutput, CommandError> {
         let bounds = match &p.targets {
-            None => tx.document().aabb(),
+            None => crate::io::render_mesh::visible_bounds(tx.document()),
             Some(q) => {
                 let target = target_container(tx, &p.common)?;
                 let selection = select(tx, &target.context, "targets", q)?;

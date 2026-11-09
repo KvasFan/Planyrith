@@ -663,9 +663,13 @@ pub(crate) fn entity_row(
                         .and_then(|d| doc.definition(d))
                         .zip(entities.transform_of(id))
                         .map(|(def, t)| {
-                            def.entities
-                                .local_aabb(&doc.definitions, false)
-                                .transformed(&(to_context * t))
+                            let m = to_context * t;
+                            planyrith_core::math::Aabb::from_points(
+                                def.entities
+                                    .local_extremes(&doc.definitions, false)
+                                    .into_iter()
+                                    .map(|p| m.transform_point3(p)),
+                            )
                         }),
                 };
                 bb.filter(|b| !b.is_empty())

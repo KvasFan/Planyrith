@@ -47,6 +47,9 @@ pub struct Session {
     /// Warnings the engine emitted, for the status bar.
     warnings: Rc<RefCell<Vec<String>>>,
     index: Option<(u64, DocumentIndex)>,
+    /// The document's bounds and the generation they were measured at (the
+    /// viewport asks several times a frame).
+    bounds: std::cell::Cell<Option<(u64, planyrith_core::math::Aabb)>>,
     registry: Arc<CommandRegistry>,
     /// A camera change for the viewport to animate: from, to, seconds
     /// (a scene's transition, docs/07 §6).
@@ -191,6 +194,7 @@ impl Session {
             deltas,
             warnings,
             index: None,
+            bounds: std::cell::Cell::new(None),
             registry,
             transition: None,
             storage,
@@ -739,6 +743,20 @@ impl Session {
         let generation = self.engine.generation();
         if self.index.as_ref().is_none_or(|(g, _)| *g != generation) {
             self.index = Some((generation, DocumentIndex::build(self.engine.document())));
+        }
+    }
+
+    /// The document's bounds (`Document::aabb`), measured once per
+    /// document generation.
+    pub fn bounds(&self) -> planyrith_core::math::Aabb {
+        let generation = self.engine.generation();
+        match self.bounds.get() {
+            Some((g, b)) if g == generation => b,
+            _ => {
+                let b = self.doc().aabb();
+                self.bounds.set(Some((generation, b)));
+                b
+            }
         }
     }
 

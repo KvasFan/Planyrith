@@ -11,7 +11,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use glam::DAffine3;
+use glam::{DAffine3, DVec3};
 use serde::{Deserialize, Serialize};
 
 use crate::document::StableMap;
@@ -1097,6 +1097,9 @@ impl Entities {
 
     /// Local bounding box including nested instances (recursing through
     /// `definitions`), excluding guides and hidden entities when `visible_only`.
+    /// Nested contents count by their extreme points (docs/04 Decisions,
+    /// 2026-11-09), so a turned component's box is its contents' box, not its
+    /// turned box's.
     pub fn local_aabb(
         &self,
         definitions: &StableMap<DefinitionId, ComponentDefinition>,
@@ -1104,27 +1107,42 @@ impl Entities {
     ) -> Aabb {
         let mut memo = BTreeMap::new();
         let mut chain = Vec::new();
-        self.aabb_below(definitions, visible_only, &mut memo, &mut chain)
+        Aabb::from_points(self.extremes_below(definitions, visible_only, &mut memo, &mut chain))
     }
 
-    /// Bounds with each definition's box computed once (`memo`) and the
-    /// definitions on the current chain skipped (a cycle in a damaged file
-    /// counts as empty), so the walk is linear in the number of definitions
-    /// and occurrences whatever the file holds (docs/09 §8).
-    fn aabb_below(
+    /// The points standing for this container's contents in bounds: each
+    /// farthest along one of [`EXTREME_DIRECTIONS`]. Transformed, their box
+    /// is the transformed contents' box up to the directions' spacing.
+    pub fn local_extremes(
         &self,
         definitions: &StableMap<DefinitionId, ComponentDefinition>,
         visible_only: bool,
-        memo: &mut BTreeMap<DefinitionId, Aabb>,
+    ) -> Vec<DVec3> {
+        let mut memo = BTreeMap::new();
+        let mut chain = Vec::new();
+        self.extremes_below(definitions, visible_only, &mut memo, &mut chain)
+    }
+
+    /// The points of this container's contents that are farthest along
+    /// [`EXTREME_DIRECTIONS`] (both ways), each definition's computed once
+    /// (`memo`) and the definitions on the current chain skipped (a cycle in
+    /// a damaged file counts as empty), so the walk is linear in the number
+    /// of definitions and occurrences whatever the file holds (docs/09 §8).
+    fn extremes_below(
+        &self,
+        definitions: &StableMap<DefinitionId, ComponentDefinition>,
+        visible_only: bool,
+        memo: &mut BTreeMap<DefinitionId, Vec<DVec3>>,
         chain: &mut Vec<DefinitionId>,
-    ) -> Aabb {
+    ) -> Vec<DVec3> {
         let shown = |id: EntityId| !visible_only || !self.hidden.contains(&id);
-        let mut bb = Aabb::EMPTY;
+        let mut ext = Extremes::default();
         for (e, _) in self.mesh.edges() {
             if shown(EntityId::Edge(e))
                 && let Ok(s) = self.mesh.edge_segment(e)
             {
-                bb = bb.including(s.a).including(s.b);
+                ext.add(s.a);
+                ext.add(s.b);
             }
         }
         if visible_only {
@@ -1135,13 +1153,15 @@ impl Entities {
                 {
                     for v in points {
                         if let Ok(p) = self.mesh.position(v) {
-                            bb = bb.including(p);
+                            ext.add(p);
                         }
                     }
                 }
             }
         } else {
-            bb = bb.union(&self.mesh.aabb());
+            for (_, v) in self.mesh.vertices() {
+                ext.add(v.position);
+            }
         }
         if chain.len() < Self::MAX_DEPTH {
             let nested = self
@@ -1157,40 +1177,32 @@ impl Entities {
                 if !shown(id) || chain.contains(&definition) {
                     continue;
                 }
-                let inner = match memo.get(&definition) {
-                    Some(known) => *known,
-                    None => {
-                        let Some(def) = definitions.get(definition) else {
-                            continue;
-                        };
-                        chain.push(definition);
-                        let known = def
-                            .entities
-                            .aabb_below(definitions, visible_only, memo, chain);
-                        chain.pop();
-                        memo.insert(definition, known);
-                        known
+                if !memo.contains_key(&definition) {
+                    let Some(def) = definitions.get(definition) else {
+                        continue;
+                    };
+                    chain.push(definition);
+                    let known = def
+                        .entities
+                        .extremes_below(definitions, visible_only, memo, chain);
+                    chain.pop();
+                    memo.insert(definition, known);
+                }
+                if let Some(points) = memo.get(&definition) {
+                    for p in points {
+                        ext.add(transform.transform_point3(*p));
                     }
-                };
-                if !inner.is_empty() {
-                    bb = bb.union(&inner.transformed(&transform));
                 }
             }
         }
         for (i, image) in &self.images {
             if shown(EntityId::Image(i)) {
-                let (w, h) = (image.width.0, image.height.0);
-                for corner in [
-                    glam::DVec3::ZERO,
-                    glam::DVec3::new(w, 0.0, 0.0),
-                    glam::DVec3::new(w, h, 0.0),
-                    glam::DVec3::new(0.0, h, 0.0),
-                ] {
-                    bb = bb.including(image.transform.transform_point3(corner));
+                for corner in image.corners() {
+                    ext.add(corner);
                 }
             }
         }
-        bb
+        ext.points()
     }
 
     /// Maximum nesting depth below this container (docs/04 §14, cycle check in
@@ -1246,6 +1258,72 @@ impl Entities {
             }
         }
         Ok(depth)
+    }
+}
+
+/// Directions whose extreme points stand for a container's contents in
+/// bounds (docs/04 Decisions, 2026-11-09): the axes, the face diagonals and
+/// the body diagonals of a cube (each both ways).
+pub const EXTREME_DIRECTIONS: [DVec3; 13] = [
+    DVec3::new(1.0, 0.0, 0.0),
+    DVec3::new(0.0, 1.0, 0.0),
+    DVec3::new(0.0, 0.0, 1.0),
+    DVec3::new(1.0, 1.0, 0.0),
+    DVec3::new(1.0, -1.0, 0.0),
+    DVec3::new(1.0, 0.0, 1.0),
+    DVec3::new(1.0, 0.0, -1.0),
+    DVec3::new(0.0, 1.0, 1.0),
+    DVec3::new(0.0, 1.0, -1.0),
+    DVec3::new(1.0, 1.0, 1.0),
+    DVec3::new(1.0, 1.0, -1.0),
+    DVec3::new(1.0, -1.0, 1.0),
+    DVec3::new(-1.0, 1.0, 1.0),
+];
+
+/// The farthest points seen along each of [`EXTREME_DIRECTIONS`], both ways.
+#[derive(Default)]
+pub(crate) struct Extremes {
+    best: Option<[(f64, DVec3, f64, DVec3); 13]>,
+}
+
+impl Extremes {
+    pub(crate) fn add(&mut self, p: DVec3) {
+        if !p.is_finite() {
+            return;
+        }
+        let best = self.best.get_or_insert_with(|| {
+            EXTREME_DIRECTIONS.map(|d| {
+                let t = d.dot(p);
+                (t, p, t, p)
+            })
+        });
+        for (k, d) in EXTREME_DIRECTIONS.iter().enumerate() {
+            let t = d.dot(p);
+            let b = &mut best[k];
+            if t > b.0 {
+                b.0 = t;
+                b.1 = p;
+            }
+            if t < b.2 {
+                b.2 = t;
+                b.3 = p;
+            }
+        }
+    }
+
+    pub(crate) fn points(self) -> Vec<DVec3> {
+        let Some(best) = self.best else {
+            return Vec::new();
+        };
+        let mut out: Vec<DVec3> = Vec::with_capacity(26);
+        for (_, hi, _, lo) in best {
+            for p in [hi, lo] {
+                if !out.contains(&p) {
+                    out.push(p);
+                }
+            }
+        }
+        out
     }
 }
 

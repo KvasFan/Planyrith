@@ -2751,3 +2751,68 @@ fn overlapping_flat_parts_of_different_materials_all_import() {
     assert_eq!(out["skipped"], 0, "{out}");
     assert_eq!(out["faces"], 2, "{out}");
 }
+
+/// docs/04 Decisions (2026-11-09): bounds follow the contents, not turned
+/// boxes; zoom extents fits what is shown.
+#[test]
+fn bounds_follow_turned_contents_and_zoom_fits_what_is_shown() {
+    let (mut e, _) = engine();
+    run(
+        &mut e,
+        "rectangle",
+        json!({ "corner_a": [0, 0, 0], "corner_b": [1000, 100, 0] }),
+    );
+    run(
+        &mut e,
+        "push-pull",
+        json!({ "face": { "Query": "face & last" }, "distance": 100 }),
+    );
+    run(
+        &mut e,
+        "make-group",
+        json!({ "targets": "all", "name": "Inner" }),
+    );
+    let quarter = std::f64::consts::FRAC_PI_4;
+    run(
+        &mut e,
+        "rotate",
+        json!({ "targets": "group", "center": [0, 0, 0], "axis": [0, 0, 1], "angle": quarter }),
+    );
+    run(
+        &mut e,
+        "make-group",
+        json!({ "targets": "all", "name": "Outer" }),
+    );
+    run(
+        &mut e,
+        "rotate",
+        json!({ "targets": "group", "center": [0, 0, 0], "axis": [0, 0, 1], "angle": -quarter }),
+    );
+    // Turned and turned back: the box is the beam's own.
+    let b = e.document().aabb();
+    assert!(b.min.distance(glam::DVec3::ZERO) < 1e-6, "{b:?}");
+    assert!(
+        b.max.distance(glam::DVec3::new(1000.0, 100.0, 100.0)) < 1e-6,
+        "{b:?}"
+    );
+
+    // Hidden geometry far away does not count for zoom extents.
+    run(
+        &mut e,
+        "rectangle",
+        json!({ "corner_a": [50000, 0, 0], "corner_b": [51000, 1000, 0] }),
+    );
+    run(
+        &mut e,
+        "hide",
+        json!({ "targets": "face & last | edge & last" }),
+    );
+    let shown = crate::io::render_mesh::visible_bounds(e.document());
+    assert!(shown.max.x < 1001.0, "{shown:?}");
+    let out = run(&mut e, "zoom-extents", json!({}));
+    let target: Vec<f64> = serde_json::from_value(out["camera"]["target"].clone()).unwrap();
+    assert!(
+        target[0] < 1000.0,
+        "the camera looks at the beam: {target:?}"
+    );
+}

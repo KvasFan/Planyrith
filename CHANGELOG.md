@@ -6,6 +6,8 @@ All notable changes to Planyrith are recorded here. Versions follow
 
 ## Unreleased
 
+- Fixed: bounds of turned components nested in turned groups were too large,
+  and Zoom Extents counted hidden geometry; zoom now fits what is shown.
 - Fixed: imported meshes whose parts overlap in one plane (cut-out figures,
   decals, doubled surfaces) lost those parts entirely; they now arrive as
   separate groups. A real house model keeps 58 000 more faces.

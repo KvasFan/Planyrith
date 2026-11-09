@@ -574,10 +574,13 @@ impl Document {
             ),
             id => {
                 let def = self.definition(entities.definition_of(id)?)?;
-                let local = entities.transform_of(id)?;
-                def.entities
-                    .local_aabb(&self.definitions, false)
-                    .transformed(&(world * local))
+                let to_world = world * entities.transform_of(id)?;
+                Aabb::from_points(
+                    def.entities
+                        .local_extremes(&self.definitions, false)
+                        .into_iter()
+                        .map(|p| to_world.transform_point3(p)),
+                )
             }
         };
         (!bounds.is_empty()).then_some(bounds)

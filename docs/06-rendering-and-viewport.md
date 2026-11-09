@@ -276,6 +276,12 @@ exposes a frame-time overlay (`F11` panel).
 
 ## Decisions
 
+- 2026-11-09 — **Zoom extents fits what is shown** (§7). `zoom-extents` without targets and
+  `camera-standard --extents` fit the faces, edges and images that are drawn (not hidden by a
+  flag or a tag), from their points (`render_mesh::visible_bounds`); hidden geometry far away
+  no longer leaves the model small in the middle of the view. `info` still reports the bounds
+  of everything.
+
 - 2026-11-09 — **Unpainted backs in path-traced images** (§11.1). Rendering a real house model
   showed most floors in the default back color, a blue-gray: they were faces turned upside down,
   which the viewport rightly shows as backs but a realistic image should not. Path-traced images

@@ -262,6 +262,14 @@ tags, non-invertible transforms, `next_pid` monotonicity. `repair` fixes what it
 
 ## Decisions
 
+- 2026-11-09 — **Bounds of nested contents.** A container's bounds used to transform each
+  nested definition's box, so every turned level grew the box (on the user's house model a
+  turned cut-out figure's box reached 200 mm past the figure). Each definition now keeps, once
+  per walk, its contents' points farthest along 13 directions both ways (the axes, the face and
+  the body diagonals of a cube, 26 points at most); nested occurrences transform those points.
+  The box is exact for anything turned about an axis by a multiple of 45° and otherwise within
+  the directions' spacing, and the walk stays linear in definitions and occurrences.
+
 - 2026-11-08 — **Parametric components as attributes** (§9.1). Parameters and part rules are
   stored as attribute dictionaries instead of new document fields, because the native format
   is frozen (fields may only be added, enum variants may not) and attributes already round-trip

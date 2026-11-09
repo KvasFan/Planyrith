@@ -259,7 +259,7 @@ impl Viewport {
             aspect: f64::from(rect.width().max(1.0)) / f64::from(rect.height().max(1.0)),
             ..self.camera(session)
         };
-        let depth = camera.fit_depth(&session.doc().aabb());
+        let depth = camera.fit_depth(&session.bounds());
         cx_for(
             session,
             camera,
@@ -295,7 +295,7 @@ impl Viewport {
         {
             self.fit_on_show = false;
             own.aspect = aspect;
-            let bounds = session.doc().aabb();
+            let bounds = session.bounds();
             if !bounds.is_empty() {
                 own.zoom_extents(&bounds, 0.1);
             }
@@ -420,7 +420,7 @@ impl Viewport {
 
         // The pointer, through the inference engine (docs/03 §7).
         let unit = session.doc().info.display_units;
-        let depth = camera.fit_depth(&session.doc().aabb());
+        let depth = camera.fit_depth(&session.bounds());
         // A drag from a panel does not hover the viewport, but its tool
         // follows the pointer all the same.
         let panel_drag = egui::DragAndDrop::has_payload_of_type::<PanelDrop>(ui.ctx())
@@ -905,7 +905,7 @@ fn cast(
 
 /// The center of the visible model, else the camera target.
 fn visible_center(session: &Session, camera: &Camera) -> DVec3 {
-    let bounds: Aabb = session.doc().aabb();
+    let bounds: Aabb = session.bounds();
     if bounds.is_empty() {
         camera.target
     } else {
@@ -1543,7 +1543,7 @@ mod tests {
                 aspect: f64::from(SCREEN.x / SCREEN.y),
                 ..self.session.doc().camera
             };
-            let depth = camera.fit_depth(&self.session.doc().aabb());
+            let depth = camera.fit_depth(&self.session.bounds());
             let ndc = camera.project(p, depth).unwrap();
             let pos = egui::pos2(
                 ((ndc.x + 1.0) * 0.5) as f32 * SCREEN.x,
