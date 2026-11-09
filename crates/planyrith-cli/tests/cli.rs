@@ -1677,3 +1677,170 @@ fn recover_replays_the_autosave_journal() {
     // Nothing left to recover.
     planyrith().args(["recover", f]).assert().failure().code(4);
 }
+
+/// A browser's side of `serve --web` (docs/08 §3.3): a WebSocket carrying
+/// the socket protocol's frames, encrypted when the server listens on an
+/// address.
+struct WebClient {
+    ws: tungstenite::WebSocket<tungstenite::stream::MaybeTlsStream<std::net::TcpStream>>,
+    keys: Option<(
+        planyrith_core::transport::Sealer,
+        planyrith_core::transport::Opener,
+    )>,
+    plain: Vec<u8>,
+}
+
+impl WebClient {
+    fn connect(addr: &str, token: Option<&str>) -> WebClient {
+        let (mut ws, _) = tungstenite::connect(format!("ws://{addr}/rpc")).unwrap();
+        let keys = token.map(|token| {
+            let (initiator, hello) = planyrith_core::transport::Initiator::start(token).unwrap();
+            ws.send(tungstenite::Message::binary(hello)).unwrap();
+            let mut received = Vec::new();
+            let reply = loop {
+                if let Some(m) = planyrith_core::transport::take_message(&mut received) {
+                    break m;
+                }
+                received.extend(ws.read().unwrap().into_data().to_vec());
+            };
+            let session = initiator.finish(&reply).unwrap();
+            (session.sealer(), session.opener())
+        });
+        WebClient {
+            ws,
+            keys,
+            plain: Vec::new(),
+        }
+    }
+
+    fn call(&mut self, frame: Value) -> Value {
+        let mut bytes = Vec::new();
+        write_frame(&mut bytes, &frame);
+        if let Some((sealer, _)) = &mut self.keys {
+            bytes = sealer.seal(&bytes).unwrap();
+        }
+        self.ws.send(tungstenite::Message::binary(bytes)).unwrap();
+        loop {
+            if self.plain.len() >= 4 {
+                let len = u32::from_le_bytes(self.plain[..4].try_into().unwrap()) as usize;
+                if self.plain.len() >= 4 + len {
+                    let reply: Value = serde_json::from_slice(&self.plain[4..4 + len]).unwrap();
+                    self.plain.drain(..4 + len);
+                    if reply.get("id").is_some() {
+                        return reply;
+                    }
+                    continue;
+                }
+            }
+            let data = self.ws.read().unwrap().into_data().to_vec();
+            match &mut self.keys {
+                Some((_, opener)) => self.plain.extend(opener.push(&data).unwrap()),
+                None => self.plain.extend(data),
+            }
+        }
+    }
+}
+
+fn spawn_web_server(args: &[&str]) -> (std::process::Child, String) {
+    use std::io::BufRead;
+    let mut child = std::process::Command::new(assert_cmd::cargo::cargo_bin("planyrith"))
+        .arg("serve")
+        .args(args)
+        .stderr(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut line = String::new();
+    std::io::BufReader::new(child.stderr.take().unwrap())
+        .read_line(&mut line)
+        .unwrap();
+    let addr = line
+        .trim()
+        .strip_prefix("browsers join at http://")
+        .unwrap_or_else(|| panic!("unexpected server output: {line}"))
+        .split('/')
+        .next()
+        .unwrap()
+        .to_string();
+    (child, addr)
+}
+
+fn http_get(addr: &str, path: &str) -> String {
+    use std::io::{Read, Write};
+    let mut stream = std::net::TcpStream::connect(addr).unwrap();
+    write!(stream, "GET {path} HTTP/1.1\r\nHost: {addr}\r\n\r\n").unwrap();
+    let mut answer = String::new();
+    stream.read_to_string(&mut answer).unwrap();
+    answer
+}
+
+/// docs/08 §3.3: browsers join over a WebSocket, always encrypted, on a
+/// port of this machine or an address; the page itself is served from
+/// `--web-root`.
+#[test]
+fn browsers_join_over_a_websocket() {
+    use serde_json::json;
+    planyrith()
+        .args(["serve", "--web", "0"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("--token"));
+
+    let root = scratch("web-root");
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("index.html"), "<p>Planyrith web</p>").unwrap();
+    for spec in ["0", "127.0.0.1:0"] {
+        let (mut child, addr) = spawn_web_server(&[
+            "--web",
+            spec,
+            "--web-root",
+            root.to_str().unwrap(),
+            "--token",
+            "s3cret",
+        ]);
+        let result = std::panic::catch_unwind(|| {
+            let page = http_get(&addr, "/?join=d1");
+            assert!(page.starts_with("HTTP/1.1 200"), "{page}");
+            assert!(page.contains("Planyrith web"));
+            assert!(http_get(&addr, "/../Cargo.toml").starts_with("HTTP/1.1 404"));
+
+            let mut client = WebClient::connect(&addr, Some("s3cret"));
+            let r = client.call(rpc(1, "server.auth", json!({ "token": "s3cret" })));
+            assert_eq!(r["result"]["authenticated"], true, "{r}");
+            let r = client.call(rpc(2, "session.new", json!({})));
+            let doc_id = r["result"]["doc_id"].clone();
+            let r = client.call(rpc(
+                3,
+                "command.execute",
+                json!({ "doc_id": doc_id, "name": "rectangle",
+                "params": { "corner_a": [0, 0, 0], "corner_b": [1000, 500, 0] } }),
+            ));
+            assert!(r.get("result").is_some(), "{r}");
+            // A snapshot can span several messages; it arrives whole.
+            let r = client.call(rpc(4, "document.snapshot", json!({ "doc_id": doc_id })));
+            assert!(!r["result"]["bytes"].as_array().unwrap().is_empty());
+
+            {
+                // The wrong token cannot finish the handshake.
+                let (mut ws, _) = tungstenite::connect(format!("ws://{addr}/rpc")).unwrap();
+                let (initiator, hello) =
+                    planyrith_core::transport::Initiator::start("wrong").unwrap();
+                ws.send(tungstenite::Message::binary(hello)).unwrap();
+                let refused = match ws.read() {
+                    Ok(m) => {
+                        let mut data = m.into_data().to_vec();
+                        planyrith_core::transport::take_message(&mut data)
+                            .is_none_or(|reply| initiator.finish(&reply).is_err())
+                    }
+                    Err(_) => true,
+                };
+                assert!(refused);
+            }
+        });
+        child.kill().unwrap();
+        let _ = child.wait();
+        if let Err(e) = result {
+            std::panic::resume_unwind(e);
+        }
+    }
+}

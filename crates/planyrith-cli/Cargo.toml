@@ -28,6 +28,8 @@ serde_json = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 anyhow = { workspace = true }
+# Browsers joining a server (docs/08 §3.3).
+tungstenite = { workspace = true }
 
 [features]
 default = ["render"]

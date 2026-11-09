@@ -379,8 +379,7 @@ pub struct App {
     /// View › Path-Traced Preview (docs/06 §11.2).
     #[cfg(not(target_arch = "wasm32"))]
     trace_preview: crate::trace_preview::TracePreview,
-    /// File › Work Together… (docs/08 §3.1).
-    #[cfg(not(target_arch = "wasm32"))]
+    /// File › Work Together… (docs/08 §3.1, §3.3).
     together: crate::together::Together,
     extensions: crate::extensions::Extensions,
     sheets: crate::sheets::Sheets,
@@ -479,6 +478,17 @@ impl App {
             }
             None => {}
         }
+        // A page a server opened with `?join=<document>` (docs/08 §3.3).
+        #[cfg(target_arch = "wasm32")]
+        if let Some(location) = web_sys::window().map(|w| w.location())
+            && let (Ok(search), Ok(host)) = (location.search(), location.host())
+            && let Some(document) = search
+                .trim_start_matches('?')
+                .split('&')
+                .find_map(|pair| pair.strip_prefix("join").map(|v| v.trim_start_matches('=')))
+        {
+            app.together.prefill(&host, document);
+        }
         app
     }
 
@@ -525,7 +535,6 @@ impl App {
             render_job: Default::default(),
             #[cfg(not(target_arch = "wasm32"))]
             trace_preview: Default::default(),
-            #[cfg(not(target_arch = "wasm32"))]
             together: Default::default(),
             extensions: Default::default(),
             sheets: Default::default(),
@@ -1408,7 +1417,6 @@ impl App {
                         ui.close();
                     }
                 });
-                #[cfg(not(target_arch = "wasm32"))]
                 if ui.button(t("Work Together…")).clicked() {
                     self.together.open = true;
                     ui.close();
@@ -3207,13 +3215,25 @@ impl App {
         self.viewport.invert_wheel = self.settings.invert_wheel;
         self.viewport.marks = self.print_check.marks(&self.session);
         // Working together: news from the server, others' selections.
-        #[cfg(not(target_arch = "wasm32"))]
         if self.session.is_attached() {
-            if let Err(e) = self.session.poll_remote(ctx.input(|i| i.time)) {
+            let now = ctx.input(|i| i.time);
+            #[cfg(not(target_arch = "wasm32"))]
+            if let Err(e) = self.session.poll_remote(now) {
+                self.error(e);
+            }
+            // A session joined without waiting takes its answers as they
+            // come, so it looks more often (docs/08 §3.3).
+            if let Err(e) = self.session.poll_joined(now) {
                 self.error(e);
             }
             self.viewport.others = crate::together::selection_lines(&self.session.participants);
-            ctx.request_repaint_after(std::time::Duration::from_millis(500));
+            ctx.request_repaint_after(std::time::Duration::from_millis(
+                if self.session.is_joined_async() {
+                    100
+                } else {
+                    500
+                },
+            ));
         } else {
             self.viewport.others.clear();
         }
@@ -3355,11 +3375,11 @@ impl App {
         }
         self.round_edges.window(&ctx, &mut self.session);
         self.thicken.window(&ctx, &mut self.session);
+        self.together.window(&ctx, &mut self.session);
         #[cfg(not(target_arch = "wasm32"))]
         {
             self.render_job.window(&ctx);
             self.trace_preview.window(&ctx, &self.session);
-            self.together.window(&ctx, &mut self.session);
             if std::mem::take(&mut self.render_job.pick) {
                 let kind = t("Images");
                 self.dialog = platform::file_dialog()

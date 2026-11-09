@@ -114,6 +114,122 @@ impl Session {
     }
 }
 
+/// The client's side of the handshake without blocking (a browser, which
+/// cannot wait for a reply): [`Initiator::start`] gives the first message
+/// to send, [`Initiator::finish`] takes the server's reply.
+pub struct Initiator {
+    hs: snow::HandshakeState,
+}
+
+impl Initiator {
+    /// Starts the handshake with `token`; returns the bytes to send (a
+    /// length-prefixed message, as on a stream).
+    pub fn start(token: &str) -> io::Result<(Initiator, Vec<u8>)> {
+        let params = PATTERN
+            .parse()
+            .map_err(|e: snow::Error| io::Error::other(e.to_string()))?;
+        let mut hs = snow::Builder::new(params)
+            .psk(0, &psk(token))
+            .and_then(|b| b.build_initiator())
+            .map_err(noise_error)?;
+        let mut buf = vec![0u8; 1024];
+        let n = hs.write_message(&[], &mut buf).map_err(noise_error)?;
+        let mut wire = Vec::new();
+        send(&mut wire, &buf[..n])?;
+        Ok((Initiator { hs }, wire))
+    }
+
+    /// Finishes with the server's reply (one message without its length,
+    /// see [`take_message`]).
+    pub fn finish(mut self, reply: &[u8]) -> io::Result<Session> {
+        let mut buf = vec![0u8; 1024];
+        self.hs.read_message(reply, &mut buf).map_err(noise_error)?;
+        Ok(Session {
+            state: Arc::new(
+                self.hs
+                    .into_stateless_transport_mode()
+                    .map_err(noise_error)?,
+            ),
+        })
+    }
+}
+
+/// Removes one complete length-prefixed message from the front of `buf`,
+/// if it holds one.
+pub fn take_message(buf: &mut Vec<u8>) -> Option<Vec<u8>> {
+    let len = u16::from_be_bytes([*buf.first()?, *buf.get(1)?]) as usize;
+    if buf.len() < 2 + len {
+        return None;
+    }
+    let message = buf[2..2 + len].to_vec();
+    buf.drain(..2 + len);
+    Some(message)
+}
+
+impl Session {
+    /// Encrypts without a stream: [`Sealer::seal`] turns plaintext into the
+    /// bytes to send.
+    pub fn sealer(&self) -> Sealer {
+        Sealer {
+            writer: self.writer(Vec::new()),
+        }
+    }
+
+    /// Decrypts without a stream: [`Opener::push`] takes received bytes in
+    /// any pieces and returns the plaintext of the complete messages.
+    pub fn opener(&self) -> Opener {
+        Opener {
+            state: Arc::clone(&self.state),
+            nonce: 0,
+            pending: Vec::new(),
+        }
+    }
+}
+
+/// See [`Session::sealer`].
+pub struct Sealer {
+    writer: SecureWriter<Vec<u8>>,
+}
+
+impl Sealer {
+    /// The bytes that carry `plain`, split into messages as needed.
+    pub fn seal(&mut self, plain: &[u8]) -> io::Result<Vec<u8>> {
+        self.writer.write_all(plain)?;
+        Ok(std::mem::take(&mut self.writer.inner))
+    }
+}
+
+/// See [`Session::opener`].
+pub struct Opener {
+    state: Arc<StatelessTransportState>,
+    nonce: u64,
+    pending: Vec<u8>,
+}
+
+impl Opener {
+    /// Adds received bytes; returns the plaintext of every message now
+    /// complete. A forged or replayed message is an error.
+    pub fn push(&mut self, bytes: &[u8]) -> io::Result<Vec<u8>> {
+        self.pending.extend_from_slice(bytes);
+        let mut plain = Vec::new();
+        while let Some(sealed) = take_message(&mut self.pending) {
+            let mut out = vec![0u8; sealed.len()];
+            let n = self
+                .state
+                .read_message(self.nonce, &sealed, &mut out)
+                .map_err(|e| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!("an encrypted message did not verify: {e}"),
+                    )
+                })?;
+            self.nonce += 1;
+            plain.extend_from_slice(&out[..n]);
+        }
+        Ok(plain)
+    }
+}
+
 /// Encrypts what is written to it.
 pub struct SecureWriter<W: Write> {
     inner: W,
@@ -286,5 +402,52 @@ mod tests {
         let client = SecureStream::connect(TcpStream::connect(addr).unwrap(), "wrong");
         let refused_by_server = server.join().unwrap();
         assert!(client.is_err() || refused_by_server);
+    }
+
+    /// The pieces a browser uses talk to the blocking server side.
+    #[test]
+    fn a_client_without_streams_talks_to_the_server() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let session = Session::accept(&mut stream, "s3cret").unwrap();
+            let mut reader = session.reader(stream.try_clone().unwrap());
+            let mut writer = session.writer(stream);
+            let mut got = vec![0u8; 100_000];
+            reader.read_exact(&mut got).unwrap();
+            got.reverse();
+            writer.write_all(&got).unwrap();
+            writer.flush().unwrap();
+        });
+        let mut stream = TcpStream::connect(addr).unwrap();
+        let (initiator, hello) = Initiator::start("s3cret").unwrap();
+        stream.write_all(&hello).unwrap();
+        // The reply arrives in pieces, as from a socket.
+        let mut received = Vec::new();
+        let reply = loop {
+            if let Some(m) = take_message(&mut received) {
+                break m;
+            }
+            let mut byte = [0u8; 1];
+            stream.read_exact(&mut byte).unwrap();
+            received.push(byte[0]);
+        };
+        let session = initiator.finish(&reply).unwrap();
+        let mut sealer = session.sealer();
+        let mut opener = session.opener();
+        let data: Vec<u8> = (0..100_000u32).map(|i| (i % 253) as u8).collect();
+        stream.write_all(&sealer.seal(&data).unwrap()).unwrap();
+        let mut plain = opener.push(&received).unwrap();
+        while plain.len() < data.len() {
+            let mut chunk = [0u8; 777];
+            let n = stream.read(&mut chunk).unwrap();
+            assert!(n > 0, "closed early");
+            plain.extend(opener.push(&chunk[..n]).unwrap());
+        }
+        let mut expected = data.clone();
+        expected.reverse();
+        assert_eq!(plain, expected);
+        server.join().unwrap();
     }
 }

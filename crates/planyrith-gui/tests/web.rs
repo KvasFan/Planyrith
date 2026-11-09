@@ -51,9 +51,17 @@ async fn browser_storage_conforms_and_persists() {
     assert_eq!(reloaded.children("/kept"), vec!["/kept/a.plyr"]);
 }
 
+/// Loads the page's storage before the first session uses it; the tests
+/// run interleaved, so another may have loaded it already.
+async fn install_storage() {
+    if let Err(e) = web::install().await {
+        assert_eq!(e, "the storage is already in use");
+    }
+}
+
 #[wasm_bindgen_test]
 async fn classroom_scenario() {
-    web::install().await.unwrap();
+    install_storage().await;
 
     // Open an example.
     let sample = samples::catalogue().into_iter().next().unwrap();
@@ -181,4 +189,43 @@ async fn sheets_persist_and_export_in_the_browser() {
     assert!(pdf.starts_with(b"%PDF"));
     assert!(String::from_utf8_lossy(&pdf).contains("/Count 2"));
     assert_eq!(loaded.document.sheets.pages.len(), 2);
+}
+
+/// docs/08 §3.3 in a real browser: joins the document `d1` of the
+/// `planyrith serve --web <address> --token t0ken` given at build time as
+/// `PLANYRITH_WEB_TEST_SERVER=<host:port>`, draws, and sees the result come
+/// back. Without the variable the test does nothing.
+#[wasm_bindgen_test]
+async fn joins_a_server_from_the_browser() {
+    let Some(address) = option_env!("PLANYRITH_WEB_TEST_SERVER") else {
+        return;
+    };
+    install_storage().await;
+    let socket = planyrith_gui::link::BrowserSocket::connect(address).unwrap();
+    let mut session = Session::join_over(Box::new(socket), "t0ken", "d1", "Browser");
+    let mut clock = 0.0;
+    let mut wait = async |session: &mut Session, done: &dyn Fn(&Session) -> bool| {
+        for _ in 0..500 {
+            clock += 0.1;
+            session.poll_joined(clock).unwrap();
+            if done(session) {
+                return;
+            }
+            web::sleep_ms(10).await;
+        }
+        panic!("the server did not answer in time");
+    };
+    wait(&mut session, &|s| !s.is_joining()).await;
+    let faces = |s: &Session| s.engine.document().model.mesh().faces().count();
+    let before = faces(&session);
+    session
+        .execute(
+            "rectangle",
+            json!({ "corner_a": [0, 0, 0], "corner_b": [500, 500, 0] }),
+        )
+        .unwrap();
+    wait(&mut session, &|s| faces(s) == before + 1).await;
+    assert_eq!(session.undo_label(), Some("Rectangle"));
+    session.undo().unwrap();
+    wait(&mut session, &|s| faces(s) == before).await;
 }

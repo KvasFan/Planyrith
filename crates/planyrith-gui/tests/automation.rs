@@ -270,3 +270,185 @@ fn two_gui_sessions_work_together() {
     assert!(!local.is_attached());
     assert_eq!(local.doc().model.mesh().faces().count(), 1);
 }
+
+/// A browser's WebSocket, played by a native one.
+struct NativeSocket(
+    tungstenite::WebSocket<tungstenite::stream::MaybeTlsStream<std::net::TcpStream>>,
+    Option<String>,
+);
+
+impl planyrith_gui::link::Socket for NativeSocket {
+    fn send(&mut self, bytes: Vec<u8>) {
+        if let Err(e) = self.0.send(tungstenite::Message::binary(bytes)) {
+            self.1 = Some(e.to_string());
+        }
+    }
+
+    fn receive(&mut self) -> Vec<Vec<u8>> {
+        let mut out = Vec::new();
+        loop {
+            match self.0.read() {
+                Ok(tungstenite::Message::Binary(b)) => out.push(b.to_vec()),
+                Ok(_) => {}
+                Err(tungstenite::Error::Io(e))
+                    if matches!(
+                        e.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    ) =>
+                {
+                    return out;
+                }
+                Err(e) => {
+                    self.1 = Some(e.to_string());
+                    return out;
+                }
+            }
+        }
+    }
+
+    fn open(&self) -> Result<bool, String> {
+        match &self.1 {
+            Some(e) => Err(e.clone()),
+            None => Ok(true),
+        }
+    }
+}
+
+/// Polls a session joined from the browser until `done` holds (five
+/// seconds at most); `clock` is its time in seconds.
+fn wait_for(carla: &mut Session, clock: &mut f64, done: impl Fn(&Session) -> bool) {
+    for _ in 0..500 {
+        *clock += 0.1;
+        carla.poll_joined(*clock).unwrap();
+        if done(carla) {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    panic!("the browser session did not catch up");
+}
+
+/// docs/08 §3.3: a browser joins the document a desktop session works on,
+/// over `serve --web`; changes and undo go both ways, without the browser
+/// ever waiting for an answer.
+#[test]
+fn a_browser_session_works_with_a_desktop_one() {
+    let mut server = Server(
+        Command::new(cli())
+            .args([
+                "serve",
+                "--socket",
+                "127.0.0.1:0",
+                "--web",
+                "127.0.0.1:0",
+                "--token",
+                "t0ken",
+            ])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap(),
+    );
+    let mut stderr = BufReader::new(server.0.stderr.take().unwrap());
+    let mut socket_line = String::new();
+    stderr.read_line(&mut socket_line).unwrap();
+    let mut web_line = String::new();
+    stderr.read_line(&mut web_line).unwrap();
+    let socket = socket_line
+        .trim()
+        .strip_prefix("listening on ")
+        .unwrap()
+        .split_whitespace()
+        .next()
+        .unwrap()
+        .to_string();
+    let web = web_line
+        .trim()
+        .strip_prefix("browsers join at http://")
+        .unwrap()
+        .split('/')
+        .next()
+        .unwrap()
+        .to_string();
+
+    let mut anna = Session::join(&socket, "t0ken", "", "Anna").unwrap();
+    anna.execute(
+        "rectangle",
+        json!({ "corner_a": [0, 0, 0], "corner_b": [800, 400, 0] }),
+    )
+    .unwrap();
+
+    let connect = || {
+        let (ws, _) = tungstenite::connect(format!("ws://{web}/rpc")).unwrap();
+        if let tungstenite::stream::MaybeTlsStream::Plain(s) = ws.get_ref() {
+            s.set_read_timeout(Some(std::time::Duration::from_millis(5)))
+                .unwrap();
+        }
+        Box::new(NativeSocket(ws, None))
+    };
+    // The wrong token is refused.
+    let mut eve = Session::join_over(connect(), "wrong", "d1", "Eve");
+    let mut refused = false;
+    for i in 0..300 {
+        if eve.poll_joined(f64::from(i)).is_err() {
+            refused = true;
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(refused, "a wrong token must not join");
+
+    let mut carla = Session::join_over(connect(), "t0ken", "d1", "Carla");
+    assert!(carla.is_attached());
+    let mut clock = 0.0;
+    wait_for(&mut carla, &mut clock, |c| {
+        !c.is_joining() && c.doc().model.mesh().faces().count() == 1
+    });
+    wait_for(&mut carla, &mut clock, |c| c.participants.len() == 2);
+
+    // Carla draws; Anna sees it.
+    carla
+        .execute(
+            "rectangle",
+            json!({ "corner_a": [2000, 0, 0], "corner_b": [2400, 400, 0] }),
+        )
+        .unwrap();
+    wait_for(&mut carla, &mut clock, |c| {
+        c.doc().model.mesh().faces().count() == 2
+    });
+    assert_eq!(carla.undo_label(), Some("Rectangle"));
+    anna.poll_remote(100.0).unwrap();
+    assert_eq!(anna.doc().model.mesh().faces().count(), 2);
+
+    // Carla's undo takes back her rectangle, not Anna's.
+    carla.undo().unwrap();
+    wait_for(&mut carla, &mut clock, |c| {
+        c.doc().model.mesh().faces().count() == 1 && c.redo_label() == Some("Rectangle")
+    });
+    let face = carla.doc().model.mesh().faces().next().unwrap().0;
+    let bounds = carla.doc().model.mesh().face_aabb(face).unwrap();
+    assert!(bounds.max.x <= 800.0, "Anna's rectangle stayed");
+
+    // A failed command comes back as an error.
+    carla
+        .execute(
+            "push-pull",
+            json!({ "face": { "Pid": 99999 }, "distance": 10 }),
+        )
+        .unwrap();
+    let mut failed = false;
+    for _ in 0..300 {
+        clock += 0.1;
+        if carla.poll_joined(clock).is_err() {
+            failed = true;
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(failed, "the server's refusal reaches the browser");
+
+    let local = carla.leave();
+    assert!(!local.is_attached());
+    assert_eq!(local.doc().model.mesh().faces().count(), 1);
+}

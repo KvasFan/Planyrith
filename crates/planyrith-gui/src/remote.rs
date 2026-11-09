@@ -1,8 +1,5 @@
 //! Implements docs/01 §1 and docs/08 §3: native GUI attachment to `serve`.
 
-use planyrith_core::document::{EditContext, Selection};
-use planyrith_core::ids::Pid;
-use serde::Deserialize;
 use serde_json::{Value, json};
 use std::io::{Read, Write};
 use std::time::Duration;
@@ -10,63 +7,7 @@ use std::time::Duration;
 trait Transport: Read + Write {}
 impl<T: Read + Write> Transport for T {}
 
-/// Authoritative document and view state returned by `document.snapshot`.
-#[derive(Deserialize)]
-pub(crate) struct Snapshot {
-    pub bytes: Vec<u8>,
-    pub generation: u64,
-    pub selection: Selection,
-    pub context: EditContext,
-    pub last: Vec<Pid>,
-    pub path: Option<std::path::PathBuf>,
-    #[serde(default)]
-    pub native_copy_pending: bool,
-    pub undo: Option<String>,
-    pub redo: Option<String>,
-}
-
-/// What `session.status` answers.
-#[derive(Deserialize)]
-pub(crate) struct Status {
-    pub generation: u64,
-    pub undo: Option<String>,
-    pub redo: Option<String>,
-    /// The labels of one's own undo and redo (servers from 0.12 on).
-    #[serde(default)]
-    pub mine: Option<Labels>,
-    pub participants: Vec<Participant>,
-}
-
-/// Undo and redo labels.
-#[derive(Deserialize, Default)]
-pub(crate) struct Labels {
-    pub undo: Option<String>,
-    pub redo: Option<String>,
-}
-
-/// Someone connected to the server.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
-pub struct Participant {
-    /// The server's number for them.
-    pub client: u64,
-    /// Their name.
-    pub name: String,
-    /// Their color (sRGB).
-    pub color: [u8; 3],
-    /// This is the session's own connection.
-    pub you: bool,
-    /// What they selected: paths and world bounds.
-    pub selection: Vec<Selected>,
-}
-
-/// One selected entity of a participant.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
-pub struct Selected {
-    /// Its path.
-    pub path: String,
-    /// Its world bounds, when it has any.
-    pub bounds: Option<[[f64; 3]; 2]>,
-}
+pub(crate) use crate::link::{Snapshot, Status};
 
 /// One local authenticated framed JSON-RPC connection.
 pub(crate) struct Remote {

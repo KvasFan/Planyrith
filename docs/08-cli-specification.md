@@ -135,10 +135,11 @@ select 'face & plane:xy@0' ; move --targets selection --delta 0,0,700
 
 ## 3. Server verbs
 
-### `planyrith serve [--stdio | --socket <path|port>] [-f model.plyr] [--readonly] [--token <secret>]`
+### `planyrith serve [--stdio | --socket <path|port>] [--web <port|address> [--web-root <dir>]] [-f model.plyr] [--readonly] [--token <secret>]`
 JSON-RPC 2.0 server (newline-delimited JSON frames over stdio; or length-prefixed frames over
 a Unix socket or TCP: a bare port listens on localhost in the clear, an address such as
-`0.0.0.0:7400` on the network with every connection encrypted (§3.2); TCP needs `--token`). Methods:
+`0.0.0.0:7400` on the network with every connection encrypted (§3.2); TCP needs `--token`).
+`--web` also takes browsers (§3.3), alone or beside `--socket`. Methods:
 
 | Method | Params → Result |
 |---|---|
@@ -212,6 +213,29 @@ Each connection has fresh keys, so a recorded session cannot be read later even 
 choose by the same rule: the GUI connects encrypted to `host:port` and in the clear to a bare
 port or a socket path. The protocol is `planyrith_core::transport` (feature `transport`), so
 other clients can implement it from this description.
+
+### 3.3 Joining from the browser (1.7)
+`planyrith serve -f model.plyr --web 0.0.0.0:7400 --web-root dist/web --token <secret>` takes
+browsers on one port (a bare port: this machine only). A WebSocket on `/rpc` carries exactly
+the bytes of a socket connection, always encrypted as in §3.2: one binary message per flush,
+read as one byte stream, so messages may split or join frames. Any other `GET` serves the files
+of `--web-root` (the output of `tools/build-web.sh`; without it, a page saying so); paths
+cannot leave that directory. `--web` needs `--token`. The server says
+`browsers join at http://<address>/ (encrypted)`.
+
+The web build's File › Work Together… joins as the desktop does, by server (`host:port`), token,
+document and name; a page opened as `http://<address>/?join=<document>` opens the window with
+the server and the document filled in. The browser cannot wait for an answer, so the joined
+session never does: commands go to the server at once, with the session's selection and edit
+context, and their result arrives with the next document (the session asks `session.status`
+every half second and right after each change). Errors of commands appear when they arrive.
+View commands (camera, selection) stay in the browser. Undo and redo are the person's own
+(§3.1); saving writes the server's file. If the connection fails, the session keeps what had
+arrived as a local copy.
+
+The page itself travels in the clear: on a network that is not trusted, open the web build
+from a trusted copy instead (any `http://` origin may connect; browsers refuse `ws://` from
+`https://` pages).
 
 ### `planyrith repl -f model.plyr`
 Interactive line editor with completion over command names and params, history, `:undo`,
@@ -423,6 +447,17 @@ On failure: `{"ok": false, "error": {"code": "E1002", "message": "...", "param":
   server never disagree: a bare port (localhost, scripts and the existing GUI attachment) stays
   in the clear, an address (the network) is always encrypted, local clients of such a server
   included.
+
+- 2026-11-09 — **Joining from the browser** (§3.3, milestone 1.7). A WebSocket because it is
+  the only stream a page may open; it carries the socket protocol unchanged, so the server
+  needed a listener, not a second protocol, and the frames, methods and events stay one
+  specification. Always encrypted with the §3.2 handshake rather than by the bind address,
+  because the page cannot tell how the server listens, and rather than TLS, which needs
+  certificates a server on a local network does not have. The page's session does not wait
+  for answers (the browser's main thread cannot block): a sans-IO client
+  (`planyrith_gui::link`) is tested natively against the real server over a native WebSocket,
+  and in a headless browser when a test server is given. The server serves the web build
+  itself so that the page and the WebSocket share an origin.
 
 - 2026-11-09 — **Per-person undo** (§3.1, milestone 1.7). The concern of the shared-history
   decision below, that an older command undone under newer ones could fail validation, is met

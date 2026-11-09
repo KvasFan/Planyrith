@@ -75,6 +75,8 @@ The core never calls `std::fs` directly outside `NativeFs`. Open/save commands t
 - Static files only; no backend. Service worker caches the app for offline use (workbox-free,
   hand-written SW in JS, MIT). `Cross-Origin-Opener-Policy`/`Embedder-Policy` headers are *not*
   required (no threads).
+- `planyrith serve --web <address> --web-root <dir>` also serves these files, with the
+  WebSocket that lets the page join the server's document (File › Work Together…, docs/08 §3.3).
 
 ### 4.5 Limits and differences (documented in Help › Web)
 - Max document size ~ 1 GB (browser memory); textures downscaled to 4096 px.

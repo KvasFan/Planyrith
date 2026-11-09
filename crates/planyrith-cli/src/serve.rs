@@ -16,7 +16,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::io::{BufRead, Read, Write};
 use std::path::PathBuf;
 use std::rc::Rc;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use planyrith_core::commands::{CommandError, CommandRegistry, Engine, Event, GroupToken};
 use planyrith_core::document::{
@@ -104,11 +104,16 @@ const COLORS: [[u8; 3]; 8] = [
 pub fn serve(
     global: &Global,
     socket: Option<&str>,
+    web: Option<&str>,
+    web_root: Option<&std::path::Path>,
     token: Option<&str>,
     readonly: bool,
 ) -> Result<(), CliError> {
-    if socket.is_none() && token.is_some() {
-        return Err(CliError::usage("--token applies to --socket"));
+    if socket.is_none() && web.is_none() && token.is_some() {
+        return Err(CliError::usage("--token applies to --socket and --web"));
+    }
+    if web.is_none() && web_root.is_some() {
+        return Err(CliError::usage("--web-root applies to --web"));
     }
     let mut server = Server {
         global: global.clone(),
@@ -133,8 +138,8 @@ pub fn serve(
         let session = Session::open(global, false)?;
         server.adopt(session);
     }
-    if let Some(spec) = socket {
-        return serve_socket(&mut server, spec);
+    if socket.is_some() || web.is_some() {
+        return serve_network(&mut server, socket, web, web_root);
     }
     let stdin = std::io::stdin();
     for line in stdin.lock().lines() {
@@ -181,25 +186,62 @@ enum Incoming {
     Closed(u64),
 }
 
-/// A stream a connection can be read from on one thread and written to
-/// from another.
-trait Duplex: Read + Write + Send + Sized + 'static {
-    fn duplicate(&self) -> std::io::Result<Self>;
+/// An accepted connection, read on one thread and written from another.
+enum Conn {
+    Tcp(std::net::TcpStream),
+    #[cfg(unix)]
+    Unix(std::os::unix::net::UnixStream),
+    /// A browser's WebSocket (docs/08 §3.3).
+    Web(crate::web::WsPipe),
 }
 
-impl Duplex for std::net::TcpStream {
+impl Conn {
     fn duplicate(&self) -> std::io::Result<Self> {
-        let _ = self.set_nodelay(true);
-        self.try_clone()
+        Ok(match self {
+            Conn::Tcp(s) => {
+                let _ = s.set_nodelay(true);
+                Conn::Tcp(s.try_clone()?)
+            }
+            #[cfg(unix)]
+            Conn::Unix(s) => Conn::Unix(s.try_clone()?),
+            Conn::Web(p) => Conn::Web(p.duplicate()),
+        })
     }
 }
 
-#[cfg(unix)]
-impl Duplex for std::os::unix::net::UnixStream {
-    fn duplicate(&self) -> std::io::Result<Self> {
-        self.try_clone()
+impl Read for Conn {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        match self {
+            Conn::Tcp(s) => s.read(buf),
+            #[cfg(unix)]
+            Conn::Unix(s) => s.read(buf),
+            Conn::Web(p) => p.read(buf),
+        }
     }
 }
+
+impl Write for Conn {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        match self {
+            Conn::Tcp(s) => s.write(buf),
+            #[cfg(unix)]
+            Conn::Unix(s) => s.write(buf),
+            Conn::Web(p) => p.write(buf),
+        }
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        match self {
+            Conn::Tcp(s) => s.flush(),
+            #[cfg(unix)]
+            Conn::Unix(s) => s.flush(),
+            Conn::Web(p) => p.flush(),
+        }
+    }
+}
+
+/// Accepted connections and whether each is encrypted (docs/08 §3.2).
+type Accepted = std::sync::mpsc::Sender<(Conn, bool)>;
 
 /// Reads one connection's frames until it closes.
 fn read_frames(id: u64, mut reader: impl Read, tx: std::sync::mpsc::Sender<Incoming>) {
@@ -224,23 +266,15 @@ fn read_frames(id: u64, mut reader: impl Read, tx: std::sync::mpsc::Sender<Incom
     let _ = tx.send(Incoming::Closed(id));
 }
 
-/// Accepts connections on another thread and serves every client from this
-/// one, in the order their frames arrive.
-fn serve_clients<S: Duplex>(
-    server: &mut Server,
-    incoming: impl Iterator<Item = std::io::Result<S>> + Send + 'static,
-    encrypted: bool,
-) {
+/// Takes the connections the listeners accept on another thread and serves
+/// every client from this one, in the order their frames arrive.
+fn serve_clients(server: &mut Server, incoming: std::sync::mpsc::Receiver<(Conn, bool)>) {
     // Socket clients only: no standard input and output client.
     server.clients.clear();
     let token = server.token.clone().unwrap_or_default();
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
-        let mut next = 1u64;
-        for stream in incoming {
-            let Ok(mut stream) = stream else { continue };
-            let id = next;
-            next += 1;
+        for (id, (mut stream, encrypted)) in (1u64..).zip(incoming) {
             let tx = tx.clone();
             let token = token.clone();
             std::thread::spawn(move || {
@@ -270,15 +304,65 @@ fn serve_clients<S: Duplex>(
     }
 }
 
+/// A port number (this machine, in the clear) or an address (the network,
+/// encrypted, docs/08 §3.2); `None` for anything else.
+fn tcp_address(spec: &str) -> Option<(std::net::SocketAddr, bool)> {
+    match spec.parse::<u16>() {
+        Ok(port) => Some((std::net::SocketAddr::from(([127, 0, 0, 1], port)), false)),
+        Err(_) => spec.parse().ok().map(|a| (a, true)),
+    }
+}
+
+/// Serves the clients of `--socket` and `--web` until the process ends; the
+/// documents stay open across connections.
+fn serve_network(
+    server: &mut Server,
+    socket: Option<&str>,
+    web: Option<&str>,
+    web_root: Option<&std::path::Path>,
+) -> Result<(), CliError> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    if let Some(spec) = socket {
+        listen_socket(server, spec, tx.clone())?;
+    }
+    if let Some(spec) = web {
+        // A browser cannot tell how the server listens, so its connections
+        // are always encrypted; a bare port still stays on this machine.
+        let (address, _) = tcp_address(spec).ok_or_else(|| {
+            CliError::usage(format!("--web takes a port or an address, not `{spec}`"))
+        })?;
+        if server.token.is_none() {
+            return Err(CliError::usage(
+                "--web needs --token <secret>: anyone who can reach the port could connect",
+            ));
+        }
+        if let Some(root) = web_root
+            && !root.join("index.html").is_file()
+        {
+            return Err(CliError::usage(format!(
+                "{} has no index.html (the output of tools/build-web.sh)",
+                root.display()
+            )));
+        }
+        let sender = Mutex::new(tx.clone());
+        let bound = crate::web::listen(address, web_root.map(Into::into), move |pipe| {
+            sender
+                .lock()
+                .is_ok_and(|s| s.send((Conn::Web(pipe), true)).is_ok())
+        })
+        .map_err(|e| io_error("web", &e))?;
+        out::diagnostic(format!("browsers join at http://{bound}/ (encrypted)"));
+    }
+    drop(tx);
+    serve_clients(server, rx);
+    Ok(())
+}
+
 /// Listens on a TCP port (a number: localhost, 0 picks a free one; or an
 /// address such as `0.0.0.0:7400` to take clients from other machines) or
-/// a Unix socket path. The documents stay open across connections.
-fn serve_socket(server: &mut Server, spec: &str) -> Result<(), CliError> {
-    let address = match spec.parse::<u16>() {
-        Ok(port) => Some(std::net::SocketAddr::from(([127, 0, 0, 1], port))),
-        Err(_) => spec.parse::<std::net::SocketAddr>().ok(),
-    };
-    if let Some(address) = address {
+/// a Unix socket path.
+fn listen_socket(server: &Server, spec: &str, accepted: Accepted) -> Result<(), CliError> {
+    if let Some((address, encrypted)) = tcp_address(spec) {
         if server.token.is_none() {
             return Err(CliError::usage(
                 "a TCP socket needs --token <secret>: anyone who can reach the port could connect",
@@ -287,25 +371,26 @@ fn serve_socket(server: &mut Server, spec: &str) -> Result<(), CliError> {
         // An address (`host:port`) serves the network: connections are
         // encrypted, local ones included; a bare port stays on this machine
         // in the clear, as before (docs/08 §3.2).
-        let encrypted = spec.parse::<u16>().is_err();
         let listener = std::net::TcpListener::bind(address).map_err(|e| io_error("socket", &e))?;
         let addr = listener.local_addr().map_err(|e| io_error("socket", &e))?;
         out::diagnostic(format!(
             "listening on {addr}{}",
             if encrypted { " (encrypted)" } else { "" }
         ));
-        serve_clients(
-            server,
-            std::iter::repeat_with(move || listener.accept().map(|(s, _)| s)),
-            encrypted,
-        );
+        std::thread::spawn(move || {
+            for stream in listener.incoming().flatten() {
+                if accepted.send((Conn::Tcp(stream), encrypted)).is_err() {
+                    return;
+                }
+            }
+        });
         return Ok(());
     }
-    serve_unix(server, spec)
+    listen_unix(spec, accepted)
 }
 
 #[cfg(unix)]
-fn serve_unix(server: &mut Server, path: &str) -> Result<(), CliError> {
+fn listen_unix(path: &str, accepted: Accepted) -> Result<(), CliError> {
     use std::os::unix::fs::PermissionsExt;
     use std::os::unix::net::{UnixListener, UnixStream};
     let path = std::path::Path::new(path);
@@ -324,25 +409,18 @@ fn serve_unix(server: &mut Server, path: &str) -> Result<(), CliError> {
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
         .map_err(|e| io_error("socket", &e))?;
     out::diagnostic(format!("listening on {}", path.display()));
-    serve_clients(server, UnixIncoming(listener), false);
+    std::thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            if accepted.send((Conn::Unix(stream), false)).is_err() {
+                return;
+            }
+        }
+    });
     Ok(())
 }
 
-/// A Unix listener's connections, owned (for the accepting thread).
-#[cfg(unix)]
-struct UnixIncoming(std::os::unix::net::UnixListener);
-
-#[cfg(unix)]
-impl Iterator for UnixIncoming {
-    type Item = std::io::Result<std::os::unix::net::UnixStream>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        Some(self.0.accept().map(|(s, _)| s))
-    }
-}
-
 #[cfg(not(unix))]
-fn serve_unix(_server: &mut Server, path: &str) -> Result<(), CliError> {
+fn listen_unix(path: &str, _accepted: Accepted) -> Result<(), CliError> {
     Err(CliError::usage(format!(
         "`{path}` is not a port number or address, and Unix sockets are not available on this system"
     )))

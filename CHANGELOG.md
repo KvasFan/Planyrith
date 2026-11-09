@@ -12,6 +12,9 @@ All notable changes to Planyrith are recorded here. Versions follow
   changes of others when they touched nothing of it; `session.status` reports one's own
   labels. Joined desktop sessions undo their own changes. The core's `Engine::revert` takes
   back any applied step under the same rule, and undo steps have serial numbers.
+- Joining from the browser (docs/08 §3.3): `planyrith serve --web <port|address>` takes
+  browsers over an encrypted WebSocket and serves the web build from `--web-root`; the web
+  build has File › Work Together…, opened filled in by `?join=<document>`.
 
 ## 0.11.0-alpha.4 — 1.0 groundwork and the 1.1–1.6 previews (2026-11-09)
 

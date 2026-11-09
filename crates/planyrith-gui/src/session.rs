@@ -10,11 +10,10 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use planyrith_core::commands::{CommandRegistry, Delta, Engine, Event};
-use planyrith_core::document::{Camera, ContainerRef, Document};
+use planyrith_core::document::{Camera, ContainerRef, Document, EditContext};
 use planyrith_core::inference::{Inference, InferenceEngine, InferenceRequest};
 use planyrith_core::io::NoProgress;
 use planyrith_core::io::autosave::{self, Autosave, RowState};
-#[cfg(not(target_arch = "wasm32"))]
 use planyrith_core::io::native::read_document;
 use planyrith_core::io::native::{HistoryEntry, LoadedDocument, WriteOptions, write_document};
 use planyrith_core::io::storage::{Storage, StorageKey};
@@ -28,9 +27,13 @@ use crate::platform::{self, now_rfc3339};
 pub struct Session {
     #[cfg(not(target_arch = "wasm32"))]
     remote: Option<crate::remote::Remote>,
+    /// A document joined without waiting for answers (the browser,
+    /// docs/08 §3.3).
+    joined: Option<crate::link::Joined>,
+    /// A joined document has arrived (its camera then stays this view's).
+    joined_loaded: bool,
     /// The people working on the attached document (docs/08 §3.1).
-    #[cfg(not(target_arch = "wasm32"))]
-    pub participants: Vec<crate::remote::Participant>,
+    pub participants: Vec<crate::link::Participant>,
     /// When the server was last asked for news (seconds).
     #[cfg(not(target_arch = "wasm32"))]
     polled: f64,
@@ -182,7 +185,8 @@ impl Session {
                     .is_some_and(|p| planyrith_core::io::model_file::is_skp(&p.to_string_lossy())),
             #[cfg(not(target_arch = "wasm32"))]
             remote: None,
-            #[cfg(not(target_arch = "wasm32"))]
+            joined: None,
+            joined_loaded: false,
             participants: Vec::new(),
             #[cfg(not(target_arch = "wasm32"))]
             polled: f64::NEG_INFINITY,
@@ -350,6 +354,30 @@ impl Session {
 
     /// Runs a command and records it in the journal (docs/09 §3).
     pub fn execute(&mut self, name: &str, params: Value) -> Result<Value, String> {
+        let view_only = self
+            .engine
+            .registry()
+            .get(name)
+            .map(|c| c.meta().view_only)
+            .unwrap_or(false);
+        // Joined without waiting: changes go to the server and come back
+        // with the next document; the view stays here.
+        if !view_only && let Some(joined) = self.joined.as_mut() {
+            let selection: Vec<String> = self
+                .engine
+                .selection()
+                .iter()
+                .map(|p| p.to_string())
+                .collect();
+            let query = if selection.is_empty() {
+                "!all".to_string()
+            } else {
+                selection.join(" | ")
+            };
+            let context = self.engine.context().path.to_string();
+            joined.execute(name, params, &query, &context)?;
+            return Ok(Value::Null);
+        }
         #[cfg(not(target_arch = "wasm32"))]
         if self.remote.is_some() {
             let selection = self
@@ -383,12 +411,6 @@ impl Session {
             )?;
             return Ok(output["output"].clone());
         }
-        let view_only = self
-            .engine
-            .registry()
-            .get(name)
-            .map(|c| c.meta().view_only)
-            .unwrap_or(false);
         let camera_before = self.engine.document().camera;
         // What the command acts on, for the autosave journal.
         let state = self
@@ -435,7 +457,7 @@ impl Session {
                 self.transition = Some((camera_before, doc.camera, seconds));
             }
         }
-        if !view_only {
+        if !view_only && self.joined.is_none() {
             if let Some(autosave) = self.autosave.as_mut() {
                 self.autosaved = true;
                 let state = state.unwrap_or_default();
@@ -456,6 +478,9 @@ impl Session {
 
     /// Undoes the last step.
     pub fn undo(&mut self) -> Result<(), String> {
+        if let Some(joined) = self.joined.as_mut() {
+            return joined.history(true);
+        }
         #[cfg(not(target_arch = "wasm32"))]
         if let Some(remote) = self.remote.as_mut() {
             let mine = remote.own_history;
@@ -469,6 +494,9 @@ impl Session {
 
     /// Redoes the last undone step.
     pub fn redo(&mut self) -> Result<(), String> {
+        if let Some(joined) = self.joined.as_mut() {
+            return joined.history(false);
+        }
         #[cfg(not(target_arch = "wasm32"))]
         if let Some(remote) = self.remote.as_mut() {
             let mine = remote.own_history;
@@ -487,6 +515,13 @@ impl Session {
 
     /// Saves to an explicit destination or the session's default working file.
     pub fn save(&mut self, path: Option<&Path>) -> Result<PathBuf, String> {
+        if let Some(joined) = self.joined.as_mut() {
+            if path.is_some() {
+                return Err("A joined document is saved where the server keeps it".into());
+            }
+            joined.save()?;
+            return Ok(self.path.clone().unwrap_or_default());
+        }
         #[cfg(not(target_arch = "wasm32"))]
         if let Some(remote) = self.remote.as_mut() {
             let result = remote.call(
@@ -515,6 +550,9 @@ impl Session {
     /// `true` when [`Session::start_save`] applies: an attached server saves
     /// its own copy through [`Session::save`].
     pub fn saves_locally(&self) -> bool {
+        if self.joined.is_some() {
+            return false;
+        }
         #[cfg(not(target_arch = "wasm32"))]
         if self.remote.is_some() {
             return false;
@@ -623,16 +661,88 @@ impl Session {
     /// Whether this session dispatches to a native local server.
     pub fn is_attached(&self) -> bool {
         #[cfg(not(target_arch = "wasm32"))]
-        {
-            self.remote.is_some()
+        if self.remote.is_some() {
+            return true;
         }
-        #[cfg(target_arch = "wasm32")]
-        {
-            false
+        self.joined.is_some()
+    }
+
+    /// Joined without waiting for answers (the browser, docs/08 §3.3).
+    pub fn is_joined_async(&self) -> bool {
+        self.joined.is_some()
+    }
+
+    /// Joined without waiting, and the server has not let this session in
+    /// yet (docs/08 §3.3).
+    pub fn is_joining(&self) -> bool {
+        self.joined.as_ref().is_some_and(|j| !j.ready)
+    }
+
+    /// Joins the document `doc_id` as `name` over `socket` without waiting
+    /// for answers (the browser, docs/08 §3.3): the document arrives with
+    /// [`Session::poll_joined`].
+    pub fn join_over(
+        socket: Box<dyn crate::link::Socket>,
+        token: &str,
+        doc_id: &str,
+        name: &str,
+    ) -> Self {
+        let mut session = Self::new();
+        session.joined = Some(crate::link::Joined::new(socket, token, true, doc_id, name));
+        session
+    }
+
+    /// Exchanges messages with the server of a session joined without
+    /// waiting; a newer document replaces this one (the camera stays once
+    /// the first has arrived). Errors of earlier commands come back here.
+    /// When the connection fails, the session becomes a local copy of what
+    /// had arrived.
+    pub fn poll_joined(&mut self, now: f64) -> Result<(), String> {
+        let Some(joined) = self.joined.as_mut() else {
+            return Ok(());
+        };
+        let snapshot = match joined.poll(now) {
+            Ok(snapshot) => snapshot,
+            Err(e) => {
+                let local = self.leave();
+                *self = local;
+                return Err(e);
+            }
+        };
+        self.participants = joined.participants.clone();
+        let (errors, warnings) = joined.take_messages();
+        self.warnings.borrow_mut().extend(warnings);
+        let first = !self.joined_loaded;
+        if let Some(snapshot) = snapshot {
+            let loaded = read_document(&snapshot.bytes, &NoProgress).map_err(|e| e.to_string())?;
+            let camera = self.engine.document().camera;
+            let selection = self.engine.selection().clone();
+            let context = self.engine.context().clone();
+            self.engine.replace_document(loaded.document);
+            if !first {
+                self.engine.set_camera(camera);
+            }
+            let selection = selection.normalized(self.engine.document());
+            self.engine.set_selection(selection);
+            if self.engine.set_context(context).is_err() {
+                // What was open is gone: back to the model.
+                let _ = self.engine.set_context(EditContext::model());
+            }
+            self.joined_loaded = true;
+            self.path = snapshot.path;
+            self.index = None;
+            self.mark_saved();
+        }
+        match errors.into_iter().next() {
+            Some(e) => Err(e),
+            None => Ok(()),
         }
     }
     /// Undo label from the authoritative history.
     pub fn undo_label(&self) -> Option<&str> {
+        if let Some(joined) = &self.joined {
+            return joined.undo.as_deref();
+        }
         #[cfg(not(target_arch = "wasm32"))]
         if let Some(remote) = &self.remote {
             return remote.undo.as_deref();
@@ -641,6 +751,9 @@ impl Session {
     }
     /// Redo label from the authoritative history.
     pub fn redo_label(&self) -> Option<&str> {
+        if let Some(joined) = &self.joined {
+            return joined.redo.as_deref();
+        }
         #[cfg(not(target_arch = "wasm32"))]
         if let Some(remote) = &self.remote {
             return remote.redo.as_deref();
@@ -691,7 +804,6 @@ impl Session {
     }
 
     /// Leaves the server, keeping a local copy of the document to save.
-    #[cfg(not(target_arch = "wasm32"))]
     pub fn leave(&mut self) -> Self {
         let mut local = Self::new();
         local

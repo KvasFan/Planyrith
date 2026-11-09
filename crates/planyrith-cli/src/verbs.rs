@@ -88,9 +88,18 @@ pub fn dispatch(global: Global, verb: Verb) -> Result<(), CliError> {
         Verb::Serve {
             stdio: _,
             socket,
+            web,
+            web_root,
             readonly,
             token,
-        } => crate::serve::serve(&global, socket.as_deref(), token.as_deref(), readonly),
+        } => crate::serve::serve(
+            &global,
+            socket.as_deref(),
+            web.as_deref(),
+            web_root.as_deref(),
+            token.as_deref(),
+            readonly,
+        ),
     }
 }
 

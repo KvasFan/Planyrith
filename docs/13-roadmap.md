@@ -188,9 +188,10 @@ At the user's request ("continue with milestones", 2026-11-09):
 At the user's request ("procedi con altri features", 2026-11-09):
 1. **Per-person undo:** each person takes back their own changes, under newer ones by others
    when nothing is shared (docs/08 §3.1).
-2. **Joining from the browser.**
+2. **Joining from the browser:** `serve --web` with a WebSocket and the web build; the web
+   build's Work Together (docs/08 §3.3).
 - **Accept:** a fuzzed property for out-of-order undo, a CLI test with two clients and a GUI
-  test with two sessions; documentation.
+  test with two sessions; a browser session tested against the real server; documentation.
 
 ## Post-1.0 candidates
 None open.
@@ -199,7 +200,7 @@ None open.
 
 - 2026-11-09 — **Milestone 1.7.** Asked to go on with more features after the 0.11.0-alpha.4
   release, the two remaining candidates become a milestone. Per-person undo comes first: it
-  needs no new transport and makes working together usable for real edits.
+  needs no new transport and makes working together usable for real edits. Both are done.
 
 - 2026-11-09 — **Milestone 1.5.** Collaborative editing, the last candidate, with the design
   in docs/08 Decisions ("Working together"): a server that orders commands, chosen because it

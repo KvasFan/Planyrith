@@ -37,6 +37,10 @@ web-time = "1"
 
 # The web build (docs/11 §4): the browser's IndexedDB, files and events.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+# Joining a server from the browser, encrypted (docs/08 §3.3).
+planyrith-core = { workspace = true, features = ["transport"] }
+# The browser's random numbers for the encrypted handshake.
+getrandom = { version = "0.3", features = ["wasm_js"] }
 # WebGPU where the browser has it, WebGL2 elsewhere (docs/11 §4.2).
 wgpu = { workspace = true, features = ["webgl"] }
 wasm-bindgen = "0.2"
@@ -47,6 +51,7 @@ web-sys = { version = "0.3", features = [
     "Window", "Document", "Element", "HtmlElement", "HtmlInputElement", "HtmlAnchorElement",
     "HtmlCanvasElement", "File", "FileList", "Blob", "BlobPropertyBag", "Url", "Event",
     "Storage", "Navigator", "StorageManager", "Location", "BeforeUnloadEvent",
+    "WebSocket", "BinaryType", "MessageEvent", "CloseEvent",
 ] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
@@ -55,6 +60,10 @@ planyrith-core = { workspace = true, features = ["scripting", "brep", "transport
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test = "0.3"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+# A browser's WebSocket in the joining tests (docs/08 §3.3).
+tungstenite = { workspace = true }
 
 [dev-dependencies]
 fluent-syntax = "0.12"

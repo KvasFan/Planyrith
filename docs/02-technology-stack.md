@@ -177,6 +177,12 @@ deterministic profile; plugins trade speed for that, which suits command-driven 
 
 ## Decisions
 
+- 2026-11-09 — **tungstenite for browsers joining a server** (docs/08 §3.3), MIT/Apache-2.0,
+  pure Rust, blocking and stream-based like the rest of the server. Only its `handshake`
+  feature (no TLS: connections are encrypted by `snow`). The CLI depends on it; the GUI only in
+  its tests, as the browser's stand-in. The web build gets `snow` with `getrandom`'s `wasm_js`
+  backend (the browser's random numbers).
+
 - 2026-11-09 — **snow for encrypted connections** (docs/08 §3.2), MIT/Apache-2.0, pure Rust
   (ChaCha20-Poly1305, BLAKE2s, X25519 from RustCrypto/dalek). Its `std` feature would enable
   `ring` (C and assembly), so it is used without default features: `default-resolver` and the

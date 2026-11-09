@@ -1,12 +1,12 @@
-//! File › Work Together… (docs/08 §3.1, desktop): join a document on a
-//! `planyrith serve` server under a name, see who else works on it and what
-//! they selected, and leave with a local copy.
+//! File › Work Together… (docs/08 §3.1, and §3.3 in the browser): join a
+//! document on a `planyrith serve` server under a name, see who else works
+//! on it and what they selected, and leave with a local copy.
 
 use glam::DVec3;
 use planyrith_core::document::Rgba8;
 
 use crate::i18n::t;
-use crate::remote::Participant;
+use crate::link::Participant;
 use crate::session::Session;
 
 /// The window's state.
@@ -101,6 +101,17 @@ pub fn chip(ui: &mut egui::Ui, p: &Participant) {
 }
 
 impl Together {
+    /// Opens the window filled in with `address` and `document` (a page
+    /// opened with `?join=<document>` from a server, docs/08 §3.3).
+    #[cfg(target_arch = "wasm32")]
+    pub fn prefill(&mut self, address: &str, document: &str) {
+        self.open = true;
+        self.address = address.to_string();
+        if !document.is_empty() {
+            self.document = document.to_string();
+        }
+    }
+
     /// Draws the window; may replace `session` (joining or leaving).
     pub fn window(&mut self, ctx: &egui::Context, session: &mut Session) {
         if !self.open {
@@ -110,22 +121,39 @@ impl Together {
         egui::Window::new(t("Work Together"))
             .open(&mut open)
             .default_width(360.0)
+            .pivot(egui::Align2::CENTER_CENTER)
+            .default_pos(ctx.content_rect().center())
             .show(ctx, |ui| {
+                if session.is_joining() {
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        ui.label(t("Joining…"));
+                    });
+                    if ui.button(t("Cancel")).clicked() {
+                        *session = session.leave();
+                    }
+                    return;
+                }
                 if session.is_attached() {
                     ui.label(t("Working on the server's document with:"));
                     for p in &session.participants {
                         ui.push_id(p.client, |ui| ui.horizontal(|ui| chip(ui, p)));
                     }
                     ui.weak(t(
-                        "Each person has a selection of their own; commands, undo and saving run on the server.",
+                        "Each person has a selection and an undo of their own; commands and saving run on the server.",
                     ));
                     if ui.button(t("Leave (keep a local copy)")).clicked() {
                         *session = session.leave();
                     }
                     return;
                 }
+                #[cfg(not(target_arch = "wasm32"))]
                 ui.label(t(
                     "Join a document someone shares with: planyrith serve -f model.plyr --socket 0.0.0.0:7400 --token <secret>",
+                ));
+                #[cfg(target_arch = "wasm32")]
+                ui.label(t(
+                    "Join a document someone shares with: planyrith serve -f model.plyr --web 0.0.0.0:7400 --web-root <web build> --token <secret>",
                 ));
                 egui::Grid::new("together").num_columns(2).show(ui, |ui| {
                     ui.label(t("Server"));
@@ -154,12 +182,27 @@ impl Together {
                     .add_enabled(ready, egui::Button::new(t("Join")))
                     .clicked()
                 {
-                    match Session::join(
+                    #[cfg(not(target_arch = "wasm32"))]
+                    let joined = Session::join(
                         self.address.trim(),
                         &self.token,
                         self.document.trim(),
                         self.name.trim(),
-                    ) {
+                    );
+                    // The browser does not wait: the session joins as
+                    // answers arrive.
+                    #[cfg(target_arch = "wasm32")]
+                    let joined = crate::link::BrowserSocket::connect(self.address.trim()).map(
+                        |socket| {
+                            Session::join_over(
+                                Box::new(socket),
+                                &self.token,
+                                self.document.trim(),
+                                self.name.trim(),
+                            )
+                        },
+                    );
+                    match joined {
                         Ok(joined) => {
                             session.drop_autosave();
                             *session = joined;
@@ -180,7 +223,7 @@ impl Together {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
-    use crate::remote::Selected;
+    use crate::link::Selected;
 
     #[test]
     fn others_selections_become_colored_boxes() {

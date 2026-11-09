@@ -23,6 +23,7 @@ mod serve;
 mod session;
 mod shell;
 mod verbs;
+mod web;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -220,10 +221,17 @@ enum Verb {
         /// frames are prefixed by their length (u32, little-endian).
         #[arg(long, value_name = "PATH|PORT", conflicts_with = "stdio")]
         socket: Option<String>,
+        /// Take browsers on a localhost port or an address (encrypted): a
+        /// WebSocket on `/rpc`, and the web build's files (docs/08 §3.3).
+        #[arg(long, value_name = "PORT|ADDRESS", conflicts_with = "stdio")]
+        web: Option<String>,
+        /// The web build to serve with --web (the output of tools/build-web.sh).
+        #[arg(long, value_name = "DIR")]
+        web_root: Option<std::path::PathBuf>,
         /// Refuse commands that change documents, undo/redo and saving.
         #[arg(long)]
         readonly: bool,
-        /// Shared secret socket clients present with `server.auth` (required for TCP).
+        /// Shared secret clients present with `server.auth` (required for TCP and --web).
         #[arg(long, value_name = "SECRET")]
         token: Option<String>,
     },
