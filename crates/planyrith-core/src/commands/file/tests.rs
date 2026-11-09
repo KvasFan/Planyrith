@@ -2675,3 +2675,37 @@ fn fbx_corpus_survey() {
     );
     println!("{}\n{}", failed.join("\n"), different.join("\n"));
 }
+
+/// An image entity has bounds: its rectangle where it is placed (zoom to
+/// selection, others' selections when working together, queries).
+#[test]
+fn image_entities_have_bounds() {
+    let (mut e, storage) = engine();
+    storage
+        .write(&StorageKey::new("plan.png"), &png(40, 20, [90, 140, 200]))
+        .unwrap();
+    run(
+        &mut e,
+        "import",
+        json!({ "path": "plan.png", "at": [100, 200, 0] }),
+    );
+    let doc = e.document();
+    let id = *doc
+        .model
+        .order()
+        .iter()
+        .find(|id| matches!(id, crate::ids::EntityId::Image(_)))
+        .expect("an image entity");
+    let path = crate::document::EntityPath::in_model(crate::document::EntityKey::Id(id));
+    let b = doc.occurrence_aabb(&path).expect("bounds");
+    assert!(
+        (b.min.x - 100.0).abs() < 1e-6 && (b.min.y - 200.0).abs() < 1e-6,
+        "{b:?}"
+    );
+    let size = b.max - b.min;
+    assert!(size.x > 0.0 && size.y > 0.0 && size.z.abs() < 1e-9, "{b:?}");
+    assert!(
+        (size.x / size.y - 2.0).abs() < 1e-6,
+        "keeps the picture's proportions"
+    );
+}

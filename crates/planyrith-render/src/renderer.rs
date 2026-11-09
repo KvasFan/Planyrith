@@ -729,6 +729,7 @@ impl Renderer {
             ExtractOptions {
                 include_hidden: show_hidden,
                 smooth_normals: true,
+                ..ExtractOptions::default()
             },
         )?;
         let entities = doc.container(container).ok_or_else(|| {

@@ -6,6 +6,10 @@ All notable changes to Planyrith are recorded here. Versions follow
 
 ## Unreleased
 
+- Fixed: path-traced images showed reversed faces in the default back color
+  (blue floors in real models); an unpainted back now shows the front's
+  material. Images now have bounds (zoom to selection, queries), queries name
+  an image's material, and `render --gpu` reports the graphics card used.
 - Work together: several people edit one document at once through
   `planyrith serve` (now also on a network address). Each has a selection of
   their own, sees who else is connected and their selections in their colors,

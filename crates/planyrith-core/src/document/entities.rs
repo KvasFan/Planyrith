@@ -385,6 +385,20 @@ pub struct ImageEntity {
     pub material: MaterialId,
 }
 
+impl ImageEntity {
+    /// The rectangle's corners in its container's coordinates.
+    pub fn corners(&self) -> [DVec3; 4] {
+        let (w, h) = (self.width.as_mm(), self.height.as_mm());
+        [
+            DVec3::ZERO,
+            DVec3::new(w, 0.0, 0.0),
+            DVec3::new(w, h, 0.0),
+            DVec3::new(0.0, h, 0.0),
+        ]
+        .map(|c| self.transform.transform_point3(c))
+    }
+}
+
 /// A section plane (docs/04 §3.8); cuts only its container's contents.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SectionPlane {

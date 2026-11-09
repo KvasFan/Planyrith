@@ -126,6 +126,10 @@ pub struct ExtractOptions {
     pub include_hidden: bool,
     /// Average normals across `SOFT` edges (docs/03 §5).
     pub smooth_normals: bool,
+    /// A back side without a material of its own shows the front side's
+    /// material and mapping (docs/06 §11.1, realistic images of models with
+    /// reversed faces); otherwise it shows the default back material.
+    pub unpainted_back_as_front: bool,
 }
 
 impl Default for ExtractOptions {
@@ -133,6 +137,7 @@ impl Default for ExtractOptions {
         ExtractOptions {
             include_hidden: false,
             smooth_normals: true,
+            unpainted_back_as_front: false,
         }
     }
 }
@@ -307,13 +312,26 @@ pub fn extract(
         out.face_hidden.push(hidden);
         let frame = face.plane.frame();
         for side in [FrontOrBack::Front, FrontOrBack::Back] {
-            let (material, map) = match side {
-                FrontOrBack::Front => (face.sides.material_front, face.sides.uv_front.as_ref()),
-                FrontOrBack::Back => (face.sides.material_back, face.sides.uv_back.as_ref()),
+            let (material, map, key_side) = match side {
+                FrontOrBack::Back
+                    if opts.unpainted_back_as_front && face.sides.material_back.is_none() =>
+                {
+                    (
+                        face.sides.material_front,
+                        face.sides.uv_front.as_ref(),
+                        FrontOrBack::Front,
+                    )
+                }
+                FrontOrBack::Front => (
+                    face.sides.material_front,
+                    face.sides.uv_front.as_ref(),
+                    side,
+                ),
+                FrontOrBack::Back => (face.sides.material_back, face.sides.uv_back.as_ref(), side),
             };
             let tile = doc
                 .materials
-                .get(doc.materials.resolve(material, side))
+                .get(doc.materials.resolve(material, key_side))
                 .and_then(|m| m.texture.as_ref())
                 .map(|t| t.size_mm);
             let base = out.positions.len() as u32;
@@ -330,7 +348,12 @@ pub fn extract(
                     .push(uv_of(map, frame.to_2d(p), tess.vertices[k], p, tile));
                 out.face_ids.push(local);
             }
-            let bucket = buckets.entry(MaterialKey { material, side }).or_default();
+            let bucket = buckets
+                .entry(MaterialKey {
+                    material,
+                    side: key_side,
+                })
+                .or_default();
             for t in &tess.triangles {
                 if side == FrontOrBack::Front {
                     bucket.extend([base + t[0], base + t[1], base + t[2]]);
@@ -935,6 +958,44 @@ mod tests {
         assert_eq!(m.bounds.max, DVec3::splat(1000.0));
     }
 
+    /// docs/06 §11.1: for realistic images an unpainted back shows the
+    /// front's material (reversed faces in imported models).
+    #[test]
+    fn unpainted_backs_can_show_the_front_material() {
+        let mut e = engine();
+        cube(&mut e);
+        run(
+            &mut e,
+            "material-create",
+            json!({ "name": "Brick", "color": "#B03A2E" }),
+        );
+        run(
+            &mut e,
+            "material-apply",
+            json!({ "targets": "face", "material": "Brick" }),
+        );
+        let usual = extract(e.document(), ContainerRef::Model, ExtractOptions::default()).unwrap();
+        assert!(
+            usual
+                .indices_by_material
+                .iter()
+                .any(|(k, _)| k.side == FrontOrBack::Back && k.material.is_none())
+        );
+        let both = extract(
+            e.document(),
+            ContainerRef::Model,
+            ExtractOptions {
+                unpainted_back_as_front: true,
+                ..ExtractOptions::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(both.indices_by_material.len(), 1, "one key: the front's");
+        let (key, range) = &both.indices_by_material[0];
+        assert!(key.material.is_some() && key.side == FrontOrBack::Front);
+        assert_eq!(range.end - range.start, 6 * 2 * 2 * 3);
+    }
+
     #[test]
     fn soft_edges_smooth_normals_and_hidden_entities_are_left_out() {
         let mut e = engine();
@@ -972,6 +1033,7 @@ mod tests {
             ExtractOptions {
                 include_hidden: true,
                 smooth_normals: false,
+                ..ExtractOptions::default()
             },
         )
         .unwrap();

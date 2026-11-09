@@ -615,6 +615,11 @@ pub(crate) fn entity_row(
                     .and_then(|m| doc.materials.get(m))
                     .map(|m| json!(m.name))
                     .unwrap_or(Value::Null),
+                EntityId::Image(i) => entities
+                    .image(i)
+                    .and_then(|x| doc.materials.get(x.material))
+                    .map(|m| json!(m.name))
+                    .unwrap_or(Value::Null),
                 _ => Value::Null,
             },
             "length" => number(measures.and_then(|m| m.length)),
@@ -648,6 +653,11 @@ pub(crate) fn entity_row(
                         .map(|s| s.transformed(&to_context).aabb())
                         .ok(),
                     EntityId::Face(f) => mesh.face_aabb(f).map(|b| b.transformed(&to_context)).ok(),
+                    EntityId::Image(i) => entities.image(i).map(|x| {
+                        planyrith_core::math::Aabb::from_points(
+                            x.corners().map(|c| to_context.transform_point3(c)),
+                        )
+                    }),
                     _ => entities
                         .definition_of(id)
                         .and_then(|d| doc.definition(d))

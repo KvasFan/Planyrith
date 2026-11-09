@@ -175,7 +175,11 @@ pub fn render(global: &Global, args: &RenderArgs) -> Result<(), CliError> {
         "images": outputs,
         "width": args.width,
         "height": args.height,
-        "adapter": gpu.as_ref().map_or_else(|| "path tracer (CPU)".to_string(), |g| g.adapter.name.clone()),
+        "adapter": match (&gpu, &compute) {
+            (Some(g), _) => g.adapter.name.clone(),
+            (None, Some((_, _, info))) => format!("path tracer ({})", info.name),
+            (None, None) => "path tracer (CPU)".to_string(),
+        },
     });
     if global.json || global.jsonl {
         out::line(json!({

@@ -200,7 +200,8 @@ Labels appear after 300 ms hover near the cursor (tooltip style), never obscurin
 A final image traced on the CPU, so it needs no graphics adapter (`planyrith-render::path_trace`):
 - **Scene:** the visible occurrences as the viewport extracts them (smooth normals across soft
   edges, texture coordinates, front and back of each face as separate triangles, only a
-  triangle's front counting), in world coordinates, in a bounding-volume hierarchy (median
+  triangle's front counting; a back without a material of its own shows the front's material,
+  since unpainted backs in real models are mostly reversed faces), in world coordinates, in a bounding-volume hierarchy (median
   splits on the longest axis, four triangles per leaf); a ground plane at the model's lowest
   point in the style's ground color (else a warm light gray).
 - **Light:** the sun of the Shadows settings (or a default afternoon sun when they are off or
@@ -274,6 +275,13 @@ exposes a frame-time overlay (`F11` panel).
 - All GPU work is on the main thread (wgpu is `Send`, but egui integration owns the frame).
 
 ## Decisions
+
+- 2026-11-09 — **Unpainted backs in path-traced images** (§11.1). Rendering a real house model
+  showed most floors in the default back color, a blue-gray: they were faces turned upside down,
+  which the viewport rightly shows as backs but a realistic image should not. Path-traced images
+  give a back without its own material the front's material and mapping
+  (`ExtractOptions::unpainted_back_as_front`); the viewport keeps showing backs as backs, so
+  reversed faces stay visible while modeling.
 
 - 2026-11-03 — **Two shadow cascades** (§3.1). The sun's depth is drawn twice into a
   two-layer 2048² map: layer 1 covers the whole model as before; layer 0 covers the model

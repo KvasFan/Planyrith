@@ -555,8 +555,9 @@ impl Document {
     }
 
     /// World bounds of an entity occurrence (docs/06 §7 zoom to selection):
-    /// an edge's segment, a face's loops, or a group's or instance's
-    /// contents; `None` for other entities and paths that do not resolve.
+    /// an edge's segment, a face's loops, an image's rectangle, or a group's
+    /// or instance's contents; `None` for other entities and paths that do
+    /// not resolve.
     pub fn occurrence_aabb(&self, path: &EntityPath) -> Option<Aabb> {
         let resolved = self.resolve(path).ok()?;
         let entities = self.container(resolved.container)?;
@@ -565,6 +566,12 @@ impl Document {
         let bounds = match resolved.entity {
             EntityId::Edge(e) => mesh.edge_segment(e).ok()?.aabb().transformed(&world),
             EntityId::Face(f) => mesh.face_aabb(f).ok()?.transformed(&world),
+            EntityId::Image(i) => Aabb::from_points(
+                entities
+                    .image(i)?
+                    .corners()
+                    .map(|c| world.transform_point3(c)),
+            ),
             id => {
                 let def = self.definition(entities.definition_of(id)?)?;
                 let local = entities.transform_of(id)?;

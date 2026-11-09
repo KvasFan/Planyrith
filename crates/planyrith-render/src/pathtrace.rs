@@ -283,9 +283,17 @@ fn scene(doc: &Document, style: &Style) -> Scene {
     let mut triangles = Vec::new();
     let monochrome = style.faces.mode == FaceMode::Monochrome;
     for item in items.iter().filter(|i| !i.hidden) {
-        let mesh = meshes
-            .entry(item.container)
-            .or_insert_with(|| extract(doc, item.container, ExtractOptions::default()).ok());
+        let mesh = meshes.entry(item.container).or_insert_with(|| {
+            extract(
+                doc,
+                item.container,
+                ExtractOptions {
+                    unpainted_back_as_front: true,
+                    ..ExtractOptions::default()
+                },
+            )
+            .ok()
+        });
         let Some(mesh) = mesh.as_ref() else { continue };
         let normal_matrix = item.world.matrix3.inverse().transpose();
         let flip = item.world.matrix3.determinant() < 0.0;
