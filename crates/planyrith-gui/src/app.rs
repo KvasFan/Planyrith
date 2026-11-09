@@ -562,6 +562,15 @@ impl App {
     /// Runs a command, reporting failures in the status bar.
     /// Splits the viewport (docs/07 §1 "multiple viewports"): extra views
     /// from the top, the front and the right, parallel and fitted to the
+    /// `true` while a document is being opened in the background.
+    #[cfg(test)]
+    pub(crate) fn is_opening(&self) -> bool {
+        #[cfg(not(target_arch = "wasm32"))]
+        return self.opening.is_some();
+        #[cfg(target_arch = "wasm32")]
+        false
+    }
+
     /// Shows `pane` in the touch layout's drawer (or closes it).
     #[cfg(test)]
     pub(crate) fn set_drawer(&mut self, pane: Option<Pane>) {
@@ -1852,9 +1861,9 @@ impl App {
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing.x = 2.0;
             let group_gap = |ui: &mut egui::Ui| {
-                ui.add_space(4.0);
+                ui.add_space(2.0);
                 ui.separator();
-                ui.add_space(4.0);
+                ui.add_space(2.0);
             };
             if icons::button(ui, Icon::New, false, &t("New (Ctrl+N)")).clicked() {
                 self.guarded(Pending::New);

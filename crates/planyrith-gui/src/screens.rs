@@ -16,6 +16,15 @@ use crate::app::App;
 use crate::theme::{self, ThemeChoice};
 
 fn save(harness: &mut Harness<'_, App>, dir: &std::path::Path, name: &str) {
+    // A large document opens in the background: wait for it (two minutes
+    // at most).
+    for _ in 0..12_000 {
+        if !harness.state().is_opening() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        harness.step();
+    }
     harness.run_steps(4);
     let image = harness.render().expect("rendered");
     image.save(dir.join(format!("{name}.png"))).expect("saved");
@@ -164,12 +173,12 @@ fn screenshots() {
         harness.run_steps(2);
         // The documents used for review screenshots may lack these.
         if tab == "Materials"
-            && let Some(oak) = harness.query_by_label("Oak")
+            && let Some(oak) = harness.query_all_by_label("Oak").next()
         {
             oak.click();
         }
         if tab == "Components"
-            && let Some(component) = harness.query_by_label_contains("in model")
+            && let Some(component) = harness.query_all_by_label_contains("in model").next()
         {
             component.click();
         }
