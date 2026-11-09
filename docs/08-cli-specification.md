@@ -137,8 +137,8 @@ select 'face & plane:xy@0' ; move --targets selection --delta 0,0,700
 
 ### `planyrith serve [--stdio | --socket <path|port>] [-f model.plyr] [--readonly] [--token <secret>]`
 JSON-RPC 2.0 server (newline-delimited JSON frames over stdio; or length-prefixed frames over
-a Unix socket or TCP: a bare port listens on localhost, an address such as `0.0.0.0:7400` on the
-network; TCP needs `--token`). Methods:
+a Unix socket or TCP: a bare port listens on localhost in the clear, an address such as
+`0.0.0.0:7400` on the network with every connection encrypted (§3.2); TCP needs `--token`). Methods:
 
 | Method | Params → Result |
 |---|---|
@@ -186,9 +186,21 @@ applies to the document as the commands before it left it.
   appear in the status bar as colored dots, and their selections as dashed boxes in their
   colors in the viewport. Leave keeps a local copy to save. Hosting is
   `planyrith serve -f model.plyr --socket 0.0.0.0:7400 --token <secret>`.
-- **Security:** the token is checked in constant time, but frames are not encrypted (no TLS
-  implementation without C code is available, docs/02); across untrusted networks use an
-  encrypted tunnel (SSH, VPN).
+- **Security:** connections to an address are encrypted (§3.2); the token is also checked in
+  constant time by `server.auth`.
+
+### 3.2 Encrypted connections (1.6)
+When the server listens on an address (`--socket host:port`, the form that serves the network),
+every connection starts with a Noise handshake (`Noise_NNpsk0_25519_ChaChaPoly_BLAKE2s`) whose
+pre-shared key is derived from the token (BLAKE3 key derivation); then the length-prefixed
+frames travel inside encrypted messages (a big-endian `u16` length, at most 65 535 bytes, the
+last 16 the authentication tag). A client without the token cannot complete the handshake, an
+observer sees nothing of the frames, and a changed or replayed message ends the connection.
+Each connection has fresh keys, so a recorded session cannot be read later even with the token
+(the ephemeral keys are gone). The server says `listening on <address> (encrypted)`. Clients
+choose by the same rule: the GUI connects encrypted to `host:port` and in the clear to a bare
+port or a socket path. The protocol is `planyrith_core::transport` (feature `transport`), so
+other clients can implement it from this description.
 
 ### `planyrith repl -f model.plyr`
 Interactive line editor with completion over command names and params, history, `:undo`,
@@ -392,6 +404,14 @@ On failure: `{"ok": false, "error": {"code": "E1002", "message": "...", "param":
   A plugin's parameter called `steps` uses `--steps <count>`; interactive help
   is then `--tool-steps` instead of `--steps`. Semantic form lengths/angles
   enrich the schema, so their CLI options accept units.
+- 2026-11-09 — **Encrypted connections** (§3.2). Noise with the token as pre-shared key
+  instead of TLS: no TLS implementation without C code is available (docs/02), Noise's
+  implementation (`snow`) is pure Rust, and the token already is the shared secret, so no
+  certificates are needed. The address form chooses encryption on both sides, so a client and a
+  server never disagree: a bare port (localhost, scripts and the existing GUI attachment) stays
+  in the clear, an address (the network) is always encrypted, local clients of such a server
+  included.
+
 - 2026-11-09 — **Working together** (§3.1). A server that orders commands rather than a
   replicated document with a merge model: the server already applied commands one at a time,
   every command is a deterministic, validated operation on the current document, and a CAD

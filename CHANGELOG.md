@@ -6,6 +6,10 @@ All notable changes to Planyrith are recorded here. Versions follow
 
 ## Unreleased
 
+- Encrypted connections: a server on a network address
+  (`planyrith serve --socket 0.0.0.0:7400 --token …`) encrypts every
+  connection, with keys derived from the token; File › Work Together…
+  connects encrypted to such addresses.
 - Fixed: when working together, `last` in a query could name what another
   person had just created; it is now each person's own.
 - Fixed: bounds of turned components nested in turned groups were too large,

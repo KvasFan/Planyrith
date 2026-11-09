@@ -49,6 +49,10 @@ web-sys = { version = "0.3", features = [
     "Storage", "Navigator", "StorageManager", "Location", "BeforeUnloadEvent",
 ] }
 
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# Encrypted connections to a server (docs/08 §3.2), on the desktop.
+planyrith-core = { workspace = true, features = ["scripting", "brep", "transport"] }
+
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test = "0.3"
 

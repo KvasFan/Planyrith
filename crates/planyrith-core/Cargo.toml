@@ -54,6 +54,7 @@ ttf-parser = { workspace = true }
 rayon = { workspace = true, optional = true }
 rhai = { workspace = true, optional = true }
 wasmi = { workspace = true, optional = true }
+snow = { workspace = true, optional = true }
 toml = { workspace = true, optional = true }
 truck-modeling = { workspace = true, optional = true }
 truck-stepio = { workspace = true, optional = true }
@@ -75,6 +76,8 @@ default = []
 brep = ["dep:truck-modeling", "dep:truck-stepio", "dep:truck-topology", "dep:truck-meshalgo", "dep:truck-shapeops"]
 # Sandboxed Rhai scripting and declarative plugin manifests (docs/10).
 scripting = ["dep:rhai", "dep:toml", "dep:wasmi"]
+# Encrypted serve connections (docs/08 §3.2).
+transport = ["dep:snow"]
 # rayon-based data parallelism on desktop targets (docs/01 §6).
 parallel = ["dep:rayon"]
 

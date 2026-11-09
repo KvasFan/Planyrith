@@ -183,21 +183,21 @@ enum Incoming {
 
 /// A stream a connection can be read from on one thread and written to
 /// from another.
-trait Duplex: Read + Write + Send + 'static {
-    fn duplicate(&self) -> std::io::Result<Box<dyn Write + Send>>;
+trait Duplex: Read + Write + Send + Sized + 'static {
+    fn duplicate(&self) -> std::io::Result<Self>;
 }
 
 impl Duplex for std::net::TcpStream {
-    fn duplicate(&self) -> std::io::Result<Box<dyn Write + Send>> {
+    fn duplicate(&self) -> std::io::Result<Self> {
         let _ = self.set_nodelay(true);
-        Ok(Box::new(self.try_clone()?))
+        self.try_clone()
     }
 }
 
 #[cfg(unix)]
 impl Duplex for std::os::unix::net::UnixStream {
-    fn duplicate(&self) -> std::io::Result<Box<dyn Write + Send>> {
-        Ok(Box::new(self.try_clone()?))
+    fn duplicate(&self) -> std::io::Result<Self> {
+        self.try_clone()
     }
 }
 
@@ -229,24 +229,40 @@ fn read_frames(id: u64, mut reader: impl Read, tx: std::sync::mpsc::Sender<Incom
 fn serve_clients<S: Duplex>(
     server: &mut Server,
     incoming: impl Iterator<Item = std::io::Result<S>> + Send + 'static,
+    encrypted: bool,
 ) {
     // Socket clients only: no standard input and output client.
     server.clients.clear();
+    let token = server.token.clone().unwrap_or_default();
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let mut next = 1u64;
         for stream in incoming {
-            let Ok(stream) = stream else { continue };
-            let Ok(writer) = stream.duplicate() else {
-                continue;
-            };
+            let Ok(mut stream) = stream else { continue };
             let id = next;
             next += 1;
-            if tx.send(Incoming::Open(id, writer)).is_err() {
-                return;
-            }
             let tx = tx.clone();
-            std::thread::spawn(move || read_frames(id, stream, tx));
+            let token = token.clone();
+            std::thread::spawn(move || {
+                let Ok(raw) = stream.duplicate() else {
+                    return;
+                };
+                if encrypted {
+                    // The handshake proves the token before anything else
+                    // is read (docs/08 §3.2).
+                    let Ok(session) =
+                        planyrith_core::transport::Session::accept(&mut stream, &token)
+                    else {
+                        return;
+                    };
+                    let writer: Box<dyn Write + Send> = Box::new(session.writer(raw));
+                    if tx.send(Incoming::Open(id, writer)).is_ok() {
+                        read_frames(id, session.reader(stream), tx);
+                    }
+                } else if tx.send(Incoming::Open(id, Box::new(raw))).is_ok() {
+                    read_frames(id, stream, tx);
+                }
+            });
         }
     });
     for message in rx {
@@ -268,12 +284,20 @@ fn serve_socket(server: &mut Server, spec: &str) -> Result<(), CliError> {
                 "a TCP socket needs --token <secret>: anyone who can reach the port could connect",
             ));
         }
+        // An address (`host:port`) serves the network: connections are
+        // encrypted, local ones included; a bare port stays on this machine
+        // in the clear, as before (docs/08 §3.2).
+        let encrypted = spec.parse::<u16>().is_err();
         let listener = std::net::TcpListener::bind(address).map_err(|e| io_error("socket", &e))?;
         let addr = listener.local_addr().map_err(|e| io_error("socket", &e))?;
-        out::diagnostic(format!("listening on {addr}"));
+        out::diagnostic(format!(
+            "listening on {addr}{}",
+            if encrypted { " (encrypted)" } else { "" }
+        ));
         serve_clients(
             server,
             std::iter::repeat_with(move || listener.accept().map(|(s, _)| s)),
+            encrypted,
         );
         return Ok(());
     }
@@ -300,7 +324,7 @@ fn serve_unix(server: &mut Server, path: &str) -> Result<(), CliError> {
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
         .map_err(|e| io_error("socket", &e))?;
     out::diagnostic(format!("listening on {}", path.display()));
-    serve_clients(server, UnixIncoming(listener));
+    serve_clients(server, UnixIncoming(listener), false);
     Ok(())
 }
 

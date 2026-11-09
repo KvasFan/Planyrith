@@ -177,6 +177,11 @@ deterministic profile; plugins trade speed for that, which suits command-driven 
 
 ## Decisions
 
+- 2026-11-09 — **snow for encrypted connections** (docs/08 §3.2), MIT/Apache-2.0, pure Rust
+  (ChaCha20-Poly1305, BLAKE2s, X25519 from RustCrypto/dalek). Its `std` feature would enable
+  `ring` (C and assembly), so it is used without default features: `default-resolver` and the
+  four primitives. Core feature `transport`, enabled by the CLI and the desktop GUI only.
+
 - 2026-11-08 — **wasmi for native plugins** (§2.6, docs/10 §7). Features `std`, `validate`
   (modules are untrusted), `deterministic` (the Wasm 3.0 deterministic profile, for the
   determinism rule) and `portable-dispatch` (the tail-call dispatch overflows the stack in

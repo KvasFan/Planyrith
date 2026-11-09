@@ -42,6 +42,8 @@ pub mod scripting;
 pub mod sheets;
 pub mod spatial;
 pub mod tolerance;
+#[cfg(feature = "transport")]
+pub mod transport;
 pub mod units;
 
 pub use commands::{

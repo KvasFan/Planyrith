@@ -179,8 +179,13 @@ At the user's request ("continue with milestones", 2026-11-09):
 3. **Desktop joining:** File › Work Together…, network addresses, a local copy on leaving.
 - **Accept:** a CLI test with two clients and a GUI test with two sessions; documentation.
 
+## 1.6.0 — Secure working together
+At the user's request ("continue with milestones", 2026-11-09):
+1. **Encrypted connections** for servers on the network (docs/08 §3.2).
+- **Accept:** a round trip and a refused wrong token in tests; documentation.
+
 ## Post-1.0 candidates
-Encrypted transport, joining from the browser, per-person undo.
+Joining from the browser, per-person undo.
 
 ## Decisions
 

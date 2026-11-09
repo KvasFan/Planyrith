@@ -207,11 +207,11 @@ fn two_gui_sessions_work_together() {
     let mut stderr = BufReader::new(server.0.stderr.take().unwrap());
     let mut line = String::new();
     stderr.read_line(&mut line).unwrap();
-    let address = line
-        .trim()
-        .strip_prefix("listening on ")
-        .unwrap()
-        .to_string();
+    let rest = line.trim().strip_prefix("listening on ").unwrap();
+    assert!(rest.ends_with("(encrypted)"), "{rest}");
+    let address = rest.split_whitespace().next().unwrap().to_string();
+    // A wrong token fails at the encrypted handshake.
+    assert!(Session::join(&address, "wrong", "", "Eve").is_err());
     let mut anna = Session::join(&address, "t0ken", "", "Anna").unwrap();
     let doc_id = "d1";
     let mut bruno = Session::join(&address, "t0ken", doc_id, "Bruno").unwrap();

@@ -95,7 +95,17 @@ impl Remote {
             stream
                 .set_write_timeout(Some(Duration::from_secs(5)))
                 .map_err(|e| e.to_string())?;
-            Box::new(stream)
+            if address.parse::<u16>().is_ok() {
+                Box::new(stream)
+            } else {
+                // An address (`host:port`) means the server takes clients
+                // from the network: the connection is encrypted with the
+                // token (docs/08 §3.2).
+                Box::new(
+                    planyrith_core::transport::SecureStream::connect(stream, token)
+                        .map_err(|e| e.to_string())?,
+                )
+            }
         } else {
             #[cfg(unix)]
             {
