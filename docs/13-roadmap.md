@@ -184,10 +184,22 @@ At the user's request ("continue with milestones", 2026-11-09):
 1. **Encrypted connections** for servers on the network (docs/08 §3.2).
 - **Accept:** a round trip and a refused wrong token in tests; documentation.
 
+## 1.7.0 — Working together, continued
+At the user's request ("procedi con altri features", 2026-11-09):
+1. **Per-person undo:** each person takes back their own changes, under newer ones by others
+   when nothing is shared (docs/08 §3.1).
+2. **Joining from the browser.**
+- **Accept:** a fuzzed property for out-of-order undo, a CLI test with two clients and a GUI
+  test with two sessions; documentation.
+
 ## Post-1.0 candidates
-Joining from the browser, per-person undo.
+None open.
 
 ## Decisions
+
+- 2026-11-09 — **Milestone 1.7.** Asked to go on with more features after the 0.11.0-alpha.4
+  release, the two remaining candidates become a milestone. Per-person undo comes first: it
+  needs no new transport and makes working together usable for real edits.
 
 - 2026-11-09 — **Milestone 1.5.** Collaborative editing, the last candidate, with the design
   in docs/08 Decisions ("Working together"): a server that orders commands, chosen because it

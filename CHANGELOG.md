@@ -6,6 +6,13 @@ All notable changes to Planyrith are recorded here. Versions follow
 
 ## Unreleased
 
+### Added
+- Per-person undo when working together (docs/08 §3.1): `history.undo {mine: true}` and
+  `history.redo {mine: true}` take back or re-apply one's own newest change, under newer
+  changes of others when they touched nothing of it; `session.status` reports one's own
+  labels. Joined desktop sessions undo their own changes. The core's `Engine::revert` takes
+  back any applied step under the same rule, and undo steps have serial numbers.
+
 ## 0.11.0-alpha.4 — 1.0 groundwork and the 1.1–1.6 previews (2026-11-09)
 
 A preview of everything since alpha.3: the 1.0 groundwork (frozen file format

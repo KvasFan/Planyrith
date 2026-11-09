@@ -2648,6 +2648,14 @@ pub struct UndoEntry {
     pub label: String,
     /// Transactions in order.
     pub transactions: Vec<CommittedTransaction>,
+    /// Number of the step, unique within the history and increasing; it
+    /// names the step for [`crate::commands::Engine::revert`].
+    #[serde(default)]
+    pub serial: u64,
+    /// The serial of the step this one takes back, when it was recorded by
+    /// [`crate::commands::Engine::revert`].
+    #[serde(default)]
+    pub reverts: Option<u64>,
 }
 
 /// Linear undo/redo history with optional grouping (docs/01 §3.2).
@@ -2659,6 +2667,9 @@ pub struct UndoStack {
     open_group: Option<UndoEntry>,
     /// Maximum entries kept (`None` = unlimited).
     limit: Option<usize>,
+    /// Serial of the next entry.
+    #[serde(default)]
+    next_serial: u64,
 }
 
 impl UndoStack {
@@ -2683,9 +2694,12 @@ impl UndoStack {
             return;
         }
         self.entries.truncate(self.cursor);
+        let serial = self.take_serial();
         self.entries.push(UndoEntry {
             label: tx.label.clone(),
             transactions: vec![tx],
+            serial,
+            reverts: None,
         });
         if let Some(limit) = self.limit
             && self.entries.len() > limit
@@ -2701,11 +2715,54 @@ impl UndoStack {
         if self.open_group.is_some() {
             return false;
         }
+        let serial = self.take_serial();
         self.open_group = Some(UndoEntry {
             label: label.to_string(),
             transactions: Vec::new(),
+            serial,
+            reverts: None,
         });
         true
+    }
+
+    /// Records `tx` as a new entry that takes back the entry numbered
+    /// `of`; returns its serial.
+    pub(crate) fn push_revert(&mut self, tx: CommittedTransaction, of: u64) -> u64 {
+        self.push(tx);
+        let entry = self
+            .entries
+            .last_mut()
+            .filter(|_| self.open_group.is_none());
+        match entry {
+            Some(entry) => {
+                entry.reverts = Some(of);
+                entry.serial
+            }
+            None => 0,
+        }
+    }
+
+    fn take_serial(&mut self) -> u64 {
+        self.next_serial += 1;
+        self.next_serial
+    }
+
+    /// Serial of the newest step: the open group, else the last applied
+    /// entry (`None` when there is neither). A caller that compares it before
+    /// and after running a command learns whether the command added a step,
+    /// and which.
+    pub fn newest_serial(&self) -> Option<u64> {
+        match &self.open_group {
+            Some(group) => Some(group.serial),
+            None => self.cursor.checked_sub(1).map(|i| self.entries[i].serial),
+        }
+    }
+
+    /// Index of the applied entry numbered `serial`.
+    pub fn applied_index(&self, serial: u64) -> Option<usize> {
+        self.entries[..self.cursor]
+            .iter()
+            .position(|e| e.serial == serial)
     }
 
     /// `true` while a group is open.

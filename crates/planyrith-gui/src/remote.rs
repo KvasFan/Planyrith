@@ -31,7 +31,17 @@ pub(crate) struct Status {
     pub generation: u64,
     pub undo: Option<String>,
     pub redo: Option<String>,
+    /// The labels of one's own undo and redo (servers from 0.12 on).
+    #[serde(default)]
+    pub mine: Option<Labels>,
     pub participants: Vec<Participant>,
+}
+
+/// Undo and redo labels.
+#[derive(Deserialize, Default)]
+pub(crate) struct Labels {
+    pub undo: Option<String>,
+    pub redo: Option<String>,
 }
 
 /// Someone connected to the server.
@@ -66,6 +76,9 @@ pub(crate) struct Remote {
     pub undo: Option<String>,
     pub redo: Option<String>,
     pub generation: u64,
+    /// Undo and redo take back one's own changes (a joined session,
+    /// docs/08 §3.1), not the last change whoever made it.
+    pub own_history: bool,
 }
 impl Remote {
     pub fn connect(address: &str, token: &str, doc_id: &str) -> Result<Self, String> {
@@ -131,6 +144,7 @@ impl Remote {
             undo: None,
             redo: None,
             generation: u64::MAX,
+            own_history: false,
         };
         remote.call("server.auth", json!({"token":token}))?;
         let capabilities = remote.call("server.capabilities", json!({}))?;
@@ -205,8 +219,11 @@ impl Remote {
     pub fn status(&mut self) -> Result<Status, String> {
         let status: Status = serde_json::from_value(self.call("session.status", json!({}))?)
             .map_err(|e| e.to_string())?;
-        self.undo = status.undo.clone();
-        self.redo = status.redo.clone();
+        let labels = match (&status.mine, self.own_history) {
+            (Some(mine), true) => (mine.undo.clone(), mine.redo.clone()),
+            _ => (status.undo.clone(), status.redo.clone()),
+        };
+        (self.undo, self.redo) = labels;
         Ok(status)
     }
 
@@ -219,8 +236,10 @@ impl Remote {
     pub fn snapshot(&mut self) -> Result<Snapshot, String> {
         let snapshot: Snapshot = serde_json::from_value(self.call("document.snapshot", json!({}))?)
             .map_err(|e| e.to_string())?;
-        self.undo = snapshot.undo.clone();
-        self.redo = snapshot.redo.clone();
+        if !self.own_history {
+            self.undo = snapshot.undo.clone();
+            self.redo = snapshot.redo.clone();
+        }
         Ok(snapshot)
     }
 }

@@ -458,8 +458,9 @@ impl Session {
     pub fn undo(&mut self) -> Result<(), String> {
         #[cfg(not(target_arch = "wasm32"))]
         if let Some(remote) = self.remote.as_mut() {
-            remote.call("history.undo", serde_json::json!({}))?;
-            return self.refresh_remote(true);
+            let mine = remote.own_history;
+            remote.call("history.undo", serde_json::json!({ "mine": mine }))?;
+            return self.refresh_after_step();
         }
         self.engine.undo().map_err(|e| e.to_string())?;
         self.snapshot_now = true;
@@ -470,8 +471,9 @@ impl Session {
     pub fn redo(&mut self) -> Result<(), String> {
         #[cfg(not(target_arch = "wasm32"))]
         if let Some(remote) = self.remote.as_mut() {
-            remote.call("history.redo", serde_json::json!({}))?;
-            return self.refresh_remote(true);
+            let mine = remote.own_history;
+            remote.call("history.redo", serde_json::json!({ "mine": mine }))?;
+            return self.refresh_after_step();
         }
         self.engine.redo().map_err(|e| e.to_string())?;
         self.snapshot_now = true;
@@ -662,6 +664,7 @@ impl Session {
         let mut session = Self::attach(address, token, doc_id)?;
         if let Some(remote) = session.remote.as_mut() {
             remote.set_name(name)?;
+            remote.own_history = true;
         }
         session.poll_remote(f64::INFINITY)?;
         Ok(session)
@@ -695,6 +698,19 @@ impl Session {
             .engine
             .replace_document(self.engine.document().clone());
         local
+    }
+
+    /// After an undo or redo on the server: the document, and one's own
+    /// labels when joined.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn refresh_after_step(&mut self) -> Result<(), String> {
+        self.refresh_remote(true)?;
+        if let Some(remote) = self.remote.as_mut()
+            && remote.own_history
+        {
+            self.participants = remote.status()?.participants;
+        }
+        Ok(())
     }
 
     #[cfg(not(target_arch = "wasm32"))]

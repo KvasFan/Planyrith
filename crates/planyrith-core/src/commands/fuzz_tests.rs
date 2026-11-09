@@ -443,6 +443,86 @@ fn shape(doc: &Document, counter: PidAllocator) -> Value {
     value
 }
 
+/// The document's content without the order in which its meshes store
+/// elements: every pid with its geometry (edge ends, face loops starting at
+/// their least point, sides), plus [`shape`] without the meshes. A step
+/// taken back out of order brings elements back into other slots.
+fn content(doc: &Document, counter: PidAllocator) -> Value {
+    fn rotated(points: &[glam::DVec3]) -> Vec<String> {
+        let mut p: Vec<String> = points.iter().map(|q| format!("{q:?}")).collect();
+        if let Some(start) = (0..p.len()).min_by(|a, b| p[*a].cmp(&p[*b])) {
+            p.rotate_left(start);
+        }
+        p
+    }
+    fn container(c: &crate::document::Entities) -> Vec<(u64, String)> {
+        let mesh = c.mesh();
+        let mut rows = Vec::new();
+        for id in c.order() {
+            let Some(pid) = c.pid_of(*id) else { continue };
+            let row = match id {
+                EntityId::Edge(e) => {
+                    let s = mesh.edge_segment(*e).unwrap();
+                    let mut ends = [format!("{:?}", s.a), format!("{:?}", s.b)];
+                    ends.sort();
+                    let edge = mesh.edge(*e).unwrap();
+                    format!("edge {ends:?} {:?} {}", edge.flags, edge.curve.is_some())
+                }
+                EntityId::Face(f) => {
+                    let snap = mesh.face_snapshot(*f).unwrap();
+                    let mut holes: Vec<Vec<String>> =
+                        snap.holes.iter().map(|h| rotated(h)).collect();
+                    holes.sort();
+                    format!("face {:?} {holes:?} {:?}", rotated(&snap.outer), snap.sides)
+                }
+                _ => continue,
+            };
+            rows.push((pid.0, row));
+        }
+        rows.sort();
+        rows
+    }
+    /// Edges and faces named by slot (hidden, locked, tags, attributes)
+    /// become their pids, from the container's order list.
+    fn by_pid(c: &mut Value) {
+        fn walk(v: &mut Value, pids: &BTreeMap<String, Value>) {
+            if let Some(pid) = pids.get(&v.to_string()) {
+                *v = serde_json::json!({ "pid": pid });
+                return;
+            }
+            match v {
+                Value::Object(map) => map.values_mut().for_each(|c| walk(c, pids)),
+                Value::Array(items) => items.iter_mut().for_each(|c| walk(c, pids)),
+                _ => {}
+            }
+        }
+        let order = c["order"].take();
+        let pids: BTreeMap<String, Value> = order
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|pair| pair[0].get("Edge").is_some() || pair[0].get("Face").is_some())
+            .map(|pair| (pair[0].to_string(), pair[1].clone()))
+            .collect();
+        c["mesh"].take();
+        walk(c, &pids);
+    }
+    let mut rest = shape(doc, counter);
+    let mut meshes = vec![serde_json::json!(container(&doc.model))];
+    by_pid(&mut rest["model"]);
+    for i in 0..rest["definitions"].as_array().map_or(0, Vec::len) {
+        by_pid(&mut rest["definitions"][i][1]["entities"]);
+    }
+    for (_, def) in doc.definitions.iter() {
+        meshes.push(serde_json::json!([
+            def.uuid.to_string(),
+            container(&def.entities)
+        ]));
+    }
+    meshes.sort_by_key(|m| m.to_string());
+    serde_json::json!({ "rest": rest, "meshes": meshes })
+}
+
 fn engine() -> Engine {
     Engine::new(Document::new(), Arc::new(CommandRegistry::with_builtins()))
 }
@@ -542,6 +622,55 @@ proptest! {
             })?;
         }
         prop_assert!(bytes(e.document(), counter) == last, "redo all differs after {applied:#?}");
+    }
+
+    /// docs/08 §3.1 per-person undo: reverting older steps, one after the
+    /// other (reverts of reverts included), either refuses and changes
+    /// nothing, or leaves a valid document; shared undos of the successful
+    /// reverts give back the content before them.
+    #[test]
+    fn reverting_older_steps_is_safe(
+        cmds in prop::collection::vec(cmd(), 2..12),
+        picks in prop::collection::vec(any::<prop::sample::Index>(), 1..5),
+    ) {
+        let mut e = engine();
+        let applied = run(&mut e, &cmds, false)?;
+        let counter = e.document().info.next_pid;
+        let start = content(e.document(), counter);
+        let mut done = 0;
+        for pick in picks {
+            let serials: Vec<u64> = e.history().entries()[..e.history().applied()]
+                .iter()
+                .map(|entry| entry.serial)
+                .collect();
+            if serials.is_empty() {
+                break;
+            }
+            let serial = serials[pick.index(serials.len())];
+            let before = content(e.document(), counter);
+            match e.revert(serial) {
+                Ok(_) => {
+                    done += 1;
+                    let report = diagnostics::validate(e.document());
+                    prop_assert!(
+                        !report.has_errors(),
+                        "reverting step {serial} left an invalid document after {applied:#?}: {report:#?}"
+                    );
+                }
+                Err(_) => prop_assert!(
+                    content(e.document(), counter) == before,
+                    "a refused revert of step {serial} changed the document after {applied:#?}"
+                ),
+            }
+        }
+        for _ in 0..done {
+            e.undo().map_err(|err| TestCaseError::fail(format!("undo of a revert: {err}")))?;
+        }
+        let end = content(e.document(), counter);
+        prop_assert!(
+            end == start,
+            "undoing the reverts differs after {applied:#?}:\n{start}\n{end}"
+        );
     }
 }
 

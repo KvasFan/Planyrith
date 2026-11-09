@@ -521,3 +521,144 @@ fn annotations_sections_and_guides() {
         ),
     ]);
 }
+
+fn engine() -> Engine {
+    Engine::new(Document::new(), Arc::new(CommandRegistry::with_builtins()))
+}
+
+fn run(e: &mut Engine, name: &str, params: Value) -> u64 {
+    e.execute_erased(name, params)
+        .unwrap_or_else(|err| panic!("{name}: {err}"));
+    e.history().newest_serial().unwrap()
+}
+
+/// docs/08 §3.1 per-person undo: an older step is taken back under a newer
+/// one that does not touch it; the result is the document without that
+/// step, and reverting the revert brings it back.
+#[test]
+fn revert_takes_back_an_older_step_that_nothing_newer_touched() {
+    let mut e = engine();
+    let a = run(
+        &mut e,
+        "rectangle",
+        json!({ "corner_a": [0,0,0], "corner_b": [1000,600,0] }),
+    );
+    let only_a = e.document().clone();
+    run(
+        &mut e,
+        "rectangle",
+        json!({ "corner_a": [3000,0,0], "corner_b": [4000,600,0] }),
+    );
+    let both = e.document().clone();
+    let counter = e.document().info.next_pid;
+
+    // The same document drawn without the first rectangle.
+    let mut expected = engine();
+    run(
+        &mut expected,
+        "rectangle",
+        json!({ "corner_a": [3000,0,0], "corner_b": [4000,600,0] }),
+    );
+
+    let undo_a = e.revert(a).unwrap();
+    assert_eq!(e.history().undo_label(), Some("Undo Rectangle"));
+    assert_eq!(e.document().model.mesh().faces().count(), 1);
+    assert_eq!(e.document().model.mesh().edges().count(), 4);
+    let geometry = |d: &Document| {
+        let mut points: Vec<String> = d
+            .model
+            .mesh()
+            .edges()
+            .map(|(id, _)| {
+                let s = d.model.mesh().edge_segment(id).unwrap();
+                format!("{:?}", [s.a, s.b])
+            })
+            .collect();
+        points.sort();
+        points
+    };
+    assert_eq!(geometry(e.document()), geometry(expected.document()));
+    assert!(!crate::diagnostics::validate(e.document()).has_errors());
+
+    // Reverting the revert brings the rectangle back.
+    e.revert(undo_a).unwrap();
+    assert_eq!(geometry(e.document()), geometry(&both));
+    // A shared undo of both reverts restores the document as it was.
+    e.undo().unwrap();
+    e.undo().unwrap();
+    assert!(bytes(e.document(), counter) == bytes(&both, counter));
+    e.undo().unwrap();
+    assert!(bytes(e.document(), counter) == bytes(&only_a, counter));
+}
+
+/// A step that a newer one built on is refused, and nothing changes.
+#[test]
+fn revert_refuses_a_step_a_newer_one_touched() {
+    let mut e = engine();
+    let a = run(
+        &mut e,
+        "rectangle",
+        json!({ "corner_a": [0,0,0], "corner_b": [1000,600,0] }),
+    );
+    run(
+        &mut e,
+        "push-pull",
+        json!({ "face": { "Query": "face" }, "distance": 300.0 }),
+    );
+    let counter = e.document().info.next_pid;
+    let before = bytes(e.document(), counter);
+    let applied = e.history().applied();
+    let err = e.revert(a).unwrap_err();
+    assert!(err.to_string().contains("later change"), "{err}");
+    assert!(bytes(e.document(), counter) == before);
+    assert_eq!(e.history().applied(), applied);
+
+    // The newest step itself can always be reverted, like an undo.
+    let b = e.history().newest_serial().unwrap();
+    e.revert(b).unwrap();
+    assert_eq!(e.document().model.mesh().faces().count(), 1);
+
+    // A step that was undone is no longer in the history.
+    e.undo().unwrap();
+    e.undo().unwrap();
+    assert!(e.revert(b).is_err());
+}
+
+/// Painting two different faces with the same material does not overlap;
+/// editing the material does.
+#[test]
+fn revert_of_painting_depends_on_what_was_painted() {
+    let mut e = engine();
+    run(
+        &mut e,
+        "material-create",
+        json!({ "name": "Red", "color": "#FF0000" }),
+    );
+    run(
+        &mut e,
+        "rectangle",
+        json!({ "corner_a": [0,0,0], "corner_b": [1000,600,0] }),
+    );
+    let paint_a = run(
+        &mut e,
+        "material-apply",
+        json!({ "targets": "face & last", "material": "Red", "side": "both" }),
+    );
+    run(
+        &mut e,
+        "rectangle",
+        json!({ "corner_a": [3000,0,0], "corner_b": [4000,600,0] }),
+    );
+    let paint_b = run(
+        &mut e,
+        "material-apply",
+        json!({ "targets": "face & last", "material": "Red", "side": "both" }),
+    );
+    e.revert(paint_a).unwrap();
+    run(
+        &mut e,
+        "material-edit",
+        json!({ "material": "Red", "color": "#00FF00" }),
+    );
+    assert!(e.revert(paint_b).is_err());
+}

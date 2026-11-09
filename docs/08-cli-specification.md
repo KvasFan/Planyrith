@@ -147,7 +147,7 @@ a Unix socket or TCP: a bare port listens on localhost in the clear, an address 
 | `command.schema` | `{name}` → `{params: JsonSchema, output: JsonSchema, meta}` |
 | `command.execute` | `{doc_id, name, params, group?: string}` → `{output, warnings, deltas_summary}` |
 | `command.preview` | `{doc_id, name, params}` → `{render_mesh_patch}` (for remote GUIs) |
-| `history.undo` / `history.redo` / `history.list` | |
+| `history.undo` / `history.redo` / `history.list` | `{doc_id, mine?}`; `mine: true` takes back or re-applies the caller's own change (§3.1) |
 | `document.query` | `{doc_id, query, fields}` → `[...]` |
 | `document.get` | `{doc_id, pid}` → full entity JSON |
 | `document.render_mesh` | `{doc_id, container}` → binary attachment (base64 or side-channel) |
@@ -157,7 +157,7 @@ a Unix socket or TCP: a bare port listens on localhost in the clear, an address 
 | `server.auth` | `{token}` → `{authenticated}` (socket servers started with `--token`) |
 | `presence.set` | `{name}` → `{client, name, color}`: the name others see (§3.1) |
 | `presence.list` | `{doc_id}` → `[{client, name, color, you, selection: [{path, bounds}]}]` |
-| `session.status` | `{doc_id}` → `{generation, undo, redo, participants}` (what a joined GUI polls) |
+| `session.status` | `{doc_id}` → `{generation, undo, redo, mine: {undo, redo}, participants}` (what a joined GUI polls; `mine` holds the caller's own labels) |
 
 Errors use JSON-RPC error objects with `code` from §9 and `data.details`. Concurrency: one
 writer; `command.execute` calls are serialized per document. The GUI's "attach to server" mode
@@ -180,6 +180,17 @@ applies to the document as the commands before it left it.
   context.
 - **History** is the document's: undo takes back the last change, whoever made it. An undo
   group (`command.execute {group}`) ends when another client's command arrives.
+- **Per-person undo (1.7):** `history.undo {mine: true}` takes back the caller's newest change
+  still in the history, even under newer changes of others, when none of them touched what it
+  touched: no point within the merge tolerance, edge, face, entity, definition (a group or
+  component that uses it counts), material in use, tag, scene, style or sheet in common. A
+  newer change and the step that took it back cancel out. Otherwise it fails with `E1201`
+  ("a later change touched the same things") and nothing changes; it also fails when the
+  result would not validate. It is recorded as a new step, "Undo <label>", so everyone's
+  history stays linear and a shared undo can take it back. `history.redo {mine: true}`
+  re-applies what the caller's last own undo took back, under the same rule; a new change of
+  the caller's ends what they can redo. Joined desktop sessions use these for Edit › Undo and
+  Redo and show their own labels.
 - **Desktop GUI:** File › Work Together… joins a document by server (`host:port`, a port, or a
   socket path), token, document id and name. A joined session asks `session.status` every half
   second: others' changes reload the document (the camera stays the user's), the participants
@@ -412,6 +423,17 @@ On failure: `{"ok": false, "error": {"code": "E1002", "message": "...", "param":
   server never disagree: a bare port (localhost, scripts and the existing GUI attachment) stays
   in the clear, an address (the network) is always encrypted, local clients of such a server
   included.
+
+- 2026-11-09 — **Per-person undo** (§3.1, milestone 1.7). The concern of the shared-history
+  decision below, that an older command undone under newer ones could fail validation, is met
+  by refusing rather than merging: a step is taken back only when no newer step shares
+  anything with it (footprints of points, elements, entities and resources, deliberately
+  conservative), and the document is validated afterwards, restoring it on failure. The
+  inverse is a new step rather than a removal from the middle of the history, so the history
+  stays the single linear record every client sees and the shared undo keeps working
+  unchanged. Steps carry serial numbers (`UndoEntry::serial`) that the server attributes to
+  the client whose request added them. Elements taken back and re-applied out of order may
+  occupy other mesh slots; pids and geometry are the same.
 
 - 2026-11-09 — **Working together** (§3.1). A server that orders commands rather than a
   replicated document with a merge model: the server already applied commands one at a time,

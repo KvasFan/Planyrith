@@ -132,6 +132,7 @@ impl Engine {
     pub fn execute_erased(&mut self, name: &str, params_json: serde_json::Value) -> Result<serde_json::Value, CommandError>;
     pub fn undo(&mut self) -> Result<(), CommandError>;
     pub fn redo(&mut self) -> Result<(), CommandError>;
+    pub fn revert(&mut self, serial: u64) -> Result<u64, CommandError>; // an older step, as a new one (docs/08 §3.1)
     pub fn begin_group(&mut self, label: &str) -> GroupToken; // several commands → one undo step
 }
 ```

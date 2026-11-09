@@ -18,6 +18,7 @@ pub(crate) mod common;
 pub mod draw;
 pub mod edit;
 pub mod file;
+mod footprint;
 #[cfg(test)]
 mod fuzz_tests;
 pub mod organize;
@@ -892,6 +893,92 @@ impl Engine {
         Ok(())
     }
 
+    /// Takes back the applied step numbered `serial` (docs/08 §3.1,
+    /// per-person undo) and returns the serial of the step that records it.
+    ///
+    /// The step may be older than others: it is taken back only when no
+    /// newer step touched what it touched (points, elements, entities and
+    /// resources in common), and only when the
+    /// document stays valid. Unlike [`Engine::undo`], the history does not
+    /// move back: the inverse is recorded as a new step labelled
+    /// `Undo <label>`, which reverting again takes back in turn. On refusal
+    /// nothing changes.
+    pub fn revert(&mut self, serial: u64) -> Result<u64, CommandError> {
+        if self.history.group_open() {
+            return Err(CommandError::NotApplicable(
+                "a group of commands is still open".into(),
+            ));
+        }
+        let index = self.history.applied_index(serial).ok_or_else(|| {
+            CommandError::NotApplicable("that step is no longer in the history".into())
+        })?;
+        let entries = &self.history.entries()[..self.history.applied()];
+        let entry = entries[index].clone();
+        let mine = footprint::Footprint::of([&entry], &self.aliases);
+        // A newer step and the newer step that took it back cancel out.
+        let newer = &entries[index + 1..];
+        let mut cancelled = std::collections::BTreeSet::new();
+        for later in newer.iter().rev() {
+            if cancelled.contains(&later.serial) {
+                continue;
+            }
+            if let Some(of) = later.reverts
+                && newer.iter().any(|e| e.serial == of)
+            {
+                cancelled.insert(later.serial);
+                cancelled.insert(of);
+            }
+        }
+        let newer = footprint::Footprint::of(
+            newer.iter().filter(|e| !cancelled.contains(&e.serial)),
+            &self.aliases,
+        );
+        if mine.overlaps(&newer, self.doc.tolerances().length) {
+            return Err(CommandError::NotApplicable(format!(
+                "`{}` cannot be undone: a later change touched the same things",
+                entry.label
+            )));
+        }
+        let applied = self.replay_entry(&entry, true).inspect_err(|_| {
+            // Definitions come back with their recorded usage counts.
+            self.doc.refresh_usage_counts();
+        })?;
+        if crate::diagnostics::validate(&self.doc).has_errors() {
+            let undo_back: Vec<Delta> = applied.iter().rev().map(Delta::inverse).collect();
+            for delta in &undo_back {
+                transaction::apply_delta(&mut self.doc, delta, &mut self.aliases).map_err(|e| {
+                    CommandError::Internal(format!(
+                        "undoing `{}` left an invalid document that could not be restored: {e}",
+                        entry.label
+                    ))
+                })?;
+            }
+            self.doc.refresh_usage_counts();
+            // Errors that were there before are not this undo's doing.
+            if !crate::diagnostics::validate(&self.doc).has_errors() {
+                return Err(CommandError::NotApplicable(format!(
+                    "`{}` cannot be undone: the model would no longer be valid",
+                    entry.label
+                )));
+            }
+            for delta in &applied {
+                transaction::apply_delta(&mut self.doc, delta, &mut self.aliases)?;
+            }
+        }
+        let label = format!("Undo {}", entry.label);
+        let new_serial = self.history.push_revert(
+            CommittedTransaction {
+                label: label.clone(),
+                deltas: applied.clone(),
+                warnings: Vec::new(),
+                created: Vec::new(),
+            },
+            serial,
+        );
+        self.after_history_move(label, applied);
+        Ok(new_serial)
+    }
+
     fn after_history_move(&mut self, label: String, applied: Vec<Delta>) {
         self.doc.refresh_usage_counts();
         self.generation += 1;
@@ -936,7 +1023,8 @@ impl Engine {
     /// Replaces the document (open/revert), clearing history and selection.
     pub fn replace_document(&mut self, doc: Document) {
         self.doc = doc;
-        self.history = UndoStack::default();
+        // Clearing (not replacing) keeps serials unique for the session.
+        self.history.clear();
         self.open_groups.clear();
         self.aliases.clear();
         self.selection = Selection::new();

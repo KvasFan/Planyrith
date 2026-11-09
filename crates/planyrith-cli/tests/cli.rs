@@ -1404,6 +1404,62 @@ fn two_clients_work_on_one_document() {
         assert!(tall(3000.0), "Anna's rectangle was pulled up");
         assert!(!tall(6000.0), "Bruno's was not");
 
+        // Per-person undo (1.7): Bruno takes back his rectangle although
+        // Anna's push/pull came after it.
+        let faces_from = |stream: &mut std::net::TcpStream, id: i64, lo: f64| {
+            let r = call(
+                stream,
+                rpc(
+                    id,
+                    "document.query",
+                    json!({ "doc_id": "d1", "query": "face", "fields": ["bbox"] }),
+                ),
+            );
+            r["result"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|f| f["bbox"]["min"][0].as_f64().unwrap() >= lo)
+                .count()
+        };
+        let r = call(
+            &mut bruno,
+            rpc(30, "history.undo", json!({ "doc_id": "d1", "mine": true })),
+        );
+        assert_eq!(r["result"]["undo"], "Undo Rectangle", "{r}");
+        assert_eq!(faces_from(&mut bruno, 31, 6000.0), 0);
+        let r = call(
+            &mut bruno,
+            rpc(32, "session.status", json!({ "doc_id": "d1" })),
+        );
+        assert_eq!(r["result"]["mine"]["redo"], "Rectangle", "{r}");
+        assert_eq!(r["result"]["mine"]["undo"], "Push/Pull", "{r}");
+
+        // Anna's own steps go back newest first; her first rectangle, which
+        // Bruno pulled up, cannot.
+        for id in [33, 34] {
+            let r = call(
+                &mut anna,
+                rpc(id, "history.undo", json!({ "doc_id": "d1", "mine": true })),
+            );
+            assert!(r.get("result").is_some(), "{r}");
+        }
+        assert_eq!(faces_from(&mut anna, 35, 3000.0), 0);
+        let r = call(
+            &mut anna,
+            rpc(36, "history.undo", json!({ "doc_id": "d1", "mine": true })),
+        );
+        let message = r["error"]["message"].as_str().unwrap_or_default();
+        assert!(message.contains("later change"), "{r}");
+
+        // Bruno brings his rectangle back.
+        let r = call(
+            &mut bruno,
+            rpc(37, "history.redo", json!({ "doc_id": "d1", "mine": true })),
+        );
+        assert!(r.get("result").is_some(), "{r}");
+        assert_eq!(faces_from(&mut bruno, 38, 6000.0), 1);
+
         // When Anna leaves, Bruno is told.
         drop(anna);
         loop {

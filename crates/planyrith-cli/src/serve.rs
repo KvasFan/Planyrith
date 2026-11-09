@@ -422,6 +422,13 @@ struct Doc {
     /// `group` share, and the client that opened it.
     group: Option<(String, GroupToken)>,
     group_client: u64,
+    /// Who made each undo step, by serial (per-person undo, docs/08 §3.1).
+    owners: BTreeMap<u64, u64>,
+    /// The newest serial already attributed.
+    seen: u64,
+    /// Per client, the steps that took back its own changes, newest last,
+    /// with the label of the change: what `history.redo {mine}` re-applies.
+    redo: BTreeMap<u64, Vec<(u64, String)>>,
 }
 
 /// A client's view of one document: selection, edit context and what its
@@ -755,6 +762,7 @@ impl Server {
             }
         };
         let result = self.call(&method, &params);
+        self.attribute();
         // A request without an id is a notification: no reply, even on error.
         id.map(|id| match result {
             Ok(result) => json!({ "jsonrpc": "2.0", "result": result, "id": id }),
@@ -786,6 +794,11 @@ impl Server {
                 command.insert("name".into(), json!("script-eval"));
                 command.insert("params".into(),json!({"source":required_str(p,"source")?,"args":p.get("args").cloned().unwrap_or(json!({}))}));
                 self.command_execute(&command)
+            }
+            "history.undo" | "history.redo"
+                if p.get("mine").and_then(Value::as_bool) == Some(true) =>
+            {
+                self.history_mine(p, method == "history.undo")
             }
             "history.undo" | "history.redo" => self.history_step(p, method == "history.undo"),
             "history.list" => self.history_list(p),
@@ -831,10 +844,12 @@ impl Server {
                 let id = required_str(p, "doc_id")?.to_string();
                 let doc = self.doc(p)?;
                 let engine = &doc.session.engine;
+                let (undo, redo) = mine(doc, self.current);
                 Ok(json!({
                     "generation": engine.generation(),
                     "undo": engine.history().undo_label(),
                     "redo": engine.history().redo_label(),
+                    "mine": { "undo": undo, "redo": redo },
                     "participants": self.participants(&id),
                 }))
             }
@@ -987,6 +1002,9 @@ impl Server {
                 session,
                 group: None,
                 group_client: 0,
+                owners: BTreeMap::new(),
+                seen: 0,
+                redo: BTreeMap::new(),
             },
         );
         id
@@ -1138,6 +1156,68 @@ impl Server {
         Ok(history_json(&doc.session))
     }
 
+    /// Records who made the steps the request added: serials only grow, so
+    /// a newest serial not seen before is the current client's.
+    fn attribute(&mut self) {
+        let client = self.current;
+        for doc in self.docs.values_mut() {
+            let Some(newest) = doc.session.engine.history().newest_serial() else {
+                continue;
+            };
+            if newest > doc.seen {
+                doc.seen = newest;
+                doc.owners.insert(newest, client);
+                // A new change of one's own ends what one could redo.
+                doc.redo.remove(&client);
+            }
+        }
+    }
+
+    /// `history.undo {mine: true}` takes back the client's newest change
+    /// still in the history, when nobody built on it since;
+    /// `history.redo {mine: true}` brings back what that took back.
+    fn history_mine(&mut self, p: &Map<String, Value>, undo: bool) -> Result<Value, RpcError> {
+        if self.readonly {
+            return Err(RpcError::readonly(if undo { "undo" } else { "redo" }));
+        }
+        let client = self.current;
+        let doc = self.doc_mut(p)?;
+        close_group(doc)?;
+        let nothing = |what: &str| {
+            RpcError::from_command(CommandError::NotApplicable(format!(
+                "nothing of yours to {what}"
+            )))
+        };
+        if undo {
+            let (serial, label) = own_step(doc, client).ok_or_else(|| nothing("undo"))?;
+            let new = doc
+                .session
+                .engine
+                .revert(serial)
+                .map_err(RpcError::from_command)?;
+            doc.owners.remove(&serial);
+            doc.seen = new;
+            doc.redo.entry(client).or_default().push((new, label));
+        } else {
+            let (serial, label) = doc
+                .redo
+                .get_mut(&client)
+                .and_then(Vec::pop)
+                .ok_or_else(|| nothing("redo"))?;
+            match doc.session.engine.revert(serial) {
+                Ok(new) => {
+                    doc.seen = new;
+                    doc.owners.insert(new, client);
+                }
+                Err(e) => {
+                    doc.redo.entry(client).or_default().push((serial, label));
+                    return Err(RpcError::from_command(e));
+                }
+            }
+        }
+        Ok(history_json(&doc.session))
+    }
+
     fn history_list(&mut self, p: &Map<String, Value>) -> Result<Value, RpcError> {
         let doc = self.doc(p)?;
         Ok(history_json(&doc.session))
@@ -1262,6 +1342,31 @@ impl Server {
             .get_mut(id)
             .ok_or_else(|| RpcError::params(format!("no open document `{id}`")))
     }
+}
+
+/// The client's newest change still applied: its serial and label.
+fn own_step(doc: &Doc, client: u64) -> Option<(u64, String)> {
+    let history = doc.session.engine.history();
+    doc.owners
+        .iter()
+        .rev()
+        .filter(|(_, c)| **c == client)
+        .find_map(|(serial, _)| {
+            let index = history.applied_index(*serial)?;
+            Some((*serial, history.entries()[index].label.clone()))
+        })
+}
+
+/// The labels of `history.undo {mine}` and `history.redo {mine}` for a
+/// client.
+fn mine(doc: &Doc, client: u64) -> (Option<String>, Option<String>) {
+    let undo = own_step(doc, client).map(|(_, label)| label);
+    let redo = doc
+        .redo
+        .get(&client)
+        .and_then(|r| r.last())
+        .map(|(_, label)| label.clone());
+    (undo, redo)
 }
 
 /// Ends the document's open undo group, if any.

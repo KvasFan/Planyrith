@@ -243,6 +243,29 @@ fn two_gui_sessions_work_together() {
         anna_row.selection[0].bounds,
         Some([[0.0, 0.0, 0.0], [800.0, 400.0, 0.0]])
     );
+
+    // Undo is one's own (1.7): Bruno draws after Anna, Anna undoes, and
+    // her rectangle goes while his stays.
+    bruno
+        .execute(
+            "rectangle",
+            json!({ "corner_a": [2000, 0, 0], "corner_b": [2400, 400, 0] }),
+        )
+        .unwrap();
+    anna.poll_remote(2000.0).unwrap();
+    assert_eq!(anna.undo_label(), Some("Rectangle"));
+    anna.undo().unwrap();
+    assert_eq!(anna.undo_label(), None, "nothing more of Anna's");
+    assert_eq!(anna.redo_label(), Some("Rectangle"));
+    bruno.poll_remote(3000.0).unwrap();
+    let faces: Vec<_> = bruno.doc().model.mesh().faces().map(|(f, _)| f).collect();
+    assert_eq!(faces.len(), 1);
+    let bounds = bruno.doc().model.mesh().face_aabb(faces[0]).unwrap();
+    assert!(bounds.min.x >= 2000.0, "Bruno's rectangle stayed");
+    assert_eq!(bruno.undo_label(), Some("Rectangle"));
+    anna.redo().unwrap();
+    assert_eq!(anna.doc().model.mesh().faces().count(), 2);
+
     let local = bruno.leave();
     assert!(!local.is_attached());
     assert_eq!(local.doc().model.mesh().faces().count(), 1);
