@@ -1,0 +1,4 @@
+# A block whose red side leans in by 5 degrees.
+rectangle --corner-a 0,0,0 --corner-b 100,100,0
+push-pull --face '{face & last}' --distance 100
+draft --faces 'face & normal:x' --angle 5

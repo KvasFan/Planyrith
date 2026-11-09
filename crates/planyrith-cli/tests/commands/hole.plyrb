@@ -1,0 +1,6 @@
+# A plate with a tapped M8 hole, a counterbore and a blind hole.
+rectangle --corner-a 0,0,0 --corner-b 100,100,0
+push-pull --face '{face & last}' --distance 20
+hole --face 'face & plane:xy@20' --center 30,30,20 --kind tapped --size M8
+hole --face 'face & plane:xy@20' --center 70,30,20 --kind counterbore --size M6
+hole --face 'face & plane:xy@20' --center 50,70,20 --diameter 10 --depth 5

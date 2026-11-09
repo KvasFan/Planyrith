@@ -233,6 +233,9 @@ parameter sets; equations between parameters.
 ## 1.11.0 — Solid features
 Draft, shell, rib, standard holes (clearance, counterbore, countersink, tapped, with a size
 table) and cosmetic threads, dome, split by a plane or a surface, and scale about a point.
+- **Done (2026-11-09):** `hole`, `shell`, `draft`, `split-solid` (by a plane), `dome` and `rib`
+  (docs/05 §8.6–§8.11); scaling about a point was already `scale --pivot`. Splitting by a curved
+  surface waits for the surfaces of 1.15.
 
 ## 1.12.0 — Assemblies
 Mates between components (coincident, concentric, distance, angle, parallel, perpendicular,

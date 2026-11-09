@@ -1,0 +1,4 @@
+# A box hollowed with 10 mm walls, its top open.
+rectangle --corner-a 0,0,0 --corner-b 100,100,0
+push-pull --face '{face & last}' --distance 100
+shell --faces 'face & plane:xy@100' --thickness 10

@@ -605,7 +605,7 @@ fn face_planes(mesh: &HalfEdgeMesh, v: VertexId) -> Vec<(DVec3, f64)> {
 }
 
 /// Solves `a x = b` by Gaussian elimination with partial pivoting.
-fn solve_dense(mut a: Vec<Vec<f64>>, mut b: Vec<f64>) -> Option<Vec<f64>> {
+pub(crate) fn solve_dense(mut a: Vec<Vec<f64>>, mut b: Vec<f64>) -> Option<Vec<f64>> {
     let n = b.len();
     for col in 0..n {
         let pivot = (col..n).max_by(|&i, &j| a[i][col].abs().total_cmp(&a[j][col].abs()))?;
@@ -635,7 +635,7 @@ fn solve_dense(mut a: Vec<Vec<f64>>, mut b: Vec<f64>) -> Option<Vec<f64>> {
 }
 
 /// The numeric rank of a matrix (row echelon with a relative threshold).
-fn rank(mut m: Vec<Vec<f64>>) -> usize {
+pub(crate) fn rank(mut m: Vec<Vec<f64>>) -> usize {
     let rows = m.len();
     let cols = m.first().map_or(0, Vec::len);
     let largest = m.iter().flatten().fold(0.0f64, |acc, v| acc.max(v.abs()));

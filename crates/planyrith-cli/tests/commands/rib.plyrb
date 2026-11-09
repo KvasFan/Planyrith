@@ -1,0 +1,5 @@
+# A plate stiffened by a rib along a drawn line.
+rectangle --corner-a 0,0,0 --corner-b 200,100,0
+push-pull --face '{face & last}' --distance 10
+line --points 20,50,10 --points 180,50,10
+rib --edge 'edge & length>150 & length<170' --solid 'face & plane:xy@0' --thickness 4 --height 30

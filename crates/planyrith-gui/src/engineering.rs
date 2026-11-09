@@ -1184,6 +1184,245 @@ impl FeaturesWindow {
     }
 }
 
+/// The pages of the solid features window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum SolidPage {
+    #[default]
+    Hole,
+    Shell,
+    Draft,
+    Split,
+    Dome,
+    Rib,
+}
+
+/// Tools › Solid Features… (docs/05 §8.6–§8.11): holes, shells, draft,
+/// splitting, domes and ribs on the selected faces of a closed solid.
+pub struct SolidFeaturesWindow {
+    /// The window is shown.
+    pub open: bool,
+    page: SolidPage,
+    kind: usize,
+    size: usize,
+    diameter_mm: f64,
+    through: bool,
+    depth_mm: f64,
+    thickness_mm: f64,
+    angle_deg: f64,
+    plane: Plane,
+    height_mm: f64,
+    note: Option<String>,
+}
+
+impl Default for SolidFeaturesWindow {
+    fn default() -> Self {
+        SolidFeaturesWindow {
+            open: false,
+            page: SolidPage::Hole,
+            kind: 0,
+            size: 6,
+            diameter_mm: 10.0,
+            through: true,
+            depth_mm: 10.0,
+            thickness_mm: 3.0,
+            angle_deg: 3.0,
+            plane: Plane::GreenBlue,
+            height_mm: 20.0,
+            note: None,
+        }
+    }
+}
+
+const HOLE_KINDS: [&str; 5] = [
+    "simple",
+    "clearance",
+    "tapped",
+    "counterbore",
+    "countersink",
+];
+
+fn hole_kind_label(i: usize) -> String {
+    match i {
+        0 => t("Plain"),
+        1 => t("Clearance"),
+        2 => t("Tapped"),
+        3 => t("Counterbore"),
+        _ => t("Countersink"),
+    }
+}
+
+impl SolidFeaturesWindow {
+    fn run(&mut self, session: &mut Session, name: &str, params: Value) {
+        self.note = Some(match session.execute(name, params) {
+            Ok(out) => match out["thread"].as_str() {
+                Some(t) => t_args(
+                    "Done; thread { $thread }.",
+                    &[("thread", t.to_string().into())],
+                ),
+                None => t("Done"),
+            },
+            Err(e) => e,
+        });
+    }
+
+    /// Draws the window.
+    pub fn window(&mut self, ctx: &egui::Context, session: &mut Session) {
+        if !self.open {
+            return;
+        }
+        let mut open = true;
+        egui::Window::new(t("Solid Features"))
+            .open(&mut open)
+            .default_width(420.0)
+            .show(ctx, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    for (page, label) in [
+                        (SolidPage::Hole, "Hole"),
+                        (SolidPage::Shell, "Shell"),
+                        (SolidPage::Draft, "Draft"),
+                        (SolidPage::Split, "Split"),
+                        (SolidPage::Dome, "Dome"),
+                        (SolidPage::Rib, "Rib"),
+                    ] {
+                        ui.selectable_value(&mut self.page, page, t(label));
+                    }
+                });
+                ui.separator();
+                let center = selection_bounds(session).map(|b| b.center());
+                match self.page {
+                    SolidPage::Hole => {
+                        ui.label(t("Select the face to drill; the hole goes at the selection's center."));
+                        egui::Grid::new("hole").num_columns(2).show(ui, |ui| {
+                            ui.label(t("Kind"));
+                            ui.horizontal_wrapped(|ui| {
+                                for i in 0..HOLE_KINDS.len() {
+                                    ui.selectable_value(&mut self.kind, i, hole_kind_label(i));
+                                }
+                            });
+                            ui.end_row();
+                            if self.kind == 0 {
+                                ui.label(t("Diameter"));
+                                ui.add(egui::DragValue::new(&mut self.diameter_mm).range(0.1..=10_000.0).suffix(" mm"));
+                            } else {
+                                ui.label(t("Size"));
+                                egui::ComboBox::from_id_salt("hole size")
+                                    .selected_text(planyrith_core::commands::solid_features::METRIC[self.size].0)
+                                    .show_ui(ui, |ui| {
+                                        for (i, (name, _)) in planyrith_core::commands::solid_features::METRIC.iter().enumerate() {
+                                            ui.selectable_value(&mut self.size, i, *name);
+                                        }
+                                    });
+                            }
+                            ui.end_row();
+                            ui.label(t("Through all"));
+                            ui.checkbox(&mut self.through, "");
+                            ui.end_row();
+                            if !self.through {
+                                ui.label(t("Depth"));
+                                ui.add(egui::DragValue::new(&mut self.depth_mm).range(0.1..=10_000.0).suffix(" mm"));
+                                ui.end_row();
+                            }
+                        });
+                        if ui.button(t("Make Hole")).clicked() {
+                            match center {
+                                None => self.note = Some(t("Select something first.")),
+                                Some(c) => {
+                                    let mut params = json!({
+                                        "face": "selection & face", "center": c.to_array(),
+                                        "kind": HOLE_KINDS[self.kind],
+                                    });
+                                    if self.kind == 0 {
+                                        params["diameter"] = json!(self.diameter_mm);
+                                    } else {
+                                        params["size"] = json!(planyrith_core::commands::solid_features::METRIC[self.size].0);
+                                    }
+                                    if !self.through {
+                                        params["depth"] = json!(self.depth_mm);
+                                    }
+                                    self.run(session, "hole", params);
+                                }
+                            }
+                        }
+                    }
+                    SolidPage::Shell => {
+                        ui.label(t("Select the faces to open, then:"));
+                        ui.horizontal(|ui| {
+                            ui.label(t("Thickness"));
+                            ui.add(egui::DragValue::new(&mut self.thickness_mm).range(0.01..=10_000.0).suffix(" mm"));
+                        });
+                        if ui.button(t("Shell")).clicked() {
+                            self.run(session, "shell", json!({ "faces": "selection & face", "thickness": self.thickness_mm }));
+                        }
+                    }
+                    SolidPage::Draft => {
+                        ui.label(t("Select the side faces; they lean in going up the blue axis from the ground."));
+                        ui.horizontal(|ui| {
+                            ui.label(t("Angle"));
+                            ui.add(egui::DragValue::new(&mut self.angle_deg).range(-60.0..=60.0).suffix("°"));
+                        });
+                        if ui.button(t("Draft")).clicked() {
+                            self.run(session, "draft", json!({ "faces": "selection & face", "angle": self.angle_deg.to_radians() }));
+                        }
+                    }
+                    SolidPage::Split => {
+                        ui.label(t("Select a face of the solid; it is cut through the selection's center:"));
+                        egui::ComboBox::from_id_salt("split plane")
+                            .selected_text(self.plane.label())
+                            .show_ui(ui, |ui| {
+                                for p in [Plane::RedBlue, Plane::GreenBlue, Plane::RedGreen] {
+                                    ui.selectable_value(&mut self.plane, p, p.label());
+                                }
+                            });
+                        if ui.button(t("Split")).clicked() {
+                            match center {
+                                None => self.note = Some(t("Select something first.")),
+                                Some(c) => self.run(
+                                    session,
+                                    "split-solid",
+                                    json!({ "face": "selection & face", "point": c.to_array(),
+                                            "normal": self.plane.normal().to_array() }),
+                                ),
+                            }
+                        }
+                    }
+                    SolidPage::Dome => {
+                        ui.label(t("Select a flat face, then:"));
+                        ui.horizontal(|ui| {
+                            ui.label(t("Height"));
+                            ui.add(egui::DragValue::new(&mut self.height_mm).range(0.1..=10_000.0).suffix(" mm"));
+                        });
+                        if ui.button(t("Dome")).clicked() {
+                            self.run(session, "dome", json!({ "face": "selection & face", "height": self.height_mm }));
+                        }
+                    }
+                    SolidPage::Rib => {
+                        ui.label(t("Select the rib's line and a face of the solid it joins; the rib rises along the blue axis."));
+                        egui::Grid::new("rib").num_columns(2).show(ui, |ui| {
+                            ui.label(t("Thickness"));
+                            ui.add(egui::DragValue::new(&mut self.thickness_mm).range(0.01..=10_000.0).suffix(" mm"));
+                            ui.end_row();
+                            ui.label(t("Height"));
+                            ui.add(egui::DragValue::new(&mut self.height_mm).range(0.01..=10_000.0).suffix(" mm"));
+                            ui.end_row();
+                        });
+                        if ui.button(t("Rib")).clicked() {
+                            self.run(
+                                session,
+                                "rib",
+                                json!({ "edge": "selection & edge", "solid": "selection & face",
+                                        "thickness": self.thickness_mm, "height": self.height_mm }),
+                            );
+                        }
+                    }
+                }
+                if let Some(n) = &self.note {
+                    ui.label(n);
+                }
+            });
+        self.open = open;
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
@@ -1320,6 +1559,58 @@ mod gui_tests {
         boxes[2].click();
         harness.run_steps(2);
         assert!(volume(&harness).abs() < 1e-6, "the extrusion is suppressed");
+    }
+
+    /// Tools › Solid Features… drills a tapped hole in the selected face.
+    #[test]
+    fn a_tapped_hole_through_the_window() {
+        let mut harness = Harness::builder()
+            .with_size(egui::vec2(1400.0, 900.0))
+            .build_eframe(|cc| App::new(cc, None));
+        harness.state_mut().run_for_screens(&[
+            (
+                "rectangle",
+                json!({ "corner_a": [0, 0, 0], "corner_b": [100, 100, 0] }),
+            ),
+            (
+                "push-pull",
+                json!({ "face": { "Query": "face & last" }, "distance": 20 }),
+            ),
+            ("select", json!({ "query": "face & plane:xy@20" })),
+        ]);
+        harness.run_steps(2);
+        harness.get_by_label(&t("Tools")).click();
+        harness.run_steps(2);
+        harness.get_by_label(&t("Solid Features…")).click();
+        harness.run_steps(2);
+        harness.run_steps(4);
+        harness
+            .get_by_role_and_label(egui::accesskit::Role::Button, &t("Tapped"))
+            .click();
+        harness.run_steps(4);
+        harness.get_by_label(&t("Make Hole")).click();
+        harness.run_steps(2);
+        let doc = harness.state().session_for_tests().doc().clone();
+        let threaded = doc
+            .model
+            .iter()
+            .filter(|id| {
+                doc.model
+                    .attrs(*id)
+                    .and_then(|a| a.get("thread", "designation").cloned())
+                    == Some(planyrith_core::document::Value::Str("M8x1.25".into()))
+            })
+            .count();
+        assert!(threaded > 0, "the bore carries the thread");
+        let volume = harness
+            .state()
+            .session_for_tests()
+            .doc()
+            .model
+            .mesh()
+            .volume()
+            .unwrap();
+        assert!(volume < 200_000.0);
     }
 
     /// Tools › Constraints… squares a skewed quad's bottom edge and gives

@@ -1,0 +1,4 @@
+# A plate with a dome on top.
+rectangle --corner-a 0,0,0 --corner-b 100,100,0
+push-pull --face '{face & last}' --distance 20
+dome --face 'face & plane:xy@20' --height 30

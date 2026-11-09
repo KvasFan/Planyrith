@@ -385,6 +385,8 @@ pub struct App {
     constraints: crate::engineering::ConstraintsWindow,
     /// Tools › Features… (docs/05 §5.16).
     features: crate::engineering::FeaturesWindow,
+    /// Tools › Solid Features… (docs/05 §8.6–§8.11).
+    solid_features: crate::engineering::SolidFeaturesWindow,
     /// File › Export › Rendered Image (docs/06 §11.1).
     #[cfg(not(target_arch = "wasm32"))]
     render_job: crate::render_job::RenderJob,
@@ -549,6 +551,7 @@ impl App {
             measure: Default::default(),
             constraints: Default::default(),
             features: Default::default(),
+            solid_features: Default::default(),
             #[cfg(not(target_arch = "wasm32"))]
             render_job: Default::default(),
             #[cfg(not(target_arch = "wasm32"))]
@@ -1843,6 +1846,10 @@ impl App {
                 }
                 if ui.button(t("Features…")).clicked() {
                     self.features.open = true;
+                    ui.close();
+                }
+                if ui.button(t("Solid Features…")).clicked() {
+                    self.solid_features.open = true;
                     ui.close();
                 }
                 ui.separator();
@@ -3429,6 +3436,7 @@ impl App {
         self.measure.window(&ctx, &mut self.session);
         self.constraints.window(&ctx, &mut self.session);
         self.features.window(&ctx, &mut self.session);
+        self.solid_features.window(&ctx, &mut self.session);
         self.together.window(&ctx, &mut self.session);
         #[cfg(not(target_arch = "wasm32"))]
         {

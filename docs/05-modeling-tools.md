@@ -686,6 +686,37 @@ run inside the part. Direct modeling stays the base: a document without parts be
 - **GUI:** Tools › Measure… › Cut List, with Copy as CSV.
 - **Tests:** two equal sides share a row; a shelf has its own.
 
+### 8.6–8.11 Solid features: `hole`, `shell`, `draft`, `split-solid`, `dome`, `rib`
+They work on the closed solid of the edit context that a named face belongs to (the faces
+connected to it, which must close), so they run on loose geometry, inside any open group and as
+features of parametric parts (§5.16). Results replace that solid's faces; all are one undo step
+and return `{ faces, volume_mm3, groups?, thread? }`. GUI: Tools › Solid Features…, one page each,
+on the selection.
+- **`hole { face, center, kind: simple|clearance|tapped|counterbore|countersink, size?, diameter?,
+  depth?, fit: close|normal|loose, segments (32) }`.** The center is projected onto the face's
+  plane; the hole runs against the face's normal, through everything unless `depth`. Sizes are
+  metric `M2`–`M24` (coarse pitch; clearance per ISO 273; counterbores for socket head cap
+  screws; 90° countersinks); `simple` takes `diameter` or the nominal size. The cutter is the
+  hole's profile revolved (docs/03 §4.19) and subtracted (§4.13). A tapped hole is drilled at the
+  tap drill size and its bore faces get the attribute `thread` / `designation` (`M8x1.25`), a
+  cosmetic thread for drawings and exports.
+- **`shell { faces, thickness }`.** The named faces are opened and the rest thickened inward
+  (docs/03 §4.16), hollowing the solid.
+- **`draft { faces, angle, pull (+Z), neutral? (origin) }`.** Each named face leans by `angle`
+  about its line on the neutral plane: every vertex moves across the face by its height along
+  `pull` times tan(angle) (inward for a positive angle); faces stay flat (folded when they cannot).
+- **`split-solid { face, point, normal }`.** The solid is cut by the plane into two groups ("Split
+  1" on the normal's side, then the rest).
+- **`dome { face, height, layers (8) }`.** An elliptic cap on a flat face without holes: the
+  outline scaled by cos θ and raised by `height · sin θ` in `layers` rings to a small flat top,
+  lofted (§4.17) and joined to the solid.
+- **`rib { edge, solid, thickness, height, direction (+Z) }`.** A wall `thickness` wide centered on
+  the edge's line, extending `height` along `direction`, joined to the solid of the face `solid`;
+  the line gives way to it.
+- **Tests:** a tapped M8 hole removes the exact polygonal bore and carries its thread; every kind
+  keeps a closed solid; a 100 mm box shelled by 10 mm keeps 424 cm³; a 5° draft gives the
+  trapezoidal prism's volume; a split keeps the volume in two groups; a dome and a rib add to it.
+
 ## 9. View tools (category `view`) — not undoable, do not dirty the document
 
 - `orbit { yaw: Angle, pitch: Angle, pivot?: Point }` — middle-drag; `Shift` = pan; orbits about the
