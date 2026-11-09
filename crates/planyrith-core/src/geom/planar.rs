@@ -558,8 +558,19 @@ fn rebuild_plane(
     let frame = &input.frame;
     let regions = arrangement_regions(mesh, frame, input.edges, tol)?;
 
-    let mut polygons = Vec::with_capacity(input.faces.len());
+    // Faces in position-key order: when the regions of two faces overlap
+    // (a stretch moves vertices before faces are found again), the first
+    // that holds a region owns it, and that must not depend on the slot
+    // layout (docs/03 Decisions, 2026-11-09).
+    let mut keyed_faces = Vec::with_capacity(input.faces.len());
     for &f in input.faces {
+        let face = mesh.face_ref(f)?;
+        let key = position_key(mesh, &mesh.loop_half_edges(face.outer)?)?;
+        keyed_faces.push((key, f));
+    }
+    keyed_faces.sort_by(|a, b| compare_keys(&a.0, &b.0).then(a.1.cmp(&b.1)));
+    let mut polygons = Vec::with_capacity(keyed_faces.len());
+    for (_, f) in keyed_faces {
         let (outer, holes) = face_polygon(mesh, f, frame)?;
         polygons.push((f, outer, holes));
     }

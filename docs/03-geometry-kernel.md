@@ -392,9 +392,11 @@ within `tolerances.length`.
   kernel operation creates now take their pids in position-key order (their places in the
   sequence of new elements unchanged), and a plane normal within 1e-12 of a coordinate axis is
   that axis exactly (`d` from the centroid), so axis-aligned faces store identical planes.
-  Known issue, kept as an ignored test (`push_pull_after_reopening_known_issue`): in one
-  sequence a push/pull after a reopen fails with a mesh invariant error that the same push/pull
-  without reopening does not hit; some step of extrusion still depends on the slot layout.
+  A third case: a push/pull after a reopen failed with a mesh invariant error that the same
+  push/pull without reopening did not hit. A stretch moves vertices before faces are found
+  again, so two faces' regions can overlap for a moment, and the region went to the first face
+  in slot order that held it; faces are now tried in position-key order
+  (`push_pull_after_reopening_gives_the_same_result`). 100 000 fuzz sequences then pass.
 
 - 2026-10-28 — **0.8 solid boundaries.** Boolean operations split copies of both
   operands, including clipped coplanar boundaries, classify strictly interior

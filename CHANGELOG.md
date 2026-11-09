@@ -6,6 +6,8 @@ All notable changes to Planyrith are recorded here. Versions follow
 
 ## Unreleased
 
+- Fixed: a push/pull could fail with an internal mesh error after the document
+  had been saved and reopened, where it succeeded in the original session.
 - Fixed: faces created by one operation could get their ids in a different
   order after saving and reopening; they now follow their positions, and
   faces lying in an axis plane store that plane exactly.

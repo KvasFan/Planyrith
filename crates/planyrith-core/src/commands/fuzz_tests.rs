@@ -660,13 +660,13 @@ fn new_faces_take_pids_in_geometric_order() {
     assert!(shapes.windows(2).all(|w| w[0] == w[1]));
 }
 
-/// Known issue (docs/03 Decisions, 2026-11-09): after a save and reopen the
-/// second push/pull fails with "half-edge already borders a face", while
-/// without reopening it succeeds; some step of extrusion still depends on
-/// the slot layout. Found by the fuzzer; kept here until fixed.
+/// Found by the fuzzer: after a save and reopen the second push/pull failed
+/// with "half-edge already borders a face" while without reopening it
+/// succeeded: when a stretch made two faces' regions overlap, the face that
+/// owned a region was the first in slot order. Owners are now taken in
+/// position-key order.
 #[test]
-#[ignore = "known issue: extrusion after reopening"]
-fn push_pull_after_reopening_known_issue() {
+fn push_pull_after_reopening_gives_the_same_result() {
     let steps: Vec<(&str, Value)> = vec![
         (
             "rotated-rectangle",
@@ -690,7 +690,8 @@ fn push_pull_after_reopening_known_issue() {
             serde_json::json!({"distance":200.0,"face":{"Pid":19}}),
         ),
     ];
-    for reopen_at in [None, Some(3)] {
+    let mut shapes = Vec::new();
+    for reopen_at in [None, Some(3), Some(4)] {
         let mut e = engine();
         for (k, (n, p)) in steps.iter().enumerate() {
             e.execute_erased(n, p.clone())
@@ -699,5 +700,8 @@ fn push_pull_after_reopening_known_issue() {
                 e = reopen(&e);
             }
         }
+        let counter = e.document().info.next_pid;
+        shapes.push(shape(e.document(), counter));
     }
+    assert!(shapes.windows(2).all(|w| w[0] == w[1]));
 }
