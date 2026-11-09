@@ -5,7 +5,7 @@ implementation stands, what is done, what remains, and how to resume. Update it 
 every working session. Ground truth for *what to build* stays in `docs/00`–`docs/15`; this file
 is only *progress state*. Release packaging is specified in `docs/16`.
 
-_Last updated: 2026-11-08 (0.11.0-alpha.3; 1.1 and 1.2 implemented, unreleased)._
+_Last updated: 2026-11-09 (0.11.0-alpha.3; milestones 1.1–1.6 implemented, unreleased)._
 
 **Release state (2026-11-01):** `v0.11.0-alpha.3` is prepared at `3d55f6e`: main
 CI and the Release workflow's Windows and Linux package checks passed with
@@ -64,6 +64,15 @@ opening exported FBX files in a reference application (a downloaded one may not 
 **1.5 implemented (2026-11-09):** working together (docs/08 §3.1): a multi-client server
 ordering commands, per-client selection and context, presence, `session.status`, network
 addresses, File › Work Together…
+
+**1.6 implemented (2026-11-09):** encrypted connections for servers on network addresses
+(Noise with the token as pre-shared key, docs/08 §3.2). **Bug fixing the same day**, found by
+rendering and round-tripping the user's real house model and by long fuzzing runs
+(`PLANYRITH_FUZZ_CASES`): path-traced reversed faces, image bounds, overlapping flat parts lost
+on mesh import, bounds of turned nested components and zoom extents, per-client `last`, three
+results that changed after a save and reopen (split identity, new-face pid order, region owners
+during stretches) and silently lost faces (`W2008`). The command fuzzer passes 100 000 sequences
+and the mesh fuzzer 300 000. Joining from the browser and per-person undo remain candidates.
 
 **After alpha.3 (unreleased, 2026-11-02):** the renderer draws the style's edge
 effects (depth cue, extension, endpoints, jitter) and shadows from edges without
