@@ -291,6 +291,33 @@
         {
           "loops": [
             [
+              8,
+              9,
+              10,
+              11
+            ]
+          ],
+          "plane": {
+            "d": -400.0,
+            "normal": [
+              0.0,
+              0.0,
+              1.0
+            ]
+          },
+          "sides": {
+            "material_back": null,
+            "material_front": {
+              "idx": 3,
+              "version": 1
+            },
+            "uv_back": null,
+            "uv_front": null
+          }
+        },
+        {
+          "loops": [
+            [
               7,
               2147483658,
               2147483654,
@@ -332,33 +359,6 @@
           "sides": {
             "material_back": null,
             "material_front": null,
-            "uv_back": null,
-            "uv_front": null
-          }
-        },
-        {
-          "loops": [
-            [
-              8,
-              9,
-              10,
-              11
-            ]
-          ],
-          "plane": {
-            "d": -400.0,
-            "normal": [
-              0.0,
-              0.0,
-              1.0
-            ]
-          },
-          "sides": {
-            "material_back": null,
-            "material_front": {
-              "idx": 3,
-              "version": 1
-            },
             "uv_back": null,
             "uv_front": null
           }

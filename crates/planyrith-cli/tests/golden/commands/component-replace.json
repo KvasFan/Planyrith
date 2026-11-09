@@ -229,6 +229,30 @@
               {
                 "loops": [
                   [
+                    8,
+                    9,
+                    10,
+                    11
+                  ]
+                ],
+                "plane": {
+                  "d": -400.0,
+                  "normal": [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                },
+                "sides": {
+                  "material_back": null,
+                  "material_front": null,
+                  "uv_back": null,
+                  "uv_front": null
+                }
+              },
+              {
+                "loops": [
+                  [
                     7,
                     2147483658,
                     2147483654,
@@ -265,30 +289,6 @@
                     1.0,
                     0.0,
                     0.0
-                  ]
-                },
-                "sides": {
-                  "material_back": null,
-                  "material_front": null,
-                  "uv_back": null,
-                  "uv_front": null
-                }
-              },
-              {
-                "loops": [
-                  [
-                    8,
-                    9,
-                    10,
-                    11
-                  ]
-                ],
-                "plane": {
-                  "d": -400.0,
-                  "normal": [
-                    0.0,
-                    0.0,
-                    1.0
                   ]
                 },
                 "sides": {
@@ -460,7 +460,7 @@
         "name": "Stool",
         "thumbnail": null,
         "usage_count": 0,
-        "uuid": "aceaf1a7-2f15-8d30-bf17-7589fa3f029b"
+        "uuid": "16f0aed2-ef9a-8aa5-811d-7ab6b5f42cd6"
       }
     ],
     [
@@ -658,6 +658,30 @@
               {
                 "loops": [
                   [
+                    8,
+                    9,
+                    10,
+                    11
+                  ]
+                ],
+                "plane": {
+                  "d": -700.0,
+                  "normal": [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                },
+                "sides": {
+                  "material_back": null,
+                  "material_front": null,
+                  "uv_back": null,
+                  "uv_front": null
+                }
+              },
+              {
+                "loops": [
+                  [
                     7,
                     2147483658,
                     2147483654,
@@ -694,30 +718,6 @@
                     1.0,
                     0.0,
                     0.0
-                  ]
-                },
-                "sides": {
-                  "material_back": null,
-                  "material_front": null,
-                  "uv_back": null,
-                  "uv_front": null
-                }
-              },
-              {
-                "loops": [
-                  [
-                    8,
-                    9,
-                    10,
-                    11
-                  ]
-                ],
-                "plane": {
-                  "d": -700.0,
-                  "normal": [
-                    0.0,
-                    0.0,
-                    1.0
                   ]
                 },
                 "sides": {
@@ -889,7 +889,7 @@
         "name": "Table",
         "thumbnail": null,
         "usage_count": 3,
-        "uuid": "f0267e98-6b40-863b-9d52-96893d0c0bd9"
+        "uuid": "a3b90086-1b27-8dcd-a30a-089837da400c"
       }
     ]
   ],

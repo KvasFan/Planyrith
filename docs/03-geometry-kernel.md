@@ -386,7 +386,15 @@ within `tolerances.length`.
   in their last bits. Keys now sum the points in position order. The same case showed the
   exploded group's own face silently dropped: it would need a third face on an edge (§3.1
   inv. 5); `redraw_geometry` now reports such faces as `W2008` unless existing faces already
-  cover them.
+  cover them. A second case: a push/pull that splits a face several times made the new faces in
+  an order that depends on the slot layout, so their pids swapped after a reopen, and a piece
+  inherited one of two coplanar faces' planes that differed in the last bit. The faces one
+  kernel operation creates now take their pids in position-key order (their places in the
+  sequence of new elements unchanged), and a plane normal within 1e-12 of a coordinate axis is
+  that axis exactly (`d` from the centroid), so axis-aligned faces store identical planes.
+  Known issue, kept as an ignored test (`push_pull_after_reopening_known_issue`): in one
+  sequence a push/pull after a reopen fails with a mesh invariant error that the same push/pull
+  without reopening does not hit; some step of extrusion still depends on the slot layout.
 
 - 2026-10-28 — **0.8 solid boundaries.** Boolean operations split copies of both
   operands, including clipped coplanar boundaries, classify strictly interior

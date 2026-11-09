@@ -167,6 +167,12 @@
                 "flags": 0
               },
               {
+                "a": 11,
+                "b": 12,
+                "curve": null,
+                "flags": 0
+              },
+              {
                 "a": 8,
                 "b": 12,
                 "curve": null,
@@ -174,12 +180,6 @@
               },
               {
                 "a": 2,
-                "b": 12,
-                "curve": null,
-                "flags": 0
-              },
-              {
-                "a": 11,
                 "b": 12,
                 "curve": null,
                 "flags": 0
@@ -285,9 +285,33 @@
               {
                 "loops": [
                   [
-                    8,
+                    14,
                     15,
                     2147483664,
+                    2147483655
+                  ]
+                ],
+                "plane": {
+                  "d": -1500.0,
+                  "normal": [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                },
+                "sides": {
+                  "material_back": null,
+                  "material_front": null,
+                  "uv_back": null,
+                  "uv_front": null
+                }
+              },
+              {
+                "loops": [
+                  [
+                    8,
+                    16,
+                    2147483665,
                     2147483649
                   ]
                 ],
@@ -310,8 +334,8 @@
                 "loops": [
                   [
                     2147483650,
-                    16,
-                    2147483665,
+                    17,
+                    2147483663,
                     2147483661
                   ]
                 ],
@@ -321,30 +345,6 @@
                     1.0,
                     0.0,
                     0.0
-                  ]
-                },
-                "sides": {
-                  "material_back": null,
-                  "material_front": null,
-                  "uv_back": null,
-                  "uv_front": null
-                }
-              },
-              {
-                "loops": [
-                  [
-                    14,
-                    17,
-                    2147483663,
-                    2147483655
-                  ]
-                ],
-                "plane": {
-                  "d": -1500.0,
-                  "normal": [
-                    0.0,
-                    0.0,
-                    1.0
                   ]
                 },
                 "sides": {
@@ -381,30 +381,6 @@
               {
                 "loops": [
                   [
-                    12,
-                    20,
-                    2147483666,
-                    2147483652
-                  ]
-                ],
-                "plane": {
-                  "d": 1000.0,
-                  "normal": [
-                    -1.0,
-                    0.0,
-                    0.0
-                  ]
-                },
-                "sides": {
-                  "material_back": null,
-                  "material_front": null,
-                  "uv_back": null,
-                  "uv_front": null
-                }
-              },
-              {
-                "loops": [
-                  [
                     10,
                     19,
                     2147483668,
@@ -417,6 +393,30 @@
                     0.0,
                     0.0,
                     -1.0
+                  ]
+                },
+                "sides": {
+                  "material_back": null,
+                  "material_front": null,
+                  "uv_back": null,
+                  "uv_front": null
+                }
+              },
+              {
+                "loops": [
+                  [
+                    12,
+                    20,
+                    2147483666,
+                    2147483652
+                  ]
+                ],
+                "plane": {
+                  "d": 1000.0,
+                  "normal": [
+                    -1.0,
+                    0.0,
+                    0.0
                   ]
                 },
                 "sides": {
@@ -690,7 +690,7 @@
         "name": "Solid result 1",
         "thumbnail": null,
         "usage_count": 1,
-        "uuid": "75799f55-d935-82be-aaa8-d3bfcf6bdeda"
+        "uuid": "78b98d94-3ca8-8e2c-9d34-9737263c7c03"
       }
     ]
   ],

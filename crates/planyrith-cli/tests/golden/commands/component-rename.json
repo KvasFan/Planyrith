@@ -225,6 +225,30 @@
               {
                 "loops": [
                   [
+                    8,
+                    9,
+                    10,
+                    11
+                  ]
+                ],
+                "plane": {
+                  "d": -400.0,
+                  "normal": [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                },
+                "sides": {
+                  "material_back": null,
+                  "material_front": null,
+                  "uv_back": null,
+                  "uv_front": null
+                }
+              },
+              {
+                "loops": [
+                  [
                     7,
                     2147483658,
                     2147483654,
@@ -261,30 +285,6 @@
                     1.0,
                     0.0,
                     0.0
-                  ]
-                },
-                "sides": {
-                  "material_back": null,
-                  "material_front": null,
-                  "uv_back": null,
-                  "uv_front": null
-                }
-              },
-              {
-                "loops": [
-                  [
-                    8,
-                    9,
-                    10,
-                    11
-                  ]
-                ],
-                "plane": {
-                  "d": -400.0,
-                  "normal": [
-                    0.0,
-                    0.0,
-                    1.0
                   ]
                 },
                 "sides": {
@@ -456,7 +456,7 @@
         "name": "Chest",
         "thumbnail": null,
         "usage_count": 1,
-        "uuid": "4849491f-ab2f-84ac-9b08-22169a21ae86"
+        "uuid": "6474853d-6276-8558-8c22-89f68b9c28aa"
       }
     ]
   ],

@@ -460,7 +460,7 @@
         "name": "Thickened",
         "thumbnail": null,
         "usage_count": 1,
-        "uuid": "eb8924be-2e5d-88c5-8387-f7b9f24548f0"
+        "uuid": "6d6d82c4-9397-850a-8615-f89c339c3fb4"
       }
     ],
     [
@@ -665,10 +665,10 @@
                   ]
                 ],
                 "plane": {
-                  "d": -4.999999999999999,
+                  "d": -5.0,
                   "normal": [
                     0.0,
-                    -0.9999999999999999,
+                    -1.0,
                     0.0
                   ]
                 },
@@ -1125,7 +1125,7 @@
         "name": "Thickened",
         "thumbnail": null,
         "usage_count": 1,
-        "uuid": "16a8f0a6-27ff-8e43-b71f-991e230fea34"
+        "uuid": "9dddf48b-bea8-8fd8-9b8d-d98d3e2ebe6c"
       }
     ]
   ],

@@ -225,6 +225,30 @@
               {
                 "loops": [
                   [
+                    8,
+                    9,
+                    10,
+                    11
+                  ]
+                ],
+                "plane": {
+                  "d": -600.0,
+                  "normal": [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                },
+                "sides": {
+                  "material_back": null,
+                  "material_front": null,
+                  "uv_back": null,
+                  "uv_front": null
+                }
+              },
+              {
+                "loops": [
+                  [
                     7,
                     2147483658,
                     2147483654,
@@ -261,30 +285,6 @@
                     1.0,
                     0.0,
                     0.0
-                  ]
-                },
-                "sides": {
-                  "material_back": null,
-                  "material_front": null,
-                  "uv_back": null,
-                  "uv_front": null
-                }
-              },
-              {
-                "loops": [
-                  [
-                    8,
-                    9,
-                    10,
-                    11
-                  ]
-                ],
-                "plane": {
-                  "d": -600.0,
-                  "normal": [
-                    0.0,
-                    0.0,
-                    1.0
                   ]
                 },
                 "sides": {
@@ -456,7 +456,7 @@
         "name": "Group 19",
         "thumbnail": null,
         "usage_count": 3,
-        "uuid": "aee5fe3a-cc2a-84a8-ab57-cd8ce30f34ce"
+        "uuid": "8f364d7a-170b-8dda-80e6-6138b0ad298f"
       }
     ]
   ],

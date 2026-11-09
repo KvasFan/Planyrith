@@ -293,6 +293,33 @@
               {
                 "loops": [
                   [
+                    8,
+                    9,
+                    10,
+                    11
+                  ]
+                ],
+                "plane": {
+                  "d": -300.0,
+                  "normal": [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                },
+                "sides": {
+                  "material_back": null,
+                  "material_front": {
+                    "idx": 3,
+                    "version": 1
+                  },
+                  "uv_back": null,
+                  "uv_front": null
+                }
+              },
+              {
+                "loops": [
+                  [
                     7,
                     2147483658,
                     2147483654,
@@ -334,33 +361,6 @@
                 "sides": {
                   "material_back": null,
                   "material_front": null,
-                  "uv_back": null,
-                  "uv_front": null
-                }
-              },
-              {
-                "loops": [
-                  [
-                    8,
-                    9,
-                    10,
-                    11
-                  ]
-                ],
-                "plane": {
-                  "d": -300.0,
-                  "normal": [
-                    0.0,
-                    0.0,
-                    1.0
-                  ]
-                },
-                "sides": {
-                  "material_back": null,
-                  "material_front": {
-                    "idx": 3,
-                    "version": 1
-                  },
                   "uv_back": null,
                   "uv_front": null
                 }
@@ -527,7 +527,7 @@
         "name": "Crate",
         "thumbnail": null,
         "usage_count": 1,
-        "uuid": "e3bc7c18-30f0-823c-84fa-4a15a5df13d6"
+        "uuid": "83ba4d9a-e664-8691-86b0-237dbd681d23"
       }
     ],
     [
@@ -725,6 +725,30 @@
               {
                 "loops": [
                   [
+                    10,
+                    11,
+                    2147483657,
+                    8
+                  ]
+                ],
+                "plane": {
+                  "d": -300.0,
+                  "normal": [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                },
+                "sides": {
+                  "material_back": null,
+                  "material_front": null,
+                  "uv_back": null,
+                  "uv_front": null
+                }
+              },
+              {
+                "loops": [
+                  [
                     7,
                     9,
                     2147483650,
@@ -761,30 +785,6 @@
                     1.0,
                     0.0,
                     0.0
-                  ]
-                },
-                "sides": {
-                  "material_back": null,
-                  "material_front": null,
-                  "uv_back": null,
-                  "uv_front": null
-                }
-              },
-              {
-                "loops": [
-                  [
-                    10,
-                    11,
-                    2147483657,
-                    8
-                  ]
-                ],
-                "plane": {
-                  "d": -300.0,
-                  "normal": [
-                    0.0,
-                    0.0,
-                    1.0
                   ]
                 },
                 "sides": {
@@ -956,7 +956,7 @@
         "name": "Group 38",
         "thumbnail": null,
         "usage_count": 1,
-        "uuid": "42bcc9a1-06e1-833e-b0be-517fcf99a7c1"
+        "uuid": "4a334ac4-d02c-8be5-a567-8b35caf77a19"
       }
     ],
     [
@@ -1154,6 +1154,30 @@
               {
                 "loops": [
                   [
+                    10,
+                    11,
+                    2147483657,
+                    8
+                  ]
+                ],
+                "plane": {
+                  "d": -300.0,
+                  "normal": [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                },
+                "sides": {
+                  "material_back": null,
+                  "material_front": null,
+                  "uv_back": null,
+                  "uv_front": null
+                }
+              },
+              {
+                "loops": [
+                  [
                     7,
                     9,
                     2147483650,
@@ -1190,30 +1214,6 @@
                     1.0,
                     0.0,
                     0.0
-                  ]
-                },
-                "sides": {
-                  "material_back": null,
-                  "material_front": null,
-                  "uv_back": null,
-                  "uv_front": null
-                }
-              },
-              {
-                "loops": [
-                  [
-                    10,
-                    11,
-                    2147483657,
-                    8
-                  ]
-                ],
-                "plane": {
-                  "d": -300.0,
-                  "normal": [
-                    0.0,
-                    0.0,
-                    1.0
                   ]
                 },
                 "sides": {
@@ -1385,7 +1385,7 @@
         "name": "Box",
         "thumbnail": null,
         "usage_count": 1,
-        "uuid": "c178b37e-87e3-806e-ba0c-acda4db8fc96"
+        "uuid": "91c359cf-1f5a-8816-9a06-5b912fedc336"
       }
     ],
     [
@@ -1583,54 +1583,6 @@
               {
                 "loops": [
                   [
-                    7,
-                    9,
-                    2147483650,
-                    1
-                  ]
-                ],
-                "plane": {
-                  "d": -400.0,
-                  "normal": [
-                    0.0,
-                    1.0,
-                    0.0
-                  ]
-                },
-                "sides": {
-                  "material_back": null,
-                  "material_front": null,
-                  "uv_back": null,
-                  "uv_front": null
-                }
-              },
-              {
-                "loops": [
-                  [
-                    2147483648,
-                    2,
-                    2147483659,
-                    2147483652
-                  ]
-                ],
-                "plane": {
-                  "d": -600.0,
-                  "normal": [
-                    1.0,
-                    0.0,
-                    0.0
-                  ]
-                },
-                "sides": {
-                  "material_back": null,
-                  "material_front": null,
-                  "uv_back": null,
-                  "uv_front": null
-                }
-              },
-              {
-                "loops": [
-                  [
                     10,
                     11,
                     2147483657,
@@ -1674,6 +1626,54 @@
                       0.0
                     ]
                   }
+                }
+              },
+              {
+                "loops": [
+                  [
+                    7,
+                    9,
+                    2147483650,
+                    1
+                  ]
+                ],
+                "plane": {
+                  "d": -400.0,
+                  "normal": [
+                    0.0,
+                    1.0,
+                    0.0
+                  ]
+                },
+                "sides": {
+                  "material_back": null,
+                  "material_front": null,
+                  "uv_back": null,
+                  "uv_front": null
+                }
+              },
+              {
+                "loops": [
+                  [
+                    2147483648,
+                    2,
+                    2147483659,
+                    2147483652
+                  ]
+                ],
+                "plane": {
+                  "d": -600.0,
+                  "normal": [
+                    1.0,
+                    0.0,
+                    0.0
+                  ]
+                },
+                "sides": {
+                  "material_back": null,
+                  "material_front": null,
+                  "uv_back": null,
+                  "uv_front": null
                 }
               }
             ],
@@ -1838,7 +1838,7 @@
         "name": "Group 76",
         "thumbnail": null,
         "usage_count": 1,
-        "uuid": "c19a9dd5-c279-8c6f-9769-cf5cbec6e07a"
+        "uuid": "a7dd423d-92cc-8c67-b4f6-b10cedfbc957"
       }
     ],
     [
@@ -1974,7 +1974,7 @@
                   "d": 0.0,
                   "normal": [
                     0.0,
-                    0.9999999999999999,
+                    1.0,
                     0.0
                   ]
                 },
@@ -1997,7 +1997,7 @@
                 "plane": {
                   "d": 0.0,
                   "normal": [
-                    -0.9999999999999999,
+                    -1.0,
                     0.0,
                     0.0
                   ]
@@ -2067,9 +2067,9 @@
                   ]
                 ],
                 "plane": {
-                  "d": -600.0000238418578,
+                  "d": -600.0000238418579,
                   "normal": [
-                    0.9999999999999999,
+                    1.0,
                     0.0,
                     0.0
                   ]
@@ -2091,10 +2091,10 @@
                   ]
                 ],
                 "plane": {
-                  "d": -300.0000119209289,
+                  "d": -300.00001192092896,
                   "normal": [
                     0.0,
-                    -0.9999999999999999,
+                    -1.0,
                     0.0
                   ]
                 },
@@ -2109,22 +2109,22 @@
                   },
                   "uv_back": {
                     "Affine": [
-                      1.0,
+                      0.9999999999999999,
                       0.0,
                       0.0,
-                      2.0000000000000004,
-                      0.0,
-                      -1.1368683772161603e-13
+                      2.0,
+                      1.1368683772161603e-13,
+                      0.0
                     ]
                   },
                   "uv_front": {
                     "Affine": [
-                      1.0,
+                      0.9999999999999999,
                       0.0,
                       0.0,
-                      2.0000000000000004,
-                      0.0,
-                      -1.1368683772161603e-13
+                      2.0,
+                      1.1368683772161603e-13,
+                      0.0
                     ]
                   }
                 }
@@ -2694,6 +2694,30 @@
               {
                 "loops": [
                   [
+                    10,
+                    11,
+                    2147483657,
+                    8
+                  ]
+                ],
+                "plane": {
+                  "d": -300.0,
+                  "normal": [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                },
+                "sides": {
+                  "material_back": null,
+                  "material_front": null,
+                  "uv_back": null,
+                  "uv_front": null
+                }
+              },
+              {
+                "loops": [
+                  [
                     7,
                     9,
                     2147483650,
@@ -2730,30 +2754,6 @@
                     1.0,
                     0.0,
                     0.0
-                  ]
-                },
-                "sides": {
-                  "material_back": null,
-                  "material_front": null,
-                  "uv_back": null,
-                  "uv_front": null
-                }
-              },
-              {
-                "loops": [
-                  [
-                    10,
-                    11,
-                    2147483657,
-                    8
-                  ]
-                ],
-                "plane": {
-                  "d": -300.0,
-                  "normal": [
-                    0.0,
-                    0.0,
-                    1.0
                   ]
                 },
                 "sides": {
@@ -2925,7 +2925,7 @@
         "name": "Group 118",
         "thumbnail": null,
         "usage_count": 1,
-        "uuid": "14c45122-d2e0-8dd6-9d2c-8aa2fb0bb860"
+        "uuid": "e9645817-8271-8477-bd15-92d4931f072d"
       }
     ],
     [
@@ -3123,6 +3123,36 @@
               {
                 "loops": [
                   [
+                    9,
+                    11,
+                    2147483658,
+                    2147483656
+                  ]
+                ],
+                "plane": {
+                  "d": -300.0,
+                  "normal": [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                },
+                "sides": {
+                  "material_back": {
+                    "idx": 5,
+                    "version": 1
+                  },
+                  "material_front": {
+                    "idx": 5,
+                    "version": 1
+                  },
+                  "uv_back": null,
+                  "uv_front": null
+                }
+              },
+              {
+                "loops": [
+                  [
                     4,
                     10,
                     2147483654,
@@ -3164,36 +3194,6 @@
                 "sides": {
                   "material_back": null,
                   "material_front": null,
-                  "uv_back": null,
-                  "uv_front": null
-                }
-              },
-              {
-                "loops": [
-                  [
-                    9,
-                    11,
-                    2147483658,
-                    2147483656
-                  ]
-                ],
-                "plane": {
-                  "d": -300.0,
-                  "normal": [
-                    0.0,
-                    0.0,
-                    1.0
-                  ]
-                },
-                "sides": {
-                  "material_back": {
-                    "idx": 5,
-                    "version": 1
-                  },
-                  "material_front": {
-                    "idx": 5,
-                    "version": 1
-                  },
                   "uv_back": null,
                   "uv_front": null
                 }
@@ -3360,7 +3360,7 @@
         "name": "Group 137",
         "thumbnail": null,
         "usage_count": 1,
-        "uuid": "8a4c4460-1b8e-8b4c-a6dc-cbec4970bea8"
+        "uuid": "03728e35-fe45-8f86-b347-e6bb283302b1"
       }
     ],
     [
@@ -3576,6 +3576,36 @@
               {
                 "loops": [
                   [
+                    9,
+                    11,
+                    2147483658,
+                    2147483656
+                  ]
+                ],
+                "plane": {
+                  "d": -300.0,
+                  "normal": [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                },
+                "sides": {
+                  "material_back": {
+                    "idx": 7,
+                    "version": 1
+                  },
+                  "material_front": {
+                    "idx": 7,
+                    "version": 1
+                  },
+                  "uv_back": null,
+                  "uv_front": null
+                }
+              },
+              {
+                "loops": [
+                  [
                     4,
                     10,
                     2147483654,
@@ -3627,36 +3657,6 @@
                   },
                   "material_front": {
                     "idx": 6,
-                    "version": 1
-                  },
-                  "uv_back": null,
-                  "uv_front": null
-                }
-              },
-              {
-                "loops": [
-                  [
-                    9,
-                    11,
-                    2147483658,
-                    2147483656
-                  ]
-                ],
-                "plane": {
-                  "d": -300.0,
-                  "normal": [
-                    0.0,
-                    0.0,
-                    1.0
-                  ]
-                },
-                "sides": {
-                  "material_back": {
-                    "idx": 7,
-                    "version": 1
-                  },
-                  "material_front": {
-                    "idx": 7,
                     "version": 1
                   },
                   "uv_back": null,
@@ -3825,7 +3825,7 @@
         "name": "Group 156",
         "thumbnail": null,
         "usage_count": 1,
-        "uuid": "fada5eca-0625-88ea-bc29-b7b211a70131"
+        "uuid": "fd89d312-2c17-8e75-98c6-5cc879ca6352"
       }
     ],
     [
@@ -5350,54 +5350,6 @@
               {
                 "loops": [
                   [
-                    7,
-                    9,
-                    2147483650,
-                    1
-                  ]
-                ],
-                "plane": {
-                  "d": -400.0,
-                  "normal": [
-                    0.0,
-                    1.0,
-                    0.0
-                  ]
-                },
-                "sides": {
-                  "material_back": null,
-                  "material_front": null,
-                  "uv_back": null,
-                  "uv_front": null
-                }
-              },
-              {
-                "loops": [
-                  [
-                    2147483648,
-                    2,
-                    2147483659,
-                    2147483652
-                  ]
-                ],
-                "plane": {
-                  "d": -600.0,
-                  "normal": [
-                    1.0,
-                    0.0,
-                    0.0
-                  ]
-                },
-                "sides": {
-                  "material_back": null,
-                  "material_front": null,
-                  "uv_back": null,
-                  "uv_front": null
-                }
-              },
-              {
-                "loops": [
-                  [
                     10,
                     11,
                     2147483657,
@@ -5441,6 +5393,54 @@
                       0.0
                     ]
                   }
+                }
+              },
+              {
+                "loops": [
+                  [
+                    7,
+                    9,
+                    2147483650,
+                    1
+                  ]
+                ],
+                "plane": {
+                  "d": -400.0,
+                  "normal": [
+                    0.0,
+                    1.0,
+                    0.0
+                  ]
+                },
+                "sides": {
+                  "material_back": null,
+                  "material_front": null,
+                  "uv_back": null,
+                  "uv_front": null
+                }
+              },
+              {
+                "loops": [
+                  [
+                    2147483648,
+                    2,
+                    2147483659,
+                    2147483652
+                  ]
+                ],
+                "plane": {
+                  "d": -600.0,
+                  "normal": [
+                    1.0,
+                    0.0,
+                    0.0
+                  ]
+                },
+                "sides": {
+                  "material_back": null,
+                  "material_front": null,
+                  "uv_back": null,
+                  "uv_front": null
                 }
               }
             ],
@@ -5605,7 +5605,7 @@
         "name": "Group 223",
         "thumbnail": null,
         "usage_count": 1,
-        "uuid": "dfc7dd9f-0299-874b-b57b-a0c38dfca39d"
+        "uuid": "57d701c7-df11-8d28-ae0d-fd817924b86e"
       }
     ],
     [

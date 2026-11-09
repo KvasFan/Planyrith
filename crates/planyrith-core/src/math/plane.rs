@@ -46,6 +46,21 @@ pub enum PlaneSide {
     Back,
 }
 
+/// A unit normal within rounding (1e-12) of a coordinate axis, made that
+/// axis exactly: faces in one axis-aligned plane then store the same plane
+/// to the last bit whichever points it was computed from (docs/03 Decisions,
+/// 2026-11-09).
+fn snap_axis(n: DVec3) -> DVec3 {
+    const NEAR: f64 = 1e-12;
+    for (k, axis) in [DVec3::X, DVec3::Y, DVec3::Z].into_iter().enumerate() {
+        let others = (0..3).filter(|&j| j != k).all(|j| n[j].abs() < NEAR);
+        if others && (n[k].abs() - 1.0).abs() < NEAR {
+            return axis * n[k].signum();
+        }
+    }
+    n
+}
+
 impl Plane {
     /// The ground plane Z = 0 facing +Z (docs/03 §1).
     pub const XY: Plane = Plane {
@@ -84,7 +99,7 @@ impl Plane {
         if tol.collinear(a, b, c) {
             return None;
         }
-        let n = (b - a).cross(c - a).try_normalize()?;
+        let n = snap_axis((b - a).cross(c - a).try_normalize()?);
         // Offset from the centroid: averages the rounding of the three points.
         let centroid = (a + b + c) / 3.0;
         Some(Plane {
@@ -124,7 +139,7 @@ impl Plane {
         if area_vector.length() * 0.5 <= tol.length_sq {
             return None;
         }
-        let n = area_vector.try_normalize()?;
+        let n = snap_axis(area_vector.try_normalize()?);
         Some(Plane {
             normal: n,
             d: -n.dot(centroid),

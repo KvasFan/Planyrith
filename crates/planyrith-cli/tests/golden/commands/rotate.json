@@ -184,9 +184,9 @@
                   ]
                 ],
                 "plane": {
-                  "d": 1.3322676295501878e-13,
+                  "d": 6.661338147750939e-14,
                   "normal": [
-                    -2.220446049250313e-16,
+                    0.0,
                     -1.0,
                     0.0
                   ]
@@ -208,58 +208,10 @@
                   ]
                 ],
                 "plane": {
-                  "d": -600.0,
+                  "d": -600.0000000000001,
                   "normal": [
                     1.0,
-                    -2.220446049250313e-16,
-                    0.0
-                  ]
-                },
-                "sides": {
-                  "material_back": null,
-                  "material_front": null,
-                  "uv_back": null,
-                  "uv_front": null
-                }
-              },
-              {
-                "loops": [
-                  [
-                    7,
-                    2147483658,
-                    2147483654,
-                    2
-                  ]
-                ],
-                "plane": {
-                  "d": -3.1019272970738535e-29,
-                  "normal": [
-                    -1.0,
-                    2.2737367544323206e-16,
-                    0.0
-                  ]
-                },
-                "sides": {
-                  "material_back": null,
-                  "material_front": null,
-                  "uv_back": null,
-                  "uv_front": null
-                }
-              },
-              {
-                "loops": [
-                  [
-                    6,
-                    2147483657,
-                    2147483653,
-                    1
-                  ]
-                ],
-                "plane": {
-                  "d": -1000.0000000000001,
-                  "normal": [
-                    1.8947806286936006e-16,
-                    1.0,
+                    0.0,
                     0.0
                   ]
                 },
@@ -285,6 +237,54 @@
                     0.0,
                     0.0,
                     1.0
+                  ]
+                },
+                "sides": {
+                  "material_back": null,
+                  "material_front": null,
+                  "uv_back": null,
+                  "uv_front": null
+                }
+              },
+              {
+                "loops": [
+                  [
+                    7,
+                    2147483658,
+                    2147483654,
+                    2
+                  ]
+                ],
+                "plane": {
+                  "d": 1.1368683772161603e-13,
+                  "normal": [
+                    -1.0,
+                    0.0,
+                    0.0
+                  ]
+                },
+                "sides": {
+                  "material_back": null,
+                  "material_front": null,
+                  "uv_back": null,
+                  "uv_front": null
+                }
+              },
+              {
+                "loops": [
+                  [
+                    6,
+                    2147483657,
+                    2147483653,
+                    1
+                  ]
+                ],
+                "plane": {
+                  "d": -1000.0,
+                  "normal": [
+                    0.0,
+                    1.0,
+                    0.0
                   ]
                 },
                 "sides": {
@@ -456,7 +456,7 @@
         "name": "Group 19",
         "thumbnail": null,
         "usage_count": 4,
-        "uuid": "f8024f26-aa59-8c5f-bfd7-1c9e733ab32f"
+        "uuid": "e10f96e1-6a98-85ca-b857-dd9af311cbf2"
       }
     ]
   ],

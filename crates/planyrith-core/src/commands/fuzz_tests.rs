@@ -614,3 +614,90 @@ fn explode_splits_the_same_way_after_reopening_and_warns_of_lost_faces() {
     }
     assert!(results.windows(2).all(|w| w[0] == w[1]), "{results:#?}");
 }
+
+/// Found by the fuzzer: the last push/pull splits a face several times, and
+/// the new faces took their pids in an order that depended on the slot
+/// layout; after reopening the two halves of a circle swapped pids, and a
+/// face inherited a plane that differed from its twin's in the last bit.
+/// New faces now take pids in geometric order and near-axis planes are exact.
+#[test]
+fn new_faces_take_pids_in_geometric_order() {
+    let steps: Vec<(&str, Value)> = vec![
+        (
+            "rotated-rectangle",
+            serde_json::json!({"edge_end":[100.0,200.0,0.0],"origin":[0.0,100.0,0.0],"width":100.0}),
+        ),
+        (
+            "circle",
+            serde_json::json!({"center":[400.0,200.0,0.0],"normal":[0.0,1.0,0.0],"radius":100.0,"segments":8}),
+        ),
+        (
+            "rectangle",
+            serde_json::json!({"corner_a":[300.0,100.0,0.0],"corner_b":[300.0,200.0,100.0]}),
+        ),
+        ("delete", serde_json::json!({"targets":"@5"})),
+        (
+            "push-pull",
+            serde_json::json!({"distance":-100.0,"face":{"Pid":19}}),
+        ),
+        (
+            "push-pull",
+            serde_json::json!({"distance":200.0,"face":{"Pid":19}}),
+        ),
+    ];
+    let mut shapes = Vec::new();
+    for reopen_at in [None, Some(3), Some(4)] {
+        let mut e = engine();
+        for (k, (n, p)) in steps.iter().enumerate() {
+            e.execute_erased(n, p.clone()).unwrap();
+            if Some(k) == reopen_at {
+                e = reopen(&e);
+            }
+        }
+        let counter = e.document().info.next_pid;
+        shapes.push(shape(e.document(), counter));
+    }
+    assert!(shapes.windows(2).all(|w| w[0] == w[1]));
+}
+
+/// Known issue (docs/03 Decisions, 2026-11-09): after a save and reopen the
+/// second push/pull fails with "half-edge already borders a face", while
+/// without reopening it succeeds; some step of extrusion still depends on
+/// the slot layout. Found by the fuzzer; kept here until fixed.
+#[test]
+#[ignore = "known issue: extrusion after reopening"]
+fn push_pull_after_reopening_known_issue() {
+    let steps: Vec<(&str, Value)> = vec![
+        (
+            "rotated-rectangle",
+            serde_json::json!({"edge_end":[100.0,200.0,0.0],"origin":[0.0,100.0,0.0],"width":100.0}),
+        ),
+        (
+            "circle",
+            serde_json::json!({"center":[400.0,200.0,0.0],"normal":[0.0,1.0,0.0],"radius":100.0,"segments":8}),
+        ),
+        (
+            "rectangle",
+            serde_json::json!({"corner_a":[300.0,200.0,0.0],"corner_b":[300.0,300.0,100.0]}),
+        ),
+        ("delete", serde_json::json!({"targets":"@5"})),
+        (
+            "push-pull",
+            serde_json::json!({"distance":-100.0,"face":{"Pid":19}}),
+        ),
+        (
+            "push-pull",
+            serde_json::json!({"distance":200.0,"face":{"Pid":19}}),
+        ),
+    ];
+    for reopen_at in [None, Some(3)] {
+        let mut e = engine();
+        for (k, (n, p)) in steps.iter().enumerate() {
+            e.execute_erased(n, p.clone())
+                .unwrap_or_else(|err| panic!("{reopen_at:?} step {k} {n}: {err}"));
+            if Some(k) == reopen_at {
+                e = reopen(&e);
+            }
+        }
+    }
+}

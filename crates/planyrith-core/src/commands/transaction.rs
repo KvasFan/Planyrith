@@ -1732,6 +1732,37 @@ impl<'a> Transaction<'a> {
                 .map(|row| row.0)
         };
         let mut appeared = appeared;
+        // New faces take their pids in geometric order, not in the order the
+        // kernel made them: several splits in one operation run in an order
+        // that depends on the slot layout, which a save and reopen renumbers
+        // (docs/03 Decisions, 2026-11-09). Their places in the sequence stay.
+        {
+            let mesh = self.entities(container)?.mesh();
+            let places: Vec<usize> = appeared
+                .iter()
+                .enumerate()
+                .filter(|(_, id)| matches!(id, EntityId::Face(_)) && !keeps.contains_key(id))
+                .map(|(i, _)| i)
+                .collect();
+            if places.len() > 1 {
+                let mut keyed = Vec::with_capacity(places.len());
+                for &i in &places {
+                    let EntityId::Face(f) = appeared[i] else {
+                        continue;
+                    };
+                    let key = mesh
+                        .face(f)
+                        .and_then(|face| mesh.loop_half_edges(face.outer).ok())
+                        .and_then(|cycle| crate::geom::planar::position_key(mesh, &cycle).ok())
+                        .unwrap_or([f64::INFINITY; 6]);
+                    keyed.push((key, appeared[i]));
+                }
+                keyed.sort_by(|a, b| crate::geom::planar::compare_keys(&a.0, &b.0));
+                for (&i, (_, id)) in places.iter().zip(keyed) {
+                    appeared[i] = id;
+                }
+            }
+        }
         appeared.sort_by_key(|id| std::cmp::Reverse(unbind_seq(id)));
         for id in appeared {
             let kept = keeps.get(&id).and_then(|old| kept_rows.remove(old));

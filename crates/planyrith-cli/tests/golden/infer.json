@@ -54,7 +54,7 @@
       "kind": "on-face",
       "label": "On Face",
       "locked": false,
-      "on": "#Model/@18",
+      "on": "#Model/@16",
       "point": [
         400.0,
         400.0,

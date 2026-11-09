@@ -225,6 +225,33 @@
               {
                 "loops": [
                   [
+                    8,
+                    9,
+                    10,
+                    11
+                  ]
+                ],
+                "plane": {
+                  "d": -400.0,
+                  "normal": [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                },
+                "sides": {
+                  "material_back": null,
+                  "material_front": {
+                    "idx": 3,
+                    "version": 1
+                  },
+                  "uv_back": null,
+                  "uv_front": null
+                }
+              },
+              {
+                "loops": [
+                  [
                     7,
                     2147483658,
                     2147483654,
@@ -266,33 +293,6 @@
                 "sides": {
                   "material_back": null,
                   "material_front": null,
-                  "uv_back": null,
-                  "uv_front": null
-                }
-              },
-              {
-                "loops": [
-                  [
-                    8,
-                    9,
-                    10,
-                    11
-                  ]
-                ],
-                "plane": {
-                  "d": -400.0,
-                  "normal": [
-                    0.0,
-                    0.0,
-                    1.0
-                  ]
-                },
-                "sides": {
-                  "material_back": null,
-                  "material_front": {
-                    "idx": 3,
-                    "version": 1
-                  },
                   "uv_back": null,
                   "uv_front": null
                 }
@@ -459,7 +459,7 @@
         "name": "Stool",
         "thumbnail": null,
         "usage_count": 1,
-        "uuid": "7c7a5308-5070-8273-896a-7bbe0808d529"
+        "uuid": "51345ac8-2cce-8026-8211-9063d23b9729"
       }
     ]
   ],
