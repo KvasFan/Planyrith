@@ -1356,6 +1356,54 @@ fn two_clients_work_on_one_document() {
         );
         assert_eq!(r["result"].as_array().unwrap().len(), 6);
 
+        // `last` is each person's own: Anna's push/pull takes her
+        // rectangle even though Bruno drew one after it.
+        call(
+            &mut anna,
+            rpc(
+                20,
+                "command.execute",
+                json!({ "doc_id": "d1", "name": "rectangle",
+                "params": { "corner_a": [3000, 0, 0], "corner_b": [3500, 500, 0] } }),
+            ),
+        );
+        call(
+            &mut bruno,
+            rpc(
+                21,
+                "command.execute",
+                json!({ "doc_id": "d1", "name": "rectangle",
+                "params": { "corner_a": [6000, 0, 0], "corner_b": [6500, 500, 0] } }),
+            ),
+        );
+        let r = call(
+            &mut anna,
+            rpc(
+                22,
+                "command.execute",
+                json!({ "doc_id": "d1", "name": "push-pull",
+                "params": { "face": { "Query": "face & last" }, "distance": 200 } }),
+            ),
+        );
+        assert!(r.get("result").is_some(), "{r}");
+        let r = call(
+            &mut bruno,
+            rpc(
+                23,
+                "document.query",
+                json!({ "doc_id": "d1", "query": "face", "fields": ["bbox"] }),
+            ),
+        );
+        let tall = |lo: f64| {
+            r["result"].as_array().unwrap().iter().any(|f| {
+                f["bbox"]["min"][0].as_f64().unwrap() >= lo
+                    && f["bbox"]["min"][0].as_f64().unwrap() < lo + 1000.0
+                    && f["bbox"]["max"][2].as_f64().unwrap() > 100.0
+            })
+        };
+        assert!(tall(3000.0), "Anna's rectangle was pulled up");
+        assert!(!tall(6000.0), "Bruno's was not");
+
         // When Anna leaves, Bruno is told.
         drop(anna);
         loop {

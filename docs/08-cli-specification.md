@@ -169,8 +169,9 @@ them to the one thread that owns the documents, which handles them in the order 
 so commands from different people never interleave and no merging is needed: each command
 applies to the document as the commands before it left it.
 - **Per client:** authentication, the event subscription, a name (`presence.set`; `Guest n` by
-  default), a color (from a fixed palette, by joining order) and, per document, a selection
-  and an edit context. A client's request runs with its own selection and context; when what
+  default), a color (from a fixed palette, by joining order) and, per document, a selection,
+  an edit context and what its last command created (`last` in queries, so `face & last` is
+  never someone else's face). A client's request runs with its own selection and context; when what
   it had open was deleted by someone else, it is back at the model.
 - **Events:** `document_changed`, `history_changed`, `scene_activated` and `presence_changed`
   reach every subscribed client, whoever caused them, pushed as they happen; the others

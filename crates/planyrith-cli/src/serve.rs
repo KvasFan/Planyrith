@@ -400,6 +400,15 @@ struct Doc {
     group_client: u64,
 }
 
+/// A client's view of one document: selection, edit context and what its
+/// last command created (`last` in queries).
+#[derive(Clone, PartialEq, Default)]
+struct View {
+    selection: Selection,
+    context: EditContext,
+    last: Vec<Pid>,
+}
+
 /// One client's own state (docs/08 §3.1).
 struct Client {
     writer: Box<dyn Write + Send>,
@@ -409,7 +418,7 @@ struct Client {
     name: String,
     color: [u8; 3],
     /// Selection and edit context per document.
-    views: BTreeMap<String, (Selection, EditContext)>,
+    views: BTreeMap<String, View>,
 }
 
 impl Client {
@@ -505,16 +514,17 @@ impl Server {
         self.kinds = client.kinds.clone();
         let views = client.views.clone();
         for (doc_id, doc) in &mut self.docs {
-            let (selection, context) = views
-                .get(doc_id)
-                .cloned()
-                .unwrap_or_else(|| (Selection::new(), EditContext::model()));
+            let view = views.get(doc_id).cloned().unwrap_or_else(|| View {
+                context: EditContext::model(),
+                ..View::default()
+            });
             let engine = &mut doc.session.engine;
-            if engine.set_context(context).is_err() {
+            if engine.set_context(view.context).is_err() {
                 // What the client had open is gone: back to the model.
                 let _ = engine.set_context(EditContext::model());
             }
-            engine.set_selection(selection);
+            engine.set_selection(view.selection);
+            engine.set_last_created(view.last);
         }
         // Switching views is not news to anyone.
         self.events.borrow_mut().clear();
@@ -522,14 +532,18 @@ impl Server {
 
     /// Keeps client `id`'s view; whether its selection or context changed.
     fn leave(&mut self, id: u64) -> bool {
-        let views: BTreeMap<String, (Selection, EditContext)> = self
+        let views: BTreeMap<String, View> = self
             .docs
             .iter()
             .map(|(doc_id, doc)| {
                 let engine = &doc.session.engine;
                 (
                     doc_id.clone(),
-                    (engine.selection().clone(), engine.context().clone()),
+                    View {
+                        selection: engine.selection().clone(),
+                        context: engine.context().clone(),
+                        last: engine.last_created().to_vec(),
+                    },
                 )
             })
             .collect();
@@ -537,7 +551,11 @@ impl Server {
         let Some(client) = self.clients.get_mut(&id) else {
             return false;
         };
-        let moved = client.views != views;
+        // Others hear of selections and contexts, not of `last`.
+        let moved = client.views.len() != views.len()
+            || client.views.iter().zip(&views).any(|((a, x), (b, y))| {
+                a != b || x.selection != y.selection || x.context != y.context
+            });
         client.views = views;
         client.authenticated = authenticated;
         client.kinds = kinds;
@@ -628,7 +646,7 @@ impl Server {
                 let selection = if id == self.current {
                     doc.map(|d| d.session.engine.selection().clone())
                 } else {
-                    c.views.get(doc_id).map(|(s, _)| s.clone())
+                    c.views.get(doc_id).map(|v| v.selection.clone())
                 };
                 let items: Vec<Value> = match (doc, selection) {
                     (Some(d), Some(sel)) => {

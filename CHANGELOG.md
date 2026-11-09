@@ -6,6 +6,8 @@ All notable changes to Planyrith are recorded here. Versions follow
 
 ## Unreleased
 
+- Fixed: when working together, `last` in a query could name what another
+  person had just created; it is now each person's own.
 - Fixed: bounds of turned components nested in turned groups were too large,
   and Zoom Extents counted hidden geometry; zoom now fits what is shown.
 - Fixed: imported meshes whose parts overlap in one plane (cut-out figures,
