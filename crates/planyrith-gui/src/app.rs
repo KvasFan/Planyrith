@@ -383,6 +383,8 @@ pub struct App {
     measure: crate::engineering::MeasureWindow,
     /// Tools › Constraints… (docs/05 §5.15).
     constraints: crate::engineering::ConstraintsWindow,
+    /// Tools › Features… (docs/05 §5.16).
+    features: crate::engineering::FeaturesWindow,
     /// File › Export › Rendered Image (docs/06 §11.1).
     #[cfg(not(target_arch = "wasm32"))]
     render_job: crate::render_job::RenderJob,
@@ -546,6 +548,7 @@ impl App {
             pattern: Default::default(),
             measure: Default::default(),
             constraints: Default::default(),
+            features: Default::default(),
             #[cfg(not(target_arch = "wasm32"))]
             render_job: Default::default(),
             #[cfg(not(target_arch = "wasm32"))]
@@ -1836,6 +1839,10 @@ impl App {
                 }
                 if ui.button(t("Constraints…")).clicked() {
                     self.constraints.open = true;
+                    ui.close();
+                }
+                if ui.button(t("Features…")).clicked() {
+                    self.features.open = true;
                     ui.close();
                 }
                 ui.separator();
@@ -3421,6 +3428,7 @@ impl App {
         self.pattern.window(&ctx, &mut self.session);
         self.measure.window(&ctx, &mut self.session);
         self.constraints.window(&ctx, &mut self.session);
+        self.features.window(&ctx, &mut self.session);
         self.together.window(&ctx, &mut self.session);
         #[cfg(not(target_arch = "wasm32"))]
         {

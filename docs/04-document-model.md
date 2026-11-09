@@ -215,6 +215,12 @@ millimeters, lengths with units (`18mm`, `60cm`, `1in`), other parameters and `m
 attributes, so they travel with the native format and scripts can read them; applying them is
 the explicit command `parametric-update` (docs/05 §5.14), never a side effect of loading.
 
+### 9.3 Part histories
+A parametric part's history (docs/05 §5.16) is the attribute `planyrith` / `part` of its
+definition: a JSON string with `features` (`id`, `command`, `params`, `label`, `suppressed`),
+`rollback_before`, `configurations` (name → parameter formulas) and `active`. Its parameters are
+the definition's `parameters` dictionary (§9.1).
+
 ### 9.2 Constraints
 A container's constraints (docs/03 §11) are the attribute `planyrith` / `constraints` of the
 document (the model's) or of the definition (a group's or component's): a JSON string holding the

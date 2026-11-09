@@ -18,6 +18,7 @@ pub(crate) mod common;
 pub mod constrain;
 pub mod draw;
 pub mod edit;
+pub mod features;
 pub mod file;
 mod footprint;
 #[cfg(test)]
@@ -417,6 +418,7 @@ impl CommandRegistry {
         solid_check::register(&mut registry);
         measure::register(&mut registry);
         constrain::register(&mut registry);
+        features::register(&mut registry);
         sheets::register(&mut registry);
         #[cfg(feature = "scripting")]
         registry.register(crate::scripting::ScriptEval);

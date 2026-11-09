@@ -32,6 +32,9 @@ pub struct Session {
     joined: Option<crate::link::Joined>,
     /// A joined document has arrived (its camera then stays this view's).
     joined_loaded: bool,
+    /// While a part is open for editing, record the changes made in it as
+    /// its features (docs/05 §5.16).
+    pub record_features: bool,
     /// The people working on the attached document (docs/08 §3.1).
     pub participants: Vec<crate::link::Participant>,
     /// When the server was last asked for news (seconds).
@@ -187,6 +190,7 @@ impl Session {
             remote: None,
             joined: None,
             joined_loaded: false,
+            record_features: false,
             participants: Vec::new(),
             #[cfg(not(target_arch = "wasm32"))]
             polled: f64::NEG_INFINITY,
@@ -360,6 +364,18 @@ impl Session {
             .get(name)
             .map(|c| c.meta().view_only)
             .unwrap_or(false);
+        // Recording a part: the change becomes its next feature.
+        if !view_only
+            && self.record_features
+            && !name.starts_with("feature-")
+            && !name.starts_with("part-")
+            && self.open_part().is_some()
+        {
+            return self.execute(
+                "feature-add",
+                serde_json::json!({ "command": name, "params": params }),
+            );
+        }
         // Joined without waiting: changes go to the server and come back
         // with the next document; the view stays here.
         if !view_only && let Some(joined) = self.joined.as_mut() {
@@ -474,6 +490,18 @@ impl Session {
             });
         }
         Ok(output)
+    }
+
+    /// The part open for editing, if the edit context is one (docs/05
+    /// §5.16).
+    pub fn open_part(&self) -> Option<planyrith_core::ids::DefinitionId> {
+        let doc = self.engine.document();
+        match doc.resolve_container(&self.engine.context().path).ok()?.0 {
+            ContainerRef::Definition(d) if planyrith_core::commands::features::is_part(doc, d) => {
+                Some(d)
+            }
+            _ => None,
+        }
     }
 
     /// Undoes the last step.

@@ -225,6 +225,10 @@ each one a command with its parameters (sketches, extrusions, revolutions, fille
 mirrors, Booleans). A history panel to edit, reorder, suppress and roll back features;
 references by selection queries re-resolved at each regeneration. Configurations as named
 parameter sets; equations between parameters.
+- **Done (2026-11-09):** `part-create`, `feature-add|edit|delete|move|list`, `part-regenerate`
+  (rollback and forward) and `part-configuration`; equations are the parameters' formulas; the
+  GUI records features while a part is open. References use `last` and queries; matching
+  regenerated faces to earlier ones by geometry is left for later.
 
 ## 1.11.0 — Solid features
 Draft, shell, rib, standard holes (clearance, counterbore, countersink, tapped, with a size

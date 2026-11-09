@@ -1431,9 +1431,9 @@ impl<'a> Transaction<'a> {
         Ok(())
     }
 
-    /// Executes a nested registry command inside this transaction (docs/10 §2).
-    /// Its new entities and view changes become the next nested command's input.
-    #[cfg(feature = "scripting")]
+    /// Executes a nested registry command inside this transaction (docs/10 §2,
+    /// and the features of parametric parts, docs/05 §5.16). Its new
+    /// entities and view changes become the next nested command's input.
     pub(crate) fn execute_nested(
         &mut self,
         registry: &crate::commands::CommandRegistry,

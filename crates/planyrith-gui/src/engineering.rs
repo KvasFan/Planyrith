@@ -2,6 +2,8 @@
 //! §8.3–§8.5, milestone 1.8): small windows that collect the parameters of
 //! one command each and run it on the selection.
 
+use std::collections::BTreeMap;
+
 use glam::DVec3;
 use planyrith_core::math::Aabb;
 use serde_json::{Value, json};
@@ -914,6 +916,274 @@ impl ConstraintsWindow {
     }
 }
 
+/// Tools › Features… (docs/05 §5.16): the history of the part open for
+/// editing — features to suppress, reorder, delete, edit and roll back to,
+/// its parameters and configurations — and recording of the changes made
+/// in it.
+pub struct FeaturesWindow {
+    /// The window is shown.
+    pub open: bool,
+    new_name: String,
+    list: Option<Value>,
+    editing: Option<(u64, String)>,
+    new_param: (String, String),
+    formulas: BTreeMap<String, String>,
+    config_name: String,
+    note: Option<String>,
+    /// The document generation the list shows.
+    seen: u64,
+}
+
+impl Default for FeaturesWindow {
+    fn default() -> Self {
+        FeaturesWindow {
+            open: false,
+            new_name: "Part".into(),
+            list: None,
+            editing: None,
+            new_param: (String::new(), String::new()),
+            formulas: BTreeMap::new(),
+            config_name: String::new(),
+            note: None,
+            seen: u64::MAX,
+        }
+    }
+}
+
+impl FeaturesWindow {
+    fn refresh(&mut self, session: &mut Session) {
+        self.seen = session.engine.generation();
+        self.list = session.execute("feature-list", json!({})).ok();
+        self.formulas.clear();
+        if let Some(d) = session.open_part()
+            && let Some(dict) = session
+                .doc()
+                .definition(d)
+                .and_then(|def| def.attrs.dictionary("parameters"))
+        {
+            for (k, v) in dict {
+                if let planyrith_core::document::Value::Str(f) = v {
+                    self.formulas.insert(k.clone(), f.clone());
+                }
+            }
+        }
+    }
+
+    fn run(&mut self, session: &mut Session, name: &str, params: Value) {
+        self.note = session.execute(name, params).err();
+        self.refresh(session);
+    }
+
+    /// Draws the window.
+    pub fn window(&mut self, ctx: &egui::Context, session: &mut Session) {
+        if !self.open {
+            self.list = None;
+            return;
+        }
+        let mut open = true;
+        egui::Window::new(t("Features"))
+            .open(&mut open)
+            .default_width(480.0)
+            .show(ctx, |ui| {
+                let Some(d) = session.open_part() else {
+                    self.list = None;
+                    ui.label(t("No part is open for editing. Open one (double-click it), or make a new one:"));
+                    ui.horizontal(|ui| {
+                        ui.text_edit_singleline(&mut self.new_name);
+                        if ui.button(t("New Part")).clicked() {
+                            match session.execute("part-create", json!({ "name": self.new_name })) {
+                                Ok(out) => {
+                                    let pid = planyrith_core::ids::Pid(
+                                        out["part"].as_u64().unwrap_or_default(),
+                                    );
+                                    let path = session
+                                        .engine
+                                        .context()
+                                        .path
+                                        .child(planyrith_core::document::EntityKey::Pid(pid));
+                                    let _ = session.engine.set_context(
+                                        planyrith_core::document::EditContext { path },
+                                    );
+                                    session.record_features = true;
+                                    self.note = Some(t(
+                                        "The new part is open; what you draw in it is recorded as features.",
+                                    ));
+                                }
+                                Err(e) => self.note = Some(e),
+                            }
+                        }
+                    });
+                    if let Some(n) = &self.note {
+                        ui.label(n);
+                    }
+                    return;
+                };
+                if self.list.is_none() || self.seen != session.engine.generation() {
+                    self.refresh(session);
+                }
+                let name = session
+                    .doc()
+                    .definition(d)
+                    .map(|def| def.name.clone())
+                    .unwrap_or_default();
+                ui.heading(name.clone());
+                ui.checkbox(
+                    &mut session.record_features,
+                    t("Record changes as features"),
+                );
+                let Some(list) = self.list.clone() else {
+                    return;
+                };
+                let history = &list["history"];
+                let rollback = history["rollback_before"].as_u64();
+                let features: Vec<Value> = history["features"].as_array().cloned().unwrap_or_default();
+                let mut action: Option<(&str, Value)> = None;
+                egui::ScrollArea::vertical().max_height(240.0).show(ui, |ui| {
+                    egui::Grid::new("features").striped(true).num_columns(5).show(ui, |ui| {
+                        for (i, f) in features.iter().enumerate() {
+                            let id = f["id"].as_u64().unwrap_or(0);
+                            if rollback == Some(id) {
+                                ui.colored_label(ui.visuals().warn_fg_color, t("— rolled back here —"));
+                                ui.end_row();
+                            }
+                            let mut on = !f["suppressed"].as_bool().unwrap_or(false);
+                            if ui.checkbox(&mut on, "").on_hover_text(t("Unchecked: suppressed")).changed() {
+                                action = Some(("feature-edit", json!({ "id": id, "suppressed": !on })));
+                            }
+                            let label = format!(
+                                "{}. {} ({})",
+                                i + 1,
+                                f["label"].as_str().unwrap_or_default(),
+                                f["command"].as_str().unwrap_or_default()
+                            );
+                            if ui.selectable_label(self.editing.as_ref().is_some_and(|(e, _)| *e == id), label).clicked() {
+                                self.editing = Some((
+                                    id,
+                                    serde_json::to_string_pretty(&f["params"]).unwrap_or_default(),
+                                ));
+                            }
+                            ui.horizontal(|ui| {
+                                if ui.small_button("↑").clicked() && i > 0 {
+                                    let before = features[i - 1]["id"].as_u64();
+                                    action = Some(("feature-move", json!({ "id": id, "before": before })));
+                                }
+                                if ui.small_button("↓").clicked() && i + 1 < features.len() {
+                                    let before = features.get(i + 2).and_then(|f| f["id"].as_u64());
+                                    action = Some(("feature-move", json!({ "id": id, "before": before })));
+                                }
+                            });
+                            if ui.small_button(t("Stop here")).on_hover_text(t("Roll back before this feature")).clicked() {
+                                action = Some(("part-regenerate", json!({ "rollback_before": id })));
+                            }
+                            if ui.small_button("✕").on_hover_text(t("Delete")).clicked() {
+                                action = Some(("feature-delete", json!({ "ids": [id] })));
+                            }
+                            ui.end_row();
+                        }
+                    });
+                });
+                ui.horizontal(|ui| {
+                    if rollback.is_some() && ui.button(t("Roll Forward")).clicked() {
+                        action = Some(("part-regenerate", json!({ "roll_forward": true })));
+                    }
+                    if ui.button(t("Regenerate")).clicked() {
+                        action = Some(("part-regenerate", json!({})));
+                    }
+                });
+                if let Some((id, text)) = &mut self.editing {
+                    ui.separator();
+                    ui.label(t_args("Parameters of feature { $id }:", &[("id", id.to_string().into())]));
+                    ui.add(egui::TextEdit::multiline(text).code_editor().desired_rows(5));
+                    if ui.button(t("Apply")).clicked() {
+                        match serde_json::from_str::<Value>(text) {
+                            Ok(Value::Object(new)) => {
+                                let mut changes = new.clone();
+                                if let Some(old) = features
+                                    .iter()
+                                    .find(|f| f["id"].as_u64() == Some(*id))
+                                    .and_then(|f| f["params"].as_object())
+                                {
+                                    for k in old.keys() {
+                                        if !new.contains_key(k) {
+                                            changes.insert(k.clone(), Value::Null);
+                                        }
+                                    }
+                                }
+                                action = Some(("feature-edit", json!({ "id": *id, "params": changes })));
+                            }
+                            _ => self.note = Some(t("The parameters must be a JSON object.")),
+                        }
+                    }
+                }
+                ui.separator();
+                ui.strong(t("Parameters"));
+                let values = list["parameters"].clone();
+                let mut set: Option<(String, String)> = None;
+                egui::Grid::new("part parameters").num_columns(3).show(ui, |ui| {
+                    for (k, formula) in &mut self.formulas {
+                        ui.label(k);
+                        let r = ui.text_edit_singleline(formula);
+                        if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                            set = Some((k.clone(), formula.clone()));
+                        }
+                        ui.weak(values[k].as_f64().map(|v| format!("= {v}")).unwrap_or_default());
+                        ui.end_row();
+                    }
+                    ui.add(egui::TextEdit::singleline(&mut self.new_param.0).hint_text(t("Name")));
+                    ui.add(egui::TextEdit::singleline(&mut self.new_param.1).hint_text(t("formula")));
+                    if ui.button(t("Add")).clicked() && !self.new_param.0.trim().is_empty() {
+                        set = Some(std::mem::take(&mut self.new_param));
+                    }
+                    ui.end_row();
+                });
+                if let Some((param, formula)) = set {
+                    self.note = session
+                        .execute(
+                            "parameter-set",
+                            json!({ "component": name, "name": param.trim(), "formula": formula }),
+                        )
+                        .err();
+                    if self.note.is_none() {
+                        action = Some(("part-regenerate", json!({})));
+                    }
+                }
+                ui.separator();
+                ui.strong(t("Configurations"));
+                ui.horizontal_wrapped(|ui| {
+                    if let Some(configs) = history["configurations"].as_object() {
+                        for config in configs.keys() {
+                            let active = history["active"].as_str() == Some(config.as_str());
+                            if ui.selectable_label(active, config).clicked() {
+                                action = Some((
+                                    "part-configuration",
+                                    json!({ "name": config, "activate": true }),
+                                ));
+                            }
+                        }
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.add(egui::TextEdit::singleline(&mut self.config_name).hint_text(t("Name")));
+                    if ui.button(t("Save Parameters as Configuration")).clicked()
+                        && !self.config_name.trim().is_empty()
+                    {
+                        action = Some((
+                            "part-configuration",
+                            json!({ "name": self.config_name.trim(), "values": self.formulas }),
+                        ));
+                    }
+                });
+                if let Some((name, params)) = action {
+                    self.run(session, name, params);
+                }
+                if let Some(n) = &self.note {
+                    ui.colored_label(ui.visuals().warn_fg_color, n);
+                }
+            });
+        self.open = open;
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
@@ -1005,6 +1275,51 @@ mod gui_tests {
         assert!(harness.query_by_label("Total").is_some());
         // The cube's row and the total.
         assert_eq!(harness.query_all_by_label("1000.00 cm³").count(), 2);
+    }
+
+    /// Tools › Features… makes a part; what is drawn in it is recorded, and
+    /// suppressing the extrusion flattens it.
+    #[test]
+    fn features_are_recorded_while_drawing_in_a_part() {
+        let mut harness = Harness::builder()
+            .with_size(egui::vec2(1400.0, 900.0))
+            .build_eframe(|cc| App::new(cc, None));
+        harness.run_steps(2);
+        harness.get_by_label(&t("Tools")).click();
+        harness.run_steps(2);
+        harness.get_by_label(&t("Features…")).click();
+        harness.run_steps(2);
+        harness.get_by_label(&t("New Part")).click();
+        harness.run_steps(2);
+        harness.state_mut().run_for_screens(&[
+            (
+                "rectangle",
+                json!({ "corner_a": [0, 0, 0], "corner_b": [100, 100, 0] }),
+            ),
+            (
+                "push-pull",
+                json!({ "face": { "Query": "face & last" }, "distance": 40 }),
+            ),
+        ]);
+        harness.run_steps(2);
+        let volume = |h: &Harness<'_, App>| {
+            let doc = h.state().session_for_tests().doc();
+            doc.definitions
+                .iter()
+                .map(|(_, d)| d.entities.mesh().volume().unwrap_or(0.0))
+                .sum::<f64>()
+        };
+        assert!((volume(&harness) - 400_000.0).abs() < 1e-6);
+        // Both steps are features; unchecking the second suppresses it.
+        assert!(harness.query_by_label_contains("2. Push/Pull").is_some());
+        let boxes: Vec<_> = harness
+            .query_all_by_role(egui::accesskit::Role::CheckBox)
+            .collect();
+        // The recording switch, then one per feature.
+        assert_eq!(boxes.len(), 3);
+        boxes[2].click();
+        harness.run_steps(2);
+        assert!(volume(&harness).abs() < 1e-6, "the extrusion is suppressed");
     }
 
     /// Tools › Constraints… squares a skewed quad's bottom edge and gives

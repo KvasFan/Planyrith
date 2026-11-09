@@ -1,0 +1,7 @@
+# Two configurations; the thin one is made current.
+part-create --name Plate
+parameter-set --component Plate --name height --formula 20
+feature-add --part instance --command rectangle --params '{"corner_a":[0,0,0],"corner_b":[400,200,0]}'
+feature-add --part instance --command push-pull --label Extrude --params '{"face":{"Query":"face & last"},"distance":"=height"}'
+part-configuration --part instance --name Thick --values '{"height":"50"}'
+part-configuration --part instance --name Thin --values '{"height":"5"}' --activate

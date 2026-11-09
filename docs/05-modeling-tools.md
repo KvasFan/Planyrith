@@ -501,6 +501,44 @@ parameters, and whose sides, shelves and doors follow them.
   length moves it and undo restores it; a conflicting length is refused; an angle of 60° turns
   an edge.
 
+### 5.16 Parametric parts: `part-create`, `feature-add`, `feature-edit`, `feature-delete`, `feature-move`, `feature-list`, `part-regenerate`, `part-configuration`
+A part is a component (or, with `component: false`, a group) whose contents are regenerated
+from an ordered list of features; each feature is a registered command with its parameters,
+run inside the part. Direct modeling stays the base: a document without parts behaves as before.
+- **Params:** every command but `part-create` takes `part?: Sel` (one group or component of the
+  edit context; by default the one open for editing).
+  - `part-create { name, component: bool (true) }`: an empty part with an empty history.
+  - `feature-add { command, params (object), label?, before?: id }`: inserts a feature (at the
+    end, or before the rollback point) and regenerates. Commands that read or write files,
+    change only the view, or edit parts cannot be features.
+  - `feature-edit { id, params? (merged; `null` removes a key), label?, suppressed? }`.
+  - `feature-delete { ids }`, `feature-move { id, before? }` (at the end when absent).
+  - `feature-list`: the history and the parameters' values (changes nothing).
+  - `part-regenerate { rollback_before?: id, roll_forward: bool }`: replays the history,
+    optionally stopping before a feature from then on (rollback) or replaying it all again.
+  - `part-configuration { name, values?: {parameter: formula}, activate, remove }`: named sets of
+    parameter formulas; activating one writes them as the part's parameters and regenerates.
+- **Behavior:** the history is the definition's attribute `planyrith` / `part` (JSON), so files
+  need no new structure. Regenerating deletes the part's contents and its constraints, then runs
+  each feature that is not suppressed, up to the rollback point, as a nested command of the same
+  transaction with the part as its edit context. `last` names what the previous feature made, so
+  `face & last` reaches back one step; other references are queries re-evaluated at each
+  regeneration. A string parameter starting with `=` is a formula of the part's parameters
+  (§5.14, docs/04 §9.1), evaluated at each regeneration. A feature that fails stops the
+  regeneration with its number and label, and the whole edit changes nothing. A component part
+  regenerates for all its instances.
+- **Output:** `{ part, feature?, features, ran }`; `feature-list`: `{ part, history, parameters }`.
+- **Undo:** one step each (the history and the regenerated contents together).
+- **GUI:** Tools › Features…: New Part makes a part, opens it and records what is drawn in it as
+  features (Record changes as features); the history with checkboxes to suppress, ↑ ↓ to
+  reorder, ✕ to delete, Stop here / Roll Forward, the selected feature's parameters as JSON to
+  edit, the part's parameters with their formulas and values, and configurations to save and
+  activate.
+- **Tests:** a plate extruded by `=height` regenerates with a new height; editing the outline
+  and undo; suppressing, rolling back and forward; a configuration; a failing edit changes
+  nothing; features recorded inside the open part; in the GUI, unchecking the extrusion flattens
+  the part.
+
 ## 6. Guide tools (category `guide`)
 
 ### 6.1 `tape-measure`

@@ -19,6 +19,10 @@ All notable changes to Planyrith are recorded here. Versions follow
 - Milestone 1.9, constrained sketches (docs/03 §11, docs/05 §5.15): geometric constraints and
   driving dimensions on edges and edge ends, kept by a solver that keeps faces flat and reports
   the degrees of freedom left; `constraint-add|edit|delete|list|solve` and Tools › Constraints….
+- Milestone 1.10, feature history (docs/05 §5.16): parametric parts whose contents are
+  regenerated from an ordered list of features (commands with parameters, formulas of the part's
+  parameters), with suppression, reordering, rollback and configurations; Tools › Features…
+  records what is drawn in an open part.
 - Joining from the browser (docs/08 §3.3): `planyrith serve --web <port|address>` takes
   browsers over an encrypted WebSocket and serves the web build from `--web-root`; the web
   build has File › Work Together…, opened filled in by `?join=<document>`.

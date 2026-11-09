@@ -1,0 +1,8 @@
+# A circle added after the extrusion, then moved before it: the extrusion
+# now pulls the circle up, the last face made before it.
+part-create --name Plate
+parameter-set --component Plate --name height --formula 20
+feature-add --part instance --command rectangle --params '{"corner_a":[0,0,0],"corner_b":[400,200,0]}'
+feature-add --part instance --command push-pull --label Extrude --params '{"face":{"Query":"face & last"},"distance":"=height"}'
+feature-add --part instance --command circle --params '{"center":[200,100,0],"radius":40,"segments":16}'
+feature-move --part instance --id 3 --before 2
