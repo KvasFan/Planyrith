@@ -14,6 +14,7 @@ use std::collections::BTreeMap;
 use crate::commands::params::{Target, select};
 use crate::commands::transaction::AttrTarget;
 use crate::commands::{CommandError, Transaction};
+use crate::diagnostics::{Warning, WarningCode};
 use crate::document::{
     AttributeDictionaries, ContainerRef, Document, Entities, EntityRecord, EntityView, Group,
     HierarchyError, InstancePath, Query,
@@ -43,8 +44,9 @@ pub(crate) fn redraw_geometry(
     if segments.is_empty() {
         return Ok(());
     }
-    tx.with_mesh(container, |mesh, tol, d| {
+    let lost = tx.with_mesh(container, |mesh, tol, d| {
         mesh.transact(tol, d, |m, log| {
+            let mut lost = 0usize;
             let existing: BTreeSet<FaceId> = m.faces().map(|(f, _)| f).collect();
             for (a, b, flags) in segments {
                 let r = m.add_edge_inner(*a, *b, tol, log)?;
@@ -68,6 +70,11 @@ pub(crate) fn redraw_geometry(
             let mut reversed: BTreeSet<FaceId> = BTreeSet::new();
             for (outer, plane, sides) in faces {
                 let Some(f) = face_through(m, outer, tol) else {
+                    // A face whose boundary already carries two faces cannot
+                    // be made (no edge borders three faces, docs/03 §3.1).
+                    if !face_area_covered(m, outer, tol) {
+                        lost += 1;
+                    }
                     continue;
                 };
                 if !created.contains(&f) {
@@ -82,8 +89,40 @@ pub(crate) fn redraw_geometry(
                 }
                 m.set_face_sides(f, sides.clone(), log)?;
             }
-            Ok(())
+            Ok(lost)
         })
+    })?;
+    if lost > 0 {
+        tx.warn(Warning::new(
+            WarningCode::W2008,
+            format!(
+                "{lost} face(s) could not be kept: each would share an edge with two other faces; \
+                 keep such parts in a group of their own"
+            ),
+        ));
+    }
+    Ok(())
+}
+
+/// Whether faces already cover the region of `outer` (a face drawn over an
+/// existing one, split by it: nothing is lost). Checked at the ring's
+/// centroid, against faces in its plane.
+fn face_area_covered(m: &HalfEdgeMesh, outer: &[DVec3], tol: &Tolerances) -> bool {
+    if outer.len() < 3 {
+        return true;
+    }
+    let c = outer.iter().copied().sum::<DVec3>() / outer.len() as f64;
+    m.faces().any(|(f, face)| {
+        if face.plane.distance(c).abs() > tol.length * 10.0 {
+            return false;
+        }
+        let frame = face.plane.frame();
+        let Ok((ring, holes)) = crate::geom::planar::face_polygon(m, f, &frame) else {
+            return false;
+        };
+        let holes: Vec<&[glam::DVec2]> = holes.iter().map(Vec::as_slice).collect();
+        crate::math::polygon::point_in_polygon(frame.to_2d(c), &ring, &holes, tol)
+            != crate::math::polygon::PointInPolygon::Outside
     })
 }
 

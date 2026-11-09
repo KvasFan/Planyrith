@@ -720,7 +720,11 @@ pub(crate) fn position_key(
     mesh: &HalfEdgeMesh,
     cycle: &[HalfEdgeId],
 ) -> Result<[f64; 6], GeometryError> {
-    let points = mesh.cycle_positions(cycle)?;
+    let mut points = mesh.cycle_positions(cycle)?;
+    // Summed in position order: the same set of points gives the same key
+    // bit for bit wherever the cycle starts (which depends on the slot
+    // layout, docs/03 Decisions).
+    points.sort_by(|a, b| compare_keys(&a.to_array(), &b.to_array()));
     let n = points.len().max(1) as f64;
     let mean = points.iter().fold(glam::DVec3::ZERO, |a, p| a + *p) / n;
     let lowest = points

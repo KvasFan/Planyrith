@@ -544,3 +544,73 @@ proptest! {
         prop_assert!(bytes(e.document(), counter) == last, "redo all differs after {applied:#?}");
     }
 }
+
+/// Found by `random_command_sequences` with 60 000 cases: exploding a group
+/// onto a face it splits gave the old face's pid to the upper or the lower
+/// half depending on whether the document had been saved and reopened (the
+/// halves' keys were summed in loop order). The group's own face would need
+/// a third face on an edge, so it cannot be kept: a W2008 warning says so.
+#[test]
+fn explode_splits_the_same_way_after_reopening_and_warns_of_lost_faces() {
+    let steps: Vec<(&str, Value)> = vec![
+        (
+            "rectangle",
+            serde_json::json!({"corner_a":[400.0,300.0,100.0],"corner_b":[500.0,600.0,100.0]}),
+        ),
+        ("make-group", serde_json::json!({"targets":"face | edge"})),
+        (
+            "rectangle",
+            serde_json::json!({"corner_a":[400.0,300.0,0.0],"corner_b":[400.0,400.0,200.0]}),
+        ),
+        (
+            "rotate",
+            serde_json::json!({"angle":-4.71238898038469,"center":[0.0,0.0,0.0],"copies":1,"copy":false,"targets":"all"}),
+        ),
+        ("explode", serde_json::json!({"targets":"@11"})),
+    ];
+    let mut results = Vec::new();
+    for reopen_at in [None, Some(0), Some(1), Some(2), Some(3)] {
+        let mut e = engine();
+        let warned = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        for (k, (n, p)) in steps.iter().enumerate() {
+            if k == steps.len() - 1 {
+                let sink = std::rc::Rc::clone(&warned);
+                e.events_mut().subscribe(Box::new(move |event| {
+                    if let crate::commands::Event::Warning(w) = event {
+                        sink.borrow_mut().push(w.code.as_str().to_string());
+                    }
+                }));
+            }
+            e.execute_erased(n, p.clone()).unwrap();
+            if Some(k) == reopen_at {
+                e = reopen(&e);
+            }
+        }
+        assert!(
+            warned.borrow().iter().any(|c| c == "W2008"),
+            "{reopen_at:?}: {:?}",
+            warned.borrow()
+        );
+        let doc = e.document();
+        let mut rows = Vec::new();
+        for (f, _) in doc.model.mesh().faces() {
+            let pid = doc.model.pid_of(EntityId::Face(f)).unwrap();
+            let mut vs: Vec<[i64; 3]> = doc
+                .model
+                .mesh()
+                .face_vertices(f)
+                .unwrap()
+                .iter()
+                .map(|v| {
+                    let p = doc.model.mesh().position(*v).unwrap();
+                    [p.x.round() as i64, p.y.round() as i64, p.z.round() as i64]
+                })
+                .collect();
+            vs.sort();
+            rows.push((pid.0, vs));
+        }
+        rows.sort();
+        results.push(rows);
+    }
+    assert!(results.windows(2).all(|w| w[0] == w[1]), "{results:#?}");
+}

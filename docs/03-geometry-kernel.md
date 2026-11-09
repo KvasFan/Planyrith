@@ -378,6 +378,16 @@ within `tolerances.length`.
 
 ## Decisions
 
+- 2026-11-09 — **Position keys independent of where a loop starts.** The command fuzzer (60 000
+  sequences) found an explode that gave a split face's id, and so its pid, to its upper or its
+  lower half depending on whether the document had been saved and reopened: the two halves
+  have equal areas, the tie goes to the first in position-key order, and the key's mean was
+  summed in loop order, which starts wherever the slot layout puts it, so the two means differed
+  in their last bits. Keys now sum the points in position order. The same case showed the
+  exploded group's own face silently dropped: it would need a third face on an edge (§3.1
+  inv. 5); `redraw_geometry` now reports such faces as `W2008` unless existing faces already
+  cover them.
+
 - 2026-10-28 — **0.8 solid boundaries.** Boolean operations split copies of both
   operands, including clipped coplanar boundaries, classify strictly interior
   face samples with fixed ray directions, stitch shared boundaries and merge

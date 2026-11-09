@@ -292,6 +292,7 @@ On failure: `{"ok": false, "error": {"code": "E1002", "message": "...", "param":
 | W2005 | texture downscaled |
 | W2006 | damaged or unusable part dropped while loading (journal, unwritable part name, part missing from the container) |
 | W2007 | an exported object is not a closed solid (3MF; see `solid-check`) |
+| W2008 | a face could not be kept: it would share an edge with two other faces (docs/03 §3.1 inv. 5); for example a group exploded onto a face it cuts |
 
 ## 10. Determinism and reproducibility
 

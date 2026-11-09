@@ -6,6 +6,9 @@ All notable changes to Planyrith are recorded here. Versions follow
 
 ## Unreleased
 
+- Fixed: splitting a face into equal halves could give its identity to either
+  half depending on whether the document had been reopened; exploding a group
+  onto a face it cuts now warns (W2008) when one of its faces cannot be kept.
 - Encrypted connections: a server on a network address
   (`planyrith serve --socket 0.0.0.0:7400 --token …`) encrypts every
   connection, with keys derived from the token; File › Work Together…

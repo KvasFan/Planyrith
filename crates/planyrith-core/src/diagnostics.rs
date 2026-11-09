@@ -39,6 +39,9 @@ pub enum WarningCode {
     W2006,
     /// An exported object is not a closed solid (3MF; docs/05 §8.1).
     W2007,
+    /// A face could not be kept where it would have shared an edge with two
+    /// other faces (docs/03 §3.1 inv. 5).
+    W2008,
 }
 
 impl WarningCode {
@@ -52,6 +55,7 @@ impl WarningCode {
             WarningCode::W2005 => "W2005",
             WarningCode::W2006 => "W2006",
             WarningCode::W2007 => "W2007",
+            WarningCode::W2008 => "W2008",
         }
     }
 }
