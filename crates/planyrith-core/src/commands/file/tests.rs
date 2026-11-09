@@ -2709,3 +2709,45 @@ fn image_entities_have_bounds() {
         "keeps the picture's proportions"
     );
 }
+
+/// docs/09 §6: a flat cut-out whose parts overlap in one plane (a shirt
+/// over the skin, a decal on a wall) cannot be one mesh; each material
+/// becomes a part of its own instead of the whole being skipped.
+#[test]
+fn overlapping_flat_parts_of_different_materials_all_import() {
+    let (mut e, storage) = engine();
+    let obj = "mtllib cut.mtl\no Figure\n\
+        v 0 0 0\nv 1000 0 0\nv 1000 0 1000\nv 0 0 1000\n\
+        v 250 0 250\nv 750 0 250\nv 750 0 1250\nv 250 0 1250\n\
+        usemtl Skin\nf 1 2 3\nf 1 3 4\n\
+        usemtl Shirt\nf 1 6 7\nf 1 7 8\n";
+    let mtl = "newmtl Skin\nKd 0.9 0.7 0.6\nnewmtl Shirt\nKd 0.1 0.2 0.8\n";
+    storage
+        .write(&StorageKey::new("cut.obj"), obj.as_bytes())
+        .unwrap();
+    storage
+        .write(&StorageKey::new("cut.mtl"), mtl.as_bytes())
+        .unwrap();
+    let out = run(&mut e, "import", json!({ "path": "cut.obj", "z_up": true }));
+    assert_eq!(out["skipped"], 0, "{out}");
+    assert_eq!(out["faces"], 2, "both squares: {out}");
+    // The same material over itself: layers that do not cross.
+    let same = obj.replace("usemtl Shirt", "usemtl Skin");
+    storage
+        .write(&StorageKey::new("same.obj"), same.as_bytes())
+        .unwrap();
+    storage
+        .write(&StorageKey::new("same.mtl"), mtl.as_bytes())
+        .unwrap();
+    let same = same.replace("mtllib cut.mtl", "mtllib same.mtl");
+    storage
+        .write(&StorageKey::new("same.obj"), same.as_bytes())
+        .unwrap();
+    let out = run(
+        &mut e,
+        "import",
+        json!({ "path": "same.obj", "z_up": true }),
+    );
+    assert_eq!(out["skipped"], 0, "{out}");
+    assert_eq!(out["faces"], 2, "{out}");
+}

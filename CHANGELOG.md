@@ -6,6 +6,9 @@ All notable changes to Planyrith are recorded here. Versions follow
 
 ## Unreleased
 
+- Fixed: imported meshes whose parts overlap in one plane (cut-out figures,
+  decals, doubled surfaces) lost those parts entirely; they now arrive as
+  separate groups. A real house model keeps 58 000 more faces.
 - Fixed: path-traced images showed reversed faces in the default back color
   (blue floors in real models); an unpainted back now shows the front's
   material. Images now have bounds (zoom to selection, queries), queries name

@@ -181,9 +181,80 @@ fn triangle_uv_map(
     m.is_finite().then(|| DAffine2::from_mat2_translation(m, t))
 }
 
+/// Largest set of one look's self-crossing triangles split into layers
+/// (the split costs time quadratic in its size).
+const MAX_LAYERED: usize = 4000;
+
+/// How far apart (mm) two triangles' planes may be and still overlap.
+const COPLANAR_MM: f64 = 0.05;
+
+/// Whether triangles `a` and `b` overlap with some area: they lie in one
+/// plane (within `eps`) and no edge direction separates them by more than
+/// `eps` (triangles that only touch along an edge or at a corner do not).
+fn triangles_overlap(a: &[DVec3; 3], b: &[DVec3; 3], eps: f64) -> bool {
+    let n = (a[1] - a[0]).cross(a[2] - a[0]);
+    let Some(n) = n.try_normalize() else {
+        return false;
+    };
+    // Planes within half a tenth of a millimeter count as one: files round
+    // coordinates.
+    if b.iter()
+        .any(|p| (*p - a[0]).dot(n).abs() > COPLANAR_MM.max(eps))
+    {
+        return false;
+    }
+    let drop = n.abs().max_position();
+    let flat = |p: DVec3| match drop {
+        0 => DVec2::new(p.y, p.z),
+        1 => DVec2::new(p.x, p.z),
+        _ => DVec2::new(p.x, p.y),
+    };
+    let (a, b) = (a.map(flat), b.map(flat));
+    for tri in [&a, &b] {
+        for k in 0..3 {
+            let e = tri[(k + 1) % 3] - tri[k];
+            let axis = DVec2::new(-e.y, e.x);
+            let Some(axis) = axis.try_normalize() else {
+                continue;
+            };
+            let span = |t: &[DVec2; 3]| {
+                t.iter()
+                    .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), p| {
+                        let d = p.dot(axis);
+                        (lo.min(d), hi.max(d))
+                    })
+            };
+            let ((alo, ahi), (blo, bhi)) = (span(&a), span(&b));
+            if ahi <= blo + eps || bhi <= alo + eps {
+                return false;
+            }
+        }
+    }
+    true
+}
+
 /// Triangles grouped into connected shells (sharing a corner within
 /// tolerance), each in triangle order, shells by their first triangle.
 fn shells(positions: &[DVec3], triangles: &[[u32; 3]], tol: &Tolerances) -> Vec<Vec<usize>> {
+    let all: Vec<usize> = (0..triangles.len()).collect();
+    shells_of(positions, triangles, &all, tol)
+}
+
+/// [`shells`] of the triangles `subset` (indices into `triangles`).
+fn shells_of(
+    positions: &[DVec3],
+    triangles: &[[u32; 3]],
+    subset: &[usize],
+    tol: &Tolerances,
+) -> Vec<Vec<usize>> {
+    let picked: Vec<[u32; 3]> = subset.iter().map(|&t| triangles[t]).collect();
+    inner_shells(positions, &picked, tol)
+        .into_iter()
+        .map(|shell| shell.into_iter().map(|i| subset[i]).collect())
+        .collect()
+}
+
+fn inner_shells(positions: &[DVec3], triangles: &[[u32; 3]], tol: &Tolerances) -> Vec<Vec<usize>> {
     fn find(parent: &mut [usize], mut i: usize) -> usize {
         while parent[i] != i {
             parent[i] = parent[parent[i]];
@@ -703,8 +774,79 @@ pub(crate) fn triangle_pieces(
                 if piece.face_count() > 0 {
                     pieces.push(piece);
                 }
-            } else {
-                crossing += shell.len();
+                continue;
+            }
+            // Overlapping parts of different looks in one plane (a cut-out
+            // figure's clothes over its skin, a decal on a wall): each look
+            // on its own, in its connected parts.
+            let mut by_key: BTreeMap<Option<usize>, Vec<usize>> = BTreeMap::new();
+            for &t in &shell {
+                by_key
+                    .entry(mesh.materials.get(t).copied().flatten())
+                    .or_default()
+                    .push(t);
+            }
+            for subset in by_key.values() {
+                for sub in shells_of(positions, &mesh.triangles, subset, tol) {
+                    let (piece, bad) = part(&sub)?;
+                    if piece.edge_crossings(tol).is_empty() {
+                        skipped += bad;
+                        if piece.face_count() > 0 {
+                            pieces.push(piece);
+                        }
+                    } else if sub.len() <= MAX_LAYERED {
+                        // One look overlapping itself: layers in which no two
+                        // triangles overlap, each triangle in the first that
+                        // takes it.
+                        let tri = |t: usize| {
+                            mesh.triangles[t]
+                                .map(|i| positions.get(i as usize).copied().unwrap_or_default())
+                        };
+                        let mut layers: Vec<Vec<usize>> = Vec::new();
+                        for &t in &sub {
+                            let a = tri(t);
+                            match layers.iter_mut().find(|layer| {
+                                !layer
+                                    .iter()
+                                    .any(|&u| triangles_overlap(&a, &tri(u), tol.length))
+                            }) {
+                                Some(layer) => layer.push(t),
+                                None => layers.push(vec![t]),
+                            }
+                        }
+                        for layer in layers {
+                            let (piece, bad) = part(&layer)?;
+                            if piece.edge_crossings(tol).is_empty() {
+                                skipped += bad;
+                                if piece.face_count() > 0 {
+                                    pieces.push(piece);
+                                }
+                                continue;
+                            }
+                            // Edges that only touch along part of their
+                            // length still cross for the mesh: halves of the
+                            // layer, then halves of those, until they build.
+                            let mut stack = vec![layer];
+                            while let Some(set) = stack.pop() {
+                                let (piece, bad) = part(&set)?;
+                                if piece.edge_crossings(tol).is_empty() {
+                                    skipped += bad;
+                                    if piece.face_count() > 0 {
+                                        pieces.push(piece);
+                                    }
+                                } else if set.len() == 1 {
+                                    crossing += 1;
+                                } else {
+                                    let (a, b) = set.split_at(set.len() / 2);
+                                    stack.push(b.to_vec());
+                                    stack.push(a.to_vec());
+                                }
+                            }
+                        }
+                    } else {
+                        crossing += sub.len();
+                    }
+                }
             }
         }
         if crossing > 0 {

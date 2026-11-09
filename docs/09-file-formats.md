@@ -159,6 +159,18 @@ save unless `--no-thumbnail`. `manifest.json` carries `title`, `author`, `descri
 
 ## Decisions
 
+- 2026-11-09 — **Overlapping parts on import** (§6). A mesh whose triangles overlap in one plane
+  (a cut-out figure's clothes over its skin, a decal on a wall, doubled surfaces) cannot be one
+  half-edge mesh. Such a connected shell used to be skipped whole, so a person cut-out in the
+  user's house model arrived as an empty group in every mesh format. Now the shell is split by
+  material and into connected parts; a part that still overlaps itself (up to 4000 triangles)
+  is split into layers in which no two triangles overlap with area (a separating-axis test on
+  triangles within 0.05 mm of one plane), and a layer the mesh still rejects (edges touching
+  along part of their length) is halved until each half builds. Each part becomes a group. On the
+  house model exported to OBJ and imported again this keeps 266 000 faces instead of 207 000 and
+  skips 36 000 triangles instead of 115 000, at about 1.7 times the import time; the cut-out comes
+  back whole.
+
 - 2026-11-03 — **`format_version` 1 frozen (1.0).** Files written since 0.1
   kept version 1 because every change was an added, defaulted field. The 1.0
   freeze makes that the rule (§4) and checks it on a corpus written by every
