@@ -259,6 +259,10 @@ and bill-of-materials tables; ISO and ANSI sheet formats with title blocks.
 Sheet metal parts (base and edge flanges, bends with a bend allowance, the flat pattern with
 its DXF); frames of structural members along lines (a profile library, trimming at joints)
 with their cut list.
+- **Done (2026-11-10):** sheet-metal parts with base, edge flanges, gauge changes and the flat
+  pattern (docs/05 §8.12); frame members with a profile library, mitered joints and cut-list
+  lengths (§8.13). Flanges stand on the base outline only (not on other flanges), and corner
+  reliefs are not cut.
 
 ## 1.15.0 — Surfaces and analysis
 Boundary and filling surfaces, knitting, extending and trimming surfaces; curvature combs,

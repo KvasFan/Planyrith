@@ -1,0 +1,5 @@
+# Flanges on both long sides of the sheet: one by number, one by a point.
+rectangle --corner-a 0,0,0 --corner-b 200,100,0
+sheet-metal-base --profile face --thickness 2
+sheet-metal-flange --part group --edge 0 --length 30
+sheet-metal-flange --part group --near 100,101,0 --length 20 --angle 120

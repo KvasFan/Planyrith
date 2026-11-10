@@ -18,6 +18,7 @@ pub mod boolean;
 #[cfg(feature = "brep")]
 pub mod brep;
 pub mod extrude;
+pub mod fabrication;
 pub mod intersect;
 pub mod loft;
 pub mod mesh;

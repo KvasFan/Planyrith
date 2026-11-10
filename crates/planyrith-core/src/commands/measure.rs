@@ -635,6 +635,20 @@ impl Command for CutList {
                 (hi - lo) * DVec3::new(m.x_axis.length(), m.y_axis.length(), m.z_axis.length());
             let mut sides = size.to_array();
             sides.sort_by(|a, b| b.total_cmp(a));
+            // A frame member measures along its line, at its profile's size
+            // (docs/05 §8.13), however it lies.
+            if let ContainerRef::Definition(d) = item.container
+                && let Some(member) = crate::commands::fabrication::member_of(doc, d)
+                && let Ok((loops, _)) = crate::geom::fabrication::profile(&member.profile)
+            {
+                let (mut lo2, mut hi2) = ([f64::INFINITY; 2], [f64::NEG_INFINITY; 2]);
+                for p in loops.iter().flatten() {
+                    lo2 = [lo2[0].min(p.x), lo2[1].min(p.y)];
+                    hi2 = [hi2[0].max(p.x), hi2[1].max(p.y)];
+                }
+                let (w, h) = (hi2[0] - lo2[0], hi2[1] - lo2[1]);
+                sides = [member.length_mm, w.max(h), w.min(h)];
+            }
             let mut area_by: BTreeMap<String, f64> = BTreeMap::new();
             for (f, face) in mesh.faces() {
                 let id = doc.materials.resolve(

@@ -303,6 +303,20 @@ the axis and vanishing where an edge does. A partial turn is closed by the profi
 (reversed) and at the end. The pieces are stitched like a loft (§4.17), turned outward by the
 sign of the volume, and neighboring side pieces closer than 20° are softened and smoothed.
 
+### 4.20 Sheet metal and members (`geom::fabrication`)
+- **Prism between planes:** 2D loops (outer counter-clockwise, holes clockwise) in a frame,
+  every corner run along a direction until it meets a start and an end plane; caps and planar
+  side quads are stitched (§4.17) and turned outward. Square ends use planes square to the
+  direction; a miter uses the plane through the joint whose normal bisects the two members'
+  directions.
+- **Folding:** the plate is the outline's prism by the thickness. A flange on an outline edge
+  is the plate's end face revolved (§4.19) by its angle about an axis along the edge at
+  `thickness + radius` above the bottom, so the inside radius is `radius`, then the turned end
+  face lofted outward by the flange's length; plate, bends and legs are joined by union
+  (§4.13).
+- **Unfolding:** each flange adds the bend allowance `angle × (radius + K × thickness)` and its
+  length outward from its edge; the bend zone's two lines are its ends.
+
 ## 5. Tessellation (for rendering and export)
 
 `tessellate_face(f) -> Vec<[u32; 3]>`: project loops to the face's 2D frame, run ear clipping

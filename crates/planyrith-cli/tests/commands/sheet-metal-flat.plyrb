@@ -1,0 +1,6 @@
+# The flanged sheet's flat pattern beside it, with its bend lines.
+rectangle --corner-a 0,0,0 --corner-b 200,100,0
+sheet-metal-base --profile face --thickness 2
+sheet-metal-flange --part group --edge 0 --length 30
+sheet-metal-flange --part group --edge 2 --length 30
+sheet-metal-flat --part group

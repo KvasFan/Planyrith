@@ -30,6 +30,10 @@ All notable changes to Planyrith are recorded here. Versions follow
   coincident, distance, parallel, perpendicular, angle, concentric) kept by a rigid-body
   solver with the freedom left shown; driving mates; exploded views; the bill of materials;
   Tools › Assembly….
+- Milestone 1.14, sheet metal and frames (docs/05 §8.12–§8.13): sheet-metal parts with edge
+  flanges, gauge changes and flat patterns with bend lines; frame members along edges with a
+  profile library (tubes, angles, channels, IPE beams, flats), mitered joints and their
+  lengths in the cut list; Tools › Fabrication….
 - Milestone 1.13, engineering drawings (docs/15 §9): projected (first or third angle),
   auxiliary, section (hatched, cutting only its view) and detail views that follow their base;
   broken views; tolerance frames, datums, surface texture and weld symbols; balloons numbered

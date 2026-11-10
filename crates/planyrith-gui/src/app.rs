@@ -389,6 +389,8 @@ pub struct App {
     solid_features: crate::engineering::SolidFeaturesWindow,
     /// Tools › Assembly… (docs/05 §5.17).
     assembly: crate::engineering::AssemblyWindow,
+    /// Tools › Fabrication… (docs/05 §8.12–§8.13).
+    fabrication: crate::engineering::FabricationWindow,
     /// File › Export › Rendered Image (docs/06 §11.1).
     #[cfg(not(target_arch = "wasm32"))]
     render_job: crate::render_job::RenderJob,
@@ -555,6 +557,7 @@ impl App {
             features: Default::default(),
             solid_features: Default::default(),
             assembly: Default::default(),
+            fabrication: Default::default(),
             #[cfg(not(target_arch = "wasm32"))]
             render_job: Default::default(),
             #[cfg(not(target_arch = "wasm32"))]
@@ -1857,6 +1860,10 @@ impl App {
                 }
                 if ui.button(t("Assembly…")).clicked() {
                     self.assembly.open = true;
+                    ui.close();
+                }
+                if ui.button(t("Fabrication…")).clicked() {
+                    self.fabrication.open = true;
                     ui.close();
                 }
                 ui.separator();
@@ -3445,6 +3452,7 @@ impl App {
         self.features.window(&ctx, &mut self.session);
         self.solid_features.window(&ctx, &mut self.session);
         self.assembly.window(&ctx, &mut self.session);
+        self.fabrication.window(&ctx, &mut self.session);
         self.together.window(&ctx, &mut self.session);
         #[cfg(not(target_arch = "wasm32"))]
         {

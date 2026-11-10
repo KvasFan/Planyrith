@@ -19,7 +19,8 @@ container or definition attributes, so the frozen file format did not change. Th
 everything through Tools-menu windows in `planyrith-gui/src/engineering.rs`. 1.13 engineering
 drawings (2026-11-10): derived, section, detail and broken views, symbols, balloons, ISO/ANSI
 formats as optional sheet-item fields (`sheets/drawing.rs`, `commands/drawings.rs`, docs/15 §9)
-with tools in the Sheets editor. Next: 1.14 sheet metal and frames, then 1.15–1.18.
+with tools in the Sheets editor. 1.14 sheet metal and frames (`geom/fabrication.rs`,
+`commands/fabrication.rs`). Next: 1.15 surfaces and analysis, then 1.16–1.18.
 
 **Release state (2026-11-09):** `v0.11.0-alpha.4` is published as a GitHub pre-release from
 `c58d1a5`, at the user's request, with packages built on this machine (docs/16 Decisions,

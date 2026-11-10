@@ -755,6 +755,43 @@ on the selection.
   keeps a closed solid; a 100 mm box shelled by 10 mm keeps 424 cm³; a 5° draft gives the
   trapezoidal prism's volume; a split keeps the volume in two groups; a dome and a rib add to it.
 
+### 8.12 Sheet metal: `sheet-metal-base`, `sheet-metal-flange`, `sheet-metal-set`, `sheet-metal-flat`
+A sheet-metal part is a group whose definition keeps its description — the flat outline in its
+plane, thickness, inside bend radius, K factor and flanges — as the attribute `planyrith` /
+`sheet-metal`; its geometry is rebuilt from it after every change (docs/03 §4.20).
+- `sheet-metal-base { profile: Sel (one face), thickness, bend_radius? (the thickness), k_factor
+  (0.44), name }`: the face's outer loop becomes the outline (holes are not kept), the sheet
+  grows toward its front, and the face gives way to the part.
+- `sheet-metal-flange { part, edge? | near?, angle (90°), length }`: a flange bent up on the
+  outline edge numbered `edge` (from corner `edge` to the next, counter-clockwise) or nearest
+  the point `near`; again on the same edge replaces it.
+- `sheet-metal-set { part, thickness?, bend_radius?, k_factor?, remove_flange? }`.
+- `sheet-metal-flat { part, offset? }`: a "Flat pattern" group beside the part (or at `offset`
+  from the outline's origin): the outline with each flange's bend allowance
+  `angle × (radius + K × thickness)` and length added outward, the bend zones' lines drawn on
+  its top; the output gives the outline, the bend lines and the blank's size (export it with
+  `export --2d` from the top view for cutting).
+- **Output:** `{ part?, volume_mm3, flanges }`; the flat pattern `{ group, outline, bend_lines,
+  size_mm }`. **Undo:** one step each.
+- **GUI:** Tools › Fabrication… › Sheet metal.
+- **Tests:** a 200 × 100 × 2 sheet; two flanges keep a printable solid; a thicker gauge rebuilds
+  and undo restores; the blank is 100 + 2 × (allowance + 30) across with four bend lines.
+
+### 8.13 `frame-member`
+- **Params:** `path: Sel` (edges: the members' center lines), `profile` (`square-tube 40x40x3`,
+  `rect-tube WxHxT`, `round-tube DxT`, `round D`, `flat WxT`, `angle AxBxT`, `channel HxWxT`,
+  `i-beam HxWxTwxTf`, `IPE80`–`IPE300`), `rotation` (about the line), `miter` (true).
+- **Behavior:** one group per edge, named "Member <profile>", the profile centered on the line
+  with its up toward +Z (+X for vertical members) turned by `rotation`. Where exactly two
+  members meet at an angle and `miter` is on, both are cut on the bisecting plane; other ends
+  are square. Each member keeps `planyrith` / `member` (profile, longest length, end cut
+  angles), which the cut list (§8.5) uses for its length and section size however the member
+  lies.
+- **Output:** `{ members, lengths_mm }`. **Undo:** one step. **GUI:** Tools › Fabrication… ›
+  Frames.
+- **Tests:** a 1000 × 600 rectangle of square tube gives four mitered members (2 × 1040,
+  2 × 640) that do not interfere; the cut list has two rows; an unknown profile is refused.
+
 ## 9. View tools (category `view`) — not undoable, do not dirty the document
 
 - `orbit { yaw: Angle, pitch: Angle, pivot?: Point }` — middle-drag; `Shift` = pan; orbits about the

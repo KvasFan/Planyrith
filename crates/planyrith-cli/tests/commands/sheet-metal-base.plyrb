@@ -1,0 +1,3 @@
+# A 2 mm sheet from a 200 x 100 rectangle.
+rectangle --corner-a 0,0,0 --corner-b 200,100,0
+sheet-metal-base --profile face --thickness 2

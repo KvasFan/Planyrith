@@ -1,0 +1,5 @@
+# The flanged sheet made 3 mm thick with a 4 mm bend radius.
+rectangle --corner-a 0,0,0 --corner-b 200,100,0
+sheet-metal-base --profile face --thickness 2
+sheet-metal-flange --part group --edge 0 --length 30
+sheet-metal-set --part group --thickness 3 --bend-radius 4

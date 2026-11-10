@@ -1713,6 +1713,185 @@ impl AssemblyWindow {
     }
 }
 
+/// Tools › Fabrication… (docs/05 §8.12–§8.13): sheet-metal parts and frame
+/// members from the selection.
+pub struct FabricationWindow {
+    /// The window is shown.
+    pub open: bool,
+    frames: bool,
+    thickness_mm: f64,
+    radius_mm: f64,
+    k_factor: f64,
+    edge: usize,
+    angle_deg: f64,
+    length_mm: f64,
+    profile: String,
+    miter: bool,
+    note: Option<String>,
+}
+
+impl Default for FabricationWindow {
+    fn default() -> Self {
+        FabricationWindow {
+            open: false,
+            frames: false,
+            thickness_mm: 2.0,
+            radius_mm: 2.0,
+            k_factor: 0.44,
+            edge: 0,
+            angle_deg: 90.0,
+            length_mm: 30.0,
+            profile: "square-tube 40x40x3".into(),
+            miter: true,
+            note: None,
+        }
+    }
+}
+
+/// Profiles offered by the frame page.
+const PROFILES: [&str; 8] = [
+    "square-tube 40x40x3",
+    "rect-tube 60x40x3",
+    "round-tube 42.4x3.2",
+    "angle 50x50x5",
+    "channel 100x50x6",
+    "flat 40x5",
+    "IPE100",
+    "IPE200",
+];
+
+impl FabricationWindow {
+    fn run(&mut self, session: &mut Session, name: &str, params: Value) {
+        self.note = Some(match session.execute(name, params) {
+            Ok(out) => {
+                if let Some(v) = out["volume_mm3"].as_f64() {
+                    t_args(
+                        "Solid made: { $volume } cm³.",
+                        &[("volume", format!("{:.1}", v / 1000.0).into())],
+                    )
+                } else if let Some(size) = out["size_mm"].as_array() {
+                    t_args(
+                        "Blank { $w } × { $h } mm.",
+                        &[
+                            (
+                                "w",
+                                format!("{:.1}", size[0].as_f64().unwrap_or(0.0)).into(),
+                            ),
+                            (
+                                "h",
+                                format!("{:.1}", size[1].as_f64().unwrap_or(0.0)).into(),
+                            ),
+                        ],
+                    )
+                } else if let Some(n) = out["members"].as_array() {
+                    t_args(
+                        "{ $count } pieces made.",
+                        &[("count", n.len().to_string().into())],
+                    )
+                } else {
+                    t("Done")
+                }
+            }
+            Err(e) => e,
+        });
+    }
+
+    /// Draws the window.
+    pub fn window(&mut self, ctx: &egui::Context, session: &mut Session) {
+        if !self.open {
+            return;
+        }
+        let mut open = true;
+        egui::Window::new(t("Fabrication"))
+            .open(&mut open)
+            .default_width(380.0)
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.selectable_value(&mut self.frames, false, t("Sheet metal"));
+                    ui.selectable_value(&mut self.frames, true, t("Frames"));
+                });
+                ui.separator();
+                if self.frames {
+                    ui.label(t("Select the center lines (edges), then:"));
+                    egui::ComboBox::from_id_salt("frame profile")
+                        .selected_text(self.profile.clone())
+                        .show_ui(ui, |ui| {
+                            for p in PROFILES {
+                                ui.selectable_value(&mut self.profile, p.to_string(), p);
+                            }
+                        });
+                    ui.text_edit_singleline(&mut self.profile);
+                    ui.checkbox(&mut self.miter, t("Miter corners"));
+                    if ui.button(t("Make Members")).clicked() {
+                        self.run(
+                            session,
+                            "frame-member",
+                            json!({ "path": "selection & edge", "profile": self.profile, "miter": self.miter }),
+                        );
+                    }
+                } else {
+                    egui::Grid::new("sheet metal").num_columns(2).show(ui, |ui| {
+                        ui.label(t("Thickness"));
+                        ui.add(egui::DragValue::new(&mut self.thickness_mm).range(0.1..=100.0).suffix(" mm"));
+                        ui.end_row();
+                        ui.label(t("Bend radius"));
+                        ui.add(egui::DragValue::new(&mut self.radius_mm).range(0.0..=100.0).suffix(" mm"));
+                        ui.end_row();
+                        ui.label(t("K factor"));
+                        ui.add(egui::DragValue::new(&mut self.k_factor).range(0.0..=1.0).speed(0.01));
+                        ui.end_row();
+                    });
+                    if ui.button(t("Sheet from Selected Face")).clicked() {
+                        self.run(
+                            session,
+                            "sheet-metal-base",
+                            json!({ "profile": "selection & face", "thickness": self.thickness_mm,
+                                    "bend_radius": self.radius_mm, "k_factor": self.k_factor }),
+                        );
+                    }
+                    ui.separator();
+                    ui.label(t("Select the sheet-metal part, then:"));
+                    egui::Grid::new("flange").num_columns(2).show(ui, |ui| {
+                        ui.label(t("Outline edge"));
+                        ui.add(egui::DragValue::new(&mut self.edge).range(0..=999));
+                        ui.end_row();
+                        ui.label(t("Angle"));
+                        ui.add(egui::DragValue::new(&mut self.angle_deg).range(1.0..=180.0).suffix("°"));
+                        ui.end_row();
+                        ui.label(t("Length"));
+                        ui.add(egui::DragValue::new(&mut self.length_mm).range(0.1..=10_000.0).suffix(" mm"));
+                        ui.end_row();
+                    });
+                    ui.horizontal(|ui| {
+                        if ui.button(t("Add Flange")).clicked() {
+                            self.run(
+                                session,
+                                "sheet-metal-flange",
+                                json!({ "part": "selection", "edge": self.edge,
+                                        "angle": self.angle_deg.to_radians(), "length": self.length_mm }),
+                            );
+                        }
+                        if ui.button(t("Apply Gauge")).clicked() {
+                            self.run(
+                                session,
+                                "sheet-metal-set",
+                                json!({ "part": "selection", "thickness": self.thickness_mm,
+                                        "bend_radius": self.radius_mm, "k_factor": self.k_factor }),
+                            );
+                        }
+                        if ui.button(t("Flat Pattern")).clicked() {
+                            self.run(session, "sheet-metal-flat", json!({ "part": "selection" }));
+                        }
+                    });
+                }
+                if let Some(n) = &self.note {
+                    ui.label(n);
+                }
+            });
+        self.open = open;
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
@@ -1727,6 +1906,48 @@ mod tests {
             cut_list_csv(&out),
             "name,count,length_mm,width_mm,thickness_mm,material\n\"Side \"\"L\"\"\",2,800.0,400.0,18.0,\"Oak\"\n"
         );
+    }
+
+    /// The fabrication window's commands: a sheet with a flange, its flat
+    /// pattern, and members on edges.
+    #[test]
+    fn fabrication_from_the_selection() {
+        let mut s = Session::new();
+        s.execute(
+            "rectangle",
+            json!({ "corner_a": [0, 0, 0], "corner_b": [200, 100, 0] }),
+        )
+        .unwrap();
+        s.execute("select", json!({ "query": "face" })).unwrap();
+        let mut w = FabricationWindow::default();
+        w.run(
+            &mut s,
+            "sheet-metal-base",
+            json!({ "profile": "selection & face", "thickness": 2 }),
+        );
+        assert!(w.note.as_deref().unwrap().contains("40.0"), "{:?}", w.note);
+        s.execute("select", json!({ "query": "group" })).unwrap();
+        w.run(
+            &mut s,
+            "sheet-metal-flange",
+            json!({ "part": "selection", "edge": 0, "length": 30 }),
+        );
+        w.run(&mut s, "sheet-metal-flat", json!({ "part": "selection" }));
+        assert!(
+            w.note.as_deref().unwrap().starts_with("Blank 200.0"),
+            "{:?}",
+            w.note
+        );
+        s.execute("line", json!({ "points": [[0, 500, 0], [1000, 500, 0]] }))
+            .unwrap();
+        s.execute("select", json!({ "query": "edge & last" }))
+            .unwrap();
+        w.run(
+            &mut s,
+            "frame-member",
+            json!({ "path": "selection & edge", "profile": "IPE100" }),
+        );
+        assert_eq!(w.note.as_deref(), Some("1 pieces made."));
     }
 
     /// A face selected inside an open component names the side

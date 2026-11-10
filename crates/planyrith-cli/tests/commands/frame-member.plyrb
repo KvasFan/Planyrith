@@ -1,0 +1,6 @@
+# A mitered rectangular frame of square tube and a free-standing IPE beam.
+line --points 0,0,0 --points 1000,0,0 --points 1000,600,0 --points 0,600,0 --close
+erase --targets face
+frame-member --path edge --profile 'square-tube 40x40x3'
+line --points 0,0,500 --points 0,0,1500
+frame-member --path 'edge & last' --profile IPE200
