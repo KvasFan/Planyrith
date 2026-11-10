@@ -5,7 +5,7 @@ implementation stands, what is done, what remains, and how to resume. Update it 
 every working session. Ground truth for *what to build* stays in `docs/00`–`docs/15`; this file
 is only *progress state*. Release packaging is specified in `docs/16`.
 
-_Last updated: 2026-11-10 (0.11.0-alpha.4 published; milestones 1.7–1.17 after it)._
+_Last updated: 2026-11-10 (0.11.0-alpha.4 published; main is 0.12.0-alpha.1, unpublished, with milestones 1.7–1.17)._
 
 **Engineering milestones (2026-11-09, docs/13 1.8–1.18):** asked to add every feature a
 feature-based mechanical modeler has without harming the existing tools or interface, the work
