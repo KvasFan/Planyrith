@@ -450,6 +450,36 @@ applied at once by `move_vertices` (§4.8 with a displacement per vertex). The r
 Jacobian at the solution gives the degrees of freedom left (unknowns − rank) and the redundant
 equations (equations − rank), which include constraints repeating the flat-face equations.
 
+## 12. Simulation (`sim`, milestone 1.16)
+
+Finite elements on one closed solid, in consistent units: mm, N, MPa, tonnes, seconds; heat in
+W and K.
+
+- **Mesh.** The solid's bounding box is divided into a grid whose cells fit it exactly
+  (`round(extent / size)` cells per axis). A cell whose middle classifies inside or on the solid
+  (§4.13) becomes six tetrahedra around its main diagonal, a split that conforms between
+  neighbors. Elements are quadratic (ten nodes: corners and edge middles), which keeps bending
+  stiffness accurate with two cells across a section. Faces square to the axes on grid lines are
+  met exactly; other surfaces are approximated in steps of the cell size. Each boundary triangle
+  belongs to the nearest face of the solid facing its way (within ¾ of a cell), so conditions
+  named by faces reach the right nodes. A mesh is refused beyond 60 000 nodes.
+- **Statics.** Isotropic linear elasticity; four-point integration; the sparse stiffness is
+  solved for the free unknowns by conjugate gradients with a diagonal preconditioner to a
+  relative residual of 10⁻⁹. Fixtures hold every node of their faces. A force is spread by area
+  and a pressure acts against the outward normal, both as consistent loads of quadratic
+  triangles (a third of a triangle's share at each edge middle); gravity is the consistent body
+  load (−1/20 at corners, 1/5 at middles). Stress is evaluated at the integration points (the
+  maximum) and averaged at nodes over the tetrahedra meeting there (the picture). Reactions are
+  `K u − f` on the held rows.
+- **Natural frequencies.** `K φ = λ M φ` with lumped masses (a tetrahedron's mass shared 1/36 per
+  corner and 4/27 per middle), by subspace iteration: `max(2k, k + 8)` vectors from a fixed-seed
+  hash, each step solving `K Y = M X` (started from `X / λ`), making `Y` M-orthonormal twice by
+  Gram–Schmidt and solving the small problem by cyclic Jacobi rotations, until the `k` lowest
+  values change by less than 10⁻⁷ (80 steps at most). `f = √λ / 2π`.
+- **Heat.** Steady conduction `∇·(k ∇T) = 0`; held temperatures move to the right-hand side;
+  heat power is spread like a force.
+- Everything runs sequentially in a fixed order: results are deterministic.
+
 ## Decisions
 
 - 2026-11-09 — **Position keys independent of where a loop starts.** The command fuzzer (60 000

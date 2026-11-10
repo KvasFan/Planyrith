@@ -276,6 +276,11 @@ curvature and zebra displays, draft analysis and wall thickness analysis.
 Linear static stress analysis of solids (tetrahedral meshing, materials with Young's modulus
 and Poisson's ratio, fixtures and loads, displacement and von Mises results shown in color),
 natural frequencies, steady heat conduction, and motion of assemblies over time.
+- **Done (2026-11-10):** `sim-static`, `sim-frequency` and `sim-thermal` on a mesh of quadratic
+  tetrahedra over a grid fitted to the body (docs/03 §12, docs/05 §8.16) with a library of
+  materials, results shown as colored copies; `motion-study` drives a mate in steps with
+  collision checks (§8.17). Curved surfaces are approximated in steps of the cell size (no
+  boundary-fitted mesh yet), and conduction has no convection to air.
 
 ## 1.17.0 — Product data and exchange
 Custom properties and part numbers; revisions recorded in the document; a library of standard

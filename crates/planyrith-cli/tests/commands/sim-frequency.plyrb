@@ -1,0 +1,5 @@
+# The two lowest natural frequencies of the beam held at one end (coarse mesh).
+rectangle --corner-a 0,0,0 --corner-b 200,20,0
+push-pull --face '{face & last}' --distance 20
+make-group --targets all --name Beam
+sim-frequency --body name:Beam --fixed 'face & plane:yz@0' --modes 2 --mesh-size 20

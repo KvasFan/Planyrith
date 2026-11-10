@@ -31,6 +31,7 @@ pub mod measure;
 pub mod organize;
 pub mod params;
 pub mod sheets;
+pub mod simulation;
 pub mod solid;
 pub mod solid_check;
 pub mod solid_features;
@@ -431,6 +432,7 @@ impl CommandRegistry {
         fabrication::register(&mut registry);
         surfaces::register(&mut registry);
         analysis::register(&mut registry);
+        simulation::register(&mut registry);
         sheets::register(&mut registry);
         #[cfg(feature = "scripting")]
         registry.register(crate::scripting::ScriptEval);

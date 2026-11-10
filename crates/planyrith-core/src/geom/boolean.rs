@@ -95,7 +95,7 @@ fn ambiguous() -> GeometryError {
     GeometryError::NonRobust("solid boundary is ambiguous within tolerance; separate coincident edges or adjust the model tolerance".into())
 }
 
-fn polygon_contains(
+pub(crate) fn polygon_contains(
     mesh: &HalfEdgeMesh,
     f: FaceId,
     p: DVec3,

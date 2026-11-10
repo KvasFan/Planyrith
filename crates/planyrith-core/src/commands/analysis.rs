@@ -50,6 +50,12 @@ pub enum AnalysisKind {
     Thickness,
     /// A curvature comb along edges.
     Comb,
+    /// Von Mises stress of a static simulation (docs/05 §8.16).
+    Stress,
+    /// A natural mode's shape.
+    Mode,
+    /// Temperatures of a thermal simulation.
+    Temperature,
 }
 
 impl AnalysisKind {
@@ -60,6 +66,9 @@ impl AnalysisKind {
             Self::Draft => "draft",
             Self::Thickness => "thickness",
             Self::Comb => "comb",
+            Self::Stress => "stress",
+            Self::Mode => "mode shape",
+            Self::Temperature => "temperature",
         }
     }
 }
@@ -102,10 +111,10 @@ pub struct AnalysisOutput {
 }
 
 /// One analyzed face: its loops and normal in edit-context coordinates.
-struct Measured {
-    rings: Vec<Vec<DVec3>>,
-    normal: DVec3,
-    class: usize,
+pub(crate) struct Measured {
+    pub(crate) rings: Vec<Vec<DVec3>>,
+    pub(crate) normal: DVec3,
+    pub(crate) class: usize,
 }
 
 /// A face of a set, seen from the edit context.
@@ -177,7 +186,7 @@ fn clear(
 }
 
 /// Builds the colored copy and the summary.
-fn show(
+pub(crate) fn show(
     tx: &mut Transaction<'_>,
     target: &Target,
     kind: AnalysisKind,

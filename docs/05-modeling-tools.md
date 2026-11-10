@@ -854,6 +854,50 @@ the model itself is not changed.
   24-sided cylinder's sides are convex with radius ≈ 50; a comb on a 12-segment quarter arc
   has 11 teeth at radius 100.
 
+### 8.16 Simulation: `sim-static`, `sim-frequency`, `sim-thermal`
+A simulation meshes one closed `body` (the faces of the edit context, or one group or
+component) with quadratic tetrahedra (docs/03 §12) and names its conditions by faces of that
+body, queried inside it (`face & plane:yz@0`, or `@pid` lists from a selection inside the
+body). Results are shown like analyses (§8.15): the mesh's boundary, each triangle drawn as
+four through its edge middles, colored in eight classes from the lowest to the highest value,
+in a group "Analysis: stress" / "mode shape" / "temperature" replaced on the next run and
+removed by `analysis-clear`. The body itself is not changed; hide it to see a result fully.
+- **Material** (all three): `material` from a built-in list (`steel` by default,
+  `stainless-steel`, `aluminum`, `titanium`, `copper`, `brass`, `cast-iron`, `abs`, `pla`,
+  `nylon`, `oak`, `concrete`, `glass`; typical room-temperature values), each value overridable:
+  `youngs_modulus` (MPa), `poisson_ratio`, `density` (kg/m³), `conductivity` (W/(m·K)),
+  `yield_strength` (MPa). `mesh_size` is the cell size (by default about 2500 cells, 600 for
+  frequencies).
+- `sim-static { body, material…, mesh_size?, fixed: Sel, loads: [{ faces, force: [N] |
+  pressure: MPa }], gravity, deformation_scale (0) }`: linear static stress. **Output:**
+  `{ group, nodes, elements, max_von_mises_mpa, max_displacement_mm, safety_factor? (yield over
+  the largest stress), reaction_n, classes, min, max }`; the picture is the von Mises stress,
+  drawn deformed by `deformation_scale`.
+- `sim-frequency { body, material…, mesh_size?, fixed, modes (4, ≤ 12), show_mode (1),
+  amplitude? (a tenth of the body's size) }`: the lowest natural frequencies with the fixed
+  faces held; the picture is the chosen mode's shape, colored by how far each point moves.
+  **Output:** `{ group, nodes, elements, frequencies_hz }`.
+- `sim-thermal { body, material…, mesh_size?, conditions: [{ faces, temperature: °C | power:
+  W }] }`: steady conduction; at least one temperature is held; other faces are insulated.
+  **Output:** `{ group, nodes, elements, min_c, max_c, classes }`.
+- **Undo:** one step each. **GUI:** Tools › Simulation….
+- **Tests:** a steel 200 × 20 × 20 cantilever under 1000 N at its tip bends 0.952 mm
+  (`F L³ / 3 E I`) within 5 % and the reaction is 1000 N; its first two frequencies are within
+  2 % of 418 Hz; a steel bar 100 × 10 × 10 held at 0 °C with 10 W into the other end reaches
+  200 °C (`P L / k A`).
+
+### 8.17 `motion-study`
+- **Params:** `mate` (the number of a distance or angle mate of the edit context, §5.17),
+  `to_length` | `to_angle`, `steps` (10, ≤ 200), `interference` (false).
+- **Behavior:** drives the mate from its present value to the given one in equal steps,
+  solving the assembly at each from the previous step's placements; with `interference`, every
+  pair of occurrences one of which moved is intersected (§8.4) at each step. The document is
+  not changed (view-only); drive the mate with `mate-edit` to keep a position.
+- **Output:** `{ frames: [{ value (mm or degrees), placements: [{ occurrence, origin }],
+  collisions: [(a, b, volume_mm3)] }], travel_mm: [(occurrence, mm)], first_collision? }`.
+- **GUI:** Tools › Simulation… › Motion. **Tests:** a block slid from flush to 60 mm off in six
+  steps moves 10 mm per step without collisions.
+
 ## 9. View tools (category `view`) — not undoable, do not dirty the document
 
 - `orbit { yaw: Angle, pitch: Angle, pivot?: Point }` — middle-drag; `Shift` = pan; orbits about the

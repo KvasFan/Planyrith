@@ -2230,6 +2230,402 @@ impl AnalysisWindow {
     }
 }
 
+/// The selected entities of one kind as a query of their pids
+/// (`@12|@15`), each in its own container.
+fn selected_query(session: &Session, faces: bool) -> Option<String> {
+    use planyrith_core::ids::EntityId;
+    let doc = session.doc();
+    let mut out: Vec<String> = Vec::new();
+    for path in session.engine.selection().iter() {
+        let Ok((c, _)) = doc.resolve_container(&path.instances) else {
+            continue;
+        };
+        let Some(entities) = doc.container(c) else {
+            continue;
+        };
+        let Some(id) = entities.key_to_id(path.target) else {
+            continue;
+        };
+        let wanted = match id {
+            EntityId::Face(_) => faces,
+            EntityId::Group(_) | EntityId::Instance(_) => !faces,
+            _ => false,
+        };
+        if wanted && let Some(pid) = entities.pid_of(id) {
+            out.push(format!("@{}", pid.0));
+        }
+    }
+    (!out.is_empty()).then(|| out.join("|"))
+}
+
+/// The pages of Tools › Simulation….
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SimPage {
+    Stress,
+    Frequency,
+    Heat,
+    Motion,
+}
+
+/// Tools › Simulation… (docs/05 §8.16–§8.17): stress, natural frequencies,
+/// heat conduction and motion studies.
+pub struct SimulationWindow {
+    /// The window is shown.
+    pub open: bool,
+    page: SimPage,
+    body: String,
+    material: usize,
+    mesh_mm: f64,
+    fixed: String,
+    load_faces: String,
+    pressure: bool,
+    force: [f64; 3],
+    pressure_mpa: f64,
+    gravity: bool,
+    scale: f64,
+    modes: u32,
+    show_mode: u32,
+    hot: String,
+    hot_power: bool,
+    hot_value: f64,
+    cold: String,
+    cold_c: f64,
+    mate: u32,
+    to_value: f64,
+    steps: u32,
+    interference: bool,
+    lines: Vec<String>,
+    note: Option<String>,
+}
+
+impl Default for SimulationWindow {
+    fn default() -> Self {
+        SimulationWindow {
+            open: false,
+            page: SimPage::Stress,
+            body: "selection".into(),
+            material: 0,
+            mesh_mm: 0.0,
+            fixed: String::new(),
+            load_faces: String::new(),
+            pressure: false,
+            force: [0.0, 0.0, -1000.0],
+            pressure_mpa: 1.0,
+            gravity: false,
+            scale: 0.0,
+            modes: 4,
+            show_mode: 1,
+            hot: String::new(),
+            hot_power: true,
+            hot_value: 10.0,
+            cold: String::new(),
+            cold_c: 20.0,
+            mate: 1,
+            to_value: 50.0,
+            steps: 10,
+            interference: true,
+            lines: Vec::new(),
+            note: None,
+        }
+    }
+}
+
+impl SimulationWindow {
+    fn base(&self) -> serde_json::Map<String, Value> {
+        let mut m = serde_json::Map::new();
+        m.insert("body".into(), json!(self.body));
+        m.insert(
+            "material".into(),
+            json!(planyrith_core::sim::MATERIALS[self.material]),
+        );
+        if self.mesh_mm > 0.0 {
+            m.insert("mesh_size".into(), json!(self.mesh_mm));
+        }
+        m
+    }
+
+    /// The command and parameters of the open page.
+    fn command(&self) -> (&'static str, Value) {
+        let mut m = self.base();
+        match self.page {
+            SimPage::Stress => {
+                m.insert("fixed".into(), json!(self.fixed));
+                let mut loads = Vec::new();
+                if !self.load_faces.trim().is_empty() {
+                    loads.push(if self.pressure {
+                        json!({ "faces": self.load_faces, "pressure": self.pressure_mpa })
+                    } else {
+                        json!({ "faces": self.load_faces, "force": self.force })
+                    });
+                }
+                m.insert("loads".into(), json!(loads));
+                m.insert("gravity".into(), json!(self.gravity));
+                m.insert("deformation_scale".into(), json!(self.scale));
+                ("sim-static", Value::Object(m))
+            }
+            SimPage::Frequency => {
+                m.insert("fixed".into(), json!(self.fixed));
+                m.insert("modes".into(), json!(self.modes));
+                m.insert("show_mode".into(), json!(self.show_mode.min(self.modes)));
+                ("sim-frequency", Value::Object(m))
+            }
+            SimPage::Heat => {
+                let hot = if self.hot_power {
+                    json!({ "faces": self.hot, "power": self.hot_value })
+                } else {
+                    json!({ "faces": self.hot, "temperature": self.hot_value })
+                };
+                m.insert(
+                    "conditions".into(),
+                    json!([{ "faces": self.cold, "temperature": self.cold_c }, hot]),
+                );
+                ("sim-thermal", Value::Object(m))
+            }
+            SimPage::Motion => (
+                "motion-study",
+                json!({ "mate": self.mate, "to_length": self.to_value, "steps": self.steps,
+                        "interference": self.interference }),
+            ),
+        }
+    }
+
+    fn run(&mut self, session: &mut Session) {
+        let (name, params) = self.command();
+        let (name, params) = if name == "motion-study" && self.to_value_is_angle(session) {
+            let mut p = params;
+            if let Some(o) = p.as_object_mut() {
+                o.remove("to_length");
+                o.insert("to_angle".into(), json!(self.to_value.to_radians()));
+            }
+            (name, p)
+        } else {
+            (name, params)
+        };
+        self.lines.clear();
+        self.note = Some(match session.execute(name, params) {
+            Ok(out) => self.summary(&out),
+            Err(e) => e,
+        });
+    }
+
+    /// Whether the chosen mate is an angle mate.
+    fn to_value_is_angle(&self, session: &mut Session) -> bool {
+        session
+            .execute("mate-list", json!({}))
+            .ok()
+            .and_then(|l| {
+                l["mates"].as_array().and_then(|m| {
+                    m.iter()
+                        .find(|x| x["id"].as_u64() == Some(u64::from(self.mate)))
+                        .map(|x| x["kind"] == "angle")
+                })
+            })
+            .unwrap_or(false)
+    }
+
+    fn summary(&mut self, out: &Value) -> String {
+        let f = |v: &Value| v.as_f64().unwrap_or(0.0);
+        if let Some(freqs) = out["frequencies_hz"].as_array() {
+            self.lines = freqs
+                .iter()
+                .enumerate()
+                .map(|(i, v)| format!("{}: {:.1} Hz", i + 1, f(v)))
+                .collect();
+            return t_args(
+                "{ $count } natural frequencies.",
+                &[("count", freqs.len().to_string().into())],
+            );
+        }
+        if let Some(frames) = out["frames"].as_array() {
+            self.lines = frames
+                .iter()
+                .map(|fr| {
+                    let hit = fr["collisions"].as_array().is_some_and(|c| !c.is_empty());
+                    format!("{:.1}{}", f(&fr["value"]), if hit { " ✗" } else { "" })
+                })
+                .collect();
+            return match out["first_collision"].as_u64() {
+                Some(step) => t_args(
+                    "Parts collide from step { $step }.",
+                    &[("step", step.to_string().into())],
+                ),
+                None => t("No collisions."),
+            };
+        }
+        if out.get("max_c").is_some() {
+            return t_args(
+                "From { $min } to { $max } °C.",
+                &[
+                    ("min", format!("{:.2}", f(&out["min_c"])).into()),
+                    ("max", format!("{:.2}", f(&out["max_c"])).into()),
+                ],
+            );
+        }
+        let mut s = t_args(
+            "Largest stress { $stress } MPa, largest displacement { $disp } mm.",
+            &[
+                (
+                    "stress",
+                    format!("{:.2}", f(&out["max_von_mises_mpa"])).into(),
+                ),
+                (
+                    "disp",
+                    format!("{:.4}", f(&out["max_displacement_mm"])).into(),
+                ),
+            ],
+        );
+        if let Some(sf) = out["safety_factor"].as_f64() {
+            s.push(' ');
+            s.push_str(&t_args(
+                "Safety factor { $factor }.",
+                &[("factor", format!("{sf:.2}").into())],
+            ));
+        }
+        s
+    }
+
+    fn faces_row(ui: &mut egui::Ui, session: &Session, label: String, text: &mut String) {
+        ui.label(label);
+        ui.horizontal(|ui| {
+            ui.add(egui::TextEdit::singleline(text).desired_width(150.0));
+            if ui.button(t("Selected Faces")).clicked()
+                && let Some(q) = selected_query(session, true)
+            {
+                *text = q;
+            }
+        });
+        ui.end_row();
+    }
+
+    /// Draws the window.
+    pub fn window(&mut self, ctx: &egui::Context, session: &mut Session) {
+        if !self.open {
+            return;
+        }
+        let mut open = true;
+        egui::Window::new(t("Simulation"))
+            .open(&mut open)
+            .default_width(420.0)
+            .show(ctx, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    ui.selectable_value(&mut self.page, SimPage::Stress, t("Stress"));
+                    ui.selectable_value(&mut self.page, SimPage::Frequency, t("Frequencies"));
+                    ui.selectable_value(&mut self.page, SimPage::Heat, t("Heat"));
+                    ui.selectable_value(&mut self.page, SimPage::Motion, t("Motion"));
+                });
+                ui.separator();
+                if self.page == SimPage::Motion {
+                    egui::Grid::new("motion").num_columns(2).show(ui, |ui| {
+                        ui.label(t("Mate number"));
+                        ui.add(egui::DragValue::new(&mut self.mate).range(1..=9999));
+                        ui.end_row();
+                        ui.label(t("Drive to"));
+                        ui.add(egui::DragValue::new(&mut self.to_value).speed(1.0));
+                        ui.end_row();
+                        ui.label(t("Steps"));
+                        ui.add(egui::DragValue::new(&mut self.steps).range(1..=200));
+                        ui.end_row();
+                    });
+                    ui.checkbox(&mut self.interference, t("Check collisions"));
+                } else {
+                    ui.label(t(
+                        "Name the body and its faces (pick them inside the body, then come back out).",
+                    ));
+                    egui::Grid::new("sim").num_columns(2).show(ui, |ui| {
+                        ui.label(t("Body"));
+                        ui.horizontal(|ui| {
+                            ui.add(egui::TextEdit::singleline(&mut self.body).desired_width(150.0));
+                            if ui.button(t("Selected Group")).clicked()
+                                && let Some(q) = selected_query(session, false)
+                            {
+                                self.body = q;
+                            }
+                        });
+                        ui.end_row();
+                        ui.label(t("Material"));
+                        let materials = planyrith_core::sim::MATERIALS;
+                        egui::ComboBox::from_id_salt("sim material")
+                            .selected_text(materials[self.material])
+                            .show_ui(ui, |ui| {
+                                for (i, m) in materials.iter().enumerate() {
+                                    ui.selectable_value(&mut self.material, i, *m);
+                                }
+                            });
+                        ui.end_row();
+                        ui.label(t("Mesh size"));
+                        ui.add(egui::DragValue::new(&mut self.mesh_mm).range(0.0..=10_000.0).suffix(" mm"));
+                        ui.end_row();
+                        match self.page {
+                            SimPage::Stress => {
+                                Self::faces_row(ui, session, t("Fixed faces"), &mut self.fixed);
+                                Self::faces_row(ui, session, t("Loaded faces"), &mut self.load_faces);
+                                ui.checkbox(&mut self.pressure, t("Pressure"));
+                                if self.pressure {
+                                    ui.add(egui::DragValue::new(&mut self.pressure_mpa).speed(0.1).suffix(" MPa"));
+                                } else {
+                                    ui.horizontal(|ui| {
+                                        for c in self.force.iter_mut() {
+                                            ui.add(egui::DragValue::new(c).speed(10.0).suffix(" N"));
+                                        }
+                                    });
+                                }
+                                ui.end_row();
+                                ui.checkbox(&mut self.gravity, t("Own weight"));
+                                ui.end_row();
+                                ui.label(t("Show deformed ×"));
+                                ui.add(egui::DragValue::new(&mut self.scale).range(0.0..=1.0e6));
+                                ui.end_row();
+                            }
+                            SimPage::Frequency => {
+                                Self::faces_row(ui, session, t("Fixed faces"), &mut self.fixed);
+                                ui.label(t("Frequencies"));
+                                ui.add(egui::DragValue::new(&mut self.modes).range(1..=12));
+                                ui.end_row();
+                                ui.label(t("Show mode"));
+                                ui.add(egui::DragValue::new(&mut self.show_mode).range(1..=12));
+                                ui.end_row();
+                            }
+                            SimPage::Heat => {
+                                Self::faces_row(ui, session, t("Cooled faces"), &mut self.cold);
+                                ui.label(t("Held at"));
+                                ui.add(egui::DragValue::new(&mut self.cold_c).speed(1.0).suffix(" °C"));
+                                ui.end_row();
+                                Self::faces_row(ui, session, t("Heated faces"), &mut self.hot);
+                                ui.checkbox(&mut self.hot_power, t("Heat power"));
+                                ui.add(
+                                    egui::DragValue::new(&mut self.hot_value)
+                                        .speed(1.0)
+                                        .suffix(if self.hot_power { " W" } else { " °C" }),
+                                );
+                                ui.end_row();
+                            }
+                            SimPage::Motion => {}
+                        }
+                    });
+                }
+                ui.horizontal(|ui| {
+                    if ui.button(t("Run")).clicked() {
+                        self.run(session);
+                    }
+                    if self.page != SimPage::Motion && ui.button(t("Clear Results")).clicked() {
+                        self.lines.clear();
+                        self.note = Some(match session.execute("analysis-clear", json!({})) {
+                            Ok(_) => t("Done"),
+                            Err(e) => e,
+                        });
+                    }
+                });
+                if let Some(n) = &self.note {
+                    ui.label(n);
+                }
+                for line in &self.lines {
+                    ui.label(line);
+                }
+            });
+        self.open = open;
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
@@ -2327,6 +2723,53 @@ mod tests {
         );
         assert!(
             w.note.as_deref().unwrap().ends_with("faces trimmed."),
+            "{:?}",
+            w.note
+        );
+    }
+
+    /// The simulation window's commands: a held beam under a tip load, its
+    /// frequencies and its temperatures, with faces from the selection.
+    #[test]
+    fn simulation_from_the_selection() {
+        let mut s = Session::new();
+        s.execute(
+            "rectangle",
+            json!({ "corner_a": [0, 0, 0], "corner_b": [200, 20, 0] }),
+        )
+        .unwrap();
+        s.execute(
+            "push-pull",
+            json!({ "face": { "Query": "face" }, "distance": 20 }),
+        )
+        .unwrap();
+        s.execute("select", json!({ "query": "face & plane:yz@0" }))
+            .unwrap();
+        let fixed = selected_query(&s, true).unwrap();
+        assert!(fixed.starts_with('@'), "{fixed}");
+        let mut w = SimulationWindow {
+            body: "face".into(),
+            mesh_mm: 20.0,
+            fixed: fixed.clone(),
+            load_faces: "face & plane:yz@200".into(),
+            ..Default::default()
+        };
+        w.run(&mut s);
+        assert!(
+            w.note.as_deref().unwrap().starts_with("Largest stress"),
+            "{:?}",
+            w.note
+        );
+        w.page = SimPage::Frequency;
+        w.modes = 2;
+        w.run(&mut s);
+        assert_eq!(w.lines.len(), 2, "{:?}", w.note);
+        w.page = SimPage::Heat;
+        w.cold = fixed;
+        w.hot = "face & plane:yz@200".into();
+        w.run(&mut s);
+        assert!(
+            w.note.as_deref().unwrap().starts_with("From 20.00"),
             "{:?}",
             w.note
         );

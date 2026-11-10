@@ -1,0 +1,5 @@
+# An aluminum beam at 20 °C at one end, heated with 5 W at the other.
+rectangle --corner-a 0,0,0 --corner-b 200,20,0
+push-pull --face '{face & last}' --distance 20
+make-group --targets all --name Beam
+sim-thermal --params-json '{"body":"name:Beam","material":"aluminum","conditions":[{"faces":"face & plane:yz@0","temperature":20},{"faces":"face & plane:yz@200","power":5}],"mesh_size":10}'

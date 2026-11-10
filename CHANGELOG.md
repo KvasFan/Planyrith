@@ -30,6 +30,11 @@ All notable changes to Planyrith are recorded here. Versions follow
   coincident, distance, parallel, perpendicular, angle, concentric) kept by a rigid-body
   solver with the freedom left shown; driving mates; exploded views; the bill of materials;
   Tools › Assembly….
+- Milestone 1.16, simulation (docs/05 §8.16–§8.17): linear static stress (fixtures, forces,
+  pressures, gravity; von Mises stress, displacement, safety factor, reactions), natural
+  frequencies with mode shapes and steady heat conduction, on quadratic tetrahedra with a
+  library of materials, shown as colored copies; `motion-study` drives a mate in steps and
+  checks for collisions; Tools › Simulation….
 - Milestone 1.15, surfaces and analysis (docs/05 §8.14–§8.15): `surface-fill` (blended
   four-sided and radial patches over a closed boundary), `surface-extend`, `surface-trim` by a
   plane and `surface-knit` into one shell or solid; curvature, zebra, draft and wall-thickness

@@ -1,0 +1,5 @@
+# A 200 × 20 × 20 steel beam held at one end, 1000 N down at the other.
+rectangle --corner-a 0,0,0 --corner-b 200,20,0
+push-pull --face '{face & last}' --distance 20
+make-group --targets all --name Beam
+sim-static --params-json '{"body":"name:Beam","fixed":"face & plane:yz@0","loads":[{"faces":"face & plane:yz@200","force":[0,0,-1000]}],"mesh_size":10,"deformation_scale":20}'

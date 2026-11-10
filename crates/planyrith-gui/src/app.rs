@@ -395,6 +395,8 @@ pub struct App {
     surfaces: crate::engineering::SurfacesWindow,
     /// Tools › Analysis… (docs/05 §8.15).
     analysis: crate::engineering::AnalysisWindow,
+    /// Tools › Simulation… (docs/05 §8.16–§8.17).
+    simulation: crate::engineering::SimulationWindow,
     /// File › Export › Rendered Image (docs/06 §11.1).
     #[cfg(not(target_arch = "wasm32"))]
     render_job: crate::render_job::RenderJob,
@@ -564,6 +566,7 @@ impl App {
             fabrication: Default::default(),
             surfaces: Default::default(),
             analysis: Default::default(),
+            simulation: Default::default(),
             #[cfg(not(target_arch = "wasm32"))]
             render_job: Default::default(),
             #[cfg(not(target_arch = "wasm32"))]
@@ -1878,6 +1881,10 @@ impl App {
                 }
                 if ui.button(t("Analysis…")).clicked() {
                     self.analysis.open = true;
+                    ui.close();
+                }
+                if ui.button(t("Simulation…")).clicked() {
+                    self.simulation.open = true;
                     ui.close();
                 }
                 ui.separator();
@@ -3469,6 +3476,7 @@ impl App {
         self.fabrication.window(&ctx, &mut self.session);
         self.surfaces.window(&ctx, &mut self.session);
         self.analysis.window(&ctx, &mut self.session);
+        self.simulation.window(&ctx, &mut self.session);
         self.together.window(&ctx, &mut self.session);
         #[cfg(not(target_arch = "wasm32"))]
         {
