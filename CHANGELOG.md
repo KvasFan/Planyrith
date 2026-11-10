@@ -30,6 +30,12 @@ All notable changes to Planyrith are recorded here. Versions follow
   coincident, distance, parallel, perpendicular, angle, concentric) kept by a rigid-body
   solver with the freedom left shown; driving mates; exploded views; the bill of materials;
   Tools › Assembly….
+- Milestone 1.17, product data and exchange (docs/05 §5.18, docs/09 §5): part numbers,
+  descriptions and custom properties of components and of the model; revisions recorded in the
+  document and shown on sheets; standard parts (ISO bolts, socket screws, nuts, washers, pins,
+  ball bearings) from size tables; STEP with product structure, placements and properties
+  without the B-rep bridge; IGES 5.3 import and export; STEP and IGES in the file dialogs;
+  Tools › Product Data….
 - Milestone 1.16, simulation (docs/05 §8.16–§8.17): linear static stress (fixtures, forces,
   pressures, gravity; von Mises stress, displacement, safety factor, reactions), natural
   frequencies with mode shapes and steady heat conduction, on quadratic tetrahedra with a

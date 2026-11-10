@@ -165,7 +165,10 @@ vector graphics (no special font glyphs are needed in exports):
 `sheet-add-balloon { page, at, leader, component | text }` numbers the balloon with the
 component's item in the bill of materials of the whole model (nested components counted, docs/05
 §5.17), and a table with `query: "bill-of-materials"` lists Item, Name, Qty, Part number and
-Description in the same order.
+Description in the same order. A table with `query: "revisions"` lists the document's revisions
+(Rev, Description, Date, By; docs/05 §5.18), and a title block shows the current revision as its
+`Revision` field unless the field is given; labels can show any document property with the
+binding `attr.properties.<key>` (`attr.properties.part_number`, `attr.properties.revision`).
 
 ### 9.5 Standard formats
 `sheet-format { page, standard: iso|ansi, size, landscape?, fields, projection? }` sets the

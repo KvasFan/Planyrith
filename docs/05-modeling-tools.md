@@ -577,6 +577,34 @@ Mates place the groups and components of the edit context against each other (mi
   driving the distance slides it 30 mm; a conflicting distance is refused; exploding and
   collapsing restore every placement; two equal components count as one row of two.
 
+### 5.18 Product data: `properties-set`, `properties-list`, `revision-add`, `revision-list`, `standard-part`
+- **Properties** are the attribute dictionary `properties` of a group's or component's
+  definition, or of the document. `properties-set { target?: Sel (groups or components; none:
+  the document), part_number?, description?, properties: { name: value } }` sets them (an empty
+  value removes one; names are 1–64 characters without dots); `part_number` is what the bill of
+  materials (§5.17) and STEP export read, the description is the definition's (the document's
+  description for the model). `properties-list { target? }` lists them (without a target: the
+  document, then every component definition with properties). **Output:** `{ rows: [{ target?,
+  name, part_number?, description, properties }] }`.
+- **Revisions:** `revision-add { description, author?, date?, label? }` records a revision of
+  the document (`planyrith` / `revisions`, JSON) labeled A, B, … Z, AA … unless given, and makes it
+  the document property `revision`; the date is text as written (the core reads no clock).
+  `revision-list` lists them. **Output:** `{ revisions: [{ label, description, author, date }],
+  current? }`. Sheets show them as a table and in title blocks (docs/15 §9.4).
+- `standard-part { kind, size, length?, position?, axis? (+Z) }` places a component made from a
+  size table: `hex-bolt` (ISO 4017) and `socket-screw` (ISO 4762, hexagon socket cut) M3–M24 with
+  a length under the head, `hex-nut` (ISO 4032), `washer` (ISO 7089), `dowel-pin` (ISO 8734,
+  ⌀2–16 with a length) and `bearing` (deep groove ball bearings 6000–6010 and 6200–6210: inner and
+  outer rings). Threads are not modeled; round parts have 24 sides. Screws stand with the head's
+  underside on the origin and the shank along −axis; the others stand on the origin along +axis.
+  The component is named by its designation (`ISO 4017 M8x30`), which is also its part number,
+  with the property `standard`; a document that already has that component reuses it.
+  **Output:** `{ instance, designation, description, volume_mm3, reused }`.
+- **Undo:** one step each (lists change nothing). **GUI:** Tools › Product Data….
+- **Tests:** a bolt placed twice and a nut give two bill-of-materials rows, the bolt ×2 with its
+  part number; properties of a component and of the document; revisions A then B, a repeated
+  label refused; every size of every standard part is a closed solid.
+
 ## 6. Guide tools (category `guide`)
 
 ### 6.1 `tape-measure`

@@ -15,6 +15,7 @@ pub mod adapter;
 pub mod autosave;
 pub mod export;
 pub mod fbx;
+pub mod iges;
 pub mod import;
 pub mod model_file;
 pub mod native;
@@ -22,6 +23,7 @@ pub mod overlay;
 pub mod render_mesh;
 #[cfg(feature = "brep")]
 pub mod step;
+pub mod step_structure;
 pub mod storage;
 
 pub use storage::{MemoryStorage, Storage, StorageCaps, StorageEntry, StorageKey};

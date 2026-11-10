@@ -1,0 +1,5 @@
+# A bolt with a washer and nut on its shank, and a bearing beside them.
+standard-part --kind hex-bolt --size M8 --length 30
+standard-part --kind washer --size M8 --position 0,0,-20 --axis 0,0,-1
+standard-part --kind hex-nut --size M8 --position 0,0,-21.6 --axis 0,0,-1
+standard-part --kind bearing --size 6204 --position 60,0,0

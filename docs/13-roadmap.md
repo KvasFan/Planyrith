@@ -286,6 +286,11 @@ natural frequencies, steady heat conduction, and motion of assemblies over time.
 Custom properties and part numbers; revisions recorded in the document; a library of standard
 parts generated from size tables (screws, nuts, washers, bearings, pins); IGES import and
 export; STEP with product structure and annotations.
+- **Done (2026-11-10):** properties and part numbers, revisions shown on sheets, standard parts
+  (docs/05 §5.18); STEP export and import with product structure, placements, part numbers and
+  properties without the B-rep bridge, IGES 5.3 export and import of planar faces (docs/09 §5).
+  STEP "annotations" are the products' properties and revision; graphical annotations (PMI),
+  IGES assemblies and curved IGES surfaces are not exchanged yet.
 
 ## 1.18.0 — Molds and routing
 Mold design (parting line, parting surface, core and cavity, shrink factor) and routing

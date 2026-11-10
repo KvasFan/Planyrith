@@ -228,6 +228,49 @@ fn export_writes_mesh_formats_and_2d_views() {
 }
 
 #[test]
+fn step_and_iges_go_out_and_come_back() {
+    let dir = scratch("exchange");
+    let doc = build_table(&dir, "t.plyr");
+    let d = doc.to_str().unwrap();
+    for file in ["t.step", "t.igs"] {
+        let out = dir.join(file);
+        planyrith()
+            .args(["export", "-f", d, out.to_str().unwrap()])
+            .assert()
+            .success();
+        let text = std::fs::read_to_string(&out).unwrap();
+        assert!(text.starts_with(if file.ends_with(".step") {
+            "ISO-10303-21;"
+        } else {
+            "Planyrith model"
+        }));
+        let back = dir.join(format!("{file}.plyr"));
+        planyrith()
+            .args(["new", "-o", back.to_str().unwrap()])
+            .assert()
+            .success();
+        let json = planyrith()
+            .args([
+                "import",
+                "-f",
+                back.to_str().unwrap(),
+                out.to_str().unwrap(),
+                "--json",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let report: serde_json::Value = serde_json::from_slice(&json).unwrap();
+        assert!(
+            report["output"]["faces"].as_u64().unwrap_or(0) > 0,
+            "{file}: {report}"
+        );
+    }
+}
+
+#[test]
 fn table_export_matches_the_golden_file() {
     let dir = scratch("golden");
     let doc = build_table(&dir, "t.plyr");

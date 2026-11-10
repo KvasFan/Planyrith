@@ -2626,6 +2626,272 @@ impl SimulationWindow {
     }
 }
 
+/// Tools › Product Data… (docs/05 §5.18): part numbers and properties,
+/// revisions and standard parts.
+pub struct ProductWindow {
+    /// The window is shown.
+    pub open: bool,
+    part_number: String,
+    description: String,
+    key: String,
+    value: String,
+    rows: Vec<(String, String)>,
+    revision: String,
+    author: String,
+    date: String,
+    revisions: Vec<String>,
+    kind: usize,
+    size: usize,
+    length_mm: f64,
+    note: Option<String>,
+}
+
+impl Default for ProductWindow {
+    fn default() -> Self {
+        ProductWindow {
+            open: false,
+            part_number: String::new(),
+            description: String::new(),
+            key: String::new(),
+            value: String::new(),
+            rows: Vec::new(),
+            revision: String::new(),
+            author: String::new(),
+            date: String::new(),
+            revisions: Vec::new(),
+            kind: 0,
+            size: 4,
+            length_mm: 30.0,
+            note: None,
+        }
+    }
+}
+
+/// The kinds offered, by command name.
+const PART_KINDS: [&str; 6] = [
+    "hex-bolt",
+    "socket-screw",
+    "hex-nut",
+    "washer",
+    "dowel-pin",
+    "bearing",
+];
+
+/// A part kind's label.
+fn part_label(i: usize) -> String {
+    match i {
+        0 => t("Hex bolt"),
+        1 => t("Socket screw"),
+        2 => t("Hex nut"),
+        3 => t("Washer"),
+        4 => t("Dowel pin"),
+        _ => t("Ball bearing"),
+    }
+}
+
+impl ProductWindow {
+    fn target(session: &Session) -> Value {
+        match selected_query(session, false) {
+            Some(q) => json!(q),
+            None => Value::Null,
+        }
+    }
+
+    /// Reads the properties of the selection (or the document).
+    fn load(&mut self, session: &mut Session) {
+        let target = Self::target(session);
+        match session.execute("properties-list", json!({ "target": target })) {
+            Ok(out) => {
+                let row = &out["rows"][0];
+                self.part_number = row["part_number"].as_str().unwrap_or_default().to_string();
+                self.description = row["description"].as_str().unwrap_or_default().to_string();
+                self.rows = row["properties"]
+                    .as_object()
+                    .map(|m| {
+                        m.iter()
+                            .filter(|(k, _)| k.as_str() != "part_number")
+                            .map(|(k, v)| (k.clone(), v.as_str().unwrap_or_default().to_string()))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                self.note = None;
+            }
+            Err(e) => self.note = Some(e),
+        }
+        if let Ok(out) = session.execute("revision-list", json!({})) {
+            self.revisions = out["revisions"]
+                .as_array()
+                .map(|l| {
+                    l.iter()
+                        .map(|r| {
+                            format!(
+                                "{}  {}  {}",
+                                r["label"].as_str().unwrap_or_default(),
+                                r["date"].as_str().unwrap_or_default(),
+                                r["description"].as_str().unwrap_or_default()
+                            )
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+        }
+    }
+
+    fn apply(&mut self, session: &mut Session) {
+        let mut props = serde_json::Map::new();
+        for (k, v) in &self.rows {
+            props.insert(k.clone(), json!(v));
+        }
+        if !self.key.trim().is_empty() {
+            props.insert(self.key.trim().to_string(), json!(self.value));
+        }
+        let params = json!({
+            "target": Self::target(session),
+            "part_number": self.part_number,
+            "description": self.description,
+            "properties": props,
+        });
+        self.note = Some(match session.execute("properties-set", params) {
+            Ok(_) => {
+                self.key.clear();
+                self.value.clear();
+                self.load(session);
+                t("Done")
+            }
+            Err(e) => e,
+        });
+    }
+
+    fn place(&mut self, session: &mut Session) {
+        let kind = PART_KINDS[self.kind];
+        let sizes = Self::sizes(self.kind);
+        let size = sizes.get(self.size).copied().unwrap_or(sizes[0]);
+        self.note = Some(
+            match session.execute(
+                "standard-part",
+                json!({ "kind": kind, "size": size, "length": self.length_mm }),
+            ) {
+                Ok(out) => t_args(
+                    "{ $part } placed.",
+                    &[(
+                        "part",
+                        out["designation"]
+                            .as_str()
+                            .unwrap_or_default()
+                            .to_string()
+                            .into(),
+                    )],
+                ),
+                Err(e) => e,
+            },
+        );
+    }
+
+    fn sizes(kind: usize) -> Vec<&'static str> {
+        planyrith_core::parts::PartKind::ALL[kind].sizes()
+    }
+
+    /// Draws the window.
+    pub fn window(&mut self, ctx: &egui::Context, session: &mut Session) {
+        if !self.open {
+            return;
+        }
+        let mut open = true;
+        egui::Window::new(t("Product Data"))
+            .open(&mut open)
+            .default_width(420.0)
+            .show(ctx, |ui| {
+                ui.label(t("Properties of the selected group or component (or of the model):"));
+                egui::Grid::new("product").num_columns(2).show(ui, |ui| {
+                    ui.label(t("Part number"));
+                    ui.text_edit_singleline(&mut self.part_number);
+                    ui.end_row();
+                    ui.label(t("Description"));
+                    ui.text_edit_singleline(&mut self.description);
+                    ui.end_row();
+                    for (k, v) in self.rows.iter_mut() {
+                        ui.label(k.as_str());
+                        ui.text_edit_singleline(v);
+                        ui.end_row();
+                    }
+                    ui.add(egui::TextEdit::singleline(&mut self.key).hint_text(t("New property")));
+                    ui.text_edit_singleline(&mut self.value);
+                    ui.end_row();
+                });
+                ui.horizontal(|ui| {
+                    if ui.button(t("Read")).clicked() {
+                        self.load(session);
+                    }
+                    if ui.button(t("Apply")).clicked() {
+                        self.apply(session);
+                    }
+                });
+                ui.separator();
+                ui.label(t("Revisions"));
+                for r in &self.revisions {
+                    ui.label(r);
+                }
+                egui::Grid::new("revision").num_columns(2).show(ui, |ui| {
+                    ui.label(t("What changed"));
+                    ui.text_edit_singleline(&mut self.revision);
+                    ui.end_row();
+                    ui.label(t("By"));
+                    ui.text_edit_singleline(&mut self.author);
+                    ui.end_row();
+                    ui.label(t("Date"));
+                    ui.text_edit_singleline(&mut self.date);
+                    ui.end_row();
+                });
+                if ui.button(t("Add Revision")).clicked() {
+                    let params = json!({ "description": self.revision, "author": self.author, "date": self.date });
+                    self.note = Some(match session.execute("revision-add", params) {
+                        Ok(out) => {
+                            self.revision.clear();
+                            self.load(session);
+                            t_args(
+                                "Revision { $label }.",
+                                &[("label", out["current"].as_str().unwrap_or_default().to_string().into())],
+                            )
+                        }
+                        Err(e) => e,
+                    });
+                }
+                ui.separator();
+                ui.label(t("Standard parts"));
+                ui.horizontal(|ui| {
+                    egui::ComboBox::from_id_salt("part kind")
+                        .selected_text(part_label(self.kind))
+                        .show_ui(ui, |ui| {
+                            for i in 0..PART_KINDS.len() {
+                                if ui.selectable_value(&mut self.kind, i, part_label(i)).changed() {
+                                    self.size = 0;
+                                }
+                            }
+                        });
+                    let sizes = Self::sizes(self.kind);
+                    self.size = self.size.min(sizes.len() - 1);
+                    egui::ComboBox::from_id_salt("part size")
+                        .selected_text(sizes[self.size])
+                        .show_ui(ui, |ui| {
+                            for (i, s) in sizes.iter().enumerate() {
+                                ui.selectable_value(&mut self.size, i, *s);
+                            }
+                        });
+                    if planyrith_core::parts::PartKind::ALL[self.kind].has_length() {
+                        ui.add(egui::DragValue::new(&mut self.length_mm).range(1.0..=1000.0).suffix(" mm"));
+                    }
+                });
+                if ui.button(t("Place at Origin")).clicked() {
+                    self.place(session);
+                }
+                if let Some(n) = &self.note {
+                    ui.label(n);
+                }
+            });
+        self.open = open;
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
@@ -2773,6 +3039,30 @@ mod tests {
             "{:?}",
             w.note
         );
+    }
+
+    /// The product window's commands: a placed bolt, its part number and
+    /// a revision of the model.
+    #[test]
+    fn product_data_from_the_selection() {
+        let mut s = Session::new();
+        let mut w = ProductWindow::default();
+        w.place(&mut s);
+        assert_eq!(w.note.as_deref(), Some("ISO 4017 M8x30 placed."));
+        s.execute("select", json!({ "query": "instance" })).unwrap();
+        w.load(&mut s);
+        assert_eq!(w.part_number, "ISO 4017 M8x30");
+        w.part_number = "B-830".into();
+        w.key = "vendor".into();
+        w.value = "Acme".into();
+        w.apply(&mut s);
+        assert_eq!(w.part_number, "B-830");
+        assert_eq!(w.rows.iter().find(|r| r.0 == "vendor").unwrap().1, "Acme");
+        w.revision = "First issue".into();
+        let out = s
+            .execute("revision-add", json!({ "description": w.revision }))
+            .unwrap();
+        assert_eq!(out["current"], "A");
     }
 
     /// A face selected inside an open component names the side

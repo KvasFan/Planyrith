@@ -5,7 +5,7 @@ implementation stands, what is done, what remains, and how to resume. Update it 
 every working session. Ground truth for *what to build* stays in `docs/00`–`docs/15`; this file
 is only *progress state*. Release packaging is specified in `docs/16`.
 
-_Last updated: 2026-11-10 (0.11.0-alpha.4 published; milestones 1.7–1.16 after it)._
+_Last updated: 2026-11-10 (0.11.0-alpha.4 published; milestones 1.7–1.17 after it)._
 
 **Engineering milestones (2026-11-09, docs/13 1.8–1.18):** asked to add every feature a
 feature-based mechanical modeler has without harming the existing tools or interface, the work
@@ -22,8 +22,9 @@ formats as optional sheet-item fields (`sheets/drawing.rs`, `commands/drawings.r
 with tools in the Sheets editor. 1.14 sheet metal and frames (`geom/fabrication.rs`,
 `commands/fabrication.rs`). 1.15 surfaces (`geom/surface.rs`, `commands/surfaces.rs`) and
 analyses shown as colored copies (`commands/analysis.rs`). 1.16 simulation (`sim.rs`: mesh,
-statics, frequencies, heat; `commands/simulation.rs`, also `motion-study`). Next: 1.17 product
-data and exchange, then 1.18. `tools/ci-local.sh` also runs the core's and the CLI's tests as Windows programs
+statics, frequencies, heat; `commands/simulation.rs`, also `motion-study`). 1.17 product data
+(`commands/product.rs`, `parts.rs`) and exchange (`io/step_structure.rs`, `io/iges.rs`). Next:
+1.18 molds and routing. `tools/ci-local.sh` also runs the core's and the CLI's tests as Windows programs
 under wine (docs/12 Decisions, 2026-11-10); it caught a wasmi fault on Windows.
 
 **Release state (2026-11-09):** `v0.11.0-alpha.4` is published as a GitHub pre-release from

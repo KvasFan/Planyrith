@@ -39,7 +39,8 @@ high-frequency interaction**.
 | PLY | own reader/writer | — | ply-rs | A text header and a flat body; the crate adds a dependency for what fits in one module. |
 | DXF | own reader/writer | — | dxf crate (rejected, see Decisions) | ASCII group codes; covers the entities of docs/09 §5. |
 | 3MF | **quick-xml** (reading the model part) and the **zip** crate; own writer | MIT | roxmltree, own XML reader | A streaming reader with namespace-agnostic local names handles large meshes; already in the dependency tree. See docs/09 Decisions, 2026-11-05. |
-| STEP | **truck-stepio** (feature `brep`) | Apache-2.0 | — | Only pure-Rust option. |
+| STEP | own AP214 writer and reader with product structure (planar geometry); **truck-stepio** (feature `brep`) for curved surfaces on import | Apache-2.0 | — | Only pure-Rust option for curved B-rep; product structure and properties are our own (milestone 1.17). |
+| IGES | own 5.3 writer and reader (planar trimmed surfaces) | — | — | No pure-Rust library; the fixed-column format is small. |
 | PDF export (sheets) | **printpdf** or **pdf-writer** | MIT/Apache-2.0 | — | Pure Rust; `pdf-writer` is lower level but lean; choose at milestone 0.9. |
 | SVG export | own writer (simple) | — | svg crate | Trivial. |
 | Text shaping in viewport | **cosmic-text** or egui's own text via `epaint` | MIT/Apache-2.0 | glyphon | Labels/dimensions rendered through egui painter layer; 3D text uses glyph outlines from `ttf-parser` (MIT/Apache-2.0) extruded by the core. |

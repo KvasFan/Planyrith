@@ -1,0 +1,3 @@
+# Two revisions recorded.
+revision-add --description 'First issue' --author 'Design office' --date 2026-11-10
+revision-add --description 'Thicker bracket' --date 2026-11-12

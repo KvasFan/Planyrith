@@ -70,11 +70,13 @@ pub enum ImportFormat {
     Ifc,
     /// FBX (binary and ASCII 7.x).
     Fbx,
+    /// IGES 5.x (planar trimmed and bounded surfaces).
+    Iges,
 }
 
 impl ImportFormat {
     /// Every import format.
-    pub const ALL: [ImportFormat; 14] = [
+    pub const ALL: [ImportFormat; 15] = [
         ImportFormat::Obj,
         ImportFormat::Stl,
         ImportFormat::Gltf,
@@ -89,6 +91,7 @@ impl ImportFormat {
         ImportFormat::Dae,
         ImportFormat::Ifc,
         ImportFormat::Fbx,
+        ImportFormat::Iges,
     ];
 
     /// Registered formats; SKP additionally requires a converter-capable backend.
@@ -116,6 +119,7 @@ impl ImportFormat {
             "dae" => ImportFormat::Dae,
             "ifc" => ImportFormat::Ifc,
             "fbx" => ImportFormat::Fbx,
+            "igs" | "iges" => ImportFormat::Iges,
             _ => return None,
         })
     }
@@ -255,8 +259,7 @@ pub fn sibling(source: &str, name: &str) -> String {
 /// The importer of `format`, when this build has one.
 pub fn importer(format: ImportFormat) -> Option<Box<dyn Importer>> {
     match format {
-        #[cfg(feature = "brep")]
-        ImportFormat::Step => Some(Box::new(crate::io::step::StepImporter)),
+        ImportFormat::Step => Some(Box::new(crate::io::step_structure::StructuredStepImporter)),
         ImportFormat::Csv => Some(Box::new(csv::CsvImporter)),
         ImportFormat::Dxf => Some(Box::new(dxf::DxfImporter)),
         ImportFormat::Gltf => Some(Box::new(gltf::GltfImporter)),
@@ -270,8 +273,7 @@ pub fn importer(format: ImportFormat) -> Option<Box<dyn Importer>> {
         ImportFormat::Dae => Some(Box::new(collada::ColladaImporter)),
         ImportFormat::Ifc => Some(Box::new(ifc::IfcImporter)),
         ImportFormat::Fbx => Some(Box::new(fbx::FbxImporter)),
-        #[cfg(not(feature = "brep"))]
-        ImportFormat::Step => None,
+        ImportFormat::Iges => Some(Box::new(crate::io::iges::IgesImporter)),
     }
 }
 

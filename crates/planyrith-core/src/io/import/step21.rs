@@ -79,10 +79,26 @@ impl Value {
 /// An instance: its type (upper case) and arguments.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Instance {
-    /// Type name, upper case.
+    /// Type name, upper case (a complex instance's first part).
     pub kind: String,
     /// Arguments.
     pub args: Vec<Value>,
+    /// Every part of a complex instance in order (empty for a simple one).
+    pub parts: Vec<(String, Vec<Value>)>,
+}
+
+impl Instance {
+    /// The arguments of the part `kind` (the instance itself or one part of
+    /// a complex instance).
+    pub fn part(&self, kind: &str) -> Option<&[Value]> {
+        if self.kind == kind {
+            return Some(&self.args);
+        }
+        self.parts
+            .iter()
+            .find(|(k, _)| k == kind)
+            .map(|(_, a)| a.as_slice())
+    }
 }
 
 fn corrupt(reason: impl Into<String>) -> IoError {
@@ -353,22 +369,30 @@ pub fn parse(text: &str) -> Result<BTreeMap<u64, Instance>, IoError> {
         let instance = if p.peek() == Some(b'(') {
             // A complex instance: its parts `TYPE(args) TYPE(args) …`.
             p.at += 1;
-            let mut first: Option<Instance> = None;
+            let mut parts: Vec<(String, Vec<Value>)> = Vec::new();
             while p.peek() != Some(b')') {
                 let kind = p.word();
                 let Value::List(args) = p.value()? else {
                     return Err(corrupt("bad complex instance"));
                 };
-                first.get_or_insert(Instance { kind, args });
+                parts.push((kind, args));
             }
             p.at += 1;
-            first.ok_or_else(|| corrupt("empty complex instance"))?
+            let (kind, args) = parts
+                .first()
+                .cloned()
+                .ok_or_else(|| corrupt("empty complex instance"))?;
+            Instance { kind, args, parts }
         } else {
             let kind = p.word();
             let Value::List(args) = p.value()? else {
                 return Err(corrupt(format!("bad arguments of #{id}")));
             };
-            Instance { kind, args }
+            Instance {
+                kind,
+                args,
+                parts: Vec::new(),
+            }
         };
         p.expect(b';')?;
         out.insert(id, instance);

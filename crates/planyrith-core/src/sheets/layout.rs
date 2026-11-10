@@ -262,6 +262,7 @@ pub fn validate_item(item: &SheetItem) -> Result<()> {
             if let Some(q) = query
                 && q != "component-report"
                 && q != "bill-of-materials"
+                && q != "revisions"
             {
                 Query(q.clone())
                     .parse()
@@ -784,6 +785,21 @@ pub fn table_rows(
                 r.description,
             ]
         }))
+        .collect());
+    }
+    if query == "revisions" {
+        // The revision history (docs/15 §9.4).
+        let list = crate::commands::product::revisions_of(doc);
+        return Ok(std::iter::once(vec![
+            "Rev".into(),
+            "Description".into(),
+            "Date".into(),
+            "By".into(),
+        ])
+        .chain(
+            list.into_iter()
+                .map(|r| vec![r.label, r.description, r.date, r.author]),
+        )
         .collect());
     }
     if query == "component-report" {
@@ -1318,6 +1334,11 @@ pub fn layout_page(
                     fields
                         .entry("Project".into())
                         .or_insert_with(|| doc.info.title.clone());
+                    if let Some(r) = crate::commands::product::revisions_of(doc).last() {
+                        fields
+                            .entry("Revision".into())
+                            .or_insert_with(|| r.label.clone());
+                    }
                     let rows = fields
                         .into_iter()
                         .map(|(k, v)| vec![k, v])

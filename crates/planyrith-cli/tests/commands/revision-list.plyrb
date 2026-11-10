@@ -1,0 +1,4 @@
+# The revisions after two were recorded.
+revision-add --description 'First issue'
+revision-add --description 'Thicker bracket'
+revision-list

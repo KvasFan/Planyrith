@@ -47,7 +47,7 @@ pub enum ExportFormat {
     Glb,
     /// DXF 3D or 2D.
     Dxf,
-    /// STEP (feature `brep`).
+    /// STEP AP214 with product structure.
     Step,
     /// Native container.
     Plyr,
@@ -76,11 +76,13 @@ pub enum ExportFormat {
     Dae,
     /// FBX binary 7.4.
     Fbx,
+    /// IGES 5.3.
+    Iges,
 }
 
 impl ExportFormat {
     /// Every export format.
-    pub const ALL: [ExportFormat; 19] = [
+    pub const ALL: [ExportFormat; 20] = [
         ExportFormat::Obj,
         ExportFormat::Stl,
         ExportFormat::Gltf,
@@ -100,6 +102,7 @@ impl ExportFormat {
         ExportFormat::Ifc,
         ExportFormat::Dae,
         ExportFormat::Fbx,
+        ExportFormat::Iges,
     ];
 
     /// Registered formats; SKP additionally requires a converter-capable backend.
@@ -132,6 +135,7 @@ impl ExportFormat {
             "ifc" => ExportFormat::Ifc,
             "dae" => ExportFormat::Dae,
             "fbx" => ExportFormat::Fbx,
+            "igs" | "iges" => ExportFormat::Iges,
             _ => return None,
         })
     }
@@ -257,8 +261,7 @@ pub trait Exporter: Send + Sync {
 /// The exporter of `format`, when this build has one.
 pub fn exporter(format: ExportFormat) -> Option<Box<dyn Exporter>> {
     match format {
-        #[cfg(feature = "brep")]
-        ExportFormat::Step => Some(Box::new(crate::io::step::StepExporter)),
+        ExportFormat::Step => Some(Box::new(crate::io::step_structure::StructuredStepExporter)),
         ExportFormat::Csv => Some(Box::new(csv::CsvExporter)),
         ExportFormat::Dxf => Some(Box::new(dxf::DxfExporter)),
         ExportFormat::Gltf => Some(Box::new(gltf::GltfExporter { binary: false })),
@@ -275,10 +278,9 @@ pub fn exporter(format: ExportFormat) -> Option<Box<dyn Exporter>> {
         ExportFormat::Ifc => Some(Box::new(ifc::IfcExporter)),
         ExportFormat::Dae => Some(Box::new(collada::ColladaExporter)),
         ExportFormat::Fbx => Some(Box::new(fbx::FbxExporter)),
+        ExportFormat::Iges => Some(Box::new(crate::io::iges::IgesExporter)),
         ExportFormat::Svg => Some(Box::new(view2d::SvgExporter)),
         ExportFormat::Pdf => Some(Box::new(view2d::PdfExporter)),
-        #[cfg(not(feature = "brep"))]
-        ExportFormat::Step => None,
     }
 }
 
