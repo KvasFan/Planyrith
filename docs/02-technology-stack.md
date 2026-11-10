@@ -188,6 +188,15 @@ deterministic profile; plugins trade speed for that, which suits command-driven 
   `ring` (C and assembly), so it is used without default features: `default-resolver` and the
   four primitives. Core feature `transport`, enabled by the CLI and the desktop GUI only.
 
+- 2026-11-10 — **wasmi is not optimized in development builds.** The workspace builds
+  dependencies at `opt-level = 2` even in the dev profile. wasmi 2.0 chooses parts of its
+  interpreter's dispatch from its own optimization level, so optimized wasmi instantiated
+  from unoptimized code mixes the System V and Windows x64 calling conventions: on x86-64
+  Windows a host function received a broken instance and the first `get_export` faulted
+  (found running the Windows tests under wine; reproduced with wasmi alone). On Linux the
+  two conventions agree, so nothing showed. `[profile.dev.package.wasmi] opt-level = 0`
+  keeps it at the level of its callers; release builds optimize everything alike.
+
 - 2026-11-08 — **wasmi for native plugins** (§2.6, docs/10 §7). Features `std`, `validate`
   (modules are untrusted), `deterministic` (the Wasm 3.0 deterministic profile, for the
   determinism rule) and `portable-dispatch` (the tail-call dispatch overflows the stack in

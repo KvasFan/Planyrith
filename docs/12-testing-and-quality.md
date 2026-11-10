@@ -248,7 +248,8 @@ humans or GUI automation before releases, with expected screenshots.
   `planyrith-ci` image when the runner image or its Mesa changes. `.githooks/pre-push`
   enforces the check once enabled with `git config core.hooksPath .githooks`.
   GitHub alone still catches test results on Windows and macOS, including their WARP and
-  Metal snapshots, and Windows packaging in the Release workflow.
+  Metal snapshots, and Windows packaging in the Release workflow (but see 2026-11-10: the
+  core's and the command line's Windows tests now also run under wine).
 - 2026-11-02 — **Snapshot tests share one device.** Two CI runs crashed with `SIGSEGV` in the
   snapshot tests, 41207495935 and 41360627834. The second came after a clean local check,
   which then ran on 16 cores. On the runners' four cores 83 of 600 runs crashed; on 16 cores
@@ -314,3 +315,16 @@ humans or GUI automation before releases, with expected screenshots.
   now runs at most `PLANYRITH_CI_JOBS` compilations at once (8), caps each container at
   `PLANYRITH_CI_MEMORY` with no swap (24g), so a build over the cap stops alone, and runs at a
   lower priority.
+- 2026-11-10 — **Windows tests under wine in the local check.** Asked to make sure GitHub
+  would not fail before starting it, the core's and the command line's tests were run as
+  Windows programs under wine, which compiling for Windows had never done. They found a real
+  fault: native plugins crashed on x86-64 Windows in development and test builds (docs/02
+  Decisions, 2026-11-10), never seen because the last Windows run on GitHub predates them.
+  `tools/ci-local.sh` now runs those tests for `x86_64-pc-windows-gnu` under wine after the
+  cross-compilation checks; `tools/wine-runner.sh` gives the tests Windows paths to the
+  workspace's programs, drops the runner setting test helpers would use to start them, and
+  runs them in a pseudo-terminal, since wine cannot pass redirected standard handles on to the
+  programs a test starts. Wine replaces files without the POSIX semantics Windows offers, so
+  the test of concurrent replacement of one file stays with GitHub, as do the GUI's tests (no
+  WARP renderer here), the MSVC toolchain, macOS and packaging. The step needs wine and the
+  MinGW-w64 toolchain.

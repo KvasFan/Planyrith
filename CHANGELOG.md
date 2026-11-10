@@ -43,6 +43,11 @@ All notable changes to Planyrith are recorded here. Versions follow
   browsers over an encrypted WebSocket and serves the web build from `--web-root`; the web
   build has File › Work Together…, opened filled in by `?join=<document>`.
 
+### Fixed
+- Native plugins faulted in Windows development and test builds: wasmi, optimized while
+  the code calling it was not, mixed two calling conventions (docs/02 Decisions,
+  2026-11-10). Release builds were not affected.
+
 ## 0.11.0-alpha.4 — 1.0 groundwork and the 1.1–1.6 previews (2026-11-09)
 
 A preview of everything since alpha.3: the 1.0 groundwork (frozen file format
