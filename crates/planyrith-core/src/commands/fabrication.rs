@@ -53,7 +53,7 @@ fn meta(name: &str, label: &str, view_only: bool) -> CommandMeta {
 }
 
 /// A new group named `name` holding `mesh`, in `target`'s container.
-fn new_group(
+pub(crate) fn new_group(
     tx: &mut Transaction<'_>,
     target: &Target,
     name: &str,
@@ -76,7 +76,7 @@ fn new_group(
     Ok((pid, definition))
 }
 
-fn store<T: Serialize>(
+pub(crate) fn store<T: Serialize>(
     tx: &mut Transaction<'_>,
     d: DefinitionId,
     key: &str,
@@ -91,7 +91,11 @@ fn store<T: Serialize>(
     )
 }
 
-fn read<T: for<'a> Deserialize<'a>>(doc: &Document, d: DefinitionId, key: &str) -> Option<T> {
+pub(crate) fn read<T: for<'a> Deserialize<'a>>(
+    doc: &Document,
+    d: DefinitionId,
+    key: &str,
+) -> Option<T> {
     match doc.definition(d)?.attrs.get(crate::sketch::DICT, key)? {
         Value::Str(s) => serde_json::from_str(s).ok(),
         _ => None,

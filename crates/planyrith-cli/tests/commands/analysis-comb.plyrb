@@ -1,0 +1,3 @@
+# A curvature comb along a quarter arc and a straight run.
+arc-2point --center 0,0,0 --start 1000,0,0 --end-angle 90 --segments 12
+analysis-comb --edges edge

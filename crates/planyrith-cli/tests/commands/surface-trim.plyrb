@@ -1,0 +1,5 @@
+# A saddle patch cut along x = 400; the part beyond goes.
+line --points 0,0,0 --points 1000,0,500 --points 1000,1000,0 --points 0,1000,500 --close
+surface-fill --boundary edge --divisions 6
+erase --targets edge
+surface-trim --surface group --point 400,0,0 --normal 1,0,0

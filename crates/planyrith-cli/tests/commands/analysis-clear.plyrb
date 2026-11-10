@@ -1,0 +1,6 @@
+# Two analyses shown, then all cleared.
+rectangle --corner-a 0,0,0 --corner-b 1000,600,0
+push-pull --face '{face & last}' --distance 200
+analysis-draft --faces face
+analysis-zebra --faces face
+analysis-clear

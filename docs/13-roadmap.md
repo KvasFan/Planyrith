@@ -267,6 +267,10 @@ with their cut list.
 ## 1.15.0 — Surfaces and analysis
 Boundary and filling surfaces, knitting, extending and trimming surfaces; curvature combs,
 curvature and zebra displays, draft analysis and wall thickness analysis.
+- **Done (2026-11-10):** `surface-fill` (four-sided blended and radial patches),
+  `surface-extend`, `surface-trim` (by a plane) and `surface-knit` (docs/05 §8.14); curvature,
+  zebra, draft and thickness analyses as colored copies and curvature combs (§8.15). Trimming
+  by another surface and splitting a solid by a surface remain.
 
 ## 1.16.0 — Simulation
 Linear static stress analysis of solids (tetrahedral meshing, materials with Young's modulus

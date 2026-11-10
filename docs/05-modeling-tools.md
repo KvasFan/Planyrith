@@ -792,6 +792,68 @@ plane, thickness, inside bend radius, K factor and flanges — as the attribute 
 - **Tests:** a 1000 × 600 rectangle of square tube gives four mitered members (2 × 1040,
   2 × 640) that do not interfere; the cut list has two rows; an unknown profile is refused.
 
+### 8.14 Surfaces: `surface-fill`, `surface-extend`, `surface-trim`, `surface-knit`
+A surface is an open shell of faces, usually a group; a patch is made of flat pieces whose
+shared edges are soft and smooth, so it shades as one curved surface (docs/03 §4.21). Surfaces
+need not be solid; `surface-knit` makes a solid when the pieces close a volume.
+- `surface-fill { boundary: Sel (edges forming one closed chain), divisions (8, 1–200),
+  method (auto | coons | radial), name ("Surface") }`: a new group spanning the boundary.
+  `coons` blends the four sides between the boundary's four sharpest corners, each side
+  resampled at equal lengths; `radial` shrinks rings toward the boundary's center (any number
+  of sides); `auto` is `coons` from four corners up. Quads that are not flat become two
+  triangles.
+- `surface-extend { edges: Sel (open edges, each bordering one face), distance }`: strips that
+  continue each face past its edge in the face's own plane; where two edges meet, the strips
+  share the corner line along the mean direction (mitered). The strips join the edit context's
+  geometry and take the faces' materials.
+- `surface-trim { surface: Sel (faces, or groups), point, normal }`: cuts the faces along the
+  plane and removes what lies on the side the normal points to; faces crossing it keep their
+  part on the other side. Smooth edges inside the kept part stay smooth; edges that become the
+  border are drawn. A closed solid is better split with `split-solid` (§8.9).
+- `surface-knit { surfaces: Sel (two or more groups), name ("Knit surface") }`: one group of
+  all their faces, merged where corners coincide (within the length tolerance); a surface
+  running along a joined edge the same way as the ones before it is turned over so the shell is
+  oriented. Refused when an edge would border three faces.
+- **Output:** `{ surface?, faces, area_mm2, open_edges, closed, volume_mm3? }`; trim
+  `{ trimmed, pieces, removed_mm2 }`. **Undo:** one step each. **GUI:** Tools › Surfaces….
+- **Tests:** a saddle filled 6 × 6 has 72 triangles and 24 open edges; two saddles sharing a
+  side knit into 144 faces with 36 open edges; trimming at x = 40 leaves nothing beyond it; a
+  100 × 60 face extended by 10 gains 3600 mm² in four mitered strips.
+
+### 8.15 Analysis: `analysis-curvature`, `analysis-zebra`, `analysis-draft`, `analysis-thickness`, `analysis-comb`, `analysis-clear`
+An analysis measures faces (of the edit context, or every face of named groups and
+components) and shows the result as a colored copy: a group named "Analysis: <kind>" with the
+attribute `planyrith` / `analysis`, its corners lifted a hair (10⁻⁴ of the analyzed size,
+0.01–1 mm) along the mean normal of their faces so it covers the front of the originals. Its
+faces use materials named "Analysis: <class>". Running the same kind again replaces the copy;
+the model itself is not changed.
+- `analysis-curvature { faces }`: for each face, the mean over its smooth (soft or smooth)
+  edges that bend of the curvature of the circle through both faces' middles square to them,
+  `2 sin(θ/2) / d`; positive where the neighbor falls behind the face (convex). Classes:
+  flat, convex 1–4 and concave 1–4 by quarters of the largest curvature. `min`/`max` are the
+  bend radii, mm.
+- `analysis-zebra { faces, direction (+Z), stripes (12 per half turn) }`: light and dark
+  stripes by the angle between each face and the direction; on a smooth surface the stripes
+  run on, a crease makes them jump.
+- `analysis-draft { faces, pull (+Z), angle (1°) }`: the draft `asin(n · pull)` of each face:
+  positive draft (≥ angle), negative draft (≤ −angle), needs draft (between). `min`/`max` in
+  degrees.
+- `analysis-thickness { faces, minimum }`: from the middle of each face straight into the
+  material to the next face of the same container: too thin (< minimum), thickness 1–3 by
+  thirds up to the thickest wall, no opposite face (open). `min`/`max` in mm.
+- `analysis-comb { edges (one chain), scale? }`: at each corner of the chain a tooth pointing
+  away from the bend, `curvature × scale` long (by default the longest is a fifth of the
+  chain), and a line through the teeth's tips, in a group "Analysis: comb"; the output gives
+  the tightest and widest bend radii.
+- `analysis-clear { kind? }`: removes the edit context's analysis groups (of one kind).
+- **Output:** `{ group?, faces, classes: [{ name, faces, area_mm2 }], min?, max? }`; comb
+  `{ group?, teeth, min_radius_mm?, max_radius_mm? }`; clear `{ removed }`. **Undo:** one step
+  each. **GUI:** Tools › Analysis….
+- **Tests:** a block pulled up: top positive, bottom negative, four walls need draft; against
+  a 30 mm minimum its 20 mm top and bottom are too thin, the walls 60 and 100 mm; a
+  24-sided cylinder's sides are convex with radius ≈ 50; a comb on a 12-segment quarter arc
+  has 11 teeth at radius 100.
+
 ## 9. View tools (category `view`) — not undoable, do not dirty the document
 
 - `orbit { yaw: Angle, pitch: Angle, pivot?: Point }` — middle-drag; `Shift` = pan; orbits about the

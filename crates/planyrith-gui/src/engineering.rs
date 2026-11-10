@@ -1892,6 +1892,344 @@ impl FabricationWindow {
     }
 }
 
+/// Three drag fields for a point or direction, mm.
+fn xyz(ui: &mut egui::Ui, v: &mut [f64; 3]) {
+    ui.horizontal(|ui| {
+        for c in v.iter_mut() {
+            ui.add(egui::DragValue::new(c).speed(1.0));
+        }
+    });
+}
+
+/// A command's result as a short note.
+fn surface_note(out: &Value) -> String {
+    if let Some(n) = out["trimmed"].as_u64() {
+        return t_args(
+            "{ $count } faces trimmed.",
+            &[("count", n.to_string().into())],
+        );
+    }
+    let mut s = t_args(
+        "{ $count } faces, { $area } m².",
+        &[
+            (
+                "count",
+                out["faces"].as_u64().unwrap_or(0).to_string().into(),
+            ),
+            (
+                "area",
+                format!("{:.3}", out["area_mm2"].as_f64().unwrap_or(0.0) / 1.0e6).into(),
+            ),
+        ],
+    );
+    if out["closed"].as_bool() == Some(true) {
+        s.push(' ');
+        s.push_str(&t("The surfaces close a solid."));
+    }
+    s
+}
+
+/// Tools › Surfaces… (docs/05 §8.14): filling, extending, trimming and
+/// knitting surfaces from the selection.
+pub struct SurfacesWindow {
+    /// The window is shown.
+    pub open: bool,
+    divisions: u32,
+    method: usize,
+    distance_mm: f64,
+    point: [f64; 3],
+    normal: [f64; 3],
+    note: Option<String>,
+}
+
+impl Default for SurfacesWindow {
+    fn default() -> Self {
+        SurfacesWindow {
+            open: false,
+            divisions: 8,
+            method: 0,
+            distance_mm: 100.0,
+            point: [0.0; 3],
+            normal: [1.0, 0.0, 0.0],
+            note: None,
+        }
+    }
+}
+
+impl SurfacesWindow {
+    fn run(&mut self, session: &mut Session, name: &str, params: Value) {
+        self.note = Some(match session.execute(name, params) {
+            Ok(out) => surface_note(&out),
+            Err(e) => e,
+        });
+    }
+
+    /// Draws the window.
+    pub fn window(&mut self, ctx: &egui::Context, session: &mut Session) {
+        if !self.open {
+            return;
+        }
+        let mut open = true;
+        egui::Window::new(t("Surfaces"))
+            .open(&mut open)
+            .default_width(380.0)
+            .show(ctx, |ui| {
+                ui.label(t("Select the boundary edges (one closed chain), then:"));
+                ui.horizontal(|ui| {
+                    ui.label(t("Divisions"));
+                    ui.add(egui::DragValue::new(&mut self.divisions).range(1..=200));
+                    let methods = [t("Automatic"), t("Four sides"), t("Radial")];
+                    egui::ComboBox::from_id_salt("fill method")
+                        .selected_text(methods[self.method].clone())
+                        .show_ui(ui, |ui| {
+                            for (i, m) in methods.iter().enumerate() {
+                                ui.selectable_value(&mut self.method, i, m.clone());
+                            }
+                        });
+                });
+                if ui.button(t("Fill Surface")).clicked() {
+                    let method = ["auto", "coons", "radial"][self.method];
+                    self.run(
+                        session,
+                        "surface-fill",
+                        json!({ "boundary": "selection & edge", "divisions": self.divisions, "method": method }),
+                    );
+                }
+                ui.separator();
+                ui.label(t("Select open edges of a surface, then:"));
+                ui.horizontal(|ui| {
+                    ui.label(t("Distance"));
+                    ui.add(egui::DragValue::new(&mut self.distance_mm).range(0.1..=100_000.0).suffix(" mm"));
+                    if ui.button(t("Extend Surface")).clicked() {
+                        self.run(
+                            session,
+                            "surface-extend",
+                            json!({ "edges": "selection & edge", "distance": self.distance_mm }),
+                        );
+                    }
+                });
+                ui.separator();
+                ui.label(t("Select the surface, then cut it with a plane:"));
+                egui::Grid::new("trim plane").num_columns(2).show(ui, |ui| {
+                    ui.label(t("Point"));
+                    xyz(ui, &mut self.point);
+                    ui.end_row();
+                    ui.label(t("Removed side"));
+                    xyz(ui, &mut self.normal);
+                    ui.end_row();
+                });
+                if ui.button(t("Trim Surface")).clicked() {
+                    self.run(
+                        session,
+                        "surface-trim",
+                        json!({ "surface": "selection", "point": self.point, "normal": self.normal }),
+                    );
+                }
+                ui.separator();
+                ui.label(t("Select two or more surface groups, then:"));
+                if ui.button(t("Knit Surfaces")).clicked() {
+                    self.run(session, "surface-knit", json!({ "surfaces": "selection & group" }));
+                }
+                if let Some(n) = &self.note {
+                    ui.label(n);
+                }
+            });
+        self.open = open;
+    }
+}
+
+/// The analyses of Tools › Analysis….
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Analysis {
+    Curvature,
+    Zebra,
+    Draft,
+    Thickness,
+    Comb,
+}
+
+/// Tools › Analysis… (docs/05 §8.15): curvature, zebra stripes, draft,
+/// wall thickness and curvature combs of the selection, shown as colored
+/// copies.
+pub struct AnalysisWindow {
+    /// The window is shown.
+    pub open: bool,
+    kind: Analysis,
+    direction: [f64; 3],
+    stripes: u32,
+    angle_deg: f64,
+    minimum_mm: f64,
+    rows: Vec<(String, u64, f64)>,
+    note: Option<String>,
+}
+
+impl Default for AnalysisWindow {
+    fn default() -> Self {
+        AnalysisWindow {
+            open: false,
+            kind: Analysis::Draft,
+            direction: [0.0, 0.0, 1.0],
+            stripes: 12,
+            angle_deg: 1.0,
+            minimum_mm: 2.0,
+            rows: Vec::new(),
+            note: None,
+        }
+    }
+}
+
+impl AnalysisWindow {
+    fn command(&self) -> (&'static str, Value) {
+        match self.kind {
+            Analysis::Curvature => ("analysis-curvature", json!({ "faces": "selection" })),
+            Analysis::Zebra => (
+                "analysis-zebra",
+                json!({ "faces": "selection", "direction": self.direction, "stripes": self.stripes }),
+            ),
+            Analysis::Draft => (
+                "analysis-draft",
+                json!({ "faces": "selection", "pull": self.direction, "angle": self.angle_deg.to_radians() }),
+            ),
+            Analysis::Thickness => (
+                "analysis-thickness",
+                json!({ "faces": "selection", "minimum": self.minimum_mm }),
+            ),
+            Analysis::Comb => ("analysis-comb", json!({ "edges": "selection & edge" })),
+        }
+    }
+
+    fn run(&mut self, session: &mut Session, name: &str, params: Value) {
+        self.rows.clear();
+        self.note = Some(match session.execute(name, params) {
+            Ok(out) => {
+                if let Some(classes) = out["classes"].as_array() {
+                    self.rows = classes
+                        .iter()
+                        .map(|c| {
+                            (
+                                c["name"].as_str().unwrap_or_default().to_string(),
+                                c["faces"].as_u64().unwrap_or(0),
+                                c["area_mm2"].as_f64().unwrap_or(0.0),
+                            )
+                        })
+                        .collect();
+                }
+                let (lo, hi) = if out.get("teeth").is_some() {
+                    (&out["min_radius_mm"], &out["max_radius_mm"])
+                } else {
+                    (&out["min"], &out["max"])
+                };
+                match (lo.as_f64(), hi.as_f64()) {
+                    (Some(a), Some(b)) => t_args(
+                        "From { $min } to { $max }.",
+                        &[
+                            ("min", format!("{a:.2}").into()),
+                            ("max", format!("{b:.2}").into()),
+                        ],
+                    ),
+                    _ if out.get("removed").is_some() => t_args(
+                        "{ $count } analyses removed.",
+                        &[(
+                            "count",
+                            out["removed"].as_u64().unwrap_or(0).to_string().into(),
+                        )],
+                    ),
+                    _ => t("Done"),
+                }
+            }
+            Err(e) => e,
+        });
+    }
+
+    /// Draws the window.
+    pub fn window(&mut self, ctx: &egui::Context, session: &mut Session) {
+        if !self.open {
+            return;
+        }
+        let mut open = true;
+        egui::Window::new(t("Analysis"))
+            .open(&mut open)
+            .default_width(380.0)
+            .show(ctx, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    ui.selectable_value(&mut self.kind, Analysis::Curvature, t("Curvature"));
+                    ui.selectable_value(&mut self.kind, Analysis::Zebra, t("Zebra"));
+                    ui.selectable_value(&mut self.kind, Analysis::Draft, t("Draft"));
+                    ui.selectable_value(&mut self.kind, Analysis::Thickness, t("Thickness"));
+                    ui.selectable_value(&mut self.kind, Analysis::Comb, t("Comb"));
+                });
+                ui.separator();
+                match self.kind {
+                    Analysis::Comb => {
+                        ui.label(t("Select a chain of edges, then:"));
+                    }
+                    _ => {
+                        ui.label(t("Select faces, groups or components, then:"));
+                    }
+                }
+                egui::Grid::new("analysis")
+                    .num_columns(2)
+                    .show(ui, |ui| match self.kind {
+                        Analysis::Zebra => {
+                            ui.label(t("Direction"));
+                            xyz(ui, &mut self.direction);
+                            ui.end_row();
+                            ui.label(t("Stripes"));
+                            ui.add(egui::DragValue::new(&mut self.stripes).range(2..=360));
+                            ui.end_row();
+                        }
+                        Analysis::Draft => {
+                            ui.label(t("Pull direction"));
+                            xyz(ui, &mut self.direction);
+                            ui.end_row();
+                            ui.label(t("Least draft"));
+                            ui.add(
+                                egui::DragValue::new(&mut self.angle_deg)
+                                    .range(0.0..=89.0)
+                                    .suffix("°"),
+                            );
+                            ui.end_row();
+                        }
+                        Analysis::Thickness => {
+                            ui.label(t("Least thickness"));
+                            ui.add(
+                                egui::DragValue::new(&mut self.minimum_mm)
+                                    .range(0.01..=10_000.0)
+                                    .suffix(" mm"),
+                            );
+                            ui.end_row();
+                        }
+                        _ => {}
+                    });
+                ui.horizontal(|ui| {
+                    if ui.button(t("Analyze")).clicked() {
+                        let (name, params) = self.command();
+                        self.run(session, name, params);
+                    }
+                    if ui.button(t("Clear Analysis")).clicked() {
+                        self.run(session, "analysis-clear", json!({}));
+                    }
+                });
+                if !self.rows.is_empty() {
+                    egui::Grid::new("analysis classes")
+                        .striped(true)
+                        .show(ui, |ui| {
+                            for (name, faces, area) in &self.rows {
+                                ui.label(name);
+                                ui.label(faces.to_string());
+                                ui.label(format!("{:.4} m²", area / 1.0e6));
+                                ui.end_row();
+                            }
+                        });
+                }
+                if let Some(n) = &self.note {
+                    ui.label(n);
+                }
+            });
+        self.open = open;
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
@@ -1948,6 +2286,50 @@ mod tests {
             json!({ "path": "selection & edge", "profile": "IPE100" }),
         );
         assert_eq!(w.note.as_deref(), Some("1 pieces made."));
+    }
+
+    /// The surface and analysis windows' commands: a filled saddle, its
+    /// zebra stripes, a block's draft, and clearing.
+    #[test]
+    fn surfaces_and_analysis_from_the_selection() {
+        let mut s = Session::new();
+        s.execute(
+            "line",
+            json!({ "points": [[0,0,0],[100,0,50],[100,100,0],[0,100,50]], "close": true }),
+        )
+        .unwrap();
+        s.execute("select", json!({ "query": "edge" })).unwrap();
+        let mut w = SurfacesWindow::default();
+        w.run(
+            &mut s,
+            "surface-fill",
+            json!({ "boundary": "selection & edge", "divisions": 6 }),
+        );
+        assert!(
+            w.note.as_deref().unwrap().starts_with("72 faces"),
+            "{:?}",
+            w.note
+        );
+        s.execute("select", json!({ "query": "group" })).unwrap();
+        let mut a = AnalysisWindow {
+            kind: Analysis::Zebra,
+            ..Default::default()
+        };
+        let (name, params) = a.command();
+        a.run(&mut s, name, params);
+        assert_eq!(a.rows.len(), 2);
+        a.run(&mut s, "analysis-clear", json!({}));
+        assert_eq!(a.note.as_deref(), Some("1 analyses removed."));
+        w.run(
+            &mut s,
+            "surface-trim",
+            json!({ "surface": "selection", "point": [50, 0, 0], "normal": [1, 0, 0] }),
+        );
+        assert!(
+            w.note.as_deref().unwrap().ends_with("faces trimmed."),
+            "{:?}",
+            w.note
+        );
     }
 
     /// A face selected inside an open component names the side

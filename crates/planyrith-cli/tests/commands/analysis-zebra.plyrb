@@ -1,0 +1,4 @@
+# Zebra stripes on a saddle patch.
+line --points 0,0,0 --points 1000,0,500 --points 1000,1000,0 --points 0,1000,500 --close
+surface-fill --boundary edge --divisions 6
+analysis-zebra --faces group --stripes 8

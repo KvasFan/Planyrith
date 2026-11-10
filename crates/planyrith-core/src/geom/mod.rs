@@ -28,6 +28,7 @@ pub mod revolve;
 pub mod rounding;
 pub mod section;
 pub mod solid_check;
+pub mod surface;
 pub mod sweep;
 pub mod tessellate;
 pub mod thicken;

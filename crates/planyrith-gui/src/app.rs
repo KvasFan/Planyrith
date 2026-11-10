@@ -391,6 +391,10 @@ pub struct App {
     assembly: crate::engineering::AssemblyWindow,
     /// Tools › Fabrication… (docs/05 §8.12–§8.13).
     fabrication: crate::engineering::FabricationWindow,
+    /// Tools › Surfaces… (docs/05 §8.14).
+    surfaces: crate::engineering::SurfacesWindow,
+    /// Tools › Analysis… (docs/05 §8.15).
+    analysis: crate::engineering::AnalysisWindow,
     /// File › Export › Rendered Image (docs/06 §11.1).
     #[cfg(not(target_arch = "wasm32"))]
     render_job: crate::render_job::RenderJob,
@@ -558,6 +562,8 @@ impl App {
             solid_features: Default::default(),
             assembly: Default::default(),
             fabrication: Default::default(),
+            surfaces: Default::default(),
+            analysis: Default::default(),
             #[cfg(not(target_arch = "wasm32"))]
             render_job: Default::default(),
             #[cfg(not(target_arch = "wasm32"))]
@@ -1864,6 +1870,14 @@ impl App {
                 }
                 if ui.button(t("Fabrication…")).clicked() {
                     self.fabrication.open = true;
+                    ui.close();
+                }
+                if ui.button(t("Surfaces…")).clicked() {
+                    self.surfaces.open = true;
+                    ui.close();
+                }
+                if ui.button(t("Analysis…")).clicked() {
+                    self.analysis.open = true;
                     ui.close();
                 }
                 ui.separator();
@@ -3453,6 +3467,8 @@ impl App {
         self.solid_features.window(&ctx, &mut self.session);
         self.assembly.window(&ctx, &mut self.session);
         self.fabrication.window(&ctx, &mut self.session);
+        self.surfaces.window(&ctx, &mut self.session);
+        self.analysis.window(&ctx, &mut self.session);
         self.together.window(&ctx, &mut self.session);
         #[cfg(not(target_arch = "wasm32"))]
         {

@@ -1,0 +1,8 @@
+# Two saddle patches sharing a side joined into one surface.
+line --points 0,0,0 --points 1000,0,500 --points 1000,1000,0 --points 0,1000,500 --close
+surface-fill --boundary edge --divisions 6
+erase --targets edge
+line --points 1000,1000,0 --points 1000,0,500 --points 2000,0,0 --points 2000,1000,500 --close
+surface-fill --boundary edge --divisions 6
+erase --targets edge
+surface-knit --surfaces group

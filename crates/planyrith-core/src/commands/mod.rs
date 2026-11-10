@@ -13,6 +13,7 @@
 //!
 //! Owner key: `later` (first consumer: milestone 0.1 commands).
 
+pub mod analysis;
 pub mod annotate;
 pub mod assembly;
 pub(crate) mod common;
@@ -33,6 +34,7 @@ pub mod sheets;
 pub mod solid;
 pub mod solid_check;
 pub mod solid_features;
+pub mod surfaces;
 pub mod transaction;
 #[cfg(test)]
 mod undo_tests;
@@ -427,6 +429,8 @@ impl CommandRegistry {
         assembly::register(&mut registry);
         drawings::register(&mut registry);
         fabrication::register(&mut registry);
+        surfaces::register(&mut registry);
+        analysis::register(&mut registry);
         sheets::register(&mut registry);
         #[cfg(feature = "scripting")]
         registry.register(crate::scripting::ScriptEval);

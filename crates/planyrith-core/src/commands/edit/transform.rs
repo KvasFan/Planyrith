@@ -1090,7 +1090,7 @@ fn along(points: &[DVec3], s: f64) -> (DVec3, DVec3) {
 
 /// The edges `edges` chained into one polyline, starting at the end nearer
 /// `near`; whether it closes.
-fn chain(
+pub(crate) fn chain(
     mesh: &crate::geom::HalfEdgeMesh,
     edges: &[EdgeId],
     near: DVec3,

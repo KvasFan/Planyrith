@@ -5,7 +5,7 @@ implementation stands, what is done, what remains, and how to resume. Update it 
 every working session. Ground truth for *what to build* stays in `docs/00`–`docs/15`; this file
 is only *progress state*. Release packaging is specified in `docs/16`.
 
-_Last updated: 2026-11-10 (0.11.0-alpha.4 published; milestones 1.7–1.13 after it)._
+_Last updated: 2026-11-10 (0.11.0-alpha.4 published; milestones 1.7–1.15 after it)._
 
 **Engineering milestones (2026-11-09, docs/13 1.8–1.18):** asked to add every feature a
 feature-based mechanical modeler has without harming the existing tools or interface, the work
@@ -20,7 +20,10 @@ everything through Tools-menu windows in `planyrith-gui/src/engineering.rs`. 1.1
 drawings (2026-11-10): derived, section, detail and broken views, symbols, balloons, ISO/ANSI
 formats as optional sheet-item fields (`sheets/drawing.rs`, `commands/drawings.rs`, docs/15 §9)
 with tools in the Sheets editor. 1.14 sheet metal and frames (`geom/fabrication.rs`,
-`commands/fabrication.rs`). Next: 1.15 surfaces and analysis, then 1.16–1.18.
+`commands/fabrication.rs`). 1.15 surfaces (`geom/surface.rs`, `commands/surfaces.rs`) and
+analyses shown as colored copies (`commands/analysis.rs`). Next: 1.16 simulation, then
+1.17–1.18. `tools/ci-local.sh` also runs the core's and the CLI's tests as Windows programs
+under wine (docs/12 Decisions, 2026-11-10); it caught a wasmi fault on Windows.
 
 **Release state (2026-11-09):** `v0.11.0-alpha.4` is published as a GitHub pre-release from
 `c58d1a5`, at the user's request, with packages built on this machine (docs/16 Decisions,

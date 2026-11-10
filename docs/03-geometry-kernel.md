@@ -317,6 +317,20 @@ sign of the volume, and neighboring side pieces closer than 20° are softened an
 - **Unfolding:** each flange adds the bend allowance `angle × (radius + K × thickness)` and its
   length outward from its edge; the bend zone's two lines are its ends.
 
+### 4.21 Surfaces (`geom::surface`)
+- **Coons patch:** the boundary (a closed loop of points) is split at its four sharpest corners
+  into four sides, each resampled at `n + 1` equal arc lengths; the patch point at `(u, v)` is
+  the bilinearly blended sum of the two side pairs minus the bilinear interpolation of the
+  corners. **Radial patch:** rings scaled toward the boundary's mean point. Each grid cell is
+  one flat piece, or two triangles when its corners are not within the planarity tolerance of
+  one plane; degenerate pieces are dropped.
+- **Pieces to a mesh:** corners closer than the length tolerance are merged and edges shared by
+  two pieces are joined; shared edges whose faces turn by at most a given angle become soft
+  and smooth.
+- **Trimming:** a face crossing the plane is copied into a scratch mesh, cut along the plane
+  (the section slices of docs/05 §5.11), and the pieces whose inner point lies on the kept
+  side replace it.
+
 ## 5. Tessellation (for rendering and export)
 
 `tessellate_face(f) -> Vec<[u32; 3]>`: project loops to the face's 2D frame, run ear clipping

@@ -1,0 +1,4 @@
+# Bending of a cylinder: flat ends, convex sides.
+circle --center 0,0,0 --radius 500 --segments 24
+push-pull --face '{face & last}' --distance 800
+analysis-curvature --faces face

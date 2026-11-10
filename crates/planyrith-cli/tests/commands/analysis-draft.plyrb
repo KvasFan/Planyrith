@@ -1,0 +1,4 @@
+# Draft of a block pulled up: top positive, bottom negative, walls need draft.
+rectangle --corner-a 0,0,0 --corner-b 1000,600,0
+push-pull --face '{face & last}' --distance 200
+analysis-draft --faces face --angle 2
