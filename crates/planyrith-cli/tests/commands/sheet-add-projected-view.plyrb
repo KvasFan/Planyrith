@@ -1,0 +1,9 @@
+# A bracket with a front view and its first-angle plan and side views.
+rectangle --corner-a 0,0,0 --corner-b 120,80,0
+push-pull --face '{face & last}' --distance 30
+hole --face 'face & plane:xy@30' --center 40,40,30 --kind counterbore --size M10
+camera-standard --view front --extents
+sheet-add-page --page P1 --paper a3 --landscape
+sheet-add-view --page P1 --id front --scale 1:1 --params-json '{"frame":{"x":40,"y":160,"width":150,"height":60}}'
+sheet-add-projected-view --page P1 --base front --side below --id plan
+sheet-add-projected-view --page P1 --base front --side right --projection third-angle --id side

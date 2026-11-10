@@ -1,0 +1,9 @@
+# A section through the counterbored hole, with its cutting line and title.
+rectangle --corner-a 0,0,0 --corner-b 120,80,0
+push-pull --face '{face & last}' --distance 30
+hole --face 'face & plane:xy@30' --center 40,40,30 --kind counterbore --size M10
+camera-standard --view front --extents
+sheet-add-page --page P1 --paper a3 --landscape
+sheet-add-view --page P1 --id front --scale 1:1 --params-json '{"frame":{"x":40,"y":160,"width":150,"height":60}}'
+sheet-add-projected-view --page P1 --base front --side below --id plan
+sheet-add-section-view --page P1 --base plan --side right --id section --params-json '{"line":[[30,105],[200,105]]}'

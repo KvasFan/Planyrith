@@ -5,7 +5,7 @@ implementation stands, what is done, what remains, and how to resume. Update it 
 every working session. Ground truth for *what to build* stays in `docs/00`–`docs/15`; this file
 is only *progress state*. Release packaging is specified in `docs/16`.
 
-_Last updated: 2026-11-09 (0.11.0-alpha.4 published; milestones 1.7–1.12 after it)._
+_Last updated: 2026-11-10 (0.11.0-alpha.4 published; milestones 1.7–1.13 after it)._
 
 **Engineering milestones (2026-11-09, docs/13 1.8–1.18):** asked to add every feature a
 feature-based mechanical modeler has without harming the existing tools or interface, the work
@@ -16,8 +16,10 @@ solver (`sketch.rs`, docs/03 §11); 1.10 parametric parts replaying features as 
 dome, rib (`commands/solid_features.rs`); 1.12 mates with a rigid-body solver, exploded views,
 bill of materials (`commands/assembly.rs`). Constraints, histories and mates are stored as
 container or definition attributes, so the frozen file format did not change. The GUI reaches
-everything through Tools-menu windows in `planyrith-gui/src/engineering.rs`. Next: 1.13
-engineering drawings, then 1.14–1.18.
+everything through Tools-menu windows in `planyrith-gui/src/engineering.rs`. 1.13 engineering
+drawings (2026-11-10): derived, section, detail and broken views, symbols, balloons, ISO/ANSI
+formats as optional sheet-item fields (`sheets/drawing.rs`, `commands/drawings.rs`, docs/15 §9)
+with tools in the Sheets editor. Next: 1.14 sheet metal and frames, then 1.15–1.18.
 
 **Release state (2026-11-09):** `v0.11.0-alpha.4` is published as a GitHub pre-release from
 `c58d1a5`, at the user's request, with packages built on this machine (docs/16 Decisions,

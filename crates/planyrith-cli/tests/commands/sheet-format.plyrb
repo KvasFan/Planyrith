@@ -1,0 +1,4 @@
+# An ISO A3 sheet with its title block, then an ANSI B one in its place.
+sheet-add-page --page P1
+sheet-format --page P1 --standard iso --size A3 --fields '{"Title":"Bracket","Drawing number":"PL-001"}'
+sheet-format --page P1 --standard ansi --size B

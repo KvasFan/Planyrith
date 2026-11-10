@@ -1134,6 +1134,26 @@ fn count(
     }
 }
 
+/// The bill of materials of a container: one row per name, in name order
+/// (docs/05 §5.17; sheet tables and balloons use it, docs/15 §9.4).
+pub fn bom_rows(doc: &Document, container: ContainerRef, nested: bool) -> Vec<BomRow> {
+    let Some(entities) = doc.container(container) else {
+        return Vec::new();
+    };
+    let mut rows = BTreeMap::new();
+    count(doc, entities, nested, &mut rows);
+    rows.into_iter()
+        .enumerate()
+        .map(|(i, (name, (quantity, description, part_number)))| BomRow {
+            item: i as u32 + 1,
+            name,
+            quantity,
+            description,
+            part_number,
+        })
+        .collect()
+}
+
 impl Command for BillOfMaterials {
     type Params = BomParams;
     type Output = BomOutput;
@@ -1148,24 +1168,8 @@ impl Command for BillOfMaterials {
 
     fn apply(&self, tx: &mut Transaction<'_>, p: BomParams) -> Result<BomOutput, CommandError> {
         let target = target_container(tx, &p.common)?;
-        let doc = tx.document();
-        let entities = doc
-            .container(target.container)
-            .ok_or_else(|| CommandError::Internal("edit context vanished".into()))?;
-        let mut rows = BTreeMap::new();
-        count(doc, entities, p.nested, &mut rows);
         Ok(BomOutput {
-            rows: rows
-                .into_iter()
-                .enumerate()
-                .map(|(i, (name, (quantity, description, part_number)))| BomRow {
-                    item: i as u32 + 1,
-                    name,
-                    quantity,
-                    description,
-                    part_number,
-                })
-                .collect(),
+            rows: bom_rows(tx.document(), target.container, p.nested),
         })
     }
 

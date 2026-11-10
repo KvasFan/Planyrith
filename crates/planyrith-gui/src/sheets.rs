@@ -24,6 +24,14 @@ enum Tool {
     Polyline,
     TitleBlock,
     Label,
+    /// A section view: two clicks give the cutting line (docs/15 §9.1).
+    Section,
+    /// A detail view: the circle's center, then a point on it.
+    Detail,
+    /// A broken view: the two ends of the band removed.
+    Break,
+    /// A symbol: the point it marks, then where it sits.
+    Annotation,
 }
 impl Tool {
     fn label(self) -> &'static str {
@@ -39,6 +47,10 @@ impl Tool {
             Self::Polyline => en("Polyline"),
             Self::TitleBlock => en("Title Block"),
             Self::Label => en("Bound Label"),
+            Self::Section => en("Section View"),
+            Self::Detail => en("Detail View"),
+            Self::Break => en("Break"),
+            Self::Annotation => en("Symbol"),
         }
     }
 }
@@ -78,8 +90,132 @@ pub struct Sheets {
     editing: Option<(String, ItemId)>,
     error: Option<String>,
     picker: Option<egui_file_dialog::FileDialog>,
+    /// The symbol the Symbol tool places, as JSON (docs/15 §9.3).
+    symbol: Symbol,
+    /// The standard and size of Format.
+    format: (usize, String),
     #[cfg(target_arch = "wasm32")]
     uploads: platform::web::Uploads,
+}
+
+/// The symbol the Symbol tool places.
+#[derive(Debug, Clone, PartialEq)]
+struct Symbol {
+    kind: usize,
+    characteristic: usize,
+    tolerance: String,
+    diameter: bool,
+    datums: String,
+    letter: String,
+    finish: String,
+    weld: usize,
+    weld_size: String,
+    balloon: String,
+}
+
+impl Default for Symbol {
+    fn default() -> Self {
+        Symbol {
+            kind: 0,
+            characteristic: 9,
+            tolerance: "0.1".into(),
+            diameter: true,
+            datums: "A B".into(),
+            letter: "A".into(),
+            finish: "Ra 1.6".into(),
+            weld: 0,
+            weld_size: "a5".into(),
+            balloon: "1".into(),
+        }
+    }
+}
+
+const CHARACTERISTICS: [&str; 14] = [
+    "straightness",
+    "flatness",
+    "circularity",
+    "cylindricity",
+    "profile-line",
+    "profile-surface",
+    "angularity",
+    "perpendicularity",
+    "parallelism",
+    "position",
+    "concentricity",
+    "symmetry",
+    "circular-runout",
+    "total-runout",
+];
+const WELDS: [&str; 6] = ["fillet", "square", "v", "bevel", "plug", "spot"];
+
+impl Symbol {
+    fn ui(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal_wrapped(|ui| {
+            for (i, label) in [
+                t("Tolerance frame"),
+                t("Datum"),
+                t("Surface texture"),
+                t("Weld"),
+                t("Balloon"),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                ui.selectable_value(&mut self.kind, i, label);
+            }
+        });
+        match self.kind {
+            0 => {
+                egui::ComboBox::from_id_salt("gdt-characteristic")
+                    .selected_text(CHARACTERISTICS[self.characteristic])
+                    .show_ui(ui, |ui| {
+                        for (i, c) in CHARACTERISTICS.iter().enumerate() {
+                            ui.selectable_value(&mut self.characteristic, i, *c);
+                        }
+                    });
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut self.diameter, "⌀");
+                    ui.text_edit_singleline(&mut self.tolerance);
+                });
+                ui.horizontal(|ui| {
+                    ui.label(t("Datums"));
+                    ui.text_edit_singleline(&mut self.datums);
+                });
+            }
+            1 => {
+                ui.text_edit_singleline(&mut self.letter);
+            }
+            2 => {
+                ui.text_edit_singleline(&mut self.finish);
+            }
+            3 => {
+                egui::ComboBox::from_id_salt("weld-kind")
+                    .selected_text(WELDS[self.weld])
+                    .show_ui(ui, |ui| {
+                        for (i, w) in WELDS.iter().enumerate() {
+                            ui.selectable_value(&mut self.weld, i, *w);
+                        }
+                    });
+                ui.text_edit_singleline(&mut self.weld_size);
+            }
+            _ => {
+                ui.text_edit_singleline(&mut self.balloon);
+            }
+        }
+    }
+
+    fn json(&self) -> Value {
+        match self.kind {
+            0 => json!({ "type": "feature-control",
+                "characteristic": CHARACTERISTICS[self.characteristic],
+                "tolerance": self.tolerance, "diameter": self.diameter,
+                "datums": self.datums.split_whitespace().collect::<Vec<_>>() }),
+            1 => json!({ "type": "datum", "letter": self.letter }),
+            2 => json!({ "type": "surface-finish", "value": self.finish, "machining": "required" }),
+            3 => json!({ "type": "weld", "kind": WELDS[self.weld], "size": self.weld_size }),
+            _ => json!({ "type": "balloon", "text": self.balloon }),
+        }
+    }
 }
 impl Default for Sheets {
     fn default() -> Self {
@@ -117,6 +253,8 @@ impl Default for Sheets {
             editing: None,
             error: None,
             picker: None,
+            symbol: Symbol::default(),
+            format: (0, "A3".into()),
             #[cfg(target_arch = "wasm32")]
             uploads: Default::default(),
         }
@@ -328,6 +466,10 @@ impl Sheets {
                         Tool::Polyline,
                         Tool::TitleBlock,
                         Tool::Label,
+                        Tool::Section,
+                        Tool::Detail,
+                        Tool::Break,
+                        Tool::Annotation,
                     ] {
                         if ui
                             .selectable_value(&mut self.tool, tool, t(tool.label()))
@@ -412,6 +554,27 @@ impl Sheets {
                 );
             self.paper_key = Some(paper_key);
         }
+        if self.tool == Tool::Annotation {
+            ui.strong(t("Symbol"));
+            self.symbol.ui(ui);
+            ui.separator();
+        }
+        ui.strong(t("Standard Format"));
+        ui.horizontal(|ui| {
+            ui.selectable_value(&mut self.format.0, 0, "ISO");
+            ui.selectable_value(&mut self.format.0, 1, "ANSI");
+            ui.add(egui::TextEdit::singleline(&mut self.format.1).desired_width(40.0));
+            if ui.button(t("Apply")).clicked() {
+                let standard = if self.format.0 == 0 { "iso" } else { "ansi" };
+                self.execute(
+                    session,
+                    "sheet-format",
+                    json!({ "page": page.name, "standard": standard, "size": self.format.1.trim(),
+                            "fields": { "Title": session.doc().info.title } }),
+                );
+            }
+        });
+        ui.separator();
         ui.strong(t("Page"));
         if self.rename.is_empty() {
             self.rename = page.name.clone();
@@ -544,6 +707,27 @@ impl Sheets {
                 "Item { $id }",
                 &[("id", id.as_str().to_string().into())],
             ));
+            if matches!(entry.item, SheetItem::ModelView { .. }) {
+                ui.label(t("Projected view:"));
+                ui.horizontal(|ui| {
+                    for (label, side) in [
+                        ("←", "left"),
+                        ("→", "right"),
+                        ("↑", "above"),
+                        ("↓", "below"),
+                    ] {
+                        if ui.button(label).clicked()
+                            && let Some(out) = self.execute(
+                                session,
+                                "sheet-add-projected-view",
+                                json!({ "page": page.name, "base": id, "side": side }),
+                            )
+                        {
+                            self.selected = out["id"].as_str().map(ItemId::named);
+                        }
+                    }
+                });
+            }
             let key = (page.name.clone(), id.clone(), session.engine.generation());
             if self.draft_key.as_ref() != Some(&key) {
                 self.draft = Some(entry.clone());
@@ -1068,6 +1252,52 @@ impl Sheets {
                 }
                 "sheet-add-dimension"
             }
+            Tool::Section | Tool::Detail | Tool::Break => {
+                let view = page.items.iter().rev().find(
+                    |e| matches!(&e.item, SheetItem::ModelView { frame, .. } if frame.contains(a)),
+                );
+                let Some(view) = view else {
+                    self.error = Some(t("Start on a model view."));
+                    return;
+                };
+                params = json!({ "page": page.name });
+                match self.tool {
+                    Tool::Section => {
+                        params["base"] = json!(view.id);
+                        params["line"] = json!([a, b]);
+                        "sheet-add-section-view"
+                    }
+                    Tool::Detail => {
+                        params["base"] = json!(view.id);
+                        params["center"] = json!(a);
+                        params["radius"] = json!(
+                            ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2))
+                                .sqrt()
+                                .max(1.0)
+                        );
+                        params["scale"] = json!("2:1");
+                        "sheet-add-detail-view"
+                    }
+                    _ => {
+                        let horizontal = (b[0] - a[0]).abs() >= (b[1] - a[1]).abs();
+                        let (from, to) = if horizontal {
+                            (a[0], b[0])
+                        } else {
+                            (a[1], b[1])
+                        };
+                        params["view"] = json!(view.id);
+                        params["axis"] = json!(if horizontal { "horizontal" } else { "vertical" });
+                        params["from"] = json!(from.min(to));
+                        params["to"] = json!(from.max(to));
+                        "sheet-add-break"
+                    }
+                }
+            }
+            Tool::Annotation => {
+                params = json!({ "page": page.name, "at": b, "leader": a,
+                                 "annotation": self.symbol.json() });
+                "sheet-add-annotation"
+            }
             _ => return,
         };
         if let Some(result) = self.execute(session, command, params) {
@@ -1434,6 +1664,55 @@ mod tests {
         session.redo().unwrap();
         assert_eq!(session.doc().sheets, direct.document().sheets);
     }
+    #[test]
+    fn drawing_tools_place_a_section_a_detail_and_a_symbol() {
+        let mut session = Session::new();
+        session
+            .execute(
+                "rectangle",
+                json!({ "corner_a": [0, 0, 0], "corner_b": [120, 80, 0] }),
+            )
+            .unwrap();
+        session
+            .execute(
+                "push-pull",
+                json!({ "face": { "Query": "face" }, "distance": 30 }),
+            )
+            .unwrap();
+        session
+            .execute("camera-standard", json!({ "view": "top", "extents": true }))
+            .unwrap();
+        let mut sheets = Sheets::default();
+        sheets.add_page(&mut session);
+        let name = sheets.page.clone();
+        session
+            .execute(
+                "sheet-add-view",
+                json!({ "page": name, "id": "plan", "scale": "1:1",
+                        "frame": { "x": 20, "y": 60, "width": 140, "height": 100 } }),
+            )
+            .unwrap();
+        let page = session.doc().sheets.page(&name).cloned().unwrap();
+        sheets.tool = Tool::Section;
+        sheets.place(&mut session, &page, [25.0, 110.0], [155.0, 110.0]);
+        let page = session.doc().sheets.page(&name).cloned().unwrap();
+        sheets.tool = Tool::Detail;
+        sheets.place(&mut session, &page, [40.0, 90.0], [50.0, 90.0]);
+        let page = session.doc().sheets.page(&name).cloned().unwrap();
+        sheets.tool = Tool::Annotation;
+        sheets.symbol.kind = 1;
+        sheets.place(&mut session, &page, [30.0, 70.0], [10.0, 40.0]);
+        assert_eq!(sheets.error, None);
+        let page = session.doc().sheets.page(&name).cloned().unwrap();
+        for id in ["section-1", "detail-1", "note-1"] {
+            assert!(page.items.iter().any(|e| e.id.as_str() == id), "{id}");
+        }
+        // Outside a view, a section has nothing to cut.
+        sheets.tool = Tool::Section;
+        sheets.place(&mut session, &page, [250.0, 10.0], [260.0, 10.0]);
+        assert!(sheets.error.is_some());
+    }
+
     #[test]
     fn paper_canvas_accepts_two_clicks_and_undo() {
         let ctx = egui::Context::default();

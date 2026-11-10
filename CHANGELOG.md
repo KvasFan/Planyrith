@@ -30,6 +30,11 @@ All notable changes to Planyrith are recorded here. Versions follow
   coincident, distance, parallel, perpendicular, angle, concentric) kept by a rigid-body
   solver with the freedom left shown; driving mates; exploded views; the bill of materials;
   Tools › Assembly….
+- Milestone 1.13, engineering drawings (docs/15 §9): projected (first or third angle),
+  auxiliary, section (hatched, cutting only its view) and detail views that follow their base;
+  broken views; tolerance frames, datums, surface texture and weld symbols; balloons numbered
+  like the bill-of-materials table; ISO and ANSI sheet formats with border, zones, title block
+  and projection symbol; matching tools in the Sheets editor.
 - Joining from the browser (docs/08 §3.3): `planyrith serve --web <port|address>` takes
   browsers over an encrypted WebSocket and serves the web build from `--web-root`; the web
   build has File › Work Together…, opened filled in by `?join=<document>`.

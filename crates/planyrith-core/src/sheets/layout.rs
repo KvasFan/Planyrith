@@ -261,6 +261,7 @@ pub fn validate_item(item: &SheetItem) -> Result<()> {
             }
             if let Some(q) = query
                 && q != "component-report"
+                && q != "bill-of-materials"
             {
                 Query(q.clone())
                     .parse()
@@ -298,6 +299,158 @@ fn validate_convex(points: &[[f64; 2]]) -> Result<()> {
 }
 /// The effective model and camera of a linked view. No source document is mutated.
 pub fn view_document(doc: &Document, item: &SheetItem) -> Result<(Document, Camera)> {
+    view_document_cut(doc, item, None)
+}
+
+/// The paper point `paper` of a view, as a model point on the plane through
+/// the camera's target square to the view.
+pub fn unproject(camera: &Camera, frame: Rect, scale: Scale, paper: [f64; 2]) -> DVec3 {
+    let right = camera.right();
+    let up = right.cross(camera.forward()).normalize_or(camera.up);
+    camera.target
+        + right * (paper[0] - frame.x - frame.width / 2.0) / scale.factor()
+        + up * (paper[1] - frame.y - frame.height / 2.0) / scale.factor()
+}
+
+/// A camera looking along `forward` with `up`, at `target`, as far as `like`.
+fn aimed(like: &Camera, target: DVec3, forward: DVec3, up: DVec3) -> Camera {
+    let distance = (like.target - like.eye).length().max(1.0);
+    let mut camera = *like;
+    camera.target = target;
+    camera.eye = target - forward * distance;
+    camera.up = up;
+    camera
+}
+
+/// The model and camera of a view on `page`: a derived view (docs/15 §9.1)
+/// takes its camera, and a section its cut, from its base view, at every
+/// layout.
+pub fn resolve_view(doc: &Document, page: &Page, item: &SheetItem) -> Result<(Document, Camera)> {
+    let (item, cut) = derived_item(doc, page, item, 0)?;
+    view_document_cut(doc, &item, cut)
+}
+
+/// A derived view with its camera set from its base, and its section cut.
+pub fn derived_item(
+    doc: &Document,
+    page: &Page,
+    item: &SheetItem,
+    depth: usize,
+) -> Result<(SheetItem, Option<crate::math::Plane>)> {
+    use crate::sheets::{ProjectionMethod, Side, ViewDerivation};
+    let SheetItem::ModelView {
+        derived: Some(d), ..
+    } = item
+    else {
+        return Ok((item.clone(), None));
+    };
+    if depth > 16 {
+        return Err(invalid("derived views form a loop"));
+    }
+    let base = page
+        .items
+        .iter()
+        .find(|e| &e.id == d.base())
+        .ok_or_else(|| invalid(format!("the base view {} is gone", d.base().as_str())))?;
+    let SheetItem::ModelView {
+        frame: base_frame,
+        scale: base_scale,
+        ..
+    } = &base.item
+    else {
+        return Err(invalid("a derived view's base must be a model view"));
+    };
+    let (base_item, _) = derived_item(doc, page, &base.item, depth + 1)?;
+    let (_, base_camera) = view_document(doc, &base_item)?;
+    let forward = base_camera.forward();
+    let right = base_camera.right();
+    let up = right.cross(forward).normalize_or(base_camera.up);
+    let mut cut = None;
+    let camera = match d {
+        ViewDerivation::Projected {
+            side, projection, ..
+        } => {
+            // The direction the new view is seen from, in the model.
+            let toward = match side {
+                Side::Right => right,
+                Side::Left => -right,
+                Side::Above => up,
+                Side::Below => -up,
+            };
+            let seen = match projection {
+                ProjectionMethod::ThirdAngle => toward,
+                ProjectionMethod::FirstAngle => -toward,
+            };
+            let new_up = match side {
+                Side::Left | Side::Right => up,
+                Side::Above | Side::Below => seen.cross(right).normalize_or(forward),
+            };
+            aimed(&base_camera, base_camera.target, -seen, new_up)
+        }
+        ViewDerivation::Auxiliary { direction, .. } => {
+            let f = DVec3::from_array(*direction)
+                .try_normalize()
+                .ok_or_else(|| invalid("an auxiliary view needs a direction"))?;
+            let mut new_up = up - f * up.dot(f);
+            if new_up.length_squared() < 1e-12 {
+                new_up = forward - f * forward.dot(f);
+            }
+            aimed(
+                &base_camera,
+                base_camera.target,
+                f,
+                new_up.normalize_or(DVec3::Z),
+            )
+        }
+        ViewDerivation::Section { line, flip, .. } => {
+            let a = unproject(&base_camera, *base_frame, *base_scale, line[0]);
+            let b = unproject(&base_camera, *base_frame, *base_scale, line[1]);
+            let along = (b - a)
+                .try_normalize()
+                .ok_or_else(|| invalid("a cutting line needs two different points"))?;
+            let mut f = along.cross(forward).normalize_or(right);
+            if *flip {
+                f = -f;
+            }
+            // A section across a plan stands up toward the plan's viewer.
+            let new_up = if up.dot(f).abs() < 0.99 {
+                up - f * up.dot(f)
+            } else {
+                -forward
+            };
+            // The viewer's side of the cut is taken away.
+            let normal = -f;
+            cut = Some(crate::math::Plane {
+                normal,
+                d: -normal.dot(a),
+            });
+            aimed(&base_camera, (a + b) / 2.0, f, new_up.normalize_or(up))
+        }
+        ViewDerivation::Detail { center, .. } => {
+            let c = unproject(&base_camera, *base_frame, *base_scale, *center);
+            aimed(&base_camera, c, forward, up)
+        }
+    };
+    let mut out = item.clone();
+    if let SheetItem::ModelView {
+        camera: c,
+        camera_override,
+        ..
+    } = &mut out
+    {
+        *c = camera;
+        *camera_override = true;
+    }
+    Ok((out, cut))
+}
+
+/// [`view_document`] with an extra section `cut` on the model root, active
+/// for this view only.
+fn view_document_cut(
+    doc: &Document,
+    item: &SheetItem,
+    cut: Option<crate::math::Plane>,
+) -> Result<(Document, Camera)> {
     let SheetItem::ModelView {
         scene,
         camera,
@@ -376,6 +529,14 @@ pub fn view_document(doc: &Document, item: &SheetItem) -> Result<(Document, Came
                 }
                 Ok(())
             })
+            .map_err(|e| invalid(e.to_string()))?;
+    }
+    if let Some(plane) = cut {
+        engine
+            .execute_erased(
+                "section-plane-add",
+                serde_json::json!({ "plane": plane, "name": "Sheet section", "activate": true }),
+            )
             .map_err(|e| invalid(e.to_string()))?;
     }
     let model = engine.document().clone();
@@ -604,6 +765,27 @@ pub fn table_rows(
         return Ok(rows.to_vec());
     };
     let mut out = vec![columns.to_vec()];
+    if query == "bill-of-materials" {
+        // Item numbers match the balloons (docs/15 §9.4).
+        let rows = crate::commands::assembly::bom_rows(doc, ContainerRef::Model, true);
+        return Ok(std::iter::once(vec![
+            "Item".into(),
+            "Name".into(),
+            "Qty".into(),
+            "Part number".into(),
+            "Description".into(),
+        ])
+        .chain(rows.into_iter().map(|r| {
+            vec![
+                r.item.to_string(),
+                r.name,
+                r.quantity.to_string(),
+                r.part_number.unwrap_or_default(),
+                r.description,
+            ]
+        }))
+        .collect());
+    }
     if query == "component-report" {
         let scene = crate::io::export::scene::collect(doc, &ExportScope::default());
         let mut counts = BTreeMap::new();
@@ -726,7 +908,9 @@ pub fn dimension(doc: &Document, page: &Page, item: &SheetItem) -> Result<Dimens
             text: snapshot.text.clone(),
         });
     }
-    let v = target.map(|e| view_document(doc, &e.item)).transpose()?;
+    let v = target
+        .map(|e| resolve_view(doc, page, &e.item))
+        .transpose()?;
     let resolve = |a: &SheetAnchor| -> Result<(DVec3, [f64; 2], bool)> {
         match a {
             SheetAnchor::Paper { point } => {
@@ -852,7 +1036,14 @@ pub fn layout_page(
                             frame: *frame,
                         });
                     } else {
-                        let (model, camera) = view_document(doc, &entry.item)?;
+                        let (model, camera) = resolve_view(doc, page, &entry.item)?;
+                        let hatched = matches!(
+                            &entry.item,
+                            SheetItem::ModelView {
+                                derived: Some(crate::sheets::ViewDerivation::Section { .. }),
+                                ..
+                            }
+                        );
                         let draw = view2d::draw_view(
                             &model,
                             &ExportScope::default(),
@@ -897,7 +1088,12 @@ pub fn layout_page(
                                             &clip_polygon(&points, &rectangle(*frame)),
                                             &group.clip,
                                         );
-                                        if points.len() >= 3 {
+                                        if points.len() >= 3 && hatched {
+                                            // Section views hatch their cut faces
+                                            // (ISO 128-50), one family of 45°
+                                            // lines across all the pieces.
+                                            group.graphics.extend(hatch(&points, 2.5));
+                                        } else if points.len() >= 3 {
                                             group.graphics.push(path(
                                                 points,
                                                 true,
@@ -1037,12 +1233,23 @@ pub fn layout_page(
                     frame,
                     alignment,
                     leader,
+                    annotation,
                 } => {
                     group.clip = rectangle(*frame);
-                    group.graphics = text_graphics(runs, *frame, *alignment);
+                    group.graphics = match annotation {
+                        Some(a) => {
+                            group.clip.clear();
+                            annotation_graphics(a, *frame, h, pen)
+                        }
+                        None => text_graphics(runs, *frame, *alignment),
+                    };
                     if let Some([a, b]) = leader {
                         group.clip.clear();
                         group.graphics.insert(0, line(*a, *b, pen));
+                        // A dot where a balloon's leader touches the part.
+                        if matches!(annotation, Some(crate::sheets::Annotation::Balloon { .. })) {
+                            group.graphics.push(circle_path(*b, 0.6, pen, true));
+                        }
                     }
                 }
                 SheetItem::Table {
@@ -1152,10 +1359,544 @@ pub fn layout_page(
                         text(format!("{prefix}{}", value.unwrap_or_default()), *frame, h);
                 }
             }
+            if let SheetItem::ModelView {
+                breaks,
+                frame,
+                frozen: None,
+                ..
+            } = &entry.item
+                && !breaks.is_empty()
+                && !group
+                    .graphics
+                    .iter()
+                    .any(|g| matches!(g, Graphic::Image { .. }))
+            {
+                apply_breaks(&mut group, *frame, breaks, pen);
+            }
             out.groups.push(group);
         }
     }
     Ok(out)
+}
+
+/// 45° hatch lines `spacing` apart over a convex polygon, on lines shared
+/// by every polygon so neighboring pieces continue each other.
+fn hatch(points: &[[f64; 2]], spacing: f64) -> Vec<Graphic> {
+    let mut poly = points.to_vec();
+    let area: f64 = poly
+        .iter()
+        .zip(poly.iter().cycle().skip(1))
+        .map(|(a, b)| a[0] * b[1] - b[0] * a[1])
+        .sum();
+    if area < 0.0 {
+        poly.reverse();
+    }
+    let (mut lo, mut hi) = ([f64::INFINITY; 2], [f64::NEG_INFINITY; 2]);
+    for p in &poly {
+        for k in 0..2 {
+            lo[k] = lo[k].min(p[k]);
+            hi[k] = hi[k].max(p[k]);
+        }
+    }
+    let pen = Stroke {
+        width: 0.18,
+        ..Stroke::default()
+    };
+    let mut out = Vec::new();
+    // Lines x − y = c.
+    let first = ((lo[0] - hi[1]) / spacing).floor() as i64;
+    let last = ((hi[0] - lo[1]) / spacing).ceil() as i64;
+    for k in first..=last {
+        let c = k as f64 * spacing;
+        let a = [c + lo[1], lo[1]];
+        let b = [c + hi[1], hi[1]];
+        if let Some([p, q]) = clip_segment(a, b, &poly)
+            && libm::hypot(p[0] - q[0], p[1] - q[1]) > 1e-6
+        {
+            out.push(line(p, q, &pen));
+        }
+    }
+    out
+}
+
+/// A circle as a closed path (filled when `fill`).
+fn circle_path(c: [f64; 2], r: f64, pen: &Stroke, fill: bool) -> Graphic {
+    let points = (0..48)
+        .map(|i| {
+            let t = f64::from(i) * std::f64::consts::TAU / 48.0;
+            [c[0] + r * libm::cos(t), c[1] + r * libm::sin(t)]
+        })
+        .collect();
+    path(points, true, pen.clone(), fill.then_some(pen.color))
+}
+
+/// Removes the bands of a broken view and closes it up (docs/15 §9.2):
+/// graphics beyond a band move back by its width less the gap, and two
+/// zigzag break lines mark it.
+fn apply_breaks(group: &mut Group, frame: Rect, breaks: &[crate::sheets::ViewBreak], pen: &Stroke) {
+    use crate::sheets::BreakAxis;
+    let far = 1.0e5;
+    let mut sorted: Vec<&crate::sheets::ViewBreak> = breaks.iter().collect();
+    // From the far end back, so earlier shifts do not move later bands.
+    sorted.sort_by(|a, b| b.from.max(b.to).total_cmp(&a.from.max(a.to)));
+    let mut clip = frame;
+    for b in sorted {
+        let (lo, hi) = (b.from.min(b.to), b.from.max(b.to));
+        let horizontal = b.axis == BreakAxis::Horizontal;
+        let shift = (hi - lo - b.gap).max(0.0);
+        let side = |from: f64, to: f64| {
+            if horizontal {
+                rectangle(Rect {
+                    x: from,
+                    y: frame.y - far,
+                    width: to - from,
+                    height: frame.height + 2.0 * far,
+                })
+            } else {
+                rectangle(Rect {
+                    x: frame.x - far,
+                    y: from,
+                    width: frame.width + 2.0 * far,
+                    height: to - from,
+                })
+            }
+        };
+        let near = side(lo - 2.0 * far, lo);
+        let beyond = side(hi, hi + 2.0 * far);
+        let moved = |p: [f64; 2]| {
+            if horizontal {
+                [p[0] - shift, p[1]]
+            } else {
+                [p[0], p[1] - shift]
+            }
+        };
+        let coord = |p: [f64; 2]| if horizontal { p[0] } else { p[1] };
+        let mut out = Vec::new();
+        for g in std::mem::take(&mut group.graphics) {
+            match g {
+                Graphic::Path {
+                    points,
+                    closed,
+                    stroke,
+                    fill,
+                    tag,
+                } => {
+                    if closed {
+                        for (region, shifted) in [(&near, false), (&beyond, true)] {
+                            let mut piece = clip_polygon(&points, region);
+                            if piece.len() >= 3 {
+                                if shifted {
+                                    piece = piece.into_iter().map(moved).collect();
+                                }
+                                out.push(Graphic::Path {
+                                    points: piece,
+                                    closed: true,
+                                    stroke: stroke.clone(),
+                                    fill,
+                                    tag: tag.clone(),
+                                });
+                            }
+                        }
+                    } else {
+                        for w in points.windows(2) {
+                            for (region, shifted) in [(&near, false), (&beyond, true)] {
+                                if let Some([a, c]) = clip_segment(w[0], w[1], region) {
+                                    let (a, c) = if shifted {
+                                        (moved(a), moved(c))
+                                    } else {
+                                        (a, c)
+                                    };
+                                    out.push(Graphic::Path {
+                                        points: vec![a, c],
+                                        closed: false,
+                                        stroke: stroke.clone(),
+                                        fill: None,
+                                        tag: tag.clone(),
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+                Graphic::Text {
+                    text,
+                    at,
+                    height,
+                    color,
+                } => {
+                    if coord(at) <= lo {
+                        out.push(Graphic::Text {
+                            text,
+                            at,
+                            height,
+                            color,
+                        });
+                    } else if coord(at) >= hi {
+                        out.push(Graphic::Text {
+                            text,
+                            at: moved(at),
+                            height,
+                            color,
+                        });
+                    }
+                }
+                other => out.push(other),
+            }
+        }
+        group.graphics = out;
+        // Zigzag break lines across the view.
+        for at in [lo, lo + b.gap] {
+            let (start, end) = if horizontal {
+                (frame.y, frame.y + frame.height)
+            } else {
+                (frame.x, frame.x + frame.width)
+            };
+            let steps = 8;
+            let mut zig = Vec::new();
+            for k in 0..=steps {
+                let t = start + (end - start) * f64::from(k) / f64::from(steps);
+                let wobble = if k % 2 == 0 { 0.0 } else { 1.2 };
+                zig.push(if horizontal {
+                    [at + wobble, t]
+                } else {
+                    [t, at + wobble]
+                });
+            }
+            group.graphics.push(path(zig, false, pen.clone(), None));
+        }
+        if horizontal {
+            clip.width -= shift;
+        } else {
+            clip.height -= shift;
+        }
+    }
+    group.clip = rectangle(clip);
+}
+
+/// A geometric characteristic's symbol drawn in the square `cell`.
+fn characteristic_symbol(
+    c: crate::sheets::Characteristic,
+    cell: Rect,
+    pen: &Stroke,
+) -> Vec<Graphic> {
+    use crate::sheets::Characteristic::*;
+    let cx = cell.x + cell.width / 2.0;
+    let cy = cell.y + cell.height / 2.0;
+    let a = cell.height * 0.3;
+    let l = |p: &[[f64; 2]]| path(p.to_vec(), false, pen.clone(), None);
+    let arrow = |from: [f64; 2], to: [f64; 2]| {
+        let d = DVec2::from(to) - DVec2::from(from);
+        let u = d.normalize_or_zero();
+        let tip = DVec2::from(to);
+        let side = u.perp() * a * 0.25;
+        vec![
+            l(&[from, to]),
+            path(
+                vec![
+                    to,
+                    (tip - u * a * 0.5 + side).to_array(),
+                    (tip - u * a * 0.5 - side).to_array(),
+                ],
+                true,
+                pen.clone(),
+                Some(pen.color),
+            ),
+        ]
+    };
+    match c {
+        Straightness => vec![l(&[[cx - a, cy], [cx + a, cy]])],
+        Flatness => vec![path(
+            vec![
+                [cx - a, cy - a * 0.5],
+                [cx + a * 0.6, cy - a * 0.5],
+                [cx + a, cy + a * 0.5],
+                [cx - a * 0.6, cy + a * 0.5],
+            ],
+            true,
+            pen.clone(),
+            None,
+        )],
+        Circularity => vec![circle_path([cx, cy], a, pen, false)],
+        Cylindricity => vec![
+            circle_path([cx, cy], a * 0.7, pen, false),
+            l(&[[cx - a * 1.1, cy - a], [cx - a * 0.3, cy + a]]),
+            l(&[[cx + a * 0.3, cy - a], [cx + a * 1.1, cy + a]]),
+        ],
+        ProfileLine | ProfileSurface => {
+            let mut arc: Vec<[f64; 2]> = (0..=24)
+                .map(|i| {
+                    let t = std::f64::consts::PI * f64::from(i) / 24.0;
+                    [cx + a * libm::cos(t), cy - a * 0.4 + a * libm::sin(t)]
+                })
+                .collect();
+            let closed = c == ProfileSurface;
+            if closed {
+                arc.push([cx - a, cy - a * 0.4]);
+            }
+            vec![path(arc, closed, pen.clone(), None)]
+        }
+        Angularity => vec![l(&[
+            [cx + a, cy - a],
+            [cx - a, cy - a],
+            [cx + a, cy + a * 0.3],
+        ])],
+        Perpendicularity => vec![
+            l(&[[cx - a, cy - a], [cx + a, cy - a]]),
+            l(&[[cx, cy - a], [cx, cy + a]]),
+        ],
+        Parallelism => vec![
+            l(&[[cx - a, cy - a], [cx - a * 0.2, cy + a]]),
+            l(&[[cx + a * 0.2, cy - a], [cx + a, cy + a]]),
+        ],
+        Position => vec![
+            circle_path([cx, cy], a * 0.65, pen, false),
+            l(&[[cx - a, cy], [cx + a, cy]]),
+            l(&[[cx, cy - a], [cx, cy + a]]),
+        ],
+        Concentricity => vec![
+            circle_path([cx, cy], a * 0.4, pen, false),
+            circle_path([cx, cy], a * 0.9, pen, false),
+        ],
+        Symmetry => vec![
+            l(&[[cx - a * 0.6, cy + a * 0.5], [cx + a * 0.6, cy + a * 0.5]]),
+            l(&[[cx - a, cy], [cx + a, cy]]),
+            l(&[[cx - a * 0.6, cy - a * 0.5], [cx + a * 0.6, cy - a * 0.5]]),
+        ],
+        CircularRunout => arrow([cx - a * 0.6, cy - a], [cx + a * 0.4, cy + a]),
+        TotalRunout => {
+            let mut g = arrow([cx - a, cy - a], [cx - a * 0.2, cy + a]);
+            g.extend(arrow([cx, cy - a], [cx + a * 0.8, cy + a]));
+            g.push(l(&[[cx - a, cy - a], [cx, cy - a]]));
+            g
+        }
+    }
+}
+
+/// An annotation's graphics, from its frame's lower-left corner
+/// (docs/15 §9.3).
+pub fn annotation_graphics(
+    a: &crate::sheets::Annotation,
+    frame: Rect,
+    h: f64,
+    pen: &Stroke,
+) -> Vec<Graphic> {
+    use crate::sheets::{Annotation, Machining, Modifier, WeldKind};
+    let black = [0, 0, 0, 255];
+    let txt = |text: &str, at: [f64; 2]| Graphic::Text {
+        text: text.to_string(),
+        at,
+        height: h,
+        color: black,
+    };
+    let l = |p: &[[f64; 2]]| path(p.to_vec(), false, pen.clone(), None);
+    let (x0, y0) = (frame.x, frame.y);
+    let cell = 2.0 * h;
+    let pad = 0.4 * h;
+    let mut g = Vec::new();
+    match a {
+        Annotation::FeatureControl {
+            characteristic,
+            tolerance,
+            diameter,
+            modifier,
+            datums,
+        } => {
+            let mut x = x0;
+            // The characteristic.
+            g.extend(characteristic_symbol(
+                *characteristic,
+                Rect {
+                    x,
+                    y: y0,
+                    width: cell,
+                    height: cell,
+                },
+                pen,
+            ));
+            x += cell;
+            g.push(l(&[[x, y0], [x, y0 + cell]]));
+            // The tolerance, with ⌀ and a modifier.
+            let mut t = x + pad;
+            if *diameter {
+                let r = h * 0.35;
+                g.push(circle_path([t + r, y0 + cell / 2.0], r, pen, false));
+                g.push(l(&[
+                    [t, y0 + cell / 2.0 - r * 1.3],
+                    [t + 2.0 * r, y0 + cell / 2.0 + r * 1.3],
+                ]));
+                t += 2.0 * r + pad * 0.5;
+            }
+            g.push(txt(tolerance, [t, y0 + cell / 2.0 - h * 0.35]));
+            t += text_width(tolerance, h) + pad * 0.5;
+            if let Some(m) = modifier {
+                let r = h * 0.55;
+                g.push(circle_path([t + r, y0 + cell / 2.0], r, pen, false));
+                let letter = if *m == Modifier::Maximum { "M" } else { "L" };
+                g.push(Graphic::Text {
+                    text: letter.into(),
+                    at: [
+                        t + r - text_width(letter, h * 0.7) / 2.0,
+                        y0 + cell / 2.0 - h * 0.25,
+                    ],
+                    height: h * 0.7,
+                    color: black,
+                });
+                t += 2.0 * r;
+            }
+            x = t + pad;
+            for d in datums {
+                g.push(l(&[[x, y0], [x, y0 + cell]]));
+                let w = cell.max(text_width(d, h) + 2.0 * pad);
+                g.push(txt(
+                    d,
+                    [x + (w - text_width(d, h)) / 2.0, y0 + cell / 2.0 - h * 0.35],
+                ));
+                x += w;
+            }
+            g.push(path(
+                rectangle(Rect {
+                    x: x0,
+                    y: y0,
+                    width: x - x0,
+                    height: cell,
+                }),
+                true,
+                pen.clone(),
+                None,
+            ));
+        }
+        Annotation::Datum { letter } => {
+            let w = cell.max(text_width(letter, h) + 2.0 * pad);
+            // The letter's box on a stem ending in a filled triangle.
+            let bx = Rect {
+                x: x0,
+                y: y0 + cell,
+                width: w,
+                height: cell,
+            };
+            g.push(path(rectangle(bx), true, pen.clone(), None));
+            g.push(txt(
+                letter,
+                [
+                    x0 + (w - text_width(letter, h)) / 2.0,
+                    y0 + cell * 1.5 - h * 0.35,
+                ],
+            ));
+            let mid = x0 + w / 2.0;
+            g.push(l(&[[mid, y0 + cell], [mid, y0 + h * 0.8]]));
+            g.push(path(
+                vec![
+                    [mid - h * 0.6, y0],
+                    [mid + h * 0.6, y0],
+                    [mid, y0 + h * 0.8],
+                ],
+                true,
+                pen.clone(),
+                Some(pen.color),
+            ));
+        }
+        Annotation::SurfaceFinish { value, machining } => {
+            let short = [x0, y0 + h];
+            let root = [x0 + h * 0.6, y0];
+            let top = [x0 + h * 1.8, y0 + h * 2.2];
+            g.push(l(&[short, root, top]));
+            match machining {
+                Machining::Required => g.push(l(&[short, [x0 + h * 1.17, y0 + h]])),
+                Machining::Prohibited => {
+                    g.push(circle_path([root[0], y0 + h * 0.42], h * 0.3, pen, false));
+                }
+                Machining::Any => {}
+            }
+            // The requirement on a bar over the long arm.
+            let bar = top[0] + text_width(value, h) + pad;
+            g.push(l(&[top, [bar, top[1]]]));
+            g.push(txt(value, [top[0] + pad * 0.5, top[1] + h * 0.3]));
+        }
+        Annotation::Weld {
+            kind,
+            size,
+            length,
+            other_side,
+            all_around,
+            field,
+        } => {
+            let len = 10.0 * h;
+            let (sx, sy) = (x0, y0);
+            g.push(l(&[[sx, sy], [sx + len, sy]]));
+            // The symbol: below the line for the arrow side, above for the
+            // other side.
+            let s = h * 1.2;
+            let cx = sx + len * 0.45;
+            let dir = if *other_side { 1.0 } else { -1.0 };
+            let at = |dx: f64, dy: f64| [cx + dx, sy + dir * dy];
+            match kind {
+                WeldKind::Fillet => g.push(path(
+                    vec![at(0.0, 0.0), at(0.0, s), at(s, 0.0)],
+                    true,
+                    pen.clone(),
+                    None,
+                )),
+                WeldKind::Square => {
+                    g.push(l(&[at(0.0, 0.0), at(0.0, s)]));
+                    g.push(l(&[at(s * 0.5, 0.0), at(s * 0.5, s)]));
+                }
+                WeldKind::V => g.push(l(&[at(-s * 0.5, s), at(0.0, 0.0), at(s * 0.5, s)])),
+                WeldKind::Bevel => {
+                    g.push(l(&[at(0.0, 0.0), at(0.0, s)]));
+                    g.push(l(&[at(0.0, 0.0), at(s * 0.6, s)]));
+                }
+                WeldKind::Plug => g.push(path(
+                    vec![
+                        at(-s * 0.5, 0.0),
+                        at(s * 0.5, 0.0),
+                        at(s * 0.5, s * 0.6),
+                        at(-s * 0.5, s * 0.6),
+                    ],
+                    true,
+                    pen.clone(),
+                    None,
+                )),
+                WeldKind::Spot => g.push(circle_path([cx, sy], s * 0.4, pen, false)),
+            }
+            let ty = if *other_side {
+                sy + h * 0.3
+            } else {
+                sy - h * 1.2
+            };
+            if !size.is_empty() {
+                g.push(txt(size, [cx - text_width(size, h) - h * 0.5, ty]));
+            }
+            if !length.is_empty() {
+                g.push(txt(length, [cx + s + h * 0.5, ty]));
+            }
+            if *all_around {
+                g.push(circle_path([sx, sy], h * 0.6, pen, false));
+            }
+            if *field {
+                g.push(l(&[[sx, sy], [sx, sy + h * 2.0]]));
+                g.push(path(
+                    vec![
+                        [sx, sy + h * 2.0],
+                        [sx + h * 1.2, sy + h * 1.6],
+                        [sx, sy + h * 1.2],
+                    ],
+                    true,
+                    pen.clone(),
+                    Some(pen.color),
+                ));
+            }
+        }
+        Annotation::Balloon { text: label } => {
+            let r = (text_width(label, h) / 2.0 + pad).max(h * 1.1);
+            let c = [x0 + r, y0 + r];
+            g.push(circle_path(c, r, pen, false));
+            g.push(txt(
+                label,
+                [c[0] - text_width(label, h) / 2.0, c[1] - h * 0.35],
+            ));
+        }
+    }
+    g
 }
 fn draw_table(rows: &[Vec<String>], frame: Rect, height: f64, pen: &Stroke) -> Vec<Graphic> {
     let mut out = Vec::new();
@@ -1498,10 +2239,23 @@ pub fn translated(item: &SheetItem, delta: [f64; 2]) -> Result<SheetItem> {
         r.y += delta[1];
     };
     match &mut item {
-        SheetItem::ModelView { frame: r, clip, .. } => {
+        SheetItem::ModelView {
+            frame: r,
+            clip,
+            breaks,
+            ..
+        } => {
             frame(r);
             for p in clip {
                 point(p);
+            }
+            for b in breaks {
+                let d = match b.axis {
+                    crate::sheets::BreakAxis::Horizontal => delta[0],
+                    crate::sheets::BreakAxis::Vertical => delta[1],
+                };
+                b.from += d;
+                b.to += d;
             }
         }
         SheetItem::Text {

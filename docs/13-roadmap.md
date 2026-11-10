@@ -250,6 +250,10 @@ scenes; a bill of materials; collision detection while dragging; driving a mate 
 Sheet views tied to the model and kept current: projected, section, detail, auxiliary and
 broken views; geometric tolerances with datums, surface finish and weld symbols; balloons
 and bill-of-materials tables; ISO and ANSI sheet formats with title blocks.
+- **Done (2026-11-10):** all of it (docs/15 §9): derived views re-derived at every layout,
+  sections cutting only their view with hatching, broken views, vector symbols, balloons
+  matching the bill-of-materials table, ISO/ANSI formats; the Sheets editor has Section,
+  Detail, Break and Symbol tools, projected-view buttons and Standard Format.
 
 ## 1.14.0 — Sheet metal and frames
 Sheet metal parts (base and edge flanges, bends with a bend allowance, the flat pattern with

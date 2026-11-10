@@ -420,6 +420,13 @@ pub enum SheetItem {
         /// Stored raster snapshot; frozen views do not follow model changes.
         #[serde(default)]
         frozen: Option<ImageRef>,
+        /// How the view follows another view (projected, auxiliary, section,
+        /// detail, docs/15 §9.1); its camera is derived at every layout.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        derived: Option<ViewDerivation>,
+        /// Bands removed from a long part (a broken view, docs/15 §9.2).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        breaks: Vec<ViewBreak>,
     },
     /// A live dimension measured through a model view, or on paper.
     Dimension {
@@ -449,6 +456,10 @@ pub enum SheetItem {
         alignment: Alignment,
         /// Optional leader endpoints in paper coordinates.
         leader: Option<[[f64; 2]; 2]>,
+        /// A symbol drawn instead of the runs (GD&T, datum, surface finish,
+        /// weld, balloon, docs/15 §9.3); the runs keep its plain text.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        annotation: Option<Annotation>,
     },
     /// Explicit cells or a live query table.
     Table {
@@ -512,6 +523,12 @@ impl SheetItem {
         }
     }
 }
+
+pub mod drawing;
+pub use drawing::{
+    Annotation, BreakAxis, Characteristic, Machining, Modifier, Projection as ProjectionMethod,
+    Side, ViewBreak, ViewDerivation, WeldKind,
+};
 
 #[cfg(test)]
 mod tests;

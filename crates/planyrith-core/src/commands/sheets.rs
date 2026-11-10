@@ -12,18 +12,22 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-fn err(e: impl std::fmt::Display) -> CommandError {
+pub(crate) fn err(e: impl std::fmt::Display) -> CommandError {
     CommandError::invalid_param("sheet", e.to_string())
 }
-fn sheet_error(e: SheetError) -> CommandError {
+pub(crate) fn sheet_error(e: SheetError) -> CommandError {
     err(e)
 }
-fn page<'a>(doc: &'a Document, name: &str) -> Result<&'a Page, CommandError> {
+pub(crate) fn page<'a>(doc: &'a Document, name: &str) -> Result<&'a Page, CommandError> {
     doc.sheets
         .page(name)
         .ok_or_else(|| CommandError::invalid_param("page", format!("unknown sheet page `{name}`")))
 }
-fn entry<'a>(doc: &'a Document, name: &str, id: &ItemId) -> Result<&'a Entry, CommandError> {
+pub(crate) fn entry<'a>(
+    doc: &'a Document,
+    name: &str,
+    id: &ItemId,
+) -> Result<&'a Entry, CommandError> {
     let page = page(doc, name)?;
     let entry = page
         .items
@@ -54,7 +58,7 @@ fn yes() -> bool {
     true
 }
 
-fn layer() -> String {
+pub(crate) fn layer() -> String {
     "Drawing".into()
 }
 fn scale() -> String {
@@ -100,7 +104,7 @@ fn changed(page: &str, id: Option<ItemId>) -> EditOutput {
         id,
     }
 }
-fn insert(
+pub(crate) fn insert(
     tx: &mut Transaction<'_>,
     name: &str,
     id: Option<ItemId>,
@@ -162,7 +166,7 @@ fn images(item: &SheetItem) -> Vec<crate::document::ImageRef> {
         _ => Vec::new(),
     }
 }
-fn replace(
+pub(crate) fn replace(
     tx: &mut Transaction<'_>,
     name: &str,
     id: &ItemId,
@@ -479,6 +483,8 @@ fn view_item(doc: &Document, p: &AddViewParams) -> Result<SheetItem, CommandErro
         tags_override: p.tags_override.clone(),
         section_override: p.section_override.clone(),
         frozen: None,
+        derived: None,
+        breaks: Vec::new(),
     };
     layout::validate_item(&item).map_err(sheet_error)?;
     layout::view_document(doc, &item).map_err(sheet_error)?;
@@ -566,6 +572,7 @@ command!(
                 frame: p.frame,
                 alignment: p.alignment,
                 leader: p.leader,
+                annotation: None,
             },
         )
     }

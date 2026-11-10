@@ -1,0 +1,10 @@
+# Two components, a balloon numbered like the bill of materials and its table.
+rectangle --corner-a 0,0,0 --corner-b 10,10,0
+push-pull --face '{face & last}' --distance 10
+make-component --targets 'face & !instance | edge & !instance' --name Plate
+rectangle --corner-a 500,0,0 --corner-b 510,10,0
+push-pull --face '{face & last}' --distance 10
+make-component --targets 'face & !instance | edge & !instance' --name Bolt
+sheet-add-page --page P1
+sheet-add-balloon --page P1 --component Plate --params-json '{"at":[50,50],"leader":[40,40]}'
+sheet-add-table --page P1 --query bill-of-materials --params-json '{"frame":{"x":100,"y":100,"width":120,"height":30}}'

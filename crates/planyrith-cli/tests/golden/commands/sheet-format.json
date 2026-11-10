@@ -1,0 +1,1565 @@
+{
+  "attrs": {},
+  "camera": {
+    "aspect": 1.7777777777777777,
+    "eye": [
+      5000.0,
+      -5000.0,
+      4000.0
+    ],
+    "projection": {
+      "perspective": {
+        "fov_y_deg": 35.0
+      }
+    },
+    "target": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "up": [
+      0.0,
+      0.0,
+      1.0
+    ]
+  },
+  "definition_order": [],
+  "definitions": [],
+  "images": [],
+  "info": {
+    "angle_precision": 1,
+    "angle_snap": null,
+    "attrs": {},
+    "author": "",
+    "description": "",
+    "display_units": "millimeter",
+    "format_version": 1,
+    "geo": null,
+    "length_snap": null,
+    "next_pid": 1,
+    "precision": 1,
+    "title": "",
+    "tolerances": {
+      "angle": 1e-6,
+      "length": 0.001,
+      "length_sq": 1e-6,
+      "parametric": 1e-9,
+      "planarity": 0.01
+    }
+  },
+  "materials": {
+    "default_back": {
+      "idx": 2,
+      "version": 1
+    },
+    "default_front": {
+      "idx": 1,
+      "version": 1
+    },
+    "items": [
+      [
+        {
+          "idx": 1,
+          "version": 1
+        },
+        {
+          "attrs": {},
+          "color": {
+            "a": 255,
+            "b": 255,
+            "g": 255,
+            "r": 255
+          },
+          "is_default_for": "front",
+          "name": "Default",
+          "opacity": 1.0,
+          "texture": null
+        }
+      ],
+      [
+        {
+          "idx": 2,
+          "version": 1
+        },
+        {
+          "attrs": {},
+          "color": {
+            "a": 255,
+            "b": 200,
+            "g": 180,
+            "r": 160
+          },
+          "is_default_for": "back",
+          "name": "Default Back",
+          "opacity": 1.0,
+          "texture": null
+        }
+      ]
+    ],
+    "order": [
+      {
+        "idx": 1,
+        "version": 1
+      },
+      {
+        "idx": 2,
+        "version": 1
+      }
+    ]
+  },
+  "model": {
+    "attrs": [],
+    "dimensions": [],
+    "groups": [],
+    "guides": [],
+    "hidden": [],
+    "images": [],
+    "instances": [],
+    "locked": [],
+    "mesh": {
+      "curves": [],
+      "edges": [],
+      "faces": [],
+      "vertices": []
+    },
+    "order": [],
+    "section_planes": [],
+    "tag_of": [],
+    "texts": []
+  },
+  "rendering": {
+    "fog_enabled": false,
+    "section": {
+      "cuts_visible": true,
+      "fills_visible": true,
+      "planes_visible": true
+    },
+    "shadows": {
+      "dark": 45,
+      "enabled": false,
+      "from_edges": false,
+      "light": 80,
+      "on_faces": true,
+      "on_ground": true,
+      "sun": {
+        "manual": {
+          "altitude": 0.7853981633974483,
+          "azimuth": 2.356194490192345
+        }
+      }
+    }
+  },
+  "scenes": {
+    "items": [],
+    "order": []
+  },
+  "sheets": {
+    "pages": [
+      {
+        "items": [
+          {
+            "id": "format-border",
+            "item": {
+              "closed": true,
+              "fill": null,
+              "kind": "shape",
+              "points": [
+                [
+                  12.7,
+                  12.7
+                ],
+                [
+                  419.1,
+                  266.7
+                ]
+              ],
+              "shape": "rectangle",
+              "stroke": {
+                "color": [
+                  0,
+                  0,
+                  0,
+                  255
+                ],
+                "dash": [],
+                "width": 0.7
+              }
+            },
+            "layer": "Drawing"
+          },
+          {
+            "id": "format-tick-x0-b",
+            "item": {
+              "closed": false,
+              "fill": null,
+              "kind": "shape",
+              "points": [
+                [
+                  12.7,
+                  12.7
+                ],
+                [
+                  12.7,
+                  5.08
+                ]
+              ],
+              "shape": "polyline",
+              "stroke": {
+                "color": [
+                  0,
+                  0,
+                  0,
+                  255
+                ],
+                "dash": [],
+                "width": 0.35
+              }
+            },
+            "layer": "Drawing"
+          },
+          {
+            "id": "format-tick-x0-t",
+            "item": {
+              "closed": false,
+              "fill": null,
+              "kind": "shape",
+              "points": [
+                [
+                  12.7,
+                  266.7
+                ],
+                [
+                  12.7,
+                  274.32
+                ]
+              ],
+              "shape": "polyline",
+              "stroke": {
+                "color": [
+                  0,
+                  0,
+                  0,
+                  255
+                ],
+                "dash": [],
+                "width": 0.35
+              }
+            },
+            "layer": "Drawing"
+          },
+          {
+            "id": "format-zone-x1",
+            "item": {
+              "alignment": "left",
+              "frame": {
+                "height": 4.0,
+                "width": 2.161221590909091,
+                "x": 37.519389204545455,
+                "y": 268.60499999999996
+              },
+              "kind": "text",
+              "leader": null,
+              "runs": [
+                {
+                  "color": [
+                    0,
+                    0,
+                    0,
+                    255
+                  ],
+                  "height": 2.5,
+                  "text": "1"
+                }
+              ]
+            },
+            "layer": "Drawing"
+          },
+          {
+            "id": "format-tick-x1-b",
+            "item": {
+              "closed": false,
+              "fill": null,
+              "kind": "shape",
+              "points": [
+                [
+                  63.5,
+                  12.7
+                ],
+                [
+                  63.5,
+                  5.08
+                ]
+              ],
+              "shape": "polyline",
+              "stroke": {
+                "color": [
+                  0,
+                  0,
+                  0,
+                  255
+                ],
+                "dash": [],
+                "width": 0.35
+              }
+            },
+            "layer": "Drawing"
+          },
+          {
+            "id": "format-tick-x1-t",
+            "item": {
+              "closed": false,
+              "fill": null,
+              "kind": "shape",
+              "points": [
+                [
+                  63.5,
+                  266.7
+                ],
+                [
+                  63.5,
+                  274.32
+                ]
+              ],
+              "shape": "polyline",
+              "stroke": {
+                "color": [
+                  0,
+                  0,
+                  0,
+                  255
+                ],
+                "dash": [],
+                "width": 0.35
+              }
+            },
+            "layer": "Drawing"
+          },
+          {
+            "id": "format-zone-x2",
+            "item": {
+              "alignment": "left",
+              "frame": {
+                "height": 4.0,
+                "width": 2.512784090909091,
+                "x": 88.14360795454546,
+                "y": 268.60499999999996
+              },
+              "kind": "text",
+              "leader": null,
+              "runs": [
+                {
+                  "color": [
+                    0,
+                    0,
+                    0,
+                    255
+                  ],
+                  "height": 2.5,
+                  "text": "2"
+                }
+              ]
+            },
+            "layer": "Drawing"
+          },
+          {
+            "id": "format-tick-x2-b",
+            "item": {
+              "closed": false,
+              "fill": null,
+              "kind": "shape",
+              "points": [
+                [
+                  114.30000000000001,
+                  12.7
+                ],
+                [
+                  114.30000000000001,
+                  5.08
+                ]
+              ],
+              "shape": "polyline",
+              "stroke": {
+                "color": [
+                  0,
+                  0,
+                  0,
+                  255
+                ],
+                "dash": [],
+                "width": 0.35
+              }
+            },
+            "layer": "Drawing"
+          },
+          {
+            "id": "format-tick-x2-t",
+            "item": {
+              "closed": false,
+              "fill": null,
+              "kind": "shape",
+              "points": [
+                [
+                  114.30000000000001,
+                  266.7
+                ],
+                [
+                  114.30000000000001,
+                  274.32
+                ]
+              ],
+              "shape": "polyline",
+              "stroke": {
+                "color": [
+                  0,
+                  0,
+                  0,
+                  255
+                ],
+                "dash": [],
+                "width": 0.35
+              }
+            },
+            "layer": "Drawing"
+          },
+          {
+            "id": "format-zone-x3",
+            "item": {
+              "alignment": "left",
+              "frame": {
+                "height": 4.0,
+                "width": 2.590909090909091,
+                "x": 138.90454545454548,
+                "y": 268.60499999999996
+              },
+              "kind": "text",
+              "leader": null,
+              "runs": [
+                {
+                  "color": [
+                    0,
+                    0,
+                    0,
+                    255
+                  ],
+                  "height": 2.5,
+                  "text": "3"
+                }
+              ]
+            },
+            "layer": "Drawing"
+          },
+          {
+            "id": "format-tick-x3-b",
+            "item": {
+              "closed": false,
+              "fill": null,
+              "kind": "shape",
+              "points": [
+                [
+                  165.1,
+                  12.7
+                ],
+                [
+                  165.1,
+                  5.08
+                ]
+              ],
+              "shape": "polyline",
+              "stroke": {
+                "color": [
+                  0,
+                  0,
+                  0,
+                  255
+                ],
+                "dash": [],
+                "width": 0.35
+              }
+            },
+            "layer": "Drawing"
+          },
+          {
+            "id": "format-tick-x3-t",
+            "item": {
+              "closed": false,
+              "fill": null,
+              "kind": "shape",
+              "points": [
+                [
+                  165.1,
+                  266.7
+                ],
+                [
+                  165.1,
+                  274.32
+                ]
+              ],
+              "shape": "polyline",
+              "stroke": {
+                "color": [
+                  0,
+                  0,
+                  0,
+                  255
+                ],
+                "dash": [],
+                "width": 0.35
+              }
+            },
+            "layer": "Drawing"
+          },
+          {
+            "id": "format-zone-x4",
+            "item": {
+              "alignment": "left",
+              "frame": {
+                "height": 4.0,
+                "width": 2.6051136363636367,
+                "x": 189.6974431818182,
+                "y": 268.60499999999996
+              },
+              "kind": "text",
+              "leader": null,
+              "runs": [
+                {
+                  "color": [
+                    0,
+                    0,
+                    0,
+                    255
+                  ],
+                  "height": 2.5,
+                  "text": "4"
+                }
+              ]
+            },
+            "layer": "Drawing"
+          },
+          {
+            "id": "format-tick-x4-b",
+            "item": {
+              "closed": false,
+              "fill": null,
+              "kind": "shape",
+              "points": [
+                [
+                  215.9,
+                  12.7
+                ],
+                [
+                  215.9,
+                  5.08
+                ]
+              ],
+              "shape": "polyline",
+              "stroke": {
+                "color": [
+                  0,
+                  0,
+                  0,
+                  255
+                ],
+                "dash": [],
+                "width": 0.35
+              }
+            },
+            "layer": "Drawing"
+          },
+          {
+            "id": "format-tick-x4-t",
+            "item": {
+              "closed": false,
+              "fill": null,
+              "kind": "shape",
+              "points": [
+                [
+                  215.9,
+                  266.7
+                ],
+                [
+                  215.9,
+                  274.32
+                ]
+              ],
+              "shape": "polyline",
+              "stroke": {
+                "color": [
+                  0,
+                  0,
+                  0,
+                  255
+                ],
+                "dash": [],
+                "width": 0.35
+              }
+            },
+            "layer": "Drawing"
+          },
+          {
+            "id": "format-zone-x5",
+            "item": {
+              "alignment": "left",
+              "frame": {
+                "height": 4.0,
+                "width": 2.5198863636363633,
+                "x": 240.54005681818182,
+                "y": 268.60499999999996
+              },
+              "kind": "text",
+              "leader": null,
+              "runs": [
+                {
+                  "color": [
+                    0,
+                    0,
+                    0,
+                    255
+                  ],
+                  "height": 2.5,
+                  "text": "5"
+                }
+              ]
+            },
+            "layer": "Drawing"
+          },
+          {
+            "id": "format-tick-x5-b",
+            "item": {
+              "closed": false,
+              "fill": null,
+              "kind": "shape",
+              "points": [
+                [
+                  266.70000000000005,
+                  12.7
+                ],
+                [
+                  266.70000000000005,
+                  5.08
+                ]
+              ],
+              "shape": "polyline",
+              "stroke": {
+                "color": [
+                  0,
+                  0,
+                  0,
+                  255
+                ],
+                "dash": [],
+                "width": 0.35
+              }
+            },
+            "layer": "Drawing"
+          },
+          {
+            "id": "format-tick-x5-t",
+            "item": {
+              "closed": false,
+              "fill": null,
+              "kind": "shape",
+              "points": [
+                [
+                  266.70000000000005,
+                  266.7
+                ],
+                [
+                  266.70000000000005,
+                  274.32
+                ]
+              ],
+              "shape": "polyline",
+              "stroke": {
+                "color": [
+                  0,
+                  0,
+                  0,
+                  255
+                ],
+                "dash": [],
+                "width": 0.35
+              }
+            },
+            "layer": "Drawing"
+          },
+          {
+            "id": "format-zone-x6",
+            "item": {
+              "alignment": "left",
+              "frame": {
+                "height": 4.0,
+                "width": 2.5589488636363633,
+                "x": 291.32052556818184,
+                "y": 268.60499999999996
+              },
+              "kind": "text",
+              "leader": null,
+              "runs": [
+                {
+                  "color": [
+                    0,
+                    0,
+                    0,
+                    255
+                  ],
+                  "height": 2.5,
+                  "text": "6"
+                }
+              ]
+            },
+            "layer": "Drawing"
+          },
+          {
+            "id": "format-tick-x6-b",
+            "item": {
+              "closed": false,
+              "fill": null,
+              "kind": "shape",
+              "points": [
+                [
+                  317.5,
+                  12.7
+                ],
+                [
+                  317.5,
+                  5.08
+                ]
+              ],
+              "shape": "polyline",
+              "stroke": {
+                "color": [
+                  0,
+                  0,
+                  0,
+                  255
+                ],
+                "dash": [],
+                "width": 0.35
+              }
+            },
+            "layer": "Drawing"
+          },
+          {
+            "id": "format-tick-x6-t",
+            "item": {
+              "closed": false,
+              "fill": null,
+              "kind": "shape",
+              "points": [
+                [
+                  317.5,
+                  266.7
+                ],
+                [
+                  317.5,
+                  274.32
+                ]
+              ],
+              "shape": "polyline",
+              "stroke": {
+                "color": [
+                  0,
+                  0,
+                  0,
+                  255
+                ],
+                "dash": [],
+                "width": 0.35
+              }
+            },
+            "layer": "Drawing"
+          },
+          {
+            "id": "format-zone-x7",
+            "item": {
+              "alignment": "left",
+              "frame": {
+                "height": 4.0,
+                "width": 2.4275568181818183,
+                "x": 342.18622159090904,
+                "y": 268.60499999999996
+              },
+              "kind": "text",
+              "leader": null,
+              "runs": [
+                {
+                  "color": [
+                    0,
+                    0,
+                    0,
+                    255
+                  ],
+                  "height": 2.5,
+                  "text": "7"
+                }
+              ]
+            },
+            "layer": "Drawing"
+          },
+          {
+            "id": "format-tick-x7-b",
+            "item": {
+              "closed": false,
+              "fill": null,
+              "kind": "shape",
+              "points": [
+                [
+                  368.3,
+                  12.7
+                ],
+                [
+                  368.3,
+                  5.08
+                ]
+              ],
+              "shape": "polyline",
+              "stroke": {
+                "color": [
+                  0,
+                  0,
+                  0,
+                  255
+                ],
+                "dash": [],
+                "width": 0.35
+              }
+            },
+            "layer": "Drawing"
+          },
+          {
+            "id": "format-tick-x7-t",
+            "item": {
+              "closed": false,
+              "fill": null,
+              "kind": "shape",
+              "points": [
+                [
+                  368.3,
+                  266.7
+                ],
+                [
+                  368.3,
+                  274.32
+                ]
+              ],
+              "shape": "polyline",
+              "stroke": {
+                "color": [
+                  0,
+                  0,
+                  0,
+                  255
+                ],
+                "dash": [],
+                "width": 0.35
+              }
+            },
+            "layer": "Drawing"
+          },
+          {
+            "id": "format-zone-x8",
+            "item": {
+              "alignment": "left",
+              "frame": {
+                "height": 4.0,
+                "width": 2.5411931818181817,
+                "x": 392.9294034090909,
+                "y": 268.60499999999996
+              },
+              "kind": "text",
+              "leader": null,
+              "runs": [
+                {
+                  "color": [
+                    0,
+                    0,
+                    0,
+                    255
+                  ],
+                  "height": 2.5,
+                  "text": "8"
+                }
+              ]
+            },
+            "layer": "Drawing"
+          },
+          {
+            "id": "format-tick-x8-b",
+            "item": {
+              "closed": false,
+              "fill": null,
+              "kind": "shape",
+              "points": [
+                [
+                  419.1,
+                  12.7
+                ],
+                [
+                  419.1,
+                  5.08
+                ]
+              ],
+              "shape": "polyline",
+              "stroke": {
+                "color": [
+                  0,
+                  0,
+                  0,
+                  255
+                ],
+                "dash": [],
+                "width": 0.35
+              }
+            },
+            "layer": "Drawing"
+          },
+          {
+            "id": "format-tick-x8-t",
+            "item": {
+              "closed": false,
+              "fill": null,
+              "kind": "shape",
+              "points": [
+                [
+                  419.1,
+                  266.7
+                ],
+                [
+                  419.1,
+                  274.32
+                ]
+              ],
+              "shape": "polyline",
+              "stroke": {
+                "color": [
+                  0,
+                  0,
+                  0,
+                  255
+                ],
+                "dash": [],
+                "width": 0.35
+              }
+            },
+            "layer": "Drawing"
+          },
+          {
+            "id": "format-tick-y0",
+            "item": {
+              "closed": false,
+              "fill": null,
+              "kind": "shape",
+              "points": [
+                [
+                  12.7,
+                  12.7
+                ],
+                [
+                  8.89,
+                  12.7
+                ]
+              ],
+              "shape": "polyline",
+              "stroke": {
+                "color": [
+                  0,
+                  0,
+                  0,
+                  255
+                ],
+                "dash": [],
+                "width": 0.35
+              }
+            },
+            "layer": "Drawing"
+          },
+          {
+            "id": "format-zone-yE",
+            "item": {
+              "alignment": "left",
+              "frame": {
+                "height": 4.0,
+                "width": 2.495028409090909,
+                "x": 5.08,
+                "y": 36.849999999999994
+              },
+              "kind": "text",
+              "leader": null,
+              "runs": [
+                {
+                  "color": [
+                    0,
+                    0,
+                    0,
+                    255
+                  ],
+                  "height": 2.5,
+                  "text": "E"
+                }
+              ]
+            },
+            "layer": "Drawing"
+          },
+          {
+            "id": "format-tick-y1",
+            "item": {
+              "closed": false,
+              "fill": null,
+              "kind": "shape",
+              "points": [
+                [
+                  12.7,
+                  63.5
+                ],
+                [
+                  8.89,
+                  63.5
+                ]
+              ],
+              "shape": "polyline",
+              "stroke": {
+                "color": [
+                  0,
+                  0,
+                  0,
+                  255
+                ],
+                "dash": [],
+                "width": 0.35
+              }
+            },
+            "layer": "Drawing"
+          },
+          {
+            "id": "format-zone-yD",
+            "item": {
+              "alignment": "left",
+              "frame": {
+                "height": 4.0,
+                "width": 2.796875,
+                "x": 5.08,
+                "y": 87.65
+              },
+              "kind": "text",
+              "leader": null,
+              "runs": [
+                {
+                  "color": [
+                    0,
+                    0,
+                    0,
+                    255
+                  ],
+                  "height": 2.5,
+                  "text": "D"
+                }
+              ]
+            },
+            "layer": "Drawing"
+          },
+          {
+            "id": "format-tick-y2",
+            "item": {
+              "closed": false,
+              "fill": null,
+              "kind": "shape",
+              "points": [
+                [
+                  12.7,
+                  114.3
+                ],
+                [
+                  8.89,
+                  114.3
+                ]
+              ],
+              "shape": "polyline",
+              "stroke": {
+                "color": [
+                  0,
+                  0,
+                  0,
+                  255
+                ],
+                "dash": [],
+                "width": 0.35
+              }
+            },
+            "layer": "Drawing"
+          },
+          {
+            "id": "format-zone-yC",
+            "item": {
+              "alignment": "left",
+              "frame": {
+                "height": 4.0,
+                "width": 2.8181818181818183,
+                "x": 5.08,
+                "y": 138.45
+              },
+              "kind": "text",
+              "leader": null,
+              "runs": [
+                {
+                  "color": [
+                    0,
+                    0,
+                    0,
+                    255
+                  ],
+                  "height": 2.5,
+                  "text": "C"
+                }
+              ]
+            },
+            "layer": "Drawing"
+          },
+          {
+            "id": "format-tick-y3",
+            "item": {
+              "closed": false,
+              "fill": null,
+              "kind": "shape",
+              "points": [
+                [
+                  12.7,
+                  165.09999999999997
+                ],
+                [
+                  8.89,
+                  165.09999999999997
+                ]
+              ],
+              "shape": "polyline",
+              "stroke": {
+                "color": [
+                  0,
+                  0,
+                  0,
+                  255
+                ],
+                "dash": [],
+                "width": 0.35
+              }
+            },
+            "layer": "Drawing"
+          },
+          {
+            "id": "format-zone-yB",
+            "item": {
+              "alignment": "left",
+              "frame": {
+                "height": 4.0,
+                "width": 2.6264204545454546,
+                "x": 5.08,
+                "y": 189.24999999999997
+              },
+              "kind": "text",
+              "leader": null,
+              "runs": [
+                {
+                  "color": [
+                    0,
+                    0,
+                    0,
+                    255
+                  ],
+                  "height": 2.5,
+                  "text": "B"
+                }
+              ]
+            },
+            "layer": "Drawing"
+          },
+          {
+            "id": "format-tick-y4",
+            "item": {
+              "closed": false,
+              "fill": null,
+              "kind": "shape",
+              "points": [
+                [
+                  12.7,
+                  215.89999999999998
+                ],
+                [
+                  8.89,
+                  215.89999999999998
+                ]
+              ],
+              "shape": "polyline",
+              "stroke": {
+                "color": [
+                  0,
+                  0,
+                  0,
+                  255
+                ],
+                "dash": [],
+                "width": 0.35
+              }
+            },
+            "layer": "Drawing"
+          },
+          {
+            "id": "format-zone-yA",
+            "item": {
+              "alignment": "left",
+              "frame": {
+                "height": 4.0,
+                "width": 2.690340909090909,
+                "x": 5.08,
+                "y": 240.04999999999998
+              },
+              "kind": "text",
+              "leader": null,
+              "runs": [
+                {
+                  "color": [
+                    0,
+                    0,
+                    0,
+                    255
+                  ],
+                  "height": 2.5,
+                  "text": "A"
+                }
+              ]
+            },
+            "layer": "Drawing"
+          },
+          {
+            "id": "format-tick-y5",
+            "item": {
+              "closed": false,
+              "fill": null,
+              "kind": "shape",
+              "points": [
+                [
+                  12.7,
+                  266.69999999999993
+                ],
+                [
+                  8.89,
+                  266.69999999999993
+                ]
+              ],
+              "shape": "polyline",
+              "stroke": {
+                "color": [
+                  0,
+                  0,
+                  0,
+                  255
+                ],
+                "dash": [],
+                "width": 0.35
+              }
+            },
+            "layer": "Drawing"
+          },
+          {
+            "id": "format-title",
+            "item": {
+              "fields": {
+                "Approved by": "",
+                "Created by": "",
+                "Date of issue": "",
+                "Document type": "",
+                "Drawing number": "",
+                "Owner": "",
+                "Projection": "third angle",
+                "Revision": "",
+                "Scale": "",
+                "Title": ""
+              },
+              "frame": {
+                "height": 56.0,
+                "width": 180.0,
+                "x": 239.10000000000002,
+                "y": 12.7
+              },
+              "kind": "title-block"
+            },
+            "layer": "Drawing"
+          },
+          {
+            "id": "format-projection-side",
+            "item": {
+              "closed": true,
+              "fill": null,
+              "kind": "shape",
+              "points": [
+                [
+                  391.1,
+                  74.7
+                ],
+                [
+                  405.1,
+                  72.7
+                ],
+                [
+                  405.1,
+                  84.7
+                ],
+                [
+                  391.1,
+                  82.7
+                ]
+              ],
+              "shape": "polyline",
+              "stroke": {
+                "color": [
+                  0,
+                  0,
+                  0,
+                  255
+                ],
+                "dash": [],
+                "width": 0.35
+              }
+            },
+            "layer": "Drawing"
+          },
+          {
+            "id": "format-projection-outer",
+            "item": {
+              "closed": true,
+              "fill": null,
+              "kind": "shape",
+              "points": [
+                [
+                  376.1,
+                  72.7
+                ],
+                [
+                  388.1,
+                  84.7
+                ]
+              ],
+              "shape": "ellipse",
+              "stroke": {
+                "color": [
+                  0,
+                  0,
+                  0,
+                  255
+                ],
+                "dash": [],
+                "width": 0.35
+              }
+            },
+            "layer": "Drawing"
+          },
+          {
+            "id": "format-projection-inner",
+            "item": {
+              "closed": true,
+              "fill": null,
+              "kind": "shape",
+              "points": [
+                [
+                  378.1,
+                  74.7
+                ],
+                [
+                  386.1,
+                  82.7
+                ]
+              ],
+              "shape": "ellipse",
+              "stroke": {
+                "color": [
+                  0,
+                  0,
+                  0,
+                  255
+                ],
+                "dash": [],
+                "width": 0.35
+              }
+            },
+            "layer": "Drawing"
+          }
+        ],
+        "layers": [
+          {
+            "locked": false,
+            "name": "Drawing",
+            "visible": true
+          }
+        ],
+        "name": "P1",
+        "paper": {
+          "height": 279.4,
+          "margin": 12.7,
+          "width": 431.8
+        }
+      }
+    ],
+    "paper_defaults": {
+      "height": 210.0,
+      "margin": 10.0,
+      "width": 297.0
+    },
+    "styles": {
+      "edge": {
+        "color": [
+          0,
+          0,
+          0,
+          255
+        ],
+        "dash": [],
+        "width": 0.25
+      },
+      "pens": {},
+      "profile": {
+        "color": [
+          0,
+          0,
+          0,
+          255
+        ],
+        "dash": [],
+        "width": 0.5
+      },
+      "text_height": 3.5
+    },
+    "title_block": null
+  },
+  "styles": {
+    "active": {
+      "idx": 1,
+      "version": 1
+    },
+    "items": [
+      [
+        {
+          "idx": 1,
+          "version": 1
+        },
+        {
+          "background": {
+            "color": {
+              "a": 255,
+              "b": 255,
+              "g": 255,
+              "r": 255
+            },
+            "ground": null,
+            "show_ground_from_below": false,
+            "sky": {
+              "a": 255,
+              "b": 242,
+              "g": 225,
+              "r": 206
+            }
+          },
+          "edges": {
+            "back_edges": false,
+            "color": "all",
+            "depth_cue": null,
+            "endpoints": null,
+            "extension": null,
+            "jitter": false,
+            "profiles": 2,
+            "show": true
+          },
+          "faces": {
+            "back_default": {
+              "a": 255,
+              "b": 200,
+              "g": 180,
+              "r": 160
+            },
+            "front_default": {
+              "a": 255,
+              "b": 255,
+              "g": 255,
+              "r": 255
+            },
+            "mode": "shaded-textured"
+          },
+          "fog": null,
+          "modeling": {
+            "guide_color": {
+              "a": 255,
+              "b": 64,
+              "g": 64,
+              "r": 64
+            },
+            "inactive_fade": 0.5,
+            "locked_color": {
+              "a": 255,
+              "b": 48,
+              "g": 48,
+              "r": 208
+            },
+            "section_fill": {
+              "a": 255,
+              "b": 64,
+              "g": 64,
+              "r": 64
+            },
+            "section_line_color": {
+              "a": 255,
+              "b": 0,
+              "g": 0,
+              "r": 0
+            },
+            "section_line_width_px": 3.0,
+            "selection_color": {
+              "a": 255,
+              "b": 255,
+              "g": 144,
+              "r": 30
+            }
+          },
+          "name": "Default",
+          "watermarks": []
+        }
+      ]
+    ],
+    "order": [
+      {
+        "idx": 1,
+        "version": 1
+      }
+    ]
+  },
+  "tags": {
+    "folder_order": [],
+    "folders": [],
+    "order": [
+      {
+        "idx": 1,
+        "version": 1
+      }
+    ],
+    "tags": [
+      [
+        {
+          "idx": 1,
+          "version": 1
+        },
+        {
+          "color": {
+            "a": 255,
+            "b": 128,
+            "g": 128,
+            "r": 128
+          },
+          "folder": null,
+          "line_style": "solid",
+          "name": "Untagged",
+          "visible": true
+        }
+      ]
+    ],
+    "untagged": {
+      "idx": 1,
+      "version": 1
+    }
+  }
+}

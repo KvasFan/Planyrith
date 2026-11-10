@@ -1,0 +1,11 @@
+# A position tolerance, a datum, a surface texture and a weld symbol.
+rectangle --corner-a 0,0,0 --corner-b 120,80,0
+push-pull --face '{face & last}' --distance 30
+hole --face 'face & plane:xy@30' --center 40,40,30 --kind counterbore --size M10
+camera-standard --view front --extents
+sheet-add-page --page P1 --paper a3 --landscape
+sheet-add-view --page P1 --id front --scale 1:1 --params-json '{"frame":{"x":40,"y":160,"width":150,"height":60}}'
+sheet-add-annotation --page P1 --params-json '{"at":[60,235],"leader":[70,215],"annotation":{"type":"feature-control","characteristic":"position","tolerance":"0.1","diameter":true,"modifier":"maximum","datums":["A","B"]}}'
+sheet-add-annotation --page P1 --params-json '{"at":[30,140],"annotation":{"type":"datum","letter":"A"}}'
+sheet-add-annotation --page P1 --params-json '{"at":[200,200],"annotation":{"type":"surface-finish","value":"Ra 1.6","machining":"required"}}'
+sheet-add-annotation --page P1 --params-json '{"at":[250,240],"leader":[230,225],"annotation":{"type":"weld","kind":"fillet","size":"a5","length":"100","all_around":true,"field":true}}'

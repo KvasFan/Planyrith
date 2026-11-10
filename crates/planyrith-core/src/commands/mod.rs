@@ -18,6 +18,7 @@ pub mod assembly;
 pub(crate) mod common;
 pub mod constrain;
 pub mod draw;
+pub mod drawings;
 pub mod edit;
 pub mod features;
 pub mod file;
@@ -423,6 +424,7 @@ impl CommandRegistry {
         features::register(&mut registry);
         solid_features::register(&mut registry);
         assembly::register(&mut registry);
+        drawings::register(&mut registry);
         sheets::register(&mut registry);
         #[cfg(feature = "scripting")]
         registry.register(crate::scripting::ScriptEval);

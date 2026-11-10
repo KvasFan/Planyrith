@@ -120,7 +120,70 @@ DXF images are PNG side files beside the drawing. Query columns are `pid`, `kind
 - HLR correctness goldens on fixtures (house plan/section/elevation).
 - Re-measure test: move a wall → sheet dimension updates after `sheet-refresh`.
 
+## 9. Engineering drawings (1.13)
+
+Everything below is optional fields of the existing items (`ModelView.derived`,
+`ModelView.breaks`, `Text.annotation`), so the frozen format only grows (docs/09 §4): an older
+reader draws a derived view with the camera saved when it was made and a symbol as its plain
+text.
+
+### 9.1 Derived views
+A view may follow a **base view** on the same page; its camera (and a section's cut) is derived
+again at every layout, so turning or moving the base, or changing the model, carries over. The
+frame is fitted to what the view shows when it is made (the side shared with the base keeps the
+base's size, so the views line up); later changes of the base do not refit it.
+
+| Command | Derivation |
+|---|---|
+| `sheet-add-projected-view { page, base, side: left\|right\|above\|below, projection?, gap (10) }` | The base turned a quarter turn: first angle (ISO) puts the view seen from the left on the right; third angle (ANSI) puts it on the left. `projection` defaults to the page title block's `Projection` field, else first angle. Same target and scale, so points line up across the views. |
+| `sheet-add-auxiliary-view { page, base, direction, side, gap }` | Looks along a model `direction` (square to an inclined face), its up the base's up made square to it. |
+| `sheet-add-section-view { page, base, line: [[x,y],[x,y]], label (A), flip, side, gap }` | The plane through the cutting line drawn on the base view and the base's viewing direction cuts the model **in this view only** (a section plane is added to the view's own copy of the document, never to the model); the view looks square to the cut from the arrows' side and its cut faces are hatched (45°, 2.5 mm). The command also places the cutting line (chain line, thick ends), arrows and letters on the base, and "SECTION A-A" under the view. |
+| `sheet-add-detail-view { page, base, center, radius, scale (2:1), label (B), side, gap }` | The base enlarged around a paper point, clipped to a circle; the circle and letter go on the base and "DETAIL B (2:1)" under the view. |
+
+### 9.2 Broken views
+`sheet-add-break { page, view, axis: horizontal|vertical, from, to, gap (4) }` removes the band
+`from..to` (paper mm along the axis) from a vector view: graphics beyond it move back by its
+width less the gap, two zigzag lines mark the break, and the view's clip shrinks to match.
+Bands follow the view when it moves. Raster views are not broken. Dimensions keep measuring the
+model, but their lines are not moved with the far side of a break: place them clear of breaks.
+
+### 9.3 Symbols
+`sheet-add-annotation { page, annotation, at, leader? }` places a structured symbol drawn as
+vector graphics (no special font glyphs are needed in exports):
+- `feature-control`: characteristic (straightness, flatness, circularity, cylindricity,
+  profile-line, profile-surface, angularity, perpendicularity, parallelism, position,
+  concentricity, symmetry, circular-runout, total-runout), tolerance, `diameter` (⌀),
+  `modifier` (maximum Ⓜ, least Ⓛ), up to three datums;
+- `datum`: a lettered box on a filled triangle;
+- `surface-finish`: the check mark with `machining` any, required (bar) or prohibited
+  (circle), and the requirement written on its extension (`Ra 1.6`);
+- `weld`: the reference line with fillet, square, V, bevel, plug or spot symbol on the arrow
+  side or `other_side`, size and length, `all_around` circle and `field` flag;
+- `balloon`: a numbered circle; its leader ends in a dot.
+
+### 9.4 Balloons and bills of materials
+`sheet-add-balloon { page, at, leader, component | text }` numbers the balloon with the
+component's item in the bill of materials of the whole model (nested components counted, docs/05
+§5.17), and a table with `query: "bill-of-materials"` lists Item, Name, Qty, Part number and
+Description in the same order.
+
+### 9.5 Standard formats
+`sheet-format { page, standard: iso|ansi, size, landscape?, fields, projection? }` sets the
+paper (ISO 5457 A0–A4; ANSI A–E), draws the drawing frame (ISO: 20 mm filing margin on the left,
+10 mm elsewhere; ANSI: 12.7 mm), zone ticks and labels about every 50 mm (numbers left to right,
+letters top down), a 180 × 56 mm title block with the ISO 7200 fields (Title, Drawing number,
+Owner, Created by, Approved by, Document type, Date of issue, Revision, Scale, Projection) and
+the projection method symbol. Its items have ids `format-…`; running it again replaces them.
+
 ## Decisions
+
+- 2026-11-10 — **Engineering drawings as optional fields** (§9). The frozen format forbids new
+  item kinds, so derivations, breaks and symbols are optional fields of `ModelView` and `Text`.
+  Derived views keep a saved camera too, so older readers still draw something sensible.
+  Sections cut a per-view copy of the document rather than adding section planes to the model,
+  so drawings never change the model. Symbols are vector graphics because export fonts do not
+  carry the tolerance glyphs.
+
 
 - 2026-10-29 — **0.9 implementation.** Pages, typed item values, settings and
   stable string item ids live in the document's Sheets set. `sheets.msgpack` is

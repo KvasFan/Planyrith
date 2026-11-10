@@ -569,7 +569,7 @@ impl Command for Hole {
                 reason: "must be between 8 and 256".into(),
             });
         }
-        hole_profile(p, 10.0, 1.0).map(|_| ())
+        hole_profile(p, p.depth.map_or(1.0e6, |d| d.as_mm()), 1.0).map(|_| ())
     }
 
     fn apply(
@@ -1304,6 +1304,14 @@ mod tests {
             })
             .count();
         assert!(threaded >= 64, "{threaded}");
+        // Through-all counterbores deeper than a nominal depth are fine.
+        let mut e2 = block([100.0, 100.0, 30.0]);
+        e2.execute_erased(
+            "hole",
+            json!({ "face": top(30.0), "center": [40, 40, 30], "kind": "counterbore", "size": "M10" }),
+        )
+        .unwrap();
+        assert!(e2.document().model.mesh().is_solid());
         for kind in ["counterbore", "countersink", "clearance"] {
             let mut e = block([100.0, 100.0, 20.0]);
             let before = volume(&e);
