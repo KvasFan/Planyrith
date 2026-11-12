@@ -25,7 +25,7 @@ Canonical vocabulary. Use these terms in code identifiers, docs and UI strings.
 | **Entity** | Any addressable thing in a container: edge, face, group, instance, guide, dimension, text, image, section plane. |
 | **Face** | A planar polygon with one outer loop and zero or more holes; has a front and a back. |
 | **Face finding** | Detecting closed coplanar edge loops and creating faces automatically (`docs/03 §4.3`). |
-| **Fitting** | An independent hollow sleeve or concentric reducer in a routed assembly; its sizes describe its own outer diameter and wall. |
+| **Fitting** | An independent hollow sleeve, concentric reducer, tee or cross in a routed assembly; its sizes describe its own outer diameter and wall. |
 | **Front / back** | The two sides of a face; the front is along the normal and gets the front material. |
 | **Glue** | Component behavior that attaches an instance to a face and slides along it. |
 | **Group** | A single-instance, anonymous component used to isolate geometry. |

@@ -117,6 +117,14 @@ fn molds_and_routing_from_cli_and_gui_have_identical_canonical_state() {
             "route-fitting",
             json!({"kind": "reducer", "size": "32x2", "outlet_diameter": 20, "position": [400,0,0]}),
         ),
+        (
+            "route-fitting",
+            json!({"kind": "tee", "length": 50, "branch_length": 30, "position": [500,0,0]}),
+        ),
+        (
+            "route-fitting",
+            json!({"kind": "cross", "position": [600,0,0], "axis": [0,1,0], "branch_axis": [0,0,1]}),
+        ),
     ] {
         gui.execute(name, params.clone()).unwrap();
         let output = Command::new(cli())

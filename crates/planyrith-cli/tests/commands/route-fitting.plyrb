@@ -1,2 +1,4 @@
 # An annular concentric reducer, positioned along the red axis.
 route-fitting --kind reducer --size 32x2 --outlet-diameter 20mm --length 40mm --position 100,0,0 --axis x
+route-fitting --kind tee --size 20x1.5 --length 50mm --branch-length 30mm --position 200,0,0 --axis y --branch-axis z
+route-fitting --kind cross --size 20x1.5 --length 50mm --branch-length 30mm --position 300,0,0

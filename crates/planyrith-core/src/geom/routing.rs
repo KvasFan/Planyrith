@@ -357,6 +357,73 @@ pub fn fitting(
     )
 }
 
+/// Equal-section tee (`cross = false`) or four-port cross centered at
+/// the origin: main ports on ±Z, branch ports on +X (and −X for a cross).
+/// Booleans join the wall envelopes and their communicating bores.
+pub fn junction(
+    size: TubeSize,
+    length: f64,
+    branch_length: f64,
+    cross: bool,
+    tol: &Tolerances,
+) -> Result<HalfEdgeMesh, GeometryError> {
+    use crate::geom::boolean::{BooleanOp, boolean};
+    use crate::geom::loft::loft;
+    use glam::DAffine3;
+    size.check(tol)?;
+    let radius = size.diameter * 0.5;
+    if !length.is_finite()
+        || !branch_length.is_finite()
+        || length * 0.5 <= radius + tol.planarity
+        || branch_length <= radius + tol.planarity
+    {
+        return Err(bad(
+            "main half-length and branch length must exceed the outer radius plus planarity tolerance",
+        ));
+    }
+    let cylinder = |r: f64, start: f64, end: f64, branch: bool| {
+        let ring = |h: f64| {
+            (0..24)
+                .map(|j| {
+                    let angle = std::f64::consts::TAU * f64::from(j) / 24.0;
+                    let (a, b) = (r * libm::cos(angle), r * libm::sin(angle));
+                    if branch {
+                        DVec3::new(h, a, b)
+                    } else {
+                        DVec3::new(a, b, h)
+                    }
+                })
+                .collect()
+        };
+        loft(&[ring(start), ring(end)], FaceSides::default(), tol)
+    };
+    let combine = |op, a: &HalfEdgeMesh, b: &HalfEdgeMesh| -> Result<HalfEdgeMesh, GeometryError> {
+        let mut result = boolean(op, a, &DAffine3::IDENTITY, b, &DAffine3::IDENTITY, tol)?;
+        if result.solids.len() != 1 {
+            return Err(bad("the junction did not form one wall shell"));
+        }
+        result.solids.pop().ok_or_else(|| bad("empty junction"))
+    };
+    let envelope = |r: f64, extra: f64| {
+        let main = cylinder(r, -length * 0.5 - extra, length * 0.5 + extra, false)?;
+        let branch = cylinder(
+            r,
+            if cross { -branch_length - extra } else { 0.0 },
+            branch_length + extra,
+            true,
+        )?;
+        combine(BooleanOp::Union, &main, &branch)
+    };
+    let outer = envelope(radius, 0.0)?;
+    // Bore caps extend beyond the wall envelope, so subtraction opens every port.
+    let inner = envelope(radius - size.wall, size.wall.max(tol.planarity * 4.0))?;
+    let result = combine(BooleanOp::Subtract, &outer, &inner)?;
+    if !result.is_solid() || result.volume()? <= tol.length_sq * tol.length {
+        return Err(bad("the junction has no closed wall boundary"));
+    }
+    Ok(result)
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
@@ -454,6 +521,48 @@ mod tests {
             classify_point(&m, DVec3::Z * 20.0, &tol).unwrap(),
             Classification::Outside
         );
+    }
+
+    #[test]
+    fn junctions_have_communicating_bores_and_open_ports() {
+        let tol = Tolerances::default();
+        for cross in [false, true] {
+            let mesh =
+                junction(TubeSize::preset("20x1.5").unwrap(), 50.0, 30.0, cross, &tol).unwrap();
+            assert!(mesh.is_solid());
+            assert!(mesh.validate(&tol).is_empty());
+            for p in [
+                DVec3::ZERO,
+                DVec3::Z * 20.0,
+                -DVec3::Z * 20.0,
+                DVec3::X * 20.0,
+                DVec3::Z * 25.0,
+                -DVec3::Z * 25.0,
+                DVec3::X * 30.0,
+            ] {
+                assert_eq!(
+                    classify_point(&mesh, p, &tol).unwrap(),
+                    Classification::Outside,
+                    "{p}"
+                );
+            }
+            for p in [DVec3::new(0.0, 9.0, 20.0), DVec3::new(20.0, 9.0, 0.0)] {
+                assert_eq!(
+                    classify_point(&mesh, p, &tol).unwrap(),
+                    Classification::Inside,
+                    "{p}"
+                );
+            }
+            assert_eq!(
+                classify_point(&mesh, DVec3::new(-20.0, 9.0, 0.0), &tol).unwrap(),
+                if cross {
+                    Classification::Inside
+                } else {
+                    Classification::Outside
+                }
+            );
+        }
+        assert!(junction(TubeSize::preset("20x1.5").unwrap(), 10.0, 30.0, false, &tol).is_err());
     }
 
     proptest! {

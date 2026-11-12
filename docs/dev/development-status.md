@@ -5,7 +5,20 @@ implementation stands, what is done, what remains, and how to resume. Update it 
 every working session. Ground truth for *what to build* stays in `docs/00`–`docs/15`; this file
 is only *progress state*. Release packaging is specified in `docs/16`.
 
-_Last updated: 2026-11-12 (0.11.0-alpha.4 published; main is 0.12.0-alpha.1, unpublished, with milestones 1.7–1.18)._
+_Last updated: 2026-11-12 (0.11.0-alpha.4 published; main is 0.12.0-alpha.1, unpublished, with milestones 1.7–1.19)._
+
+**Continuous development (2026-11-12):** the user requested proceeding through the next
+milestones without stopping at each. Docs/13 plans 1.19 branch fittings, 1.20 thermal convection,
+1.21 assembly tangency, completing explicit gaps in existing milestones. 1.19 is implemented:
+`route-fitting --kind tee|cross` unites outer cylinders and subtracts communicating extended
+bores; explicit branch length and perpendicular direction, matching Routing controls. Core bore,
+wall, placement, rollback, persistence and undo tests pass, as do CLI goldens, RPC and GUI parity.
+No new dependencies. Next in this batch: 1.20, then 1.21, then the full gate and one push.
+
+**Verification of 1.18:** commit `4901120` passed the entire `tools/ci-local.sh`, including
+the browser, Windows tests under Wine and Windows/macOS compilation; optimized CLI/GUI builds
+match all three new command goldens. It is pushed. GitHub run 43229219017 failed before any job
+steps: the account is locked for billing (verified in its annotation). Do not rerun for this.
 
 **1.18 implemented (2026-11-12):** `mold-split` builds two planar mold halves, a section
 wire and the parting surface, with blank margin and shrink compensation; `route` builds hollow

@@ -341,6 +341,10 @@ triangulated. Sleeve/reducer fittings use two such stations, with equal/differen
 Analytic centerline lengths include Rθ; volumes measure the tessellated mesh. Reject collapsed
 bores/walls/facets, reversals, non-finite or out-of-range points, and overlaps between nonlocal
 sampled spans. The bore remains open while the material boundary is a closed solid.
+Equal-section tees and crosses (1.19) unite main and perpendicular branch polygon cylinders,
+then subtract the united bores extended beyond every port. Branch directions and lengths are
+explicit; port lengths must exceed the outer radius plus planarity tolerance. The junction
+remains one closed wall boundary with three/four open bores, without interior caps.
 
 ### 4.23 Planar molds (`geom::mold`)
 Scale a copy of the part about an explicit point (default bounds center), then bound its

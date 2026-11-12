@@ -301,10 +301,39 @@ Mold design (parting line, parting surface, core and cavity, shrink factor) and 
   (`route`, `route-fitting`, §8.19). Tools › Molds… and Routing… use the same commands.
   Nonplanar divisions, automatic undercut resolution and branched junction fittings remain.
 
+## 1.19.0 — Branched routing
+Complete the junction fittings reserved in 1.18: equal-section tees and crosses with
+communicating bores, explicit branch lengths and orientation. Reuse `route-fitting` and its
+GUI, with unchanged sleeve/reducer defaults. Acceptance: solid wall boundaries, open ports,
+bore connectivity, rotated placements, rollback, native/undo and CLI/RPC/GUI tests.
+- **Done (2026-11-12):** `route-fitting --kind tee|cross`, with branch length/direction,
+  communicating bores, native undo/persistence and Routing controls (docs/05 §8.20).
+
+## 1.20.0 — Thermal convection
+Complete the convection boundary condition reserved in 1.16: film coefficient and ambient
+temperature on selected faces, including problems anchored by convection alone. Use consistent
+quadratic boundary integration and report the steady heat balance. Acceptance: analytic bar
+temperature and convection-only energy balance, invalid-condition rejection, native/undo and
+CLI/RPC/GUI tests; existing thermal results stay stable without convection.
+
+## 1.21.0 — Assembly tangency
+Complete the tangent mate reserved in 1.12: circular axes tangent to planes or other circular
+axes (external or internal contact), with exact radii from curve descriptors. Reject circular
+references whose placement distorts their radii. Acceptance: analytic contact distances,
+degrees of freedom, conflicts, transformed occurrences, native/undo and CLI/RPC/GUI tests.
+Other unfinished assembly items, including collision checks during viewport dragging, remain.
+
 ## Post-1.0 candidates
-None open beyond 1.8–1.18.
+Other limits remain listed against their original milestones; no unrelated feature scope is
+added by the continuation milestones 1.19–1.21.
 
 ## Decisions
+
+- 2026-11-12 — **Continuous development after 1.18.** At the user's request to proceed
+  through the next milestones without pausing at each, 1.19–1.21 complete three explicit gaps
+  in the existing engineering milestones: branch fittings, convection and tangent mates.
+  Each keeps the core/CLI/RPC acceptance before GUI integration, with one final local CI gate
+  and push for the batch. This does not authorize a release or a new file-format version.
 
 - 2026-11-09 — **Milestones 1.8–1.18: engineering modeling.** Asked to add every feature a
   feature-based mechanical modeler has and Planyrith lacks, without harming what exists or the

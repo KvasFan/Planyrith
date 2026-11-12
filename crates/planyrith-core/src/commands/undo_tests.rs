@@ -123,6 +123,14 @@ fn molds_and_routing() {
             "route-fitting",
             json!({"kind": "reducer", "size": "32x2", "outlet_diameter": 20, "position": [400,0,0]}),
         ),
+        (
+            "route-fitting",
+            json!({"kind": "tee", "length": 50, "branch_length": 30}),
+        ),
+        (
+            "route-fitting",
+            json!({"kind": "cross", "position": [500,0,0], "axis": [0,1,0], "branch_axis": [0,0,1]}),
+        ),
     ]);
 }
 

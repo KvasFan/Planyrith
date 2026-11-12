@@ -1,7 +1,7 @@
-//! Implements docs/05-modeling-tools.md §8.19: `route` and `route-fitting`.
+//! Implements docs/05-modeling-tools.md §8.19–§8.20: `route` and `route-fitting`.
 //! Geometry is generated in world millimeters then placed in the edit context.
 
-use glam::{DAffine3, DVec3};
+use glam::{DAffine3, DMat3, DVec3};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -15,7 +15,7 @@ use crate::commands::{
 use crate::document::{Document, Query};
 use crate::geom::HalfEdgeMesh;
 use crate::geom::mesh::transform_indexed;
-use crate::geom::routing::{RouteOptions, TubeSize, fitting, route};
+use crate::geom::routing::{RouteOptions, TubeSize, fitting, junction, route};
 use crate::ids::{EntityId, Pid};
 use crate::tolerance::Tolerances;
 use crate::units::Length;
@@ -273,6 +273,16 @@ pub enum FittingKind {
     Coupling,
     /// A concentric reducer.
     Reducer,
+    /// Three communicating ports of the same section.
+    Tee,
+    /// Four communicating ports of the same section.
+    Cross,
+}
+
+impl FittingKind {
+    fn branched(self) -> bool {
+        matches!(self, Self::Tee | Self::Cross)
+    }
 }
 
 /// `route-fitting` parameters.
@@ -281,7 +291,7 @@ pub struct FittingParams {
     /// Common fields.
     #[serde(flatten)]
     pub common: CommonParams,
-    /// Sleeve or concentric reducer.
+    /// Sleeve, concentric reducer, equal-section tee or cross.
     pub kind: FittingKind,
     /// The fitting's own section, not a mating pipe's nominal size.
     #[serde(flatten)]
@@ -300,6 +310,14 @@ pub struct FittingParams {
     #[serde(default = "up")]
     #[schemars(with = "VectorSchema")]
     pub axis: DVec3,
+    /// Junction center to branch port, mm; default length/2. Only tee/cross.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch_length: Option<Length>,
+    /// Branch direction, perpendicular to axis; default a deterministic
+    /// perpendicular (+X for axis +Z). Only tee/cross.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Option<VectorSchema>")]
+    pub branch_axis: Option<DVec3>,
 }
 
 /// The `route-fitting` command.
@@ -344,6 +362,33 @@ impl Command for RouteFitting {
                 "must exceed the length tolerance",
             ));
         }
+        if p.kind.branched() {
+            let branch = p
+                .branch_length
+                .map_or(p.length.as_mm() * 0.5, Length::as_mm);
+            if !branch.is_finite()
+                || branch <= size.diameter * 0.5 + tol.planarity
+                || p.length.as_mm() * 0.5 <= size.diameter * 0.5 + tol.planarity
+            {
+                return Err(CommandError::invalid_param(
+                    "branch_length",
+                    "main half-length and branch length must exceed the outer radius plus planarity tolerance",
+                ));
+            }
+            if let Some(b) = p.branch_axis
+                && (!b.is_finite() || !tol.is_perpendicular(b, p.axis))
+            {
+                return Err(CommandError::invalid_param(
+                    "branch_axis",
+                    "must be finite, nonzero and perpendicular to axis",
+                ));
+            }
+        } else if p.branch_length.is_some() || p.branch_axis.is_some() {
+            return Err(CommandError::invalid_param(
+                "branch_length",
+                "branch options belong only to tee and cross fittings",
+            ));
+        }
         Ok(())
     }
 
@@ -355,14 +400,38 @@ impl Command for RouteFitting {
         let target = target_container(tx, &p.common)?;
         let tol = *tx.tolerances();
         let size = p.section.resolve(&tol)?;
-        let result = fitting(
-            size,
-            p.outlet_diameter.map_or(size.diameter, Length::as_mm),
-            p.length.as_mm(),
-            p.position,
-            p.axis,
-            &tol,
-        )?;
+        let branch_length = p
+            .branch_length
+            .map_or(p.length.as_mm() * 0.5, Length::as_mm);
+        let result = if p.kind.branched() {
+            let mesh = junction(
+                size,
+                p.length.as_mm(),
+                branch_length,
+                p.kind == FittingKind::Cross,
+                &tol,
+            )?;
+            let z = p.axis.normalize();
+            let hint = p.branch_axis.unwrap_or(if z.dot(DVec3::X).abs() < 0.9 {
+                DVec3::X
+            } else {
+                DVec3::Y
+            });
+            let x = (hint - z * hint.dot(z)).normalize();
+            let world =
+                DAffine3::from_mat3_translation(DMat3::from_cols(x, z.cross(x), z), p.position);
+            let (indexed, _) = mesh.to_indexed();
+            HalfEdgeMesh::from_indexed(&transform_indexed(&indexed, &world), &tol)?
+        } else {
+            fitting(
+                size,
+                p.outlet_diameter.map_or(size.diameter, Length::as_mm),
+                p.length.as_mm(),
+                p.position,
+                p.axis,
+                &tol,
+            )?
+        };
         let volume_mm3 = result.volume()?;
         let mesh = local_mesh(&result, &target.local, &tol)?;
         let (group, d) = new_group(
@@ -371,13 +440,25 @@ impl Command for RouteFitting {
             match p.kind {
                 FittingKind::Coupling => "Coupling",
                 FittingKind::Reducer => "Reducer",
+                FittingKind::Tee => "Tee",
+                FittingKind::Cross => "Cross Fitting",
             },
             mesh,
         )?;
         store(tx, d, "route-fitting", &p)?;
         Ok(RouteOutput {
             group,
-            length_mm: p.length.as_mm(),
+            length_mm: p.length.as_mm()
+                + if p.kind.branched() {
+                    branch_length
+                        * if p.kind == FittingKind::Cross {
+                            2.0
+                        } else {
+                            1.0
+                        }
+                } else {
+                    0.0
+                },
             volume_mm3,
             outer_diameter_mm: size.diameter,
             wall_mm: size.wall,

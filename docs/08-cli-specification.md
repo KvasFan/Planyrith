@@ -149,6 +149,11 @@ planyrith tool route -f part.plyr --path selection --outer-diameter 22mm --wall 
 planyrith tool route-fitting -f part.plyr --kind reducer --size 32x2 --outlet-diameter 20mm --length 40mm --axis z
 ```
 
+Branched fittings (1.19) use `route-fitting --kind tee|cross --length 50mm
+--branch-length 30mm --axis z --branch-axis x`. Position is their junction center; main
+ports lie at ±half-length, and branch ports at the branch length. All bores communicate
+and all ports have the selected section (docs/05 §8.20).
+
 ## 3. Server verbs
 
 ### `planyrith serve [--stdio | --socket <path|port>] [--web <port|address> [--web-root <dir>]] [-f model.plyr] [--readonly] [--token <secret>]`

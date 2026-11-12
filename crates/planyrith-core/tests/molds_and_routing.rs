@@ -15,6 +15,52 @@ use std::sync::Arc;
 fn engine() -> Engine {
     Engine::new(Document::new(), Arc::new(CommandRegistry::with_builtins()))
 }
+
+#[test]
+fn branched_fittings_are_rotated_persisted_and_atomic() {
+    use planyrith_core::geom::boolean::{Classification, classify_point};
+    let mut e = engine();
+    let out = run(
+        &mut e,
+        "route-fitting",
+        json!({"kind": "tee", "length": 50,
+        "branch_length": 30, "axis": [0,1,0], "branch_axis": [0,0,1], "position": [100,200,300]}),
+    );
+    assert!((out["length_mm"].as_f64().unwrap() - 80.0).abs() < 1e-6);
+    let pid = Pid(out["group"].as_u64().unwrap());
+    let (c, id) = e.document().locate_pid(pid).unwrap();
+    let d = e
+        .document()
+        .container(c)
+        .unwrap()
+        .definition_of(id)
+        .unwrap();
+    let mesh = e.document().definition(d).unwrap().entities.mesh();
+    let tol = &e.document().info.tolerances;
+    assert!(mesh.is_solid());
+    assert_eq!(
+        classify_point(mesh, DVec3::new(100.0, 200.0, 300.0), tol).unwrap(),
+        Classification::Outside
+    );
+    assert_eq!(
+        classify_point(mesh, DVec3::new(100.0, 209.0, 320.0), tol).unwrap(),
+        Classification::Inside
+    );
+    let data = bytes(e.document());
+    assert_eq!(
+        data,
+        bytes(&read_document(&data, &NoProgress).unwrap().document)
+    );
+    for params in [
+        json!({"kind": "tee", "branch_axis": [0,0,1]}),
+        json!({"kind": "cross", "branch_length": 5}),
+        json!({"kind": "coupling", "branch_length": 30}),
+        json!({"kind": "tee", "outlet_diameter": 12}),
+    ] {
+        assert!(e.execute_erased("route-fitting", params).is_err());
+        assert_eq!(data, bytes(e.document()));
+    }
+}
 fn run(e: &mut Engine, name: &str, p: Value) -> Value {
     e.execute_erased(name, p).unwrap()
 }

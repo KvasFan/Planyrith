@@ -2991,9 +2991,11 @@ pub struct RoutingWindow {
     diameter_mm: f64,
     wall_mm: f64,
     bend_radius_mm: f64,
-    reducer: bool,
+    fitting_kind: usize,
     outlet_mm: f64,
     length_mm: f64,
+    branch_mm: f64,
+    branch_axis: [f64; 3],
     position: [f64; 3],
     axis: [f64; 3],
     note: Option<String>,
@@ -3008,9 +3010,11 @@ impl Default for RoutingWindow {
             diameter_mm: 20.0,
             wall_mm: 1.5,
             bend_radius_mm: 0.0,
-            reducer: false,
+            fitting_kind: 0,
             outlet_mm: 12.0,
             length_mm: 40.0,
+            branch_mm: 20.0,
+            branch_axis: [1.0, 0.0, 0.0],
             position: [0.0; 3],
             axis: [0.0, 0.0, 1.0],
             note: None,
@@ -3039,12 +3043,16 @@ impl RoutingWindow {
 
     fn create_fitting(&mut self, session: &mut Session) {
         let mut params = self.section();
-        params["kind"] = json!(if self.reducer { "reducer" } else { "coupling" });
+        params["kind"] = json!(["coupling", "reducer", "tee", "cross"][self.fitting_kind]);
         params["length"] = json!(self.length_mm);
         params["position"] = json!(self.position);
         params["axis"] = json!(self.axis);
-        if self.reducer {
+        if self.fitting_kind == 1 {
             params["outlet_diameter"] = json!(self.outlet_mm);
+        }
+        if self.fitting_kind >= 2 {
+            params["branch_length"] = json!(self.branch_mm);
+            params["branch_axis"] = json!(self.branch_axis);
         }
         self.note = Some(note(session.execute("route-fitting", params), Self::result));
     }
@@ -3111,11 +3119,13 @@ impl RoutingWindow {
                 ui.label(t(
                     "Independent fitting: dimensions describe the fitting itself.",
                 ));
-                ui.horizontal(|ui| {
-                    ui.selectable_value(&mut self.reducer, false, t("Coupling"));
-                    ui.selectable_value(&mut self.reducer, true, t("Concentric reducer"));
+                ui.horizontal_wrapped(|ui| {
+                    ui.selectable_value(&mut self.fitting_kind, 0, t("Coupling"));
+                    ui.selectable_value(&mut self.fitting_kind, 1, t("Concentric reducer"));
+                    ui.selectable_value(&mut self.fitting_kind, 2, t("Tee"));
+                    ui.selectable_value(&mut self.fitting_kind, 3, t("Cross fitting"));
                 });
-                if self.reducer {
+                if self.fitting_kind == 1 {
                     ui.horizontal(|ui| {
                         ui.label(t("Outlet outer diameter"));
                         ui.add(
@@ -3124,6 +3134,19 @@ impl RoutingWindow {
                                 .suffix(" mm"),
                         );
                     });
+                }
+                if self.fitting_kind >= 2 {
+                    ui.horizontal(|ui| {
+                        ui.label(t("Branch length"));
+                        ui.add(
+                            egui::DragValue::new(&mut self.branch_mm)
+                                .range(0.1..=100000.0)
+                                .suffix(" mm"),
+                        );
+                    });
+                    ui.label(t("Branch axis (perpendicular to main axis)"));
+                    xyz(ui, &mut self.branch_axis);
+                    ui.label(t("Position is the junction center."));
                 }
                 ui.horizontal(|ui| {
                     ui.label(t("Length"));
@@ -3199,7 +3222,7 @@ mod tests {
             "{:?}",
             routing.note
         );
-        routing.reducer = true;
+        routing.fitting_kind = 1;
         routing.custom = true;
         routing.diameter_mm = 32.0;
         routing.wall_mm = 2.0;
@@ -3208,6 +3231,14 @@ mod tests {
         assert_eq!(
             routing.note.as_deref(),
             Some("Centerline length: 40.00 mm.")
+        );
+        routing.fitting_kind = 2;
+        routing.length_mm = 80.0;
+        routing.branch_mm = 40.0;
+        routing.create_fitting(&mut s);
+        assert_eq!(
+            routing.note.as_deref(),
+            Some("Centerline length: 120.00 mm.")
         );
         assert!(planyrith_core::diagnostics::validate(s.doc()).is_clean());
     }

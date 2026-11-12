@@ -798,6 +798,8 @@ fn molds_and_routing_over_rpc() {
             "route-fitting",
             json!({"kind": "coupling", "position": [400,0,0]}),
         ),
+        ("route-fitting", json!({"kind": "tee", "position": [500,0,0], "branch_axis": [1,0,0]})),
+        ("route-fitting", json!({"kind": "cross", "position": [600,0,0], "axis": [0,1,0], "branch_axis": [0,0,1]})),
     ]
     .into_iter()
     .enumerate()
@@ -808,7 +810,7 @@ fn molds_and_routing_over_rpc() {
             json!({"doc_id": "d1", "name": name, "params": params}),
         ));
     }
-    frames.push(rpc(8, "session.save", json!({"doc_id": "d1"})));
+    frames.push(rpc(10, "session.save", json!({"doc_id": "d1"})));
     let (replies, _) = serve(&[], &frames);
     for reply in replies.values() {
         assert!(reply.get("error").is_none(), "{reply}");
@@ -859,6 +861,8 @@ fn molds_and_routing_over_rpc() {
                 "--length",
                 "--position",
                 "--axis",
+                "--branch-length",
+                "--branch-axis",
             ],
         ),
     ] {

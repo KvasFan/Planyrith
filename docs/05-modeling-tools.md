@@ -980,6 +980,20 @@ removed by `analysis-clear`. The body itself is not changed; hide it to see a re
   dimensions and the request. **Tests:** straight annulus volume, elbow length, reducer bore,
   short/branching/reversing paths, deterministic native round trip, CLI/RPC and undo/redo.
 
+### 8.20 Branched fittings (milestone 1.19)
+`route-fitting` gains `kind: tee|cross`, `branch_length?: Length` (half of `length`), and
+`branch_axis?: Vector` (a deterministic perpendicular to `axis`). `position` is the junction
+center; the main ports lie at ±`length/2` along `axis`, a tee's branch at `branch_length`
+along `branch_axis`, and a cross has a second branch in the opposite direction. All ports
+have the same outer diameter and wall. Require main half-length and branch length greater
+than the outer radius plus tolerance; reject non-perpendicular/zero branch directions and
+branch options on sleeves/reducers. Outlet diameter belongs only to reducers.
+Construct the union of the outer polygon cylinders and subtract the union of their extended
+bores. Each port remains open with an annular wall face; no internal cap blocks flow. Keep
+the fitting as one group and one undo step. `length_mm` is the sum of port-to-center lengths
+for junctions. The Routing window collects branch dimensions and direction. Tests check
+wall solidity, bore/port classification, rotations, native persistence and rollback.
+
 ## 9. View tools (category `view`) — not undoable, do not dirty the document
 
 - `orbit { yaw: Angle, pitch: Angle, pivot?: Point }` — middle-drag; `Shift` = pan; orbits about the
