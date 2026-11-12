@@ -108,6 +108,13 @@ The core never calls `std::fs` directly outside `NativeFs`. Open/save commands t
 
 ## Decisions
 
+- 2026-11-12 — **Converter discovery under Cargo 1.100.** Native storage resolves the
+  explicit converter path first, otherwise its application sibling. Development executables
+  may live under `<profile>/deps` or `<profile>/build/<package>/<hash>/out`; both map to
+  the profile directory. Match these exact structures rather than searching arbitrary parent
+  directories. The GUI's backup-file test uses the same resolver; unit tests cover installed,
+  both Cargo and custom-profile paths, explicit overrides and unrelated `out` directories.
+
 - 2026-10-20 — Single-threaded wasm build in 1.0; no SharedArrayBuffer requirement.
 - 2026-10-20 — IndexedDB via `rexie` behind `Storage`; OPFS optional.
 - 2026-10-20 — Autosave is journal + periodic snapshot, never in-place.

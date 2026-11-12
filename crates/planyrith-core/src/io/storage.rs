@@ -245,6 +245,42 @@ impl NativeFs {
         }
     }
 
+    /// Resolves the explicit SKP converter or its sibling in the application's
+    /// directory, including Cargo's test/build output layouts (docs/11 Decisions).
+    pub fn skp_adapter_path(&self) -> Result<std::path::PathBuf, IoError> {
+        if let Some(path) = self
+            .skp_adapter
+            .clone()
+            .map(std::path::PathBuf::into_os_string)
+            .or_else(|| std::env::var_os("PLANYRITH_SKP_ADAPTER"))
+        {
+            let path = std::path::PathBuf::from(path);
+            if !path.is_absolute() {
+                return Err(IoError::storage(
+                    "SKP adapter",
+                    "PLANYRITH_SKP_ADAPTER must be an absolute path",
+                ));
+            }
+            return Ok(path);
+        }
+        let current = std::env::current_exe().map_err(|_| super::adapter::unavailable())?;
+        Self::sibling_adapter_path(&current)
+    }
+
+    fn sibling_adapter_path(current: &std::path::Path) -> Result<std::path::PathBuf, IoError> {
+        let parent = current.parent().ok_or_else(super::adapter::unavailable)?;
+        let build = parent.ancestors().nth(3);
+        let directory = if parent.ends_with("deps") {
+            parent.parent().unwrap_or(parent)
+        } else if parent.ends_with("out") && build.is_some_and(|p| p.ends_with("build")) {
+            // Cargo 1.100: <profile>/build/<package>/<hash>/out/<executable>.
+            build.and_then(std::path::Path::parent).unwrap_or(parent)
+        } else {
+            parent
+        };
+        Ok(directory.join(format!("planyrith-skp{}", std::env::consts::EXE_SUFFIX)))
+    }
+
     /// A sibling `.<name>.<process>-<n>.tmp` path for one atomic write of
     /// `path`. Each write gets its own: with one shared name, two writers
     /// of the same file (threads, or two processes) replaced each other's
@@ -351,31 +387,7 @@ impl Storage for NativeFs {
         if bytes.len() > adapter::MAX_BYTES {
             return Err(IoError::LimitExceeded("SKP converter input".into()));
         }
-        let executable = if let Some(path) = self
-            .skp_adapter
-            .clone()
-            .map(std::path::PathBuf::into_os_string)
-            .or_else(|| std::env::var_os("PLANYRITH_SKP_ADAPTER"))
-        {
-            let path = std::path::PathBuf::from(path);
-            if !path.is_absolute() {
-                return Err(IoError::storage(
-                    "SKP adapter",
-                    "PLANYRITH_SKP_ADAPTER must be an absolute path",
-                ));
-            }
-            path
-        } else {
-            let current = std::env::current_exe().map_err(|_| adapter::unavailable())?;
-            let parent = current.parent().ok_or_else(adapter::unavailable)?;
-            // Cargo integration-test executables live under target/.../deps.
-            let parent = if parent.file_name().is_some_and(|p| p == "deps") {
-                parent.parent().unwrap_or(parent)
-            } else {
-                parent
-            };
-            parent.join(format!("planyrith-skp{}", std::env::consts::EXE_SUFFIX))
-        };
+        let executable = self.skp_adapter_path()?;
         let mut child = Command::new(&executable)
             .arg(operation)
             .stdin(Stdio::piped())
@@ -543,6 +555,41 @@ pub fn conformance_check(storage: &dyn Storage) -> Result<(), IoError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn converter_paths_cover_installed_and_cargo_layouts() {
+        use std::path::Path;
+        for (executable, directory) in [
+            ("app/planyrith-gui", "app"),
+            ("target/debug/deps/gui-hash", "target/debug"),
+            (
+                "target/debug/build/planyrith-gui/hash/out/gui-hash",
+                "target/debug",
+            ),
+            (
+                "target/custom/profile/build/planyrith-gui/hash/out/gui-hash",
+                "target/custom/profile",
+            ),
+            ("app/out/gui", "app/out"),
+        ] {
+            assert_eq!(
+                NativeFs::sibling_adapter_path(Path::new(executable)).unwrap(),
+                Path::new(directory).join(format!("planyrith-skp{}", std::env::consts::EXE_SUFFIX))
+            );
+        }
+        let absolute = std::env::current_dir().unwrap().join("explicit-converter");
+        let storage = NativeFs {
+            skp_adapter: Some(absolute.clone()),
+            ..Default::default()
+        };
+        assert_eq!(storage.skp_adapter_path().unwrap(), absolute);
+        let storage = NativeFs {
+            skp_adapter: Some("relative-converter".into()),
+            ..Default::default()
+        };
+        assert!(storage.skp_adapter_path().is_err());
+    }
 
     #[test]
     fn memory_storage_passes_conformance() {

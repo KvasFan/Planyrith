@@ -4,15 +4,8 @@
 use planyrith_gui::session::Session;
 use serde_json::json;
 
-fn sibling(name: &str) -> std::path::PathBuf {
-    std::env::current_exe()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .join(format!("{name}{}", std::env::consts::EXE_SUFFIX))
-}
+mod common;
+use common::sibling;
 
 fn canonical(doc: &planyrith_core::document::Document) -> String {
     use planyrith_core::io::export::json::{canonicalize, document_to_json};
@@ -147,13 +140,7 @@ fn cli_rpc_and_gui_agree_on_real_models() {
 
 #[test]
 fn historical_backups_default_to_native_and_explicit_foreign_saves_keep_the_choice() {
-    let adapter = std::env::current_exe()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .join(format!("planyrith-skp{}", std::env::consts::EXE_SUFFIX));
+    let adapter = sibling("planyrith-skp");
     if !adapter.is_file() {
         assert!(std::env::var_os("PLANYRITH_REQUIRE_SKP").is_none());
         return;
@@ -234,13 +221,7 @@ fn external_skp_opens_and_survives_native_working_copy_when_requested() {
 }
 #[test]
 fn gui_session_opens_and_saves_skp_through_the_same_converter() {
-    let exe = std::env::current_exe().unwrap();
-    let adapter = exe
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .join(format!("planyrith-skp{}", std::env::consts::EXE_SUFFIX));
+    let adapter = sibling("planyrith-skp");
     if !adapter.is_file() {
         assert!(
             std::env::var_os("PLANYRITH_REQUIRE_SKP").is_none(),
@@ -287,13 +268,7 @@ fn gui_session_opens_and_saves_skp_through_the_same_converter() {
 
 #[test]
 fn gui_annotation_edits_survive_skp_save_and_native_working_copies() {
-    let exe = std::env::current_exe().unwrap();
-    let adapter = exe
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .join(format!("planyrith-skp{}", std::env::consts::EXE_SUFFIX));
+    let adapter = sibling("planyrith-skp");
     if !adapter.is_file() {
         assert!(std::env::var_os("PLANYRITH_REQUIRE_SKP").is_none());
         return;

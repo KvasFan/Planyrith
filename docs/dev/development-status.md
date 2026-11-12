@@ -30,6 +30,18 @@ the related mate/motion goldens include the resulting numerical changes. See doc
 Before pushing this batch, run the full gate on its final commit and rebuild the optimized
 CLI/GUI. Gate success is recorded under `target/ci-local/passed/<commit>`; hosted CI remains
 subject to the account billing lock below. Do not publish a version or tag for this batch.
+The final isolated gate updated its stable toolchain from Rust 1.99.1 to 1.100.0; the new
+Clippy found a needless index loop in the separate SKP converter. It now enumerates edges
+directly, preserving order and behavior. Local workspace tests before that change: 833 pass,
+6 ignored; no dependency changes.
+The following web-Clippy step also found a newly diagnosed boolean guard in
+`Session::saves_locally`; each platform now directly expresses its existing predicate.
+Its first full test run then exposed Cargo 1.100's new executable layout:
+`<profile>/build/<package>/<hash>/out`, so the backup-file GUI test could not find the
+required converter. Native storage and that test now share the resolver, supporting both
+this exact layout and the earlier `deps` layout, with path/override regressions (docs/11).
+The same audit covers every GUI integration test that starts the workspace CLI or converter;
+they share a helper supporting both Cargo layouts instead of assuming two parent directories.
 
 **Verification of 1.18:** commit `4901120` passed the entire `tools/ci-local.sh`, including
 the browser, Windows tests under Wine and Windows/macOS compilation; optimized CLI/GUI builds

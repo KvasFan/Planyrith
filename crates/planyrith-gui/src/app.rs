@@ -3632,13 +3632,9 @@ mod tests {
     #[test]
     #[cfg(not(target_arch = "wasm32"))]
     fn first_save_of_a_backup_proposes_a_native_copy_without_writing_the_source() {
-        let adapter = std::env::current_exe()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .join(format!("planyrith-skp{}", std::env::consts::EXE_SUFFIX));
+        let adapter = planyrith_core::io::storage::NativeFs::new()
+            .skp_adapter_path()
+            .unwrap();
         if !adapter.is_file() {
             assert!(std::env::var_os("PLANYRITH_REQUIRE_SKP").is_none());
             return;

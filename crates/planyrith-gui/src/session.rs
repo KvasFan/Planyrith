@@ -578,14 +578,14 @@ impl Session {
     /// `true` when [`Session::start_save`] applies: an attached server saves
     /// its own copy through [`Session::save`].
     pub fn saves_locally(&self) -> bool {
-        if self.joined.is_some() {
-            return false;
-        }
         #[cfg(not(target_arch = "wasm32"))]
-        if self.remote.is_some() {
-            return false;
+        {
+            self.joined.is_none() && self.remote.is_none()
         }
-        true
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.joined.is_none()
+        }
     }
 
     /// Encodes the document for [`SaveJob::run`], which any thread may do.

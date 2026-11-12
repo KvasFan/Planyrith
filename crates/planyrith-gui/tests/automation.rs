@@ -8,17 +8,10 @@ use serde_json::json;
 use std::io::{BufRead, BufReader};
 use std::process::{Child, Command, Stdio};
 
+mod common;
+
 fn cli() -> std::path::PathBuf {
-    let exe = std::env::current_exe().unwrap();
-    exe.parent()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .join(if cfg!(windows) {
-            "planyrith.exe"
-        } else {
-            "planyrith"
-        })
+    common::sibling("planyrith")
 }
 fn scratch(name: &str) -> std::path::PathBuf {
     let path = std::env::temp_dir().join(format!("planyrith-08-{name}-{}", std::process::id()));

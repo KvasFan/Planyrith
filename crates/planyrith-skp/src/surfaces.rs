@@ -84,9 +84,8 @@ pub(super) fn insert(
             .collect();
         assign(&mut batches, Some(i), uses, edges, vertices, conflicts)?;
     }
-    for i in 0..indexed.edges.len() {
+    for (i, edge) in indexed.edges.iter().enumerate() {
         if !all_face_edges.contains(&i) {
-            let edge = indexed.edges[i];
             assign(
                 &mut batches,
                 None,
