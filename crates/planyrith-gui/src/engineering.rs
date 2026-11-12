@@ -1482,6 +1482,7 @@ pub struct AssemblyWindow {
     b: Option<Side>,
     length_mm: f64,
     angle_deg: f64,
+    internal_contact: bool,
     factor: f64,
     list: Option<Value>,
     bom: Option<Value>,
@@ -1497,6 +1498,7 @@ impl Default for AssemblyWindow {
             b: None,
             length_mm: 0.0,
             angle_deg: 90.0,
+            internal_contact: false,
             factor: 1.0,
             list: None,
             bom: None,
@@ -1545,6 +1547,7 @@ impl AssemblyWindow {
         match kind {
             "distance" => params["length"] = json!(self.length_mm),
             "angle" => params["angle"] = json!(self.angle_deg.to_radians()),
+            "tangent" => params["aligned"] = json!(self.internal_contact),
             "aligned" => {
                 params["kind"] = json!("coincident");
                 params["aligned"] = json!(true);
@@ -1586,12 +1589,14 @@ impl AssemblyWindow {
                         (t("Parallel"), "parallel"),
                         (t("Perpendicular"), "perpendicular"),
                         (t("Concentric"), "concentric"),
+                        (t("Tangent"), "tangent"),
                     ] {
                         if ui.button(label).clicked() {
                             self.add(session, kind);
                         }
                     }
                 });
+                ui.checkbox(&mut self.internal_contact,t("Internal or opposite-side tangent contact"));
                 ui.horizontal(|ui| {
                     ui.add(egui::DragValue::new(&mut self.length_mm).suffix(" mm"));
                     if ui.button(t("Distance")).clicked() {
@@ -3956,6 +3961,69 @@ mod gui_tests {
 
     use crate::app::App;
     use crate::i18n::t;
+
+    /// The actual Tangent button dispatches the same mate used by CLI/RPC.
+    #[test]
+    fn assembly_tangent_button_creates_the_contact() {
+        use super::*;
+        let mut session = Session::new();
+        let mut sides = Vec::new();
+        for (center, radius, name) in [([0, 0, 0], 20, "Outer"), ([80, 0, 30], 10, "Inner")] {
+            session
+                .execute(
+                    "circle",
+                    json!({"center":center,"radius":radius,"segments":12}),
+                )
+                .unwrap();
+            let out = session
+                .execute("make-component", json!({"targets":"edge|face","name":name}))
+                .unwrap();
+            let occurrence = out["instance"].as_u64().unwrap();
+            let doc = session.doc();
+            let id = doc
+                .model
+                .id_of(planyrith_core::ids::Pid(occurrence))
+                .unwrap();
+            let def = doc
+                .definition(doc.model.definition_of(id).unwrap())
+                .unwrap();
+            let edge = def
+                .entities
+                .mesh()
+                .edges()
+                .find(|(_, e)| e.curve.is_some())
+                .unwrap()
+                .0;
+            let edge_pid = def.entities.pid_of(edge.into()).unwrap().0;
+            sides.push(Side {
+                assembly: Default::default(),
+                reference: format!("{occurrence}:{edge_pid}"),
+            });
+        }
+        let window = AssemblyWindow {
+            open: true,
+            a: Some(sides[0].clone()),
+            b: Some(sides[1].clone()),
+            ..Default::default()
+        };
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1000.0, 800.0))
+            .with_max_steps(64)
+            .build_ui_state(
+                |ui, state: &mut (AssemblyWindow, Session)| state.0.window(ui.ctx(), &mut state.1),
+                (window, session),
+            );
+        h.run();
+        h.get_by_label(&t("Internal or opposite-side tangent contact"))
+            .click();
+        h.run();
+        h.get_by_label(&t("Tangent")).click();
+        h.run();
+        let list = h.state().0.list.as_ref().unwrap();
+        assert_eq!(list["degrees_of_freedom"], 3);
+        assert_eq!(list["mates"][0]["kind"], "tangent");
+        assert_eq!(list["mates"][0]["aligned"], true);
+    }
 
     /// Actual material and face widgets keep the body bound while the
     /// selection changes, then run the shared stress command.

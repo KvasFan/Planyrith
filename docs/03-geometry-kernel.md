@@ -475,6 +475,19 @@ applied at once by `move_vertices` (§4.8 with a displacement per vertex). The r
 Jacobian at the solution gives the degrees of freedom left (unknowns − rank) and the redundant
 equations (equations − rank), which include constraints repeating the flat-face equations.
 
+### 11.3 Assembly tangency (milestone 1.21)
+
+Rigid assembly mates use six pose unknowns per free occurrence (docs/05 §5.17). Circular
+features retain a descriptor radius transformed into assembly coordinates; non-similarity
+placements have no usable circular radius. Plane normals use inverse-transpose placement.
+For a cylinder axis `a`, center `c`, plane point `p`, normal `n` and radius `r`, tangency
+adds `a·n = 0` and `(c−p)·n = ±r`. For two cylinders, it adds parallel axes and
+`|(c₂−c₁)×a₁| = r₁+r₂` (external) or `|r₁−r₂|` (internal). Equal internal radii fail.
+The constraints refer to infinite cylinders and planes, independent of tessellation or extents.
+A centered numeric Jacobian is singular at coaxial centers or an axis normal to its plane:
+initialize the free occurrence along the deterministic plane-frame direction, or rotate it
+by a quarter turn, before iterating. Fixed occurrences never move; conflicts remain atomic.
+
 ## 12. Simulation (`sim`, milestone 1.16)
 
 Finite elements on one closed solid, in consistent units: mm, N, MPa, tonnes, seconds; heat in

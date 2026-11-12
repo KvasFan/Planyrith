@@ -548,6 +548,21 @@ Mates place the groups and components of the edit context against each other (mi
   `aligned` —, lines on one line, a line in a plane); `distance` (`length` between facing planes,
   between parallel lines, or of a line from a plane); `parallel`; `perpendicular`; `angle`;
   `concentric` (axes on one line).
+- **Tangency (1.21):** `kind: tangent` accepts a circular axis (from an arc/circle descriptor)
+  and a face plane, or two circular axes. It acts on the underlying infinite cylinders/plane,
+  as other mates act on underlying lines/planes: finite face or arc extents do not limit contact.
+  Plane/cylinder contact keeps the axis parallel to the plane and its center at the radius on
+  the plane's positive side (`aligned` chooses the negative side). Cylinder/cylinder contact
+  keeps axes parallel and their separation at the sum of radii; `aligned` chooses internal
+  contact at their absolute radius difference, requiring unequal radii. Plane-plane and
+  straight-line contacts fail. Circular references require similarity placements (uniform
+  scale, rotation, reflection and translation); distorted radii fail. Plane normals use the
+  inverse transpose of their placements. Starting from coaxial axes or a circular axis normal
+  to a plane gets a deterministic initial direction before solving, so the contact can be
+  resolved from those symmetric positions. The Assembly window offers Tangent and the
+  internal/opposite contact choice. Conflicts roll back. Tests check exact center-to-plane
+  and axis separations, freedom, internal contact, scaling/reflection, symmetric starts,
+  conflicts, native undo and CLI/RPC/GUI parity.
 - **Params:** `mate-add { kind, a, b?, length?, angle?, aligned }`; `mate-edit { id, length?,
   angle?, aligned? }` (driving a mate: the parts move to the new value); `mate-delete { ids | all }`
   (placements stay); `mate-list` (changes nothing); `mate-solve` (after moving parts by hand);

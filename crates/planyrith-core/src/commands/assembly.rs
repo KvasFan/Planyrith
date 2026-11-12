@@ -58,6 +58,8 @@ pub enum MateKind {
     Angle,
     /// Two axes on one line (circle or arc edges).
     Concentric,
+    /// Circular cylinders tangent to a plane or another circular cylinder.
+    Tangent,
 }
 
 /// One side of a mate.
@@ -149,7 +151,7 @@ pub struct Mate {
     /// The angle, radians.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub angle_rad: Option<f64>,
-    /// Planes facing the same way instead of against each other.
+    /// Planes facing the same way, or internal/opposite-side tangent contact.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub aligned: bool,
 }
@@ -183,6 +185,12 @@ impl Mate {
                 .is_some_and(|a| (0.0..=std::f64::consts::PI).contains(&a))
         {
             return Err("give an angle from 0° to 180°".into());
+        }
+        if self.kind == MateKind::Tangent && (self.length_mm.is_some() || self.angle_rad.is_some())
+        {
+            return Err(
+                "tangent uses aligned for internal/opposite contact, not length or angle".into(),
+            );
         }
         Ok(())
     }
@@ -227,6 +235,20 @@ struct Feature {
     point: DVec3,
     dir: DVec3,
     plane: bool,
+    // Radius in assembly coordinates, only when the circular reference's
+    // occurrence preserves its circle through a similarity placement.
+    radius: Option<f64>,
+}
+
+impl Feature {
+    fn direction(self, placement: &DAffine3) -> DVec3 {
+        let matrix = if self.plane {
+            placement.matrix3.inverse().transpose()
+        } else {
+            placement.matrix3
+        };
+        (matrix * self.dir).normalize_or_zero()
+    }
 }
 
 fn feature(doc: &Document, entities: &Entities, r: MateRef) -> Result<Feature, String> {
@@ -242,6 +264,7 @@ fn feature(doc: &Document, entities: &Entities, r: MateRef) -> Result<Feature, S
             point: DVec3::ZERO,
             dir: DVec3::Z,
             plane: true,
+            radius: None,
         });
     };
     let inner = &def.entities;
@@ -255,6 +278,7 @@ fn feature(doc: &Document, entities: &Entities, r: MateRef) -> Result<Feature, S
                 point: c,
                 dir: face.plane.normal,
                 plane: true,
+                radius: None,
             })
         }
         Some(EntityId::Edge(e)) => {
@@ -263,10 +287,21 @@ fn feature(doc: &Document, entities: &Entities, r: MateRef) -> Result<Feature, S
                 && let CurveDescriptor::Circle { center, normal, .. }
                 | CurveDescriptor::Arc { center, normal, .. } = c
             {
+                let placement = entities
+                    .transform_of(occurrence)
+                    .ok_or("the occurrence has no placement")?;
+                let radius = match c.transformed(&placement) {
+                    Some(
+                        CurveDescriptor::Circle { radius, .. }
+                        | CurveDescriptor::Arc { radius, .. },
+                    ) => Some(radius),
+                    _ => None,
+                };
                 return Ok(Feature {
                     point: *center,
                     dir: normal.normalize(),
                     plane: false,
+                    radius,
                 });
             }
             let s = mesh.edge_segment(e).map_err(|e| e.to_string())?;
@@ -274,6 +309,7 @@ fn feature(doc: &Document, entities: &Entities, r: MateRef) -> Result<Feature, S
                 point: s.a,
                 dir: (s.b - s.a).normalize(),
                 plane: false,
+                radius: None,
             })
         }
         _ => Err(format!(
@@ -353,6 +389,28 @@ pub fn solve(
             Some(b) => feature(doc, entities, b)?,
             None => fa,
         };
+        if m.kind == MateKind::Tangent {
+            let circular_pair = fa.radius.is_some() && fb.radius.is_some();
+            let plane_circle =
+                (fa.plane && fb.radius.is_some()) || (fb.plane && fa.radius.is_some());
+            if !circular_pair && !plane_circle {
+                return Err("tangent needs a plane and circular axis, or two circular axes with similarity placements (no distorted radii)".into());
+            }
+            if [fa.radius, fb.radius]
+                .into_iter()
+                .flatten()
+                .any(|r| !r.is_finite() || r <= doc.info.tolerances.length)
+            {
+                return Err("tangent radii must exceed the length tolerance".into());
+            }
+            if circular_pair
+                && m.aligned
+                && (fa.radius.unwrap_or(0.0) - fb.radius.unwrap_or(0.0)).abs()
+                    <= doc.info.tolerances.length
+            {
+                return Err("internal tangency needs unequal radii".into());
+            }
+        }
         sides.push((fa, fb));
     }
     let n = free.len() * 6;
@@ -381,14 +439,8 @@ pub fn solve(
                 pose(m.a.occurrence, x),
                 pose(m.b.map_or(m.a.occurrence, |b| b.occurrence), x),
             );
-            let (pa, da) = (
-                ta.transform_point3(fa.point),
-                ta.transform_vector3(fa.dir).normalize(),
-            );
-            let (pb, db) = (
-                tb.transform_point3(fb.point),
-                tb.transform_vector3(fb.dir).normalize(),
-            );
+            let (pa, da) = (ta.transform_point3(fa.point), fa.direction(&ta));
+            let (pb, db) = (tb.transform_point3(fb.point), fb.direction(&tb));
             let push3 = |out: &mut Vec<f64>, v: DVec3| out.extend([v.x, v.y, v.z]);
             match m.kind {
                 MateKind::Fixed => {}
@@ -427,6 +479,28 @@ pub fn solve(
                     let got = libm::atan2(da.cross(db).length(), da.dot(db));
                     out.push((got - m.angle_rad.unwrap_or(0.0)) * size);
                 }
+                MateKind::Tangent => {
+                    if fa.plane || fb.plane {
+                        let (plane_point, normal, center, axis, radius) = if fa.plane {
+                            (pa, fa.direction(&ta), pb, db, fb.radius.unwrap_or(0.0))
+                        } else {
+                            (pb, fb.direction(&tb), pa, da, fa.radius.unwrap_or(0.0))
+                        };
+                        out.push(axis.dot(normal) * size);
+                        out.push(
+                            (center - plane_point).dot(normal)
+                                - if m.aligned { -radius } else { radius },
+                        );
+                    } else {
+                        push3(&mut out, da.cross(db) * size);
+                        let gap = if m.aligned {
+                            (fa.radius.unwrap_or(0.0) - fb.radius.unwrap_or(0.0)).abs()
+                        } else {
+                            fa.radius.unwrap_or(0.0) + fb.radius.unwrap_or(0.0)
+                        };
+                        out.push((pb - pa).cross(da).length() - gap);
+                    }
+                }
             }
         }
         out
@@ -450,6 +524,72 @@ pub fn solve(
     };
     let max_abs = |r: &[f64]| r.iter().fold(0.0f64, |m, v| m.max(v.abs()));
     let mut x = vec![0.0; n];
+    // Exact symmetries have a zero centered derivative: choose a geometric
+    // direction before the first Jacobian rather than leaving the solver stuck.
+    for (m, (fa, fb)) in mates.iter().zip(&sides) {
+        if m.kind != MateKind::Tangent {
+            continue;
+        }
+        let Some(b) = m.b else {
+            continue;
+        };
+        let (ta, tb) = (pose(m.a.occurrence, &x), pose(b.occurrence, &x));
+        if fa.plane || fb.plane {
+            let (normal, axis, circle_occ, plane_occ) = if fa.plane {
+                (
+                    fa.direction(&ta),
+                    fb.direction(&tb),
+                    b.occurrence,
+                    m.a.occurrence,
+                )
+            } else {
+                (
+                    fb.direction(&tb),
+                    fa.direction(&ta),
+                    m.a.occurrence,
+                    b.occurrence,
+                )
+            };
+            if axis.dot(normal).abs() >= 1.0 - doc.info.tolerances.angle {
+                let rotation_axis = crate::math::Plane::from_point_normal(DVec3::ZERO, normal)
+                    .frame()
+                    .u;
+                if let Some(&i) = index.get(&circle_occ).or_else(|| index.get(&plane_occ)) {
+                    let rotation = rotation_axis * std::f64::consts::FRAC_PI_2;
+                    for k in 0..3 {
+                        x[6 * i + k] += rotation[k];
+                    }
+                }
+            }
+        } else {
+            let (pa, pb, axis) = (
+                ta.transform_point3(fa.point),
+                tb.transform_point3(fb.point),
+                fa.direction(&ta),
+            );
+            if (pb - pa).cross(axis).length() <= doc.info.tolerances.length {
+                let radius_a = fa.radius.unwrap_or(0.0);
+                let radius_b = fb.radius.unwrap_or(0.0);
+                let gap = if m.aligned {
+                    (radius_a - radius_b).abs()
+                } else {
+                    radius_a + radius_b
+                };
+                let direction = crate::math::Plane::from_point_normal(DVec3::ZERO, axis)
+                    .frame()
+                    .u;
+                let moving = index
+                    .get(&b.occurrence)
+                    .map(|i| (*i, 1.0))
+                    .or_else(|| index.get(&m.a.occurrence).map(|i| (*i, -1.0)));
+                if let Some((i, sign)) = moving {
+                    for k in 0..3 {
+                        x[6 * i + 3 + k] += direction[k] * gap * sign;
+                    }
+                }
+            }
+        }
+    }
     let mut r = residuals(&x);
     let mu = 1e-8;
     let mut lambda = 1e-3;
@@ -622,7 +762,7 @@ pub struct MateAddParams {
     /// The angle of `angle`.
     #[serde(default)]
     pub angle: Option<Angle>,
-    /// Planes facing the same way.
+    /// Planes facing the same way, or internal/opposite-side tangent contact.
     #[serde(default)]
     pub aligned: bool,
 }
@@ -1194,7 +1334,7 @@ pub fn register(registry: &mut crate::commands::CommandRegistry) {
 mod tests {
     use crate::commands::{CommandRegistry, Engine};
     use crate::document::Document;
-    use crate::ids::EntityId;
+    use crate::ids::{EntityId, Pid};
     use glam::DVec3;
     use serde_json::{Value, json};
     use std::sync::Arc;
@@ -1336,5 +1476,182 @@ mod tests {
         assert_eq!(rows[0]["name"], "Leg");
         assert_eq!(rows[0]["quantity"], 2);
         assert_eq!(rows[1]["quantity"], 1);
+    }
+
+    fn circle(e: &mut Engine, center: [f64; 3], radius: f64, name: &str) -> (u64, u64) {
+        e.execute_erased(
+            "circle",
+            json!({"center":center,"radius":radius,"segments":12}),
+        )
+        .unwrap();
+        let out = e
+            .execute_erased("make-component", json!({"targets":"edge|face","name":name}))
+            .unwrap();
+        let occurrence = out["instance"].as_u64().unwrap();
+        let doc = e.document();
+        let id = doc.model.id_of(Pid(occurrence)).unwrap();
+        let def = doc
+            .definition(doc.model.definition_of(id).unwrap())
+            .unwrap();
+        let edge = def
+            .entities
+            .mesh()
+            .edges()
+            .find(|(_, e)| e.curve.is_some())
+            .unwrap()
+            .0;
+        (occurrence, def.entities.pid_of(edge.into()).unwrap().0)
+    }
+
+    fn placed_circle(e: &Engine, occurrence: u64, element: u64) -> (DVec3, DVec3, f64) {
+        let entities = &e.document().model;
+        let feature = super::feature(
+            e.document(),
+            entities,
+            super::MateRef {
+                occurrence: Pid(occurrence),
+                element: Some(Pid(element)),
+            },
+        )
+        .unwrap();
+        let transform = entities
+            .transform_of(entities.id_of(Pid(occurrence)).unwrap())
+            .unwrap();
+        (
+            transform.transform_point3(feature.point),
+            feature.direction(&transform),
+            feature.radius.unwrap_or(0.0),
+        )
+    }
+
+    #[test]
+    fn tangent_circular_axes_touch_a_plane_on_either_side() {
+        let mut e = engine();
+        let base = cube(&mut e, [0.0; 3], "Base");
+        let plane = face(&e, base, DVec3::X);
+        let (part, edge) = circle(&mut e, [250.0, 50.0, 30.0], 20.0, "Roller");
+        add(&mut e, json!({"kind":"fixed","a":base.to_string()}));
+        let out = add(
+            &mut e,
+            json!({"kind":"tangent","a":format!("{base}:{plane}"),"b":format!("{part}:{edge}")}),
+        );
+        assert_eq!(out["degrees_of_freedom"], 4);
+        assert!((placed_circle(&e, part, edge).0.x - 120.0).abs() < 1e-6);
+        e.execute_erased("mate-edit", json!({"id":out["id"],"aligned":true}))
+            .unwrap();
+        assert!((placed_circle(&e, part, edge).0.x - 80.0).abs() < 1e-6);
+        let opts = crate::io::native::WriteOptions {
+            deterministic: true,
+            include_history: false,
+            ..Default::default()
+        };
+        let data =
+            crate::io::native::write_document(e.document(), &[], &opts, &crate::io::NoProgress)
+                .unwrap();
+        let loaded = crate::io::native::read_document(&data, &crate::io::NoProgress).unwrap();
+        assert_eq!(
+            data,
+            crate::io::native::write_document(&loaded.document, &[], &opts, &crate::io::NoProgress)
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn tangent_axes_external_internal_and_coaxial_starts() {
+        for center in [[80.0, 0.0, 30.0], [0.0, 0.0, 0.0]] {
+            let mut e = engine();
+            let (a, ae) = circle(&mut e, [0.0; 3], 20.0, "Outer");
+            let (b, be) = circle(&mut e, center, 10.0, "Inner");
+            let out = add(
+                &mut e,
+                json!({"kind":"tangent","a":format!("{a}:{ae}"),"b":format!("{b}:{be}")}),
+            );
+            assert_eq!(out["degrees_of_freedom"], 3);
+            let (pa, axis, _) = placed_circle(&e, a, ae);
+            let (pb, _, _) = placed_circle(&e, b, be);
+            assert!(((pb - pa).cross(axis).length() - 30.0).abs() < 1e-6);
+            e.execute_erased("mate-edit", json!({"id":out["id"],"aligned":true}))
+                .unwrap();
+            let (pb, _, _) = placed_circle(&e, b, be);
+            assert!(((pb - pa).cross(axis).length() - 10.0).abs() < 1e-6);
+        }
+    }
+
+    #[test]
+    fn tangent_plane_symmetric_start_and_scaled_or_distorted_radii() {
+        let mut e = engine();
+        let base = cube(&mut e, [0.0; 3], "Base");
+        let plane = face(&e, base, DVec3::Z);
+        let (part, edge) = circle(&mut e, [50.0, 50.0, 250.0], 20.0, "Roller");
+        e.execute_erased(
+            "scale",
+            json!({"targets":format!("@{part}"),"factors":[-2,2,2],"pivot":[50,50,250]}),
+        )
+        .unwrap();
+        let out = add(
+            &mut e,
+            json!({"kind":"tangent","a":format!("{base}:{plane}"),"b":format!("{part}:{edge}")}),
+        );
+        assert_eq!(out["degrees_of_freedom"], 4);
+        let (p, axis, radius) = placed_circle(&e, part, edge);
+        assert!((radius - 40.0).abs() < 1e-6);
+        assert!((p.z - 140.0).abs() < 1e-6, "{p}");
+        assert!(axis.z.abs() < 1e-6);
+        e.execute_erased("mate-delete", json!({"all":true}))
+            .unwrap();
+        e.execute_erased(
+            "scale",
+            json!({"targets":format!("@{part}"),"factors":[2,1,1]}),
+        )
+        .unwrap();
+        let before = crate::io::export::json::document_to_json(e.document()).unwrap();
+        let err = e.execute_erased("mate-add",json!({"kind":"tangent","a":format!("{base}:{plane}"),"b":format!("{part}:{edge}")})).unwrap_err();
+        assert!(err.to_string().contains("similarity"), "{err}");
+        assert_eq!(
+            before,
+            crate::io::export::json::document_to_json(e.document()).unwrap()
+        );
+    }
+
+    #[test]
+    fn tangent_conflicts_and_invalid_contacts_leave_the_document_unchanged() {
+        let mut e = engine();
+        let (a, ae) = circle(&mut e, [0.0; 3], 20.0, "A");
+        let (b, be) = circle(&mut e, [80.0, 0.0, 0.0], 20.0, "B");
+        for occurrence in [a, b] {
+            add(&mut e, json!({"kind":"fixed","a":occurrence.to_string()}));
+        }
+        for aligned in [false, true] {
+            let before = crate::io::export::json::document_to_json(e.document()).unwrap();
+            assert!(
+                e.execute_erased(
+                    "mate-add",
+                    json!({"kind":"tangent",
+                "a":format!("{a}:{ae}"),"b":format!("{b}:{be}"),"aligned":aligned})
+                )
+                .is_err()
+            );
+            assert_eq!(
+                before,
+                crate::io::export::json::document_to_json(e.document()).unwrap()
+            );
+        }
+        let c = cube(&mut e, [200.0, 0.0, 0.0], "C");
+        let d = cube(&mut e, [400.0, 0.0, 0.0], "D");
+        let cf = face(&e, c, DVec3::X);
+        let df = face(&e, d, DVec3::X);
+        let before = crate::io::export::json::document_to_json(e.document()).unwrap();
+        let err = e
+            .execute_erased(
+                "mate-add",
+                json!({"kind":"tangent",
+            "a":format!("{c}:{cf}"),"b":format!("{d}:{df}")}),
+            )
+            .unwrap_err();
+        assert!(err.to_string().contains("circular"), "{err}");
+        assert_eq!(
+            before,
+            crate::io::export::json::document_to_json(e.document()).unwrap()
+        );
     }
 }

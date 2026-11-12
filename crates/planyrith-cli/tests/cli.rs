@@ -952,6 +952,86 @@ fn thermal_convection_over_rpc_and_cli() {
 }
 
 #[test]
+fn tangent_mates_match_between_typed_cli_and_rpc() {
+    use serde_json::json;
+    let dir = scratch("tangent-rpc");
+    let rpc_path = dir.join("rpc.plyr");
+    let cli_path = dir.join("cli.plyr");
+    let steps = [
+        (
+            "circle",
+            json!({"center":[0,0,0],"radius":20,"segments":12}),
+        ),
+        (
+            "make-component",
+            json!({"targets":"edge|face","name":"Outer"}),
+        ),
+        (
+            "circle",
+            json!({"center":[80,0,30],"radius":10,"segments":12}),
+        ),
+        (
+            "make-component",
+            json!({"targets":"edge|face","name":"Inner"}),
+        ),
+        (
+            "mate-add",
+            json!({"kind":"tangent","a":"27:14","b":"54:41","aligned":true}),
+        ),
+    ];
+    planyrith()
+        .args(["new", "-f", cli_path.to_str().unwrap()])
+        .assert()
+        .success();
+    // Both frontends start from the same template settings, including precision.
+    std::fs::copy(&cli_path, &rpc_path).unwrap();
+    let mut frames = vec![rpc(1, "session.open", json!({"path":rpc_path}))];
+    for (i, (name, params)) in steps.into_iter().enumerate() {
+        frames.push(rpc(
+            i as i64 + 2,
+            "command.execute",
+            json!({"doc_id":"d1","name":name,"params":params}),
+        ));
+        let mut command = planyrith();
+        command.args(["tool", name, "-f", cli_path.to_str().unwrap()]);
+        if name == "mate-add" {
+            command.args([
+                "--kind",
+                "tangent",
+                "--a",
+                "27:14",
+                "--b",
+                "54:41",
+                "--aligned",
+            ]);
+        } else {
+            command.args(["--params-json", &params.to_string()]);
+        }
+        command.assert().success();
+    }
+    frames.push(rpc(7, "session.save", json!({"doc_id":"d1"})));
+    let (replies, _) = serve(&[], &frames);
+    for reply in replies.values() {
+        assert!(reply.get("error").is_none(), "{reply}");
+    }
+    assert_eq!(replies[&6]["result"]["output"]["degrees_of_freedom"], 3);
+    let canonical = |path| {
+        let loaded = planyrith_core::io::native::read_document(
+            &std::fs::read(path).unwrap(),
+            &planyrith_core::io::NoProgress,
+        )
+        .unwrap();
+        planyrith_core::io::export::json::document_to_json(&loaded.document).unwrap()
+    };
+    assert_eq!(canonical(cli_path), canonical(rpc_path));
+    let help = planyrith()
+        .args(["tool", "mate-add", "--help"])
+        .output()
+        .unwrap();
+    assert!(String::from_utf8(help.stdout).unwrap().contains("tangent"));
+}
+
+#[test]
 fn annotation_style_is_available_over_rpc_and_survives_save() {
     use serde_json::json;
     let dir = scratch("label-style-rpc");

@@ -4,7 +4,7 @@ All notable changes to Planyrith are recorded here. Versions follow
 [Semantic Versioning](https://semver.org/); before 1.0, minor versions are milestones of
 [`docs/13-roadmap.md`](docs/13-roadmap.md).
 
-## 0.12.0-alpha.1 — engineering milestones 1.7–1.20 (not published)
+## 0.12.0-alpha.1 — engineering milestones 1.7–1.21 (not published)
 
 Per-person undo and joining from the browser (1.7), then the engineering milestones: measuring
 and making, constrained sketches, feature history, solid features, assemblies, engineering
@@ -12,6 +12,9 @@ drawings, sheet metal and frames, surfaces and analysis, simulation, product dat
 The version number marks builds from main; no packages are published for it.
 
 ### Added
+- Milestone 1.21, assembly tangency (docs/05 §5.17): circular cylinders tangent to planes
+  or other cylinders, external/internal contact, exact transformed radii and deterministic
+  starts for coaxial or perpendicular references; Tangent in the Assembly window.
 - Milestone 1.20, thermal convection (docs/05 §8.16): film coefficients and ambient
   temperatures on selected faces, convection-only thermal references and an explicit steady
   heat balance. The Heat page exposes the new conditions; contradictory held temperatures

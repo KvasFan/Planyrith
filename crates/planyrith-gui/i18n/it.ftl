@@ -1145,3 +1145,4 @@ t-click-tube-path-points-enter-or-double-click-finishes-backspace-removes-a-poin
 t-pick-the-tube-path-start = Scegli l'inizio del percorso del tubo
 t-pick-tube-path-points-enter-or-double-click-finishes = Scegli i punti del percorso del tubo; Invio o doppio clic termina
 t-count-faces-selected = { $count } facce selezionate
+t-internal-or-opposite-side-tangent-contact = Contatto tangente interno o sul lato opposto

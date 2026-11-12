@@ -161,6 +161,52 @@ fn thermal_convection_undo() {
 }
 
 #[test]
+fn tangent_mates_restore_exact_bytes() {
+    let mut e = engine();
+    for (center, radius, name) in [([0, 0, 0], 20, "Outer"), ([80, 0, 0], 10, "Inner")] {
+        e.execute_erased(
+            "circle",
+            json!({"center":center,"radius":radius,"segments":12}),
+        )
+        .unwrap();
+        e.execute_erased("make-component", json!({"targets":"edge|face","name":name}))
+            .unwrap();
+    }
+    let sides = e
+        .document()
+        .model
+        .instances()
+        .map(|(id, i)| {
+            let occurrence = e.document().model.pid_of(id.into()).unwrap();
+            let d = e.document().definition(i.definition).unwrap();
+            let edge = d
+                .entities
+                .mesh()
+                .edges()
+                .find(|(_, edge)| edge.curve.is_some())
+                .unwrap()
+                .0;
+            format!(
+                "{}:{}",
+                occurrence.0,
+                d.entities.pid_of(edge.into()).unwrap().0
+            )
+        })
+        .collect::<Vec<_>>();
+    check_in(
+        e,
+        &[
+            (
+                "mate-add",
+                json!({"kind":"tangent","a":sides[0],"b":sides[1]}),
+            ),
+            ("mate-edit", json!({"id":1,"aligned":true})),
+            ("mate-delete", json!({"all":true})),
+        ],
+    );
+}
+
+#[test]
 fn freehand_and_rotated_rectangle_restore_exact_bytes() {
     check(&[
         (

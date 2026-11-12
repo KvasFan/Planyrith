@@ -9,3 +9,7 @@ mate-add --kind fixed --a 37
 mate-add --kind coincident --a 37:34 --b 74:68
 mate-add --kind coincident --a 37:36 --b 74:73 --aligned
 mate-add --kind distance --a 37:35 --b 74:72 --aligned --length 0
+# A circular axis tangent to the base's right-hand plane.
+circle --center 250,50,30 --radius 20 --segments 12
+make-component --targets 'edge|face' --name Roller
+mate-add --kind tangent --a 37:36 --b 101:88

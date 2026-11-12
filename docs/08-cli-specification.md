@@ -133,6 +133,16 @@ select 'face & plane:xy@0' ; move --targets selection --delta 0,0,700
 ```
 `;` separates commands on one line. `last` refers to entities created by the previous command.
 
+### Assembly tangency (1.21)
+
+`mate-add --kind tangent --a <occurrence>:<element> --b <occurrence>:<element>` accepts
+a circular edge and a face plane, or two circular edges. Exact circle/arc radii define the
+underlying infinite cylinders. Default contact uses the plane's positive side or the sum of
+radii; `--aligned` chooses the opposite side or internal contact (unequal radii required).
+Uniform scaling and reflection are supported; distorted circular placements fail. The same
+typed parameters run over JSON-RPC `command.execute`; `mate-edit --id <id> --aligned` drives
+the contact choice. Distances are millimeters; tangency takes neither `--length` nor `--angle`.
+
 ### Molds and routing (1.18)
 All commands run through `tool` or JSON-RPC `command.execute` (docs/05 §8.18–§8.19).
 `mold-split` preserves the source and creates two solid mold halves plus the parting line

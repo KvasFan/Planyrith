@@ -5,7 +5,7 @@ implementation stands, what is done, what remains, and how to resume. Update it 
 every working session. Ground truth for *what to build* stays in `docs/00`–`docs/15`; this file
 is only *progress state*. Release packaging is specified in `docs/16`.
 
-_Last updated: 2026-11-12 (0.11.0-alpha.4 published; main is 0.12.0-alpha.1, unpublished, with milestones 1.7–1.20)._
+_Last updated: 2026-11-12 (0.11.0-alpha.4 published; main is 0.12.0-alpha.1, unpublished, with milestones 1.7–1.21)._
 
 **Continuous development (2026-11-12):** the user requested proceeding through the next
 milestones without stopping at each. Docs/13 plans 1.19 branch fittings, 1.20 thermal convection,
@@ -19,8 +19,17 @@ tetrahedral component needs a held temperature or convection; contradictory held
 fail. Results include prescribed power, convective loss, held-boundary heat and balance residual.
 The Heat page can cool to air and omit an empty hot-face load. Analytic series-resistance,
 convection-only equilibrium, energy balance, rollback, native undo and frontend tests pass.
-The thermal CLI golden now uses 20 mm cells and is below 1 MB. No new dependencies. Next in
-this batch: 1.21, then the full gate and one push.
+The thermal CLI golden now uses 20 mm cells and is below 1 MB. No new dependencies.
+1.21 is implemented: tangent mates use exact circular radii under similarity placements,
+contact with planes on either side and external/internal cylindrical contact, deterministic
+initialization at coaxial/perpendicular starts, conflict rollback and freedom reporting.
+Underlying cylinders/planes are infinite; finite arc/face extents do not constrain contact.
+Analytic contact, scaling/reflection, conflicts, native/undo, CLI goldens, typed CLI/RPC parity
+and the actual Assembly button have tests. Plane normals now use inverse-transpose placement;
+the related mate/motion goldens include the resulting numerical changes. See docs/05 §5.17.
+Before pushing this batch, run the full gate on its final commit and rebuild the optimized
+CLI/GUI. Gate success is recorded under `target/ci-local/passed/<commit>`; hosted CI remains
+subject to the account billing lock below. Do not publish a version or tag for this batch.
 
 **Verification of 1.18:** commit `4901120` passed the entire `tools/ci-local.sh`, including
 the browser, Windows tests under Wine and Windows/macOS compilation; optimized CLI/GUI builds
@@ -37,9 +46,11 @@ controls; long properties occupy the value column. Real widget/viewport tests co
 choice, both face lists, model capture, the run action and tube drawing/undo. Also fixed a
 numerical semantic issue: meshing now uses the body's placed world dimensions with source-to-copy
 face-id mapping, world forces/gravity and correct result normals; nested mixed bodies fail.
-The scaled-bar test checks the independent thermal resistance. The 1.21 patch was parked in
-ignored `target/assembly-tangency-in-progress.patch` while fixing this feedback; resume it after
-the GUI fix commit, then complete its tests and the batch's final local gate/build/push.
+The scaled-bar test checks the independent thermal resistance. These GUI fixes are committed
+as `857c5be`; the temporarily parked 1.21 work has been restored and completed. To try the
+updated application after rebuilding, use `target/release/planyrith-gui`. Draw tubes through
+Tools › Routing › Draw Tube Path and Enter. In Simulation, bind the body first, assign its
+physical material, then set each condition's face list or capture selected model faces.
 
 **1.18 implemented (2026-11-12):** `mold-split` builds two planar mold halves, a section
 wire and the parting surface, with blank margin and shrink compensation; `route` builds hollow

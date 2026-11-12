@@ -243,8 +243,8 @@ tangent, fixed) kept by a solver with degrees of freedom shown; exploded views s
 scenes; a bill of materials; collision detection while dragging; driving a mate to animate.
 - **Done (2026-11-09):** mates (all but tangent) with the solver and freedom shown, driving by
   editing a mate's value, exploded views kept in the container (collapsed again on demand rather
-  than per scene), the bill of materials (docs/05 §5.17). Tangency and collision checks while
-  dragging in the viewport remain; interference is checked on demand (§8.4).
+  than per scene), the bill of materials (docs/05 §5.17). Tangency is completed in 1.21;
+  collision checks while dragging in the viewport remain; interference is checked on demand (§8.4).
 
 ## 1.13.0 — Engineering drawings
 Sheet views tied to the model and kept current: projected, section, detail, auxiliary and
@@ -325,6 +325,10 @@ axes (external or internal contact), with exact radii from curve descriptors. Re
 references whose placement distorts their radii. Acceptance: analytic contact distances,
 degrees of freedom, conflicts, transformed occurrences, native/undo and CLI/RPC/GUI tests.
 Other unfinished assembly items, including collision checks during viewport dragging, remain.
+- **Done (2026-11-12):** tangent mates between circular cylinders and planes or circular
+  cylinders, external/internal contact, similarity-transformed radii and deterministic
+  initialization at symmetric starts. Analytic distances, freedom, conflicts, native
+  persistence/undo, CLI/RPC and the actual Assembly button are covered (docs/05 §5.17).
 
 ## Post-1.0 candidates
 Other limits remain listed against their original milestones; no unrelated feature scope is
