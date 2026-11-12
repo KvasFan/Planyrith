@@ -1101,6 +1101,15 @@ pub enum HeatCondition {
         /// The power.
         watts: f64,
     },
+    /// Exchange heat with air at a prescribed ambient temperature.
+    Convection {
+        /// Faces exposed to this environment.
+        faces: Vec<FaceId>,
+        /// Film coefficient, W/(m²·K), finite and positive.
+        coefficient: f64,
+        /// Ambient temperature, °C.
+        ambient_c: f64,
+    },
 }
 
 /// What a thermal analysis found.
@@ -1110,15 +1119,60 @@ pub struct ThermalResult {
     pub temperature: Vec<f64>,
     /// The lowest and highest temperatures.
     pub range: (f64, f64),
+    /// Total prescribed power entering the body, W.
+    pub power_in_w: f64,
+    /// Integrated heat leaving through convection, W.
+    pub convection_out_w: f64,
+    /// Net heat supplied by held-temperature boundaries, W (negative cools).
+    pub held_heat_in_w: f64,
+    /// Applied power plus held heat minus convection loss, W.
+    pub balance_error_w: f64,
 }
 
-/// Steady temperatures under `conditions`; at least one temperature must
-/// be held.
+/// Whether every tetrahedral node component has a thermal reference.
+fn thermally_anchored(mesh: &TetMesh, anchored: &[bool]) -> bool {
+    fn root(parents: &mut [usize], mut i: usize) -> usize {
+        while parents[i] != i {
+            parents[i] = parents[parents[i]];
+            i = parents[i];
+        }
+        i
+    }
+    let mut parents: Vec<usize> = (0..mesh.nodes.len()).collect();
+    for t in &mesh.tets {
+        let a = root(&mut parents, t[0] as usize);
+        for b in &t[1..] {
+            let b = root(&mut parents, *b as usize);
+            parents[b] = a;
+        }
+    }
+    let mut held = vec![false; parents.len()];
+    for (i, a) in anchored.iter().enumerate() {
+        if *a {
+            held[root(&mut parents, i)] = true;
+        }
+    }
+    (0..parents.len()).all(|i| held[root(&mut parents, i)])
+}
+
+/// Steady temperatures under `conditions`; each connected component needs
+/// a held temperature or convection. Uses consistent quadratic film terms
+/// and reports the heat balance (docs/03 §12, milestone 1.20).
 pub fn solve_thermal(
     mesh: &TetMesh,
     m: &SimMaterial,
     conditions: &[HeatCondition],
 ) -> Result<ThermalResult, GeometryError> {
+    if mesh.nodes.is_empty() || mesh.tets.is_empty() {
+        return Err(GeometryError::NotApplicable(
+            "the thermal mesh is empty".into(),
+        ));
+    }
+    if !m.conductivity_w_mk.is_finite() || m.conductivity_w_mk <= 0.0 {
+        return Err(GeometryError::NotApplicable(
+            "conductivity must be positive and finite".into(),
+        ));
+    }
     let k_mm = m.conductivity_w_mk * 1.0e-3;
     let mut k = Sparse::new(mesh, 1);
     for t in &mesh.tets {
@@ -1142,9 +1196,17 @@ pub fn solve_thermal(
     let mut q = vec![0.0; n];
     let mut x = vec![0.0; n];
     let mut free = vec![true; n];
+    let mut anchored = vec![false; n];
+    let mut films = Vec::new();
+    let mut power_in_w = 0.0;
     for c in conditions {
         match c {
             HeatCondition::Temperature { faces, celsius } => {
+                if !celsius.is_finite() {
+                    return Err(GeometryError::NotApplicable(
+                        "temperature must be finite".into(),
+                    ));
+                }
                 let held = nodes_on(mesh, faces);
                 if held.is_empty() {
                     return Err(GeometryError::NotApplicable(
@@ -1152,11 +1214,22 @@ pub fn solve_thermal(
                     ));
                 }
                 for i in held {
+                    if !free[i as usize]
+                        && (x[i as usize] - celsius).abs() > 1e-9 * celsius.abs().max(1.0)
+                    {
+                        return Err(GeometryError::NotApplicable(
+                            "conflicting temperatures at shared boundary nodes".into(),
+                        ));
+                    }
                     free[i as usize] = false;
+                    anchored[i as usize] = true;
                     x[i as usize] = *celsius;
                 }
             }
             HeatCondition::Power { faces, watts } => {
+                if !watts.is_finite() {
+                    return Err(GeometryError::NotApplicable("power must be finite".into()));
+                }
                 let area = spread(mesh, faces, |_, _, _| {});
                 if area <= 0.0 {
                     return Err(GeometryError::NotApplicable(
@@ -1166,12 +1239,57 @@ pub fn solve_thermal(
                 spread(mesh, faces, |node, share, _| {
                     q[node as usize] += watts * share / area;
                 });
+                power_in_w += watts;
+            }
+            HeatCondition::Convection {
+                faces,
+                coefficient,
+                ambient_c,
+            } => {
+                if !coefficient.is_finite() || *coefficient <= 0.0 || !ambient_c.is_finite() {
+                    return Err(GeometryError::NotApplicable("convection needs a positive finite coefficient and finite ambient temperature".into()));
+                }
+                // Exact integrals of the quadratic triangle's shape-function
+                // products, in corner/edge-middle order (docs/03 §12).
+                const FILM: [[f64; 6]; 6] = [
+                    [6.0, -1.0, -1.0, 0.0, -4.0, 0.0],
+                    [-1.0, 6.0, -1.0, 0.0, 0.0, -4.0],
+                    [-1.0, -1.0, 6.0, -4.0, 0.0, 0.0],
+                    [0.0, 0.0, -4.0, 32.0, 16.0, 16.0],
+                    [-4.0, 0.0, 0.0, 16.0, 32.0, 16.0],
+                    [0.0, -4.0, 0.0, 16.0, 16.0, 32.0],
+                ];
+                let h = coefficient * 1.0e-6;
+                let mut area = 0.0;
+                for (t, f) in mesh.boundary.iter().zip(&mesh.boundary_face) {
+                    if !f.is_some_and(|f| faces.contains(&f)) {
+                        continue;
+                    }
+                    let [a, b, c] = [t[0], t[1], t[2]].map(|i| mesh.nodes[i as usize]);
+                    let triangle_area = (b - a).cross(c - a).length() * 0.5;
+                    area += triangle_area;
+                    for (ia, &na) in t.iter().enumerate() {
+                        anchored[na as usize] = true;
+                        for (ib, &nb) in t.iter().enumerate() {
+                            k.add(na, nb, 0, 0, h * triangle_area / 180.0 * FILM[ia][ib]);
+                        }
+                    }
+                    for &node in &t[3..] {
+                        q[node as usize] += h * ambient_c * triangle_area / 3.0;
+                    }
+                    films.push((*t, h * triangle_area / 3.0, *ambient_c));
+                }
+                if area <= 0.0 {
+                    return Err(GeometryError::NotApplicable(
+                        "no part of the mesh lies on a convection face".into(),
+                    ));
+                }
             }
         }
     }
-    if free.iter().all(|f| *f) {
+    if !thermally_anchored(mesh, &anchored) {
         return Err(GeometryError::NotApplicable(
-            "hold at least one face at a temperature".into(),
+            "each connected mesh component needs a held temperature or convection boundary".into(),
         ));
     }
     // Move the held temperatures to the right-hand side.
@@ -1186,11 +1304,28 @@ pub fn solve_thermal(
     solve_cg(&k, &rhs, &free, &mut x, 1.0e-11).ok_or_else(|| {
         GeometryError::NotApplicable("the thermal solver did not converge".into())
     })?;
+    if x.iter().any(|t| !t.is_finite()) {
+        return Err(GeometryError::NotApplicable(
+            "the thermal solution is not finite".into(),
+        ));
+    }
+    k.mul(&x, &mut kx);
+    let held_heat_in_w: f64 = (0..n).filter(|i| !free[*i]).map(|i| kx[i] - q[i]).sum();
+    let convection_out_w: f64 = films
+        .iter()
+        .map(|(t, share, ambient)| {
+            share * t[3..].iter().map(|i| x[*i as usize] - ambient).sum::<f64>()
+        })
+        .sum();
     let lo = x.iter().copied().fold(f64::MAX, f64::min);
     let hi = x.iter().copied().fold(f64::MIN, f64::max);
     Ok(ThermalResult {
         temperature: x,
         range: (lo, hi),
+        power_in_w,
+        convection_out_w,
+        held_heat_in_w,
+        balance_error_w: power_in_w + held_heat_in_w - convection_out_w,
     })
 }
 
@@ -1308,6 +1443,115 @@ mod tests {
         // T = P L / k A = 10 · 100 / (0.05 · 100) = 200 °C.
         assert!((r.range.1 - 200.0).abs() < 1e-6, "{:?}", r.range);
         assert!(solve_thermal(&mesh, &steel, &[]).is_err());
+    }
+
+    #[test]
+    fn convection_matches_series_resistances_and_conserves_heat() {
+        let tol = Tolerances::default();
+        let bar = block(DVec3::ZERO, DVec3::new(100.0, 10.0, 10.0));
+        let mesh = tet_mesh(&bar, 5.0, 100_000, &tol).unwrap();
+        let root = face_at(&bar, -DVec3::X, 0.0);
+        let tip = face_at(&bar, DVec3::X, 100.0);
+        let steel = material("steel").unwrap();
+        let film = HeatCondition::Convection {
+            faces: vec![tip],
+            coefficient: 100.0,
+            ambient_c: 20.0,
+        };
+        let r = solve_thermal(
+            &mesh,
+            &steel,
+            &[
+                HeatCondition::Temperature {
+                    faces: vec![root],
+                    celsius: 120.0,
+                },
+                film.clone(),
+            ],
+        )
+        .unwrap();
+        // Rcond = L/(kA) = 20 K/W; Rfilm = 1/(hA) = 100 K/W.
+        let heat = 100.0 / 120.0;
+        assert!(
+            (r.range.0 - (20.0 + heat * 100.0)).abs() < 1e-5,
+            "{:?}",
+            r.range
+        );
+        assert!((r.range.1 - 120.0).abs() < 1e-6);
+        assert!((r.convection_out_w - heat).abs() < 1e-7);
+        assert!((r.held_heat_in_w - heat).abs() < 1e-7);
+        assert!(r.balance_error_w.abs() < 1e-7);
+        let r = solve_thermal(
+            &mesh,
+            &steel,
+            &[
+                HeatCondition::Power {
+                    faces: vec![root],
+                    watts: 10.0,
+                },
+                film.clone(),
+            ],
+        )
+        .unwrap();
+        assert!((r.range.0 - 1020.0).abs() < 1e-4, "{:?}", r.range);
+        assert!((r.range.1 - 1220.0).abs() < 1e-4);
+        assert!((r.convection_out_w - 10.0).abs() < 1e-6);
+        assert!(r.held_heat_in_w.abs() < 1e-12);
+        assert!(r.balance_error_w.abs() < 1e-6);
+        let r = solve_thermal(&mesh, &steel, &[film]).unwrap();
+        assert!(r.temperature.iter().all(|t| (t - 20.0).abs() < 1e-5));
+    }
+
+    #[test]
+    fn thermal_references_and_conditions_are_checked() {
+        let tol = Tolerances::default();
+        let bar = block(DVec3::ZERO, DVec3::new(20.0, 10.0, 10.0));
+        let mesh = tet_mesh(&bar, 10.0, 100_000, &tol).unwrap();
+        let face = face_at(&bar, -DVec3::X, 0.0);
+        let steel = material("steel").unwrap();
+        assert!(
+            solve_thermal(
+                &mesh,
+                &steel,
+                &[
+                    HeatCondition::Temperature {
+                        faces: vec![face],
+                        celsius: 0.0
+                    },
+                    HeatCondition::Temperature {
+                        faces: vec![face],
+                        celsius: 20.0
+                    },
+                ]
+            )
+            .is_err()
+        );
+        assert!(
+            solve_thermal(
+                &mesh,
+                &steel,
+                &[HeatCondition::Convection {
+                    faces: vec![face],
+                    coefficient: -1.0,
+                    ambient_c: 20.0
+                },]
+            )
+            .is_err()
+        );
+        // Two disconnected tetrahedral node components need independent anchors.
+        let count = mesh.nodes.len() as u32;
+        let mut disconnected = mesh.clone();
+        disconnected
+            .nodes
+            .extend(mesh.nodes.iter().map(|p| *p + DVec3::X * 100.0));
+        disconnected
+            .tets
+            .extend(mesh.tets.iter().map(|t| t.map(|i| i + count)));
+        let mut anchored = vec![false; disconnected.nodes.len()];
+        anchored[0] = true;
+        assert!(!thermally_anchored(&disconnected, &anchored));
+        anchored[count as usize] = true;
+        assert!(thermally_anchored(&disconnected, &anchored));
     }
 
     #[test]

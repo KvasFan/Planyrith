@@ -154,6 +154,16 @@ Branched fittings (1.19) use `route-fitting --kind tee|cross --length 50mm
 ports lie at ±half-length, and branch ports at the branch length. All bores communicate
 and all ports have the selected section (docs/05 §8.20).
 
+### Thermal convection (1.20)
+`sim-thermal` conditions may use `convection` (W/(m²·K)) with `ambient` (°C), instead of
+temperature or total power. Convection can anchor a solution without held temperatures.
+Output includes prescribed power, convective loss, held-boundary heat and balance residual
+(docs/05 §8.16). Example:
+
+```sh
+planyrith tool sim-thermal -f model.plyr --body name:Bar --mesh-size 10mm --conditions '{"faces":"face & plane:yz@0","power":10}' --conditions '{"faces":"face & plane:yz@100","convection":100,"ambient":20}'
+```
+
 ## 3. Server verbs
 
 ### `planyrith serve [--stdio | --socket <path|port>] [--web <port|address> [--web-root <dir>]] [-f model.plyr] [--readonly] [--token <secret>]`

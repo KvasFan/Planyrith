@@ -1109,3 +1109,7 @@ t-cross-fitting = Raccordo a croce
 t-branch-length = Lunghezza della diramazione
 t-branch-axis-perpendicular-to-main-axis = Asse della diramazione (perpendicolare all'asse principale)
 t-position-is-the-junction-center = La posizione indica il centro della giunzione.
+t-convection-to-air = Convezione verso l'aria
+t-film-coefficient = Coefficiente di scambio
+t-ambient-temperature = Temperatura ambiente
+t-heat-balance-input-input-w-held-held-w-convection-loss-w-residual-error-w = Bilancio termico: potenza { $input } W, vincoli termici { $held } W, convezione { $loss } W, residuo { $error } W.

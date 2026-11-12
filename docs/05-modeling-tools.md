@@ -908,6 +908,21 @@ removed by `analysis-clear`. The body itself is not changed; hide it to see a re
 - `sim-thermal { body, material…, mesh_size?, conditions: [{ faces, temperature: °C | power:
   W }] }`: steady conduction; at least one temperature is held; other faces are insulated.
   **Output:** `{ group, nodes, elements, min_c, max_c, classes }`.
+- **Convection (1.20):** a condition may instead give `convection: number` (film coefficient
+  in W/(m²·K), finite and positive) together with `ambient: number` (°C, finite).
+  Exactly one of held temperature, total power or the convection pair belongs to a condition.
+  Heat/convection loads add; conflicting temperatures at shared nodes fail. Each connected
+  mesh component needs a held temperature or a convection boundary, so convection can anchor
+  the problem on its own. Apply `h ∫ NᵀN dA` to the boundary stiffness and
+  `h Tamb ∫ Nᵀ dA` to the load using the six-node quadratic triangle, in mm-based units.
+  Also return `power_in_w`, `convection_out_w`, `held_heat_in_w` (positive into the body)
+  and `balance_error_w = power_in_w + held_heat_in_w - convection_out_w`.
+  The Heat page offers convection and ambient temperature on the cooled faces. An empty
+  hot-face field omits that load. One undo step still replaces only the colored result.
+  Acceptance: a bar heated at one end and cooled at the other matches the series conduction
+  and film resistances; convection-only boundaries settle to ambient; imposed power balances
+  convection with no held temperature. Invalid coefficients, incomplete pairs, contradictory
+  held values and unanchored mesh components leave the document unchanged.
 - **Undo:** one step each. **GUI:** Tools › Simulation….
 - **Tests:** a steel 200 × 20 × 20 cantilever under 1000 N at its tip bends 0.952 mm
   (`F L³ / 3 E I`) within 5 % and the reaction is 1000 N; its first two frequencies are within

@@ -85,6 +85,56 @@ fn stairs_from_cli_and_gui_have_identical_canonical_exports() {
 }
 struct Server(Child);
 
+#[test]
+fn convection_from_cli_and_gui_has_identical_canonical_state() {
+    let dir = scratch("convection");
+    let model = dir.join("bar.plyr");
+    let _ = std::fs::remove_file(&model);
+    let mut gui = Session::new();
+    for (name, params) in [
+        (
+            "rectangle",
+            json!({"corner_a": [0,0,0], "corner_b": [100,10,0]}),
+        ),
+        (
+            "push-pull",
+            json!({"face": {"Query": "face & last"}, "distance": 10}),
+        ),
+        ("make-group", json!({"targets": "all", "name": "Bar"})),
+        (
+            "sim-thermal",
+            json!({"body": "name:Bar", "mesh_size": 10,
+            "conditions": [{"faces": "face & plane:yz@0", "power": 10},
+                {"faces": "face & plane:yz@100", "convection": 100, "ambient": 20}]}),
+        ),
+    ] {
+        gui.execute(name, params.clone()).unwrap();
+        let output = Command::new(cli())
+            .arg("--deterministic")
+            .arg("-f")
+            .arg(&model)
+            .args(["tool", name, "--params-json"])
+            .arg(params.to_string())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    let loaded = planyrith_core::io::native::read_document(
+        &std::fs::read(&model).unwrap(),
+        &planyrith_core::io::NoProgress,
+    )
+    .unwrap();
+    let mut cli = document_to_json(&loaded.document).unwrap();
+    let mut actual = document_to_json(gui.doc()).unwrap();
+    canonicalize(&mut cli);
+    canonicalize(&mut actual);
+    assert_eq!(actual, cli);
+}
+
 /// docs/05 §8.18–§8.19: the GUI and CLI share geometry and persisted metadata.
 #[test]
 fn molds_and_routing_from_cli_and_gui_have_identical_canonical_state() {

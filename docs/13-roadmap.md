@@ -299,7 +299,7 @@ Mold design (parting line, parting surface, core and cavity, shrink factor) and 
   surface (`mold-split`, docs/05 §8.18); hollow tubes along open paths with diameter × wall
   presets/custom sizes and tangent elbows, plus sleeve and concentric-reducer fittings
   (`route`, `route-fitting`, §8.19). Tools › Molds… and Routing… use the same commands.
-  Nonplanar divisions, automatic undercut resolution and branched junction fittings remain.
+  Nonplanar divisions and automatic undercut resolution remain; branch fittings follow in 1.19.
 
 ## 1.19.0 — Branched routing
 Complete the junction fittings reserved in 1.18: equal-section tees and crosses with
@@ -315,6 +315,9 @@ temperature on selected faces, including problems anchored by convection alone. 
 quadratic boundary integration and report the steady heat balance. Acceptance: analytic bar
 temperature and convection-only energy balance, invalid-condition rejection, native/undo and
 CLI/RPC/GUI tests; existing thermal results stay stable without convection.
+- **Done (2026-11-12):** consistent quadratic convection boundaries, convection-only thermal
+  references, heat-balance outputs, component anchoring and temperature-conflict checks,
+  with Heat-page controls (docs/05 §8.16). Analytic, undo, native and frontend tests pass.
 
 ## 1.21.0 — Assembly tangency
 Complete the tangent mate reserved in 1.12: circular axes tangent to planes or other circular

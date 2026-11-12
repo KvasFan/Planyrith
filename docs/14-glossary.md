@@ -17,6 +17,7 @@ Canonical vocabulary. Use these terms in code identifiers, docs and UI strings.
 | **Component instance** | A placement (transform) of a definition inside a container. |
 | **Container** | An `Entities` collection: the model root or a definition's contents. |
 | **Context (edit context)** | The container currently open for editing in a frontend; entities outside it are faded/not selectable. |
+| **Convection boundary** | Heat exchange with an ambient temperature through a film coefficient in W/(m²·K); a thermal reference for steady simulation. |
 | **Core (mold)** | The mold half on the negative side of the parting plane's normal. |
 | **Curve descriptor** | Metadata grouping consecutive edges into an arc/circle/polygon/freehand curve. |
 | **Delta** | A recorded elementary change with its inverse, grouped into transactions for undo. |

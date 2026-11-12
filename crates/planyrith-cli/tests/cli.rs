@@ -876,6 +876,78 @@ fn molds_and_routing_over_rpc() {
     }
 }
 
+/// docs/05 §8.16: convection-only references, through RPC and typed CLI options.
+#[test]
+fn thermal_convection_over_rpc_and_cli() {
+    use serde_json::json;
+    let dir = scratch("convection-rpc");
+    let path = dir.join("bar.plyr");
+    let mut frames = vec![rpc(1, "session.new", json!({"path": path}))];
+    for (i, (name, params)) in [
+        (
+            "rectangle",
+            json!({"corner_a": [0,0,0], "corner_b": [100,10,0]}),
+        ),
+        (
+            "push-pull",
+            json!({"face": {"Query": "face & last"}, "distance": 10}),
+        ),
+        ("make-group", json!({"targets": "all", "name": "Bar"})),
+        (
+            "sim-thermal",
+            json!({"body": "name:Bar", "mesh_size": 10,
+            "conditions": [{"faces": "face & plane:yz@0", "power": 10},
+                {"faces": "face & plane:yz@100", "convection": 100, "ambient": 20}]}),
+        ),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        frames.push(rpc(
+            i as i64 + 2,
+            "command.execute",
+            json!({"doc_id": "d1", "name": name, "params": params}),
+        ));
+    }
+    frames.push(rpc(6, "session.save", json!({"doc_id": "d1"})));
+    let (replies, _) = serve(&[], &frames);
+    for reply in replies.values() {
+        assert!(reply.get("error").is_none(), "{reply}");
+    }
+    let result = &replies[&5]["result"]["output"];
+    assert!((result["max_c"].as_f64().unwrap() - 1220.0).abs() < 1e-4);
+    assert!(result["balance_error_w"].as_f64().unwrap().abs() < 1e-6);
+    let out = planyrith()
+        .args([
+            "tool",
+            "sim-thermal",
+            "-f",
+            path.to_str().unwrap(),
+            "--body",
+            "name:Bar",
+            "--mesh-size",
+            "10mm",
+            "--conditions",
+            r#"{"faces":"face & plane:yz@0","power":10}"#,
+            "--conditions",
+            r#"{"faces":"face & plane:yz@100","convection":100,"ambient":20}"#,
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let result = json_of(&out.stdout);
+    assert!((result["output"]["convection_out_w"].as_f64().unwrap() - 10.0).abs() < 1e-6);
+    planyrith()
+        .args(["validate", "-f", path.to_str().unwrap()])
+        .assert()
+        .success();
+}
+
 #[test]
 fn annotation_style_is_available_over_rpc_and_survives_save() {
     use serde_json::json;

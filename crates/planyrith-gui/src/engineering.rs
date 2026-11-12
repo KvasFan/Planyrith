@@ -2290,6 +2290,8 @@ pub struct SimulationWindow {
     hot_value: f64,
     cold: String,
     cold_c: f64,
+    cold_convection: bool,
+    film_coefficient: f64,
     mate: u32,
     to_value: f64,
     steps: u32,
@@ -2320,6 +2322,8 @@ impl Default for SimulationWindow {
             hot_value: 10.0,
             cold: String::new(),
             cold_c: 20.0,
+            cold_convection: false,
+            film_coefficient: 10.0,
             mate: 1,
             to_value: 50.0,
             steps: 10,
@@ -2375,10 +2379,16 @@ impl SimulationWindow {
                 } else {
                     json!({ "faces": self.hot, "temperature": self.hot_value })
                 };
-                m.insert(
-                    "conditions".into(),
-                    json!([{ "faces": self.cold, "temperature": self.cold_c }, hot]),
-                );
+                let mut conditions = Vec::new();
+                if !self.cold.trim().is_empty() {
+                    conditions.push(if self.cold_convection {
+                        json!({"faces": self.cold, "convection": self.film_coefficient, "ambient": self.cold_c})
+                    } else { json!({"faces": self.cold, "temperature": self.cold_c}) });
+                }
+                if !self.hot.trim().is_empty() {
+                    conditions.push(hot);
+                }
+                m.insert("conditions".into(), json!(conditions));
                 ("sim-thermal", Value::Object(m))
             }
             SimPage::Motion => (
@@ -2453,6 +2463,12 @@ impl SimulationWindow {
             };
         }
         if out.get("max_c").is_some() {
+            self.lines.push(t_args("Heat balance: input { $input } W, held { $held } W, convection { $loss } W, residual { $error } W.", &[
+                ("input", format!("{:.4}", f(&out["power_in_w"])).into()),
+                ("held", format!("{:.4}", f(&out["held_heat_in_w"])).into()),
+                ("loss", format!("{:.4}", f(&out["convection_out_w"])).into()),
+                ("error", format!("{:.3e}", f(&out["balance_error_w"])).into()),
+            ]));
             return t_args(
                 "From { $min } to { $max } °C.",
                 &[
@@ -2587,7 +2603,14 @@ impl SimulationWindow {
                             }
                             SimPage::Heat => {
                                 Self::faces_row(ui, session, t("Cooled faces"), &mut self.cold);
-                                ui.label(t("Held at"));
+                                ui.checkbox(&mut self.cold_convection, t("Convection to air"));
+                                ui.end_row();
+                                if self.cold_convection {
+                                    ui.label(t("Film coefficient"));
+                                    ui.add(egui::DragValue::new(&mut self.film_coefficient).range(0.001..=1.0e6).suffix(" W/(m²·K)"));
+                                    ui.end_row();
+                                }
+                                ui.label(if self.cold_convection { t("Ambient temperature") } else { t("Held at") });
                                 ui.add(egui::DragValue::new(&mut self.cold_c).speed(1.0).suffix(" °C"));
                                 ui.end_row();
                                 Self::faces_row(ui, session, t("Heated faces"), &mut self.hot);
@@ -3385,6 +3408,22 @@ mod tests {
             "{:?}",
             w.note
         );
+        w.cold_convection = true;
+        w.film_coefficient = 100.0;
+        w.run(&mut s);
+        assert!(
+            w.lines.iter().any(|l| l.starts_with("Heat balance:")),
+            "{:?}",
+            w.note
+        );
+        assert!(
+            w.note.as_deref().unwrap().starts_with("From "),
+            "{:?}",
+            w.note
+        );
+        w.hot.clear();
+        w.run(&mut s);
+        assert_eq!(w.note.as_deref(), Some("From 20.00 to 20.00 °C."));
     }
 
     /// The product window's commands: a placed bolt, its part number and

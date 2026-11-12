@@ -134,6 +134,28 @@ fn molds_and_routing() {
     ]);
 }
 
+/// Thermal convection replaces only the result copy, in one undo step.
+#[test]
+fn thermal_convection_undo() {
+    check(&[
+        (
+            "rectangle",
+            json!({"corner_a": [0,0,0], "corner_b": [100,10,0]}),
+        ),
+        (
+            "push-pull",
+            json!({"face": {"Query": "face & last"}, "distance": 10}),
+        ),
+        ("make-group", json!({"targets": "all", "name": "Bar"})),
+        (
+            "sim-thermal",
+            json!({"body": "name:Bar", "mesh_size": 10,
+            "conditions": [{"faces": "face & plane:yz@0", "power": 10},
+                           {"faces": "face & plane:yz@100", "convection": 100, "ambient": 20}]}),
+        ),
+    ]);
+}
+
 #[test]
 fn freehand_and_rotated_rectangle_restore_exact_bytes() {
     check(&[

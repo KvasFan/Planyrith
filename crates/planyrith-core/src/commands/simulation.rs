@@ -585,6 +585,12 @@ pub struct HeatParams {
     /// Or heated with this power in all, W.
     #[serde(default)]
     pub power: Option<f64>,
+    /// Or a convection film coefficient, W/(m²·K); give with ambient.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub convection: Option<f64>,
+    /// Ambient temperature for convection, °C.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ambient: Option<f64>,
 }
 
 /// `sim-thermal` parameters.
@@ -601,7 +607,8 @@ pub struct SimThermalParams {
     /// The mesh's cell size (about 2500 cells by default).
     #[serde(default)]
     pub mesh_size: Option<Length>,
-    /// Temperatures held and heat put in; at least one temperature.
+    /// Temperatures, power or convection; each mesh component needs a
+    /// held temperature or convection boundary.
     pub conditions: Vec<HeatParams>,
 }
 
@@ -620,6 +627,14 @@ pub struct SimThermalOutput {
     pub max_c: f64,
     /// The color classes.
     pub classes: Vec<AnalysisClass>,
+    /// Prescribed heat entering the body, W.
+    pub power_in_w: f64,
+    /// Heat leaving through convection, W.
+    pub convection_out_w: f64,
+    /// Heat entering through held temperatures, W (negative means cooling).
+    pub held_heat_in_w: f64,
+    /// Power in plus held heat minus convection out, W.
+    pub balance_error_w: f64,
 }
 
 /// The `sim-thermal` command: steady heat conduction.
@@ -636,19 +651,31 @@ impl Command for SimThermal {
 
     fn validate(&self, _: &Document, p: &SimThermalParams) -> Result<(), CommandError> {
         p.material.resolve()?;
-        if p.conditions
+        for c in &p.conditions {
+            let modes = usize::from(c.temperature.is_some())
+                + usize::from(c.power.is_some())
+                + usize::from(c.convection.is_some());
+            if modes != 1
+                || c.convection.is_some() != c.ambient.is_some()
+                || c.temperature.is_some_and(|t| !t.is_finite())
+                || c.power.is_some_and(|p| !p.is_finite())
+                || c.ambient.is_some_and(|t| !t.is_finite())
+                || c.convection.is_some_and(|h| !h.is_finite() || h <= 0.0)
+            {
+                return Err(CommandError::invalid_param(
+                    "conditions",
+                    "each condition gives one finite temperature, power, or positive convection coefficient with finite ambient temperature",
+                ));
+            }
+        }
+        if !p
+            .conditions
             .iter()
-            .any(|c| c.temperature.is_some() == c.power.is_some())
+            .any(|c| c.temperature.is_some() || c.convection.is_some())
         {
             return Err(CommandError::invalid_param(
                 "conditions",
-                "each condition gives a temperature or a power",
-            ));
-        }
-        if !p.conditions.iter().any(|c| c.temperature.is_some()) {
-            return Err(CommandError::invalid_param(
-                "conditions",
-                "hold at least one face at a temperature",
+                "give at least one held temperature or convection boundary",
             ));
         }
         Ok(())
@@ -665,9 +692,14 @@ impl Command for SimThermal {
         let mut conditions = Vec::new();
         for c in &p.conditions {
             let faces = faces_of(tx, &b, "conditions", &c.faces)?;
-            conditions.push(match (c.temperature, c.power) {
-                (Some(celsius), _) => HeatCondition::Temperature { faces, celsius },
-                (_, Some(watts)) => HeatCondition::Power { faces, watts },
+            conditions.push(match (c.temperature, c.power, c.convection, c.ambient) {
+                (Some(celsius), _, _, _) => HeatCondition::Temperature { faces, celsius },
+                (_, Some(watts), _, _) => HeatCondition::Power { faces, watts },
+                (_, _, Some(coefficient), Some(ambient_c)) => HeatCondition::Convection {
+                    faces,
+                    coefficient,
+                    ambient_c,
+                },
                 _ => continue,
             });
         }
@@ -690,6 +722,10 @@ impl Command for SimThermal {
             min_c: r.range.0,
             max_c: r.range.1,
             classes,
+            power_in_w: r.power_in_w,
+            convection_out_w: r.convection_out_w,
+            held_heat_in_w: r.held_heat_in_w,
+            balance_error_w: r.balance_error_w,
         })
     }
 
@@ -1001,5 +1037,58 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn thermal_convection_and_invalid_conditions() {
+        let mut e = beam();
+        let p = json!({"body": "name:Beam", "mesh_size": 10,
+            "conditions": [{"faces": "face & plane:yz@0", "power": 10},
+                {"faces": "face & plane:yz@200", "convection": 100, "ambient": 20}]});
+        let out = run(&mut e, "sim-thermal", p.clone());
+        assert!((out["power_in_w"].as_f64().unwrap() - 10.0).abs() < 1e-9);
+        assert!((out["convection_out_w"].as_f64().unwrap() - 10.0).abs() < 1e-6);
+        assert!(out["balance_error_w"].as_f64().unwrap().abs() < 1e-6);
+        // A=400 mm², film resistance 25 K/W, conduction 10 K/W.
+        assert!((out["min_c"].as_f64().unwrap() - 270.0).abs() < 1e-4);
+        assert!((out["max_c"].as_f64().unwrap() - 370.0).abs() < 1e-4);
+        let options = crate::io::native::WriteOptions {
+            deterministic: true,
+            include_history: false,
+            ..Default::default()
+        };
+        let data =
+            crate::io::native::write_document(e.document(), &[], &options, &crate::io::NoProgress)
+                .unwrap();
+        let loaded = crate::io::native::read_document(&data, &crate::io::NoProgress).unwrap();
+        assert_eq!(
+            data,
+            crate::io::native::write_document(
+                &loaded.document,
+                &[],
+                &options,
+                &crate::io::NoProgress
+            )
+            .unwrap()
+        );
+        let before = crate::io::export::json::document_to_json(e.document()).unwrap();
+        let history = e.history().applied();
+        for conditions in [
+            json!([{"faces":"face", "convection": 0, "ambient": 20}]),
+            json!([{"faces":"face", "convection": 10}]),
+            json!([{"faces":"face", "ambient": 20}]),
+            json!([{"faces":"face", "convection": 10, "ambient": 20, "temperature": 30}]),
+            json!([{"faces":"face & plane:yz@0", "temperature": 0}, {"faces":"face & plane:yz@0", "temperature": 20}]),
+            json!([{"faces":"face & plane:yz@999", "convection": 10, "ambient": 20}]),
+        ] {
+            let mut params = p.clone();
+            params["conditions"] = conditions;
+            assert!(e.execute_erased("sim-thermal", params).is_err());
+            assert_eq!(
+                before,
+                crate::io::export::json::document_to_json(e.document()).unwrap()
+            );
+            assert_eq!(history, e.history().applied());
+        }
     }
 }

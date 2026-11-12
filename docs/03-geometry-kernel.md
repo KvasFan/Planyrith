@@ -503,6 +503,13 @@ W and K.
   values change by less than 10⁻⁷ (80 steps at most). `f = √λ / 2π`.
 - **Heat.** Steady conduction `∇·(k ∇T) = 0`; held temperatures move to the right-hand side;
   heat power is spread like a force.
+  Convection (1.20) adds a consistent quadratic boundary mass matrix times `h`, and the load
+  `h Tamb ∫N dA`. For node order (three corners, middles 01/12/20), the normalized matrix is
+  `A/180 * [[6,-1,-1,0,-4,0],[-1,6,-1,0,0,-4],[-1,-1,6,-4,0,0],
+  [0,0,-4,32,16,16],[-4,0,0,16,32,16],[0,-4,0,16,16,32]]`; load shares are 0 at corners
+  and A/3 at middles. Convert h from W/(m²·K) to W/(mm²·K) by 10⁻⁶. Each connected component
+  needs a held node or a convection boundary. Report held-boundary reactions and integrated
+  convective heat loss along with total applied power, checking their global balance.
 - Everything runs sequentially in a fixed order: results are deterministic.
 
 ## Decisions

@@ -5,7 +5,7 @@ implementation stands, what is done, what remains, and how to resume. Update it 
 every working session. Ground truth for *what to build* stays in `docs/00`–`docs/15`; this file
 is only *progress state*. Release packaging is specified in `docs/16`.
 
-_Last updated: 2026-11-12 (0.11.0-alpha.4 published; main is 0.12.0-alpha.1, unpublished, with milestones 1.7–1.19)._
+_Last updated: 2026-11-12 (0.11.0-alpha.4 published; main is 0.12.0-alpha.1, unpublished, with milestones 1.7–1.20)._
 
 **Continuous development (2026-11-12):** the user requested proceeding through the next
 milestones without stopping at each. Docs/13 plans 1.19 branch fittings, 1.20 thermal convection,
@@ -13,7 +13,14 @@ milestones without stopping at each. Docs/13 plans 1.19 branch fittings, 1.20 th
 `route-fitting --kind tee|cross` unites outer cylinders and subtracts communicating extended
 bores; explicit branch length and perpendicular direction, matching Routing controls. Core bore,
 wall, placement, rollback, persistence and undo tests pass, as do CLI goldens, RPC and GUI parity.
-No new dependencies. Next in this batch: 1.20, then 1.21, then the full gate and one push.
+1.20 is implemented too: `sim-thermal` takes convection coefficients (W/(m²·K)) and ambient
+temperatures on faces, using the consistent six-node triangle boundary matrix. Each connected
+tetrahedral component needs a held temperature or convection; contradictory held temperatures
+fail. Results include prescribed power, convective loss, held-boundary heat and balance residual.
+The Heat page can cool to air and omit an empty hot-face load. Analytic series-resistance,
+convection-only equilibrium, energy balance, rollback, native undo and frontend tests pass.
+The thermal CLI golden now uses 20 mm cells and is below 1 MB. No new dependencies. Next in
+this batch: 1.21, then the full gate and one push.
 
 **Verification of 1.18:** commit `4901120` passed the entire `tools/ci-local.sh`, including
 the browser, Windows tests under Wine and Windows/macOS compilation; optimized CLI/GUI builds
