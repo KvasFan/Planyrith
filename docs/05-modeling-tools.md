@@ -926,6 +926,60 @@ removed by `analysis-clear`. The body itself is not changed; hide it to see a re
 - **GUI:** Tools › Simulation… › Motion. **Tests:** a block slid from flush to 60 mm off in six
   steps moves 10 mm per step without collisions.
 
+### 8.18 `mold-split` (milestone 1.18)
+- **Purpose:** derive two mold halves, a parting line and a planar parting surface from one
+  closed mesh group or component. The source remains editable and unchanged.
+- **Params:** `body: Sel`, `point: Point`, `normal: Vector` (from core toward cavity),
+  `margin: Length(10)`, `shrink_factor: number(1)`, `origin?: Point` (source bounds center).
+  Dimensions and coordinates are world-space millimeters, including inside an edit context.
+- **Algorithm:** scale a world-space copy about `origin` by `shrink_factor`; enclose it in a
+  box aligned with the division plane, enlarged by `margin` on every side; subtract the copy
+  from each half-box. Negative side is the core; positive side is the cavity. Slice the copy
+  for the parting line; the core's faces in the plane form the parting surface, with holes
+  where the part crosses it. Store the request as definition attributes of the new groups.
+- **Interactive steps:** select the body, choose the plane through the selection center,
+  set margin and shrink compensation, create. No inference beyond the selection's bounds.
+- **Edge cases:** reject nested contents, open meshes, non-finite values, nonpositive margin
+  or factor, a plane that does not cross the part, and boolean failures before keeping any
+  results. This is a planar division; undercuts require draft analysis (§8.15) and a different
+  design. No automatic pullability, runners, gates or ejectors are inferred.
+- **Output:** `{ core, cavity, parting_line, parting_surface, core_volume_mm3,
+  cavity_volume_mm3, compensated_volume_mm3, parting_length_mm, fallback_used }`.
+- **Undo:** all four groups in one step. **Tests:** block halves conserve blank volume minus
+  compensated part volume; section perimeter, shrink scaling, oblique plane, unchanged source,
+  invalid input rollback, native round trip and undo/redo.
+
+### 8.19 `route` and `route-fitting` (milestone 1.18)
+- **Purpose:** hollow round pipes/tubes along open paths, plus separate union and reducer
+  fittings. Ends have annular wall faces; the bore remains open.
+- `route { points?: [Point], path?: Sel, size: string("20x1.5"), outer_diameter?: Length,
+  wall?: Length, bend_radius?: Length, segments: count(24), bend_segments: count(8) }`:
+  exactly one of world-space `points` or a connected open edge `path`. A size is outer
+  diameter × wall thickness in mm. Presets: `10x1`, `12x1`, `16x1`, `20x1.5`, `25x2`,
+  `32x2`, `40x2`, `50x2`; both custom dimensions together override the preset.
+  Default centerline bend radius is 1.5 × outer diameter; it must exceed the outer radius.
+  Each corner gets a tangent circular elbow (8 chords per corner by default).
+- `route-fitting { kind: coupling|reducer, size, outer_diameter?, wall?,
+  outlet_diameter?: Length, length: Length(40), position?: Point, axis?: Vector }`:
+  an independent hollow sleeve or concentric reducer along +Z by default. `size` specifies
+  the fitting's own outer diameter and wall, rather than a mating pipe's nominal size.
+  Reducers require `outlet_diameter`; couplings reject it. No socket/thread metadata.
+- **Algorithm:** tangent setbacks `R tan(turn/2)` and sampled circular centerlines;
+  minimum-rotation frames carry concentric polygon rings along the exact station tangents.
+  Join corresponding rings, with annular end faces. Reducers interpolate ring radii.
+  Reject duplicate points, reversals, closed/branching/disconnected paths, elbows that do not
+  fit adjacent segments, overlapping nonadjacent route spans, collapsed wall/bore facets and
+  coordinates outside the model range. Mesh resolution is 8–128 around, 2–64 per elbow.
+  Limit a request to 256 input points, 4096 sampled stations and 262144 ring vertices;
+  larger requests fail before allocating the mesh and can be split into separate routes.
+- **Output:** `{ group, length_mm, volume_mm3, outer_diameter_mm, wall_mm, elbows }`;
+  length is analytic centerline length (axial length for a fitting); volume is the mesh's.
+- **Interactive steps:** select open path edges, pick size/radius, create; fittings use a
+  position and axis entered in the same window. No additional inference.
+- **Undo:** one new group per command, one step; source edges remain. Attributes retain
+  dimensions and the request. **Tests:** straight annulus volume, elbow length, reducer bore,
+  short/branching/reversing paths, deterministic native round trip, CLI/RPC and undo/redo.
+
 ## 9. View tools (category `view`) — not undoable, do not dirty the document
 
 - `orbit { yaw: Angle, pitch: Angle, pivot?: Point }` — middle-drag; `Shift` = pan; orbits about the
@@ -1033,6 +1087,12 @@ UI hints are generated from one source.
 - [ ] Documented in `docs/08` command table.
 
 ## Decisions
+
+- 2026-11-12 — **Molds and routing (1.18):** planar mold divisions reuse the solid boolean
+  kernel; round tubes use explicit outer-diameter × wall presets, without claiming a pressure
+  class or manufacturing standard. This keeps dimensions unambiguous. Tangent elbows form
+  part of a route; sleeves and concentric reducers are independently placed fittings. Branched
+  junction fittings and nonplanar mold divisions remain outside this increment.
 
 - 2026-11-08 — **Camera from a photograph** (§9.1). Two vanishing points with the principal point
   at the picture's center determine the camera, tilt included, so a third set of lines is not

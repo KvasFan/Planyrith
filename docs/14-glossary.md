@@ -10,12 +10,14 @@ Canonical vocabulary. Use these terms in code identifiers, docs and UI strings.
 | **Axis lock** | Constraining a tool's input direction to a drawing axis or inferred line (arrow keys / Shift). |
 | **Batch** | A text file of CLI command lines executed as one undo group and one save. |
 | **Cap** | The face that closes a section cut on a solid; also the end face created by push/pull. |
+| **Cavity (mold)** | The mold half on the positive side of the parting plane's normal. |
 | **Command** | A named, serde-typed, undoable document mutation; the only mutation path (`docs/01 §3`). |
 | **Component** | A reusable definition instantiated one or more times; edits to the definition affect all instances. |
 | **Component definition** | The entities, behavior and metadata of a component (has a UUID). |
 | **Component instance** | A placement (transform) of a definition inside a container. |
 | **Container** | An `Entities` collection: the model root or a definition's contents. |
 | **Context (edit context)** | The container currently open for editing in a frontend; entities outside it are faded/not selectable. |
+| **Core (mold)** | The mold half on the negative side of the parting plane's normal. |
 | **Curve descriptor** | Metadata grouping consecutive edges into an arc/circle/polygon/freehand curve. |
 | **Delta** | A recorded elementary change with its inverse, grouped into transactions for undo. |
 | **Dock** | A side area holding dockable panels (tiles). |
@@ -23,6 +25,7 @@ Canonical vocabulary. Use these terms in code identifiers, docs and UI strings.
 | **Entity** | Any addressable thing in a container: edge, face, group, instance, guide, dimension, text, image, section plane. |
 | **Face** | A planar polygon with one outer loop and zero or more holes; has a front and a back. |
 | **Face finding** | Detecting closed coplanar edge loops and creating faces automatically (`docs/03 §4.3`). |
+| **Fitting** | An independent hollow sleeve or concentric reducer in a routed assembly; its sizes describe its own outer diameter and wall. |
 | **Front / back** | The two sides of a face; the front is along the normal and gets the front material. |
 | **Glue** | Component behavior that attaches an instance to a face and slides along it. |
 | **Group** | A single-instance, anonymous component used to isolate geometry. |
@@ -35,11 +38,14 @@ Canonical vocabulary. Use these terms in code identifiers, docs and UI strings.
 | **Measure (value field)** | The status-bar numeric input that accepts lengths, angles, counts and coordinates during tools. |
 | **Merge** | Combining two coplanar faces when their shared edge is erased, or two vertices within tolerance. |
 | **Model** | The root container of a document. |
+| **Parting line** | Closed section edges where a mold's compensated part crosses its division plane. |
+| **Parting surface** | The mold's planar interface outside the section of the compensated part. |
 | **Pid** | Persistent id of an entity within a document, stable across save/load. |
 | **Plane constraint** | The plane onto which a tool projects free cursor positions. |
 | **Profile edge** | A silhouette edge for the current view, drawn thicker by styles. |
 | **Push/pull** | Extruding a face along its normal, merging with coplanar neighbors and cutting through when landing on a coplanar face. |
 | **Query** | A selection expression (`docs/08 §5`). |
+| **Route** | A hollow round tube along an open centerline, with tangent circular elbows at corners. |
 | **Scene** | A saved set of view properties (camera, tag visibility, hidden entities, sections, style, shadows). |
 | **Section plane** | A cutting plane that hides geometry on one side and draws cut lines/caps. |
 | **Sheet** | A paper-space page in the 2D documentation module (`docs/15`). |

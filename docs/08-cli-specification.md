@@ -133,6 +133,22 @@ select 'face & plane:xy@0' ; move --targets selection --delta 0,0,700
 ```
 `;` separates commands on one line. `last` refers to entities created by the previous command.
 
+### Molds and routing (1.18)
+All commands run through `tool` or JSON-RPC `command.execute` (docs/05 §8.18–§8.19).
+`mold-split` preserves the source and creates two solid mold halves plus the parting line
+and planar surface. `shrink_factor` is a linear multiplier; `1.02` compensates by 2%.
+`route` accepts repeated world points or one query for connected open edges and makes a hollow
+tube with tangent elbows. Sizes name **outer diameter × wall**, in mm, with explicit dimensions
+available. `route-fitting` places a hollow sleeve or concentric reducer; its dimensions describe
+the fitting itself. The registry generates every flag and its units:
+
+```sh
+planyrith tool mold-split -f part.plyr --body 'name:Part' --point 50,30,20 --normal z --margin 10mm --shrink-factor 1.02
+planyrith tool route -f part.plyr --points 0,0,0 --points 200,0,0 --points 200,200,0 --size 20x1.5 --bend-radius 30mm
+planyrith tool route -f part.plyr --path selection --outer-diameter 22mm --wall 2mm
+planyrith tool route-fitting -f part.plyr --kind reducer --size 32x2 --outlet-diameter 20mm --length 40mm --axis z
+```
+
 ## 3. Server verbs
 
 ### `planyrith serve [--stdio | --socket <path|port>] [--web <port|address> [--web-root <dir>]] [-f model.plyr] [--readonly] [--token <secret>]`

@@ -331,6 +331,27 @@ sign of the volume, and neighboring side pieces closer than 20° are softened an
   (the section slices of docs/05 §5.11), and the pieces whose inner point lies on the kept
   side replace it.
 
+### 4.22 Routing (`geom::routing`)
+Round hollow sections have explicit outer diameter and radial wall thickness, in millimeters.
+Open paths get tangent circular elbows: for a direction change θ and centerline radius R,
+set back each incident straight by R tan(θ/2), rejecting bends that exhaust a segment.
+Exact station tangents carry concentric rings in minimum-rotation frames; corresponding outer
+and inner rings make oppositely wound wall faces, with annular end faces. Nonplanar quads are
+triangulated. Sleeve/reducer fittings use two such stations, with equal/different diameters.
+Analytic centerline lengths include Rθ; volumes measure the tessellated mesh. Reject collapsed
+bores/walls/facets, reversals, non-finite or out-of-range points, and overlaps between nonlocal
+sampled spans. The bore remains open while the material boundary is a closed solid.
+
+### 4.23 Planar molds (`geom::mold`)
+Scale a copy of the part about an explicit point (default bounds center), then bound its
+vertices in the parting plane's orthonormal frame. Expand those bounds by a margin, and split
+the enclosing blank in the plane. Subtract the compensated part from each blank with §4.13.
+The negative half's outward faces in the plane form the parting surface; the source's section
+segments form the parting line, which must close with degree two at every vertex. Keep all
+meshes separate: the source, core, cavity, wire line and planar surface. Require a plane
+crossing the part and a margin larger than the planarity tolerance. Boolean failures leave no
+result. This derives planar geometry, without automatically resolving undercuts.
+
 ## 5. Tessellation (for rendering and export)
 
 `tessellate_face(f) -> Vec<[u32; 3]>`: project loops to the face's 2D frame, run ear clipping

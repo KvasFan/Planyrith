@@ -95,6 +95,37 @@ fn drawing_and_push_pull() {
     ]);
 }
 
+/// docs/05 §8.18–§8.19: mold groups and hollow routing undo as one action.
+#[test]
+fn molds_and_routing() {
+    check(&[
+        (
+            "rectangle",
+            json!({"corner_a": [0,0,0], "corner_b": [100,60,0]}),
+        ),
+        (
+            "push-pull",
+            json!({"face": {"Query": "face & last"}, "distance": 40}),
+        ),
+        (
+            "make-group",
+            json!({"targets": "edge|face", "name": "Part"}),
+        ),
+        (
+            "mold-split",
+            json!({"body": "name:Part", "point": [50,30,20], "normal": [0,0,1], "shrink_factor": 1.02}),
+        ),
+        (
+            "route",
+            json!({"points": [[200,0,0],[300,0,0],[300,100,0]], "segments": 12, "bend_segments": 4}),
+        ),
+        (
+            "route-fitting",
+            json!({"kind": "reducer", "size": "32x2", "outlet_diameter": 20, "position": [400,0,0]}),
+        ),
+    ]);
+}
+
 #[test]
 fn freehand_and_rotated_rectangle_restore_exact_bytes() {
     check(&[

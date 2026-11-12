@@ -85,6 +85,66 @@ fn stairs_from_cli_and_gui_have_identical_canonical_exports() {
 }
 struct Server(Child);
 
+/// docs/05 §8.18–§8.19: the GUI and CLI share geometry and persisted metadata.
+#[test]
+fn molds_and_routing_from_cli_and_gui_have_identical_canonical_state() {
+    let dir = scratch("molds-routing");
+    let model = dir.join("parts.plyr");
+    let _ = std::fs::remove_file(&model);
+    let mut gui = Session::new();
+    for (name, params) in [
+        (
+            "rectangle",
+            json!({"corner_a": [0,0,0], "corner_b": [100,60,0]}),
+        ),
+        (
+            "push-pull",
+            json!({"face": {"Query": "face & last"}, "distance": 40}),
+        ),
+        (
+            "make-group",
+            json!({"targets": "face|edge", "name": "Part"}),
+        ),
+        (
+            "mold-split",
+            json!({"body": "name:Part", "point": [50,30,20], "normal": [0,0,1], "shrink_factor": 1.02}),
+        ),
+        (
+            "route",
+            json!({"points": [[200,0,0],[300,0,0],[300,100,0]], "segments": 8, "bend_segments": 2}),
+        ),
+        (
+            "route-fitting",
+            json!({"kind": "reducer", "size": "32x2", "outlet_diameter": 20, "position": [400,0,0]}),
+        ),
+    ] {
+        gui.execute(name, params.clone()).unwrap();
+        let output = Command::new(cli())
+            .arg("--deterministic")
+            .arg("-f")
+            .arg(&model)
+            .args(["tool", name, "--params-json"])
+            .arg(params.to_string())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    let loaded = planyrith_core::io::native::read_document(
+        &std::fs::read(&model).unwrap(),
+        &planyrith_core::io::NoProgress,
+    )
+    .unwrap();
+    let mut cli = document_to_json(&loaded.document).unwrap();
+    let mut actual = document_to_json(gui.doc()).unwrap();
+    canonicalize(&mut cli);
+    canonicalize(&mut actual);
+    assert_eq!(actual, cli);
+}
+
 #[test]
 fn annotation_style_from_cli_and_gui_has_identical_canonical_state() {
     let dir = scratch("labels");

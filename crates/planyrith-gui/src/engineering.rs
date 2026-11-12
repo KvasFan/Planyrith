@@ -2892,10 +2892,325 @@ impl ProductWindow {
     }
 }
 
+/// Tools › Molds… (docs/05 §8.18): a planar mold around the selection.
+pub struct MoldWindow {
+    /// The window is shown.
+    pub open: bool,
+    point: [f64; 3],
+    normal: [f64; 3],
+    margin_mm: f64,
+    shrink_factor: f64,
+    note: Option<String>,
+}
+
+impl Default for MoldWindow {
+    fn default() -> Self {
+        Self {
+            open: false,
+            point: [0.0; 3],
+            normal: [0.0, 0.0, 1.0],
+            margin_mm: 10.0,
+            shrink_factor: 1.0,
+            note: None,
+        }
+    }
+}
+
+impl MoldWindow {
+    fn create(&mut self, session: &mut Session) {
+        self.note = Some(note(
+            session.execute(
+                "mold-split",
+                json!({
+                    "body": "selection", "point": self.point, "normal": self.normal,
+                    "margin": self.margin_mm, "shrink_factor": self.shrink_factor,
+                }),
+            ),
+            |_| t("Two mold halves, parting line and surface created."),
+        ));
+    }
+
+    /// Draws the window and dispatches the shared command.
+    pub fn window(&mut self, ctx: &egui::Context, session: &mut Session) {
+        if !self.open {
+            return;
+        }
+        let mut open = true;
+        egui::Window::new(t("Molds"))
+            .open(&mut open)
+            .default_width(420.0)
+            .show(ctx, |ui| {
+                ui.label(t(
+                    "Select one solid group or component. The division is planar.",
+                ));
+                ui.label(t("Parting plane point (mm)"));
+                xyz(ui, &mut self.point);
+                if ui.button(t("Use Selection Center")).clicked()
+                    && let Some(bounds) = selection_bounds(session)
+                {
+                    self.point = bounds.center().to_array();
+                }
+                ui.label(t("Normal toward cavity"));
+                xyz(ui, &mut self.normal);
+                ui.horizontal(|ui| {
+                    ui.label(t("Blank margin"));
+                    ui.add(
+                        egui::DragValue::new(&mut self.margin_mm)
+                            .range(0.1..=10000.0)
+                            .suffix(" mm"),
+                    );
+                });
+                ui.horizontal(|ui| {
+                    ui.label(t("Shrink compensation factor"));
+                    ui.add(
+                        egui::DragValue::new(&mut self.shrink_factor)
+                            .range(0.01..=10.0)
+                            .speed(0.001),
+                    );
+                });
+                ui.label(t(
+                    "Check undercuts with Draft Analysis before choosing a division.",
+                ));
+                if ui.button(t("Create Mold")).clicked() {
+                    self.create(session);
+                }
+                if let Some(n) = &self.note {
+                    ui.label(n);
+                }
+            });
+        self.open = open;
+    }
+}
+
+/// Tools › Routing… (docs/05 §8.19): tubes on selected edges and placed fittings.
+pub struct RoutingWindow {
+    /// The window is shown.
+    pub open: bool,
+    size: usize,
+    custom: bool,
+    diameter_mm: f64,
+    wall_mm: f64,
+    bend_radius_mm: f64,
+    reducer: bool,
+    outlet_mm: f64,
+    length_mm: f64,
+    position: [f64; 3],
+    axis: [f64; 3],
+    note: Option<String>,
+}
+
+impl Default for RoutingWindow {
+    fn default() -> Self {
+        Self {
+            open: false,
+            size: 3,
+            custom: false,
+            diameter_mm: 20.0,
+            wall_mm: 1.5,
+            bend_radius_mm: 0.0,
+            reducer: false,
+            outlet_mm: 12.0,
+            length_mm: 40.0,
+            position: [0.0; 3],
+            axis: [0.0, 0.0, 1.0],
+            note: None,
+        }
+    }
+}
+
+impl RoutingWindow {
+    fn section(&self) -> Value {
+        let mut p = json!({"size": planyrith_core::geom::routing::SIZES[self.size]});
+        if self.custom {
+            p["outer_diameter"] = json!(self.diameter_mm);
+            p["wall"] = json!(self.wall_mm);
+        }
+        p
+    }
+
+    fn create_route(&mut self, session: &mut Session) {
+        let mut params = self.section();
+        params["path"] = json!("selection");
+        if self.bend_radius_mm > 0.0 {
+            params["bend_radius"] = json!(self.bend_radius_mm);
+        }
+        self.note = Some(note(session.execute("route", params), Self::result));
+    }
+
+    fn create_fitting(&mut self, session: &mut Session) {
+        let mut params = self.section();
+        params["kind"] = json!(if self.reducer { "reducer" } else { "coupling" });
+        params["length"] = json!(self.length_mm);
+        params["position"] = json!(self.position);
+        params["axis"] = json!(self.axis);
+        if self.reducer {
+            params["outlet_diameter"] = json!(self.outlet_mm);
+        }
+        self.note = Some(note(session.execute("route-fitting", params), Self::result));
+    }
+
+    fn result(out: &Value) -> String {
+        t_args(
+            "Centerline length: { $length } mm.",
+            &[(
+                "length",
+                format!("{:.2}", out["length_mm"].as_f64().unwrap_or_default()).into(),
+            )],
+        )
+    }
+
+    /// Draws the window and dispatches the shared commands.
+    pub fn window(&mut self, ctx: &egui::Context, session: &mut Session) {
+        if !self.open {
+            return;
+        }
+        let mut open = true;
+        egui::Window::new(t("Routing"))
+            .open(&mut open)
+            .default_width(420.0)
+            .show(ctx, |ui| {
+                ui.label(t("Outer diameter × wall thickness (mm)"));
+                egui::ComboBox::from_id_salt("tube size")
+                    .selected_text(planyrith_core::geom::routing::SIZES[self.size])
+                    .show_ui(ui, |ui| {
+                        for (i, size) in planyrith_core::geom::routing::SIZES.iter().enumerate() {
+                            ui.selectable_value(&mut self.size, i, *size);
+                        }
+                    });
+                ui.checkbox(&mut self.custom, t("Custom tube dimensions"));
+                if self.custom {
+                    ui.horizontal(|ui| {
+                        ui.label(t("Outer diameter"));
+                        ui.add(
+                            egui::DragValue::new(&mut self.diameter_mm)
+                                .range(0.1..=10000.0)
+                                .suffix(" mm"),
+                        );
+                        ui.label(t("Wall thickness"));
+                        ui.add(
+                            egui::DragValue::new(&mut self.wall_mm)
+                                .range(0.01..=5000.0)
+                                .suffix(" mm"),
+                        );
+                    });
+                }
+                ui.separator();
+                ui.label(t("Select an open chain of edges for the tube path."));
+                ui.horizontal(|ui| {
+                    ui.label(t("Bend radius (0 = automatic)"));
+                    ui.add(
+                        egui::DragValue::new(&mut self.bend_radius_mm)
+                            .range(0.0..=100000.0)
+                            .suffix(" mm"),
+                    );
+                });
+                if ui.button(t("Create Tube")).clicked() {
+                    self.create_route(session);
+                }
+                ui.separator();
+                ui.label(t(
+                    "Independent fitting: dimensions describe the fitting itself.",
+                ));
+                ui.horizontal(|ui| {
+                    ui.selectable_value(&mut self.reducer, false, t("Coupling"));
+                    ui.selectable_value(&mut self.reducer, true, t("Concentric reducer"));
+                });
+                if self.reducer {
+                    ui.horizontal(|ui| {
+                        ui.label(t("Outlet outer diameter"));
+                        ui.add(
+                            egui::DragValue::new(&mut self.outlet_mm)
+                                .range(0.1..=10000.0)
+                                .suffix(" mm"),
+                        );
+                    });
+                }
+                ui.horizontal(|ui| {
+                    ui.label(t("Length"));
+                    ui.add(
+                        egui::DragValue::new(&mut self.length_mm)
+                            .range(0.1..=100000.0)
+                            .suffix(" mm"),
+                    );
+                });
+                ui.label(t("Position (mm)"));
+                xyz(ui, &mut self.position);
+                ui.label(t("Axis"));
+                xyz(ui, &mut self.axis);
+                if ui.button(t("Place Fitting")).clicked() {
+                    self.create_fitting(session);
+                }
+                if let Some(n) = &self.note {
+                    ui.label(n);
+                }
+            });
+        self.open = open;
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    /// The windows dispatch registry commands with the current selection.
+    #[test]
+    fn molds_and_routes_from_the_selection() {
+        let mut s = Session::new();
+        s.execute(
+            "rectangle",
+            json!({"corner_a": [0,0,0], "corner_b": [100,60,0]}),
+        )
+        .unwrap();
+        s.execute(
+            "push-pull",
+            json!({"face": {"Query": "face & last"}, "distance": 40}),
+        )
+        .unwrap();
+        s.execute(
+            "make-group",
+            json!({"targets": "face|edge", "name": "Part"}),
+        )
+        .unwrap();
+        s.execute("select", json!({"query": "group"})).unwrap();
+        let mut mold = MoldWindow {
+            point: [50.0, 30.0, 20.0],
+            ..Default::default()
+        };
+        mold.create(&mut s);
+        assert_eq!(
+            mold.note.as_deref(),
+            Some("Two mold halves, parting line and surface created.")
+        );
+        assert_eq!(s.doc().model.groups().count(), 5);
+        s.undo().unwrap();
+        assert_eq!(s.doc().model.groups().count(), 1);
+        s.execute("line", json!({"points": [[200,0,0],[300,0,0],[300,100,0]]}))
+            .unwrap();
+        s.execute("select", json!({"query": "edge"})).unwrap();
+        let mut routing = RoutingWindow::default();
+        routing.create_route(&mut s);
+        assert!(
+            routing
+                .note
+                .as_deref()
+                .unwrap()
+                .starts_with("Centerline length: 187.12"),
+            "{:?}",
+            routing.note
+        );
+        routing.reducer = true;
+        routing.custom = true;
+        routing.diameter_mm = 32.0;
+        routing.wall_mm = 2.0;
+        routing.outlet_mm = 20.0;
+        routing.create_fitting(&mut s);
+        assert_eq!(
+            routing.note.as_deref(),
+            Some("Centerline length: 40.00 mm.")
+        );
+        assert!(planyrith_core::diagnostics::validate(s.doc()).is_clean());
+    }
 
     #[test]
     fn the_cut_list_copies_as_quoted_csv() {

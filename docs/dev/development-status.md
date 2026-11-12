@@ -5,7 +5,24 @@ implementation stands, what is done, what remains, and how to resume. Update it 
 every working session. Ground truth for *what to build* stays in `docs/00`–`docs/15`; this file
 is only *progress state*. Release packaging is specified in `docs/16`.
 
-_Last updated: 2026-11-10 (0.11.0-alpha.4 published; main is 0.12.0-alpha.1, unpublished, with milestones 1.7–1.17)._
+_Last updated: 2026-11-12 (0.11.0-alpha.4 published; main is 0.12.0-alpha.1, unpublished, with milestones 1.7–1.18)._
+
+**1.18 implemented (2026-11-12):** `mold-split` builds two planar mold halves, a section
+wire and the parting surface, with blank margin and shrink compensation; `route` builds hollow
+round tubes on open point/edge paths with tangent elbows and explicit diameter × wall presets
+or custom sizes; `route-fitting` places hollow sleeves and concentric reducers. Geometry is in
+world millimeters, including inside transformed edit contexts. Native persistence uses definition
+attributes and existing groups; source geometry remains. Tools › Molds… and Routing… collect the
+same parameters, with Italian strings. Specs: docs/03 §4.22–§4.23, docs/05 §8.18–§8.19.
+Tests cover independent wall volumes and bore classification, 3D elbows, mold blank-volume
+conservation, shrink scaling, oblique divisions, source preservation, invalid input rollback,
+transformed contexts, native round trips, byte-exact undo/redo, CLI goldens, RPC and GUI.
+Limits: planar divisions only; no automatic undercut resolution or branch fittings. Sampling
+is bounded and crossing nonlocal tube spans are rejected. No new dependencies or format changes.
+Validation: `cargo test --workspace` passes (813 tests, six existing ignored tests), including
+the CLI/GUI canonical-state parity test. Targeted transformed-context tests pass after their
+last extension. Native Clippy with warnings denied, formatting, `cargo deny check` and the
+core's wasm check pass. The commit still goes through `tools/ci-local.sh` before any push.
 
 **Engineering milestones (2026-11-09, docs/13 1.8–1.18):** asked to add every feature a
 feature-based mechanical modeler has without harming the existing tools or interface, the work
@@ -23,8 +40,8 @@ with tools in the Sheets editor. 1.14 sheet metal and frames (`geom/fabrication.
 `commands/fabrication.rs`). 1.15 surfaces (`geom/surface.rs`, `commands/surfaces.rs`) and
 analyses shown as colored copies (`commands/analysis.rs`). 1.16 simulation (`sim.rs`: mesh,
 statics, frequencies, heat; `commands/simulation.rs`, also `motion-study`). 1.17 product data
-(`commands/product.rs`, `parts.rs`) and exchange (`io/step_structure.rs`, `io/iges.rs`). Next:
-1.18 molds and routing. `tools/ci-local.sh` also runs the core's and the CLI's tests as Windows programs
+(`commands/product.rs`, `parts.rs`) and exchange (`io/step_structure.rs`, `io/iges.rs`).
+1.18 is described above. `tools/ci-local.sh` also runs the core's and the CLI's tests as Windows programs
 under wine (docs/12 Decisions, 2026-11-10); it caught a wasmi fault on Windows.
 
 **Release state (2026-11-09):** `v0.11.0-alpha.4` is published as a GitHub pre-release from

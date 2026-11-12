@@ -295,6 +295,11 @@ export; STEP with product structure and annotations.
 ## 1.18.0 — Molds and routing
 Mold design (parting line, parting surface, core and cavity, shrink factor) and routing
 (pipes and tubes along paths with standard sizes and fittings).
+- **Done (2026-11-12):** planar two-half molds with shrink compensation, a parting line and
+  surface (`mold-split`, docs/05 §8.18); hollow tubes along open paths with diameter × wall
+  presets/custom sizes and tangent elbows, plus sleeve and concentric-reducer fittings
+  (`route`, `route-fitting`, §8.19). Tools › Molds… and Routing… use the same commands.
+  Nonplanar divisions, automatic undercut resolution and branched junction fittings remain.
 
 ## Post-1.0 candidates
 None open beyond 1.8–1.18.

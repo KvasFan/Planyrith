@@ -399,6 +399,8 @@ pub struct App {
     simulation: crate::engineering::SimulationWindow,
     /// Tools › Product Data… (docs/05 §5.18).
     product: crate::engineering::ProductWindow,
+    molds: crate::engineering::MoldWindow,
+    routing: crate::engineering::RoutingWindow,
     /// File › Export › Rendered Image (docs/06 §11.1).
     #[cfg(not(target_arch = "wasm32"))]
     render_job: crate::render_job::RenderJob,
@@ -570,6 +572,8 @@ impl App {
             analysis: Default::default(),
             simulation: Default::default(),
             product: Default::default(),
+            molds: Default::default(),
+            routing: Default::default(),
             #[cfg(not(target_arch = "wasm32"))]
             render_job: Default::default(),
             #[cfg(not(target_arch = "wasm32"))]
@@ -1892,6 +1896,14 @@ impl App {
                 }
                 if ui.button(t("Product Data…")).clicked() {
                     self.product.open = true;
+                    ui.close();
+                }
+                if ui.button(t("Molds…")).clicked() {
+                    self.molds.open = true;
+                    ui.close();
+                }
+                if ui.button(t("Routing…")).clicked() {
+                    self.routing.open = true;
                     ui.close();
                 }
                 ui.separator();
@@ -3485,6 +3497,8 @@ impl App {
         self.analysis.window(&ctx, &mut self.session);
         self.simulation.window(&ctx, &mut self.session);
         self.product.window(&ctx, &mut self.session);
+        self.molds.window(&ctx, &mut self.session);
+        self.routing.window(&ctx, &mut self.session);
         self.together.window(&ctx, &mut self.session);
         #[cfg(not(target_arch = "wasm32"))]
         {

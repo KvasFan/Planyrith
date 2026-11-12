@@ -4,7 +4,7 @@ All notable changes to Planyrith are recorded here. Versions follow
 [Semantic Versioning](https://semver.org/); before 1.0, minor versions are milestones of
 [`docs/13-roadmap.md`](docs/13-roadmap.md).
 
-## 0.12.0-alpha.1 — engineering milestones 1.7–1.17 (not published)
+## 0.12.0-alpha.1 — engineering milestones 1.7–1.18 (not published)
 
 Per-person undo and joining from the browser (1.7), then the engineering milestones: measuring
 and making, constrained sketches, feature history, solid features, assemblies, engineering
@@ -12,6 +12,11 @@ drawings, sheet metal and frames, surfaces and analysis, simulation, product dat
 The version number marks builds from main; no packages are published for it.
 
 ### Added
+- Milestone 1.18, molds and routing (docs/05 §8.18–§8.19): `mold-split` makes two planar
+  mold halves, a parting line and surface, with shrink compensation; `route` makes hollow
+  tubes with tangent elbows on open paths and explicit diameter × wall sizes; `route-fitting`
+  places sleeves and concentric reducers. Tools › Molds… and Routing… expose the commands
+  with Italian translations. Native persistence and one-step undo use the existing model.
 - Per-person undo when working together (docs/08 §3.1): `history.undo {mine: true}` and
   `history.redo {mine: true}` take back or re-apply one's own newest change, under newer
   changes of others when they touched nothing of it; `session.status` reports one's own

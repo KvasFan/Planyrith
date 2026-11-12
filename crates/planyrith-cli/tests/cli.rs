@@ -766,6 +766,112 @@ fn rpc(id: i64, method: &str, params: Value) -> Value {
     serde_json::json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params })
 }
 
+/// docs/05 §8.18–§8.19: the registry exposes mold and routing commands over RPC.
+#[test]
+fn molds_and_routing_over_rpc() {
+    use serde_json::json;
+    let dir = scratch("molds-routing-rpc");
+    let path = dir.join("mold.plyr");
+    let mut frames = vec![rpc(1, "session.new", json!({"path": path}))];
+    for (i, (name, params)) in [
+        (
+            "rectangle",
+            json!({"corner_a": [0,0,0], "corner_b": [100,60,0]}),
+        ),
+        (
+            "push-pull",
+            json!({"face": {"Query": "face & last"}, "distance": 40}),
+        ),
+        (
+            "make-group",
+            json!({"targets": "face|edge", "name": "Part"}),
+        ),
+        (
+            "mold-split",
+            json!({"body": "name:Part", "point": [50,30,20], "normal": [0,0,1]}),
+        ),
+        (
+            "route",
+            json!({"points": [[200,0,0],[300,0,0],[300,100,0]], "segments": 8, "bend_segments": 2}),
+        ),
+        (
+            "route-fitting",
+            json!({"kind": "coupling", "position": [400,0,0]}),
+        ),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        frames.push(rpc(
+            i as i64 + 2,
+            "command.execute",
+            json!({"doc_id": "d1", "name": name, "params": params}),
+        ));
+    }
+    frames.push(rpc(8, "session.save", json!({"doc_id": "d1"})));
+    let (replies, _) = serve(&[], &frames);
+    for reply in replies.values() {
+        assert!(reply.get("error").is_none(), "{reply}");
+    }
+    assert!(
+        (replies[&5]["result"]["output"]["parting_length_mm"]
+            .as_f64()
+            .unwrap()
+            - 320.0)
+            .abs()
+            < 1e-6
+    );
+    assert_eq!(replies[&6]["result"]["output"]["elbows"], 1);
+    planyrith()
+        .args(["validate", "-f", path.to_str().unwrap()])
+        .assert()
+        .success();
+    for (name, flags) in [
+        (
+            "mold-split",
+            vec![
+                "--body",
+                "--point",
+                "--normal",
+                "--margin",
+                "--shrink-factor",
+                "--origin",
+            ],
+        ),
+        (
+            "route",
+            vec![
+                "--points",
+                "--path",
+                "--outer-diameter",
+                "--wall",
+                "--bend-radius",
+                "--segments",
+                "--bend-segments",
+            ],
+        ),
+        (
+            "route-fitting",
+            vec![
+                "--kind",
+                "--size",
+                "--outlet-diameter",
+                "--length",
+                "--position",
+                "--axis",
+            ],
+        ),
+    ] {
+        let help = planyrith().args(["tool", name, "--help"]).output().unwrap();
+        assert!(help.status.success());
+        let text = String::from_utf8(help.stdout).unwrap();
+        for flag in flags {
+            assert!(text.contains(flag), "{name}: {flag}");
+        }
+        assert!(text.contains("mm"), "{name}: explicit units");
+    }
+}
+
 #[test]
 fn annotation_style_is_available_over_rpc_and_survives_save() {
     use serde_json::json;

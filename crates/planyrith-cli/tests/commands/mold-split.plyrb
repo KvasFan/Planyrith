@@ -1,0 +1,5 @@
+# A compensated block with two mold halves and the planar division.
+rectangle --corner-a 0,0,0 --corner-b 100,60,0
+push-pull --face '{face & last}' --distance 40
+make-group --targets 'edge|face' --name Part
+mold-split --body name:Part --point 50,30,20 --normal z --margin 10mm --shrink-factor 1.02
