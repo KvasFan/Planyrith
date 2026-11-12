@@ -164,6 +164,12 @@ Output includes prescribed power, convective loss, held-boundary heat and balanc
 planyrith tool sim-thermal -f model.plyr --body name:Bar --mesh-size 10mm --conditions '{"faces":"face & plane:yz@0","power":10}' --conditions '{"faces":"face & plane:yz@100","convection":100,"ambient":20}'
 ```
 
+`sim-material-set --body name:Bar --material aluminum` assigns physical properties to the
+body's definition. Simulation commands with `--use-body-material` read that assignment, with
+the supplied/default preset as fallback. Force directions, mesh size and body dimensions are
+world-space even for transformed occurrences. Face queries still evaluate inside the source
+body (docs/05 §8.21).
+
 ## 3. Server verbs
 
 ### `planyrith serve [--stdio | --socket <path|port>] [--web <port|address> [--web-root <dir>]] [-f model.plyr] [--readonly] [--token <secret>]`

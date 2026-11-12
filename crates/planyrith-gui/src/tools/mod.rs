@@ -8,6 +8,7 @@ mod component;
 mod draw;
 mod edit;
 mod rounding;
+mod routing;
 mod select;
 mod sketch;
 mod solid;
@@ -30,6 +31,7 @@ pub use component::ComponentTool;
 pub use draw::{ArcKind, ArcTool, BezierTool, LineTool, RectangleTool, RoundTool};
 pub use edit::{EraserTool, MoveTool, OffsetTool, PaintTool, PushPullTool, RotateTool, ScaleTool};
 pub use rounding::{EdgeRoundTool, FacesTool};
+pub use routing::RouteTool;
 pub use select::SelectTool;
 pub use sketch::{FreehandTool, RotatedRectangleTool};
 pub use texture::TexturePinTool;
@@ -192,6 +194,13 @@ pub trait Tool {
     fn press(&mut self, _p: &Pointer, _cx: &Cx<'_>) {}
     /// A click.
     fn click(&mut self, p: &Pointer, cx: &Cx<'_>) -> Flow;
+    /// Enter without a value; by default confirms the current inferred point.
+    fn confirm(&mut self, p: Option<&Pointer>, cx: &Cx<'_>) -> Flow {
+        match p {
+            Some(p) if self.step() > 0 => self.click(p, cx),
+            _ => Flow::Continue,
+        }
+    }
     /// A double-click.
     fn double_click(&mut self, _p: &Pointer, _cx: &Cx<'_>) -> Flow {
         Flow::Continue
@@ -308,6 +317,7 @@ pub fn catalogue() -> Vec<(Box<dyn Tool>, Option<egui::Key>)> {
             Box::new(solid::SolidTool::new("outer-shell", en("Outer Shell"))),
             None,
         ),
+        (Box::new(RouteTool::default()), None),
     ]
 }
 

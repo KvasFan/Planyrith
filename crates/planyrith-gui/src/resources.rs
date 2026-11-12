@@ -159,6 +159,8 @@ impl FileRequest {
 /// A tool a panel wants active.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ToolRequest {
+    /// Draw a tube using these section and bend parameters.
+    Route(serde_json::Value),
     /// Paint with this material.
     Paint(String),
     /// Place this component.

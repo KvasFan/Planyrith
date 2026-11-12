@@ -20,9 +20,11 @@ use crate::commands::assembly::{MateKind, mates_of, solve};
 use crate::commands::common::targets_of;
 use crate::commands::params::{Target, VectorSchema, target_container};
 use crate::commands::surfaces::face_sets;
+use crate::commands::transaction::AttrTarget;
 use crate::commands::{
     Command, CommandCategory, CommandError, CommandMeta, CommonParams, Transaction,
 };
+use crate::document::Value as AttrValue;
 use crate::document::{ContainerRef, Document, EditContext, EntityKey, Query, Rgba8};
 use crate::geom::HalfEdgeMesh;
 use crate::geom::boolean::{BooleanOp, boolean};
@@ -95,6 +97,9 @@ pub struct MaterialParams {
     /// `oak`, `concrete`, `glass`).
     #[serde(default = "steel")]
     pub material: String,
+    /// Use the body's assigned physical material when present.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub use_body_material: bool,
     /// Young's modulus instead, MPa.
     #[serde(default)]
     pub youngs_modulus: Option<f64>,
@@ -113,6 +118,15 @@ pub struct MaterialParams {
 }
 
 impl MaterialParams {
+    fn for_body(&self, doc: &Document, body: &Body) -> Result<SimMaterial, CommandError> {
+        let mut params = self.clone();
+        if self.use_body_material
+            && let Some(name) = body_material(doc, body.inner.container)
+        {
+            params.material = name.to_string();
+        }
+        params.resolve()
+    }
     fn resolve(&self) -> Result<SimMaterial, CommandError> {
         let mut m = material(&self.material).ok_or_else(|| {
             CommandError::invalid_param(
@@ -145,6 +159,83 @@ impl MaterialParams {
     }
 }
 
+/// Attribute key for a body's physical material preset (docs/05 §8.21).
+pub const BODY_MATERIAL: &str = "simulation-material";
+
+/// Physical material assigned to this body's container, if any.
+pub fn body_material(doc: &Document, container: ContainerRef) -> Option<&str> {
+    let attrs = match container {
+        ContainerRef::Model => &doc.attrs,
+        ContainerRef::Definition(d) => &doc.definition(d)?.attrs,
+    };
+    match attrs.get(crate::sketch::DICT, BODY_MATERIAL)? {
+        AttrValue::Str(s) => Some(s),
+        _ => None,
+    }
+}
+
+/// Assigns a physical preset to a simulation body.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct SimMaterialSetParams {
+    /// Common fields.
+    #[serde(flatten)]
+    pub common: CommonParams,
+    /// One closed group/component or the faces of the edit context.
+    pub body: Query,
+    /// The physical material preset.
+    pub material: String,
+}
+
+/// Physical material assigned by `sim-material-set`.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct SimMaterialSetOutput {
+    /// The assigned properties (MPa, kg/m³, W/(m·K)).
+    pub material: SimMaterial,
+}
+
+/// The `sim-material-set` command.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct SimMaterialSet;
+
+impl Command for SimMaterialSet {
+    type Params = SimMaterialSetParams;
+    type Output = SimMaterialSetOutput;
+    fn name(&self) -> &'static str {
+        "sim-material-set"
+    }
+    fn validate(&self, _: &Document, p: &Self::Params) -> Result<(), CommandError> {
+        material(&p.material).ok_or_else(|| {
+            CommandError::invalid_param("material", "choose a simulation material preset")
+        })?;
+        Ok(())
+    }
+    fn apply(
+        &self,
+        tx: &mut Transaction<'_>,
+        p: Self::Params,
+    ) -> Result<Self::Output, CommandError> {
+        let target = target_container(tx, &p.common)?;
+        let b = body(tx, &target, &p.body)?;
+        let attrs = match b.inner.container {
+            ContainerRef::Model => AttrTarget::Document,
+            ContainerRef::Definition(d) => AttrTarget::Definition(d),
+        };
+        tx.set_attribute(
+            attrs,
+            crate::sketch::DICT,
+            BODY_MATERIAL,
+            Some(AttrValue::Str(p.material.clone())),
+        )?;
+        Ok(SimMaterialSetOutput {
+            material: material(&p.material)
+                .ok_or_else(|| CommandError::invalid_param("material", "unknown preset"))?,
+        })
+    }
+    fn meta(&self) -> CommandMeta {
+        meta("sim-material-set", "Set Physical Material", false)
+    }
+}
+
 /// The body being simulated.
 struct Body {
     /// Queries inside it evaluate here.
@@ -152,6 +243,8 @@ struct Body {
     /// Body to edit-context coordinates.
     to_target: DAffine3,
     mesh: HalfEdgeMesh,
+    /// Definition face ids to the world-space analysis copy's ids.
+    face_ids: BTreeMap<FaceId, FaceId>,
 }
 
 /// The one closed body `q` names.
@@ -169,6 +262,15 @@ fn body(tx: &Transaction<'_>, target: &Target, q: &Query) -> Result<Body, Comman
         .ok_or_else(|| CommandError::Internal("a container vanished".into()))?
         .mesh()
         .clone();
+    if set.entity.is_some()
+        && doc
+            .container(set.container)
+            .is_some_and(|e| e.groups().next().is_some() || e.instances().next().is_some())
+    {
+        return Err(CommandError::NotApplicable(
+            "choose a closed body without nested groups or components".into(),
+        ));
+    }
     for (e, _) in mesh.edges() {
         let [a, b] = mesh.edge_faces(e)?;
         if a.is_none() || b.is_none() {
@@ -196,10 +298,22 @@ fn body(tx: &Transaction<'_>, target: &Target, q: &Query) -> Result<Body, Comman
             }
         }
     };
+    let (indexed, original_ids) = mesh.to_indexed();
+    let mesh = HalfEdgeMesh::from_indexed(
+        &crate::geom::mesh::transform_indexed(&indexed, &inner.world),
+        tx.tolerances(),
+    )?;
+    let (_, world_ids) = mesh.to_indexed();
+    let face_ids = original_ids
+        .faces
+        .into_iter()
+        .zip(world_ids.faces)
+        .collect();
     Ok(Body {
         inner,
-        to_target: set.to_target,
+        to_target: target.local,
         mesh,
+        face_ids,
     })
 }
 
@@ -213,7 +327,7 @@ fn faces_of(
     let faces: Vec<FaceId> = targets_of(tx, &b.inner, param, q)?
         .into_iter()
         .filter_map(|id| match id {
-            EntityId::Face(f) => Some(f),
+            EntityId::Face(f) => b.face_ids.get(&f).copied(),
             _ => None,
         })
         .collect();
@@ -267,7 +381,6 @@ fn present(
         .fold(f64::MIN, f64::max);
     let span = (hi - lo).max(1e-300);
     let t = b.to_target;
-    let normal_m = t.matrix3.inverse().transpose();
     let mut measured = Vec::with_capacity(mesh.boundary.len() * 4);
     for tri in &mesh.boundary {
         // Corners a b c, middles ab bc ca.
@@ -277,8 +390,9 @@ fn present(
                 .iter()
                 .map(|i| t.transform_point3(mesh.nodes[*i as usize] + moved(*i)))
                 .collect();
-            let normal =
-                (normal_m * (ring[1] - ring[0]).cross(ring[2] - ring[0])).normalize_or_zero();
+            let normal = (ring[1] - ring[0])
+                .cross(ring[2] - ring[0])
+                .normalize_or_zero();
             let v = sub.iter().map(|i| values[*i as usize]).sum::<f64>() / 3.0;
             measured.push(Measured {
                 rings: vec![ring],
@@ -402,18 +516,14 @@ impl Command for SimStatic {
         p: SimStaticParams,
     ) -> Result<SimStaticOutput, CommandError> {
         let target = target_container(tx, &p.common)?;
-        let m = p.material.resolve()?;
         let b = body(tx, &target, &p.body)?;
+        let m = p.material.for_body(tx.document(), &b)?;
         let fixed = faces_of(tx, &b, "fixed", &p.fixed)?;
-        let inverse = b.to_target.matrix3.inverse();
         let mut loads = Vec::new();
         for l in &p.loads {
             let faces = faces_of(tx, &b, "loads", &l.faces)?;
             loads.push(match (l.force, l.pressure) {
-                (Some(f), _) => Load::Force {
-                    faces,
-                    force: inverse * (target.local.matrix3 * f),
-                },
+                (Some(f), _) => Load::Force { faces, force: f },
                 (_, Some(mpa)) => Load::Pressure { faces, mpa },
                 _ => continue,
             });
@@ -432,7 +542,7 @@ impl Command for SimStatic {
             AnalysisKind::Stress,
             STRESS,
         )?;
-        let reaction = target.world.matrix3 * (b.to_target.matrix3 * r.reaction);
+        let reaction = r.reaction;
         Ok(SimStaticOutput {
             group,
             nodes: mesh.nodes.len(),
@@ -536,8 +646,8 @@ impl Command for SimFrequency {
         p: SimFrequencyParams,
     ) -> Result<SimFrequencyOutput, CommandError> {
         let target = target_container(tx, &p.common)?;
-        let m = p.material.resolve()?;
         let b = body(tx, &target, &p.body)?;
+        let m = p.material.for_body(tx.document(), &b)?;
         let fixed = faces_of(tx, &b, "fixed", &p.fixed)?;
         let mesh = mesh_of(tx, &b, p.mesh_size, 600.0)?;
         let r = solve_modes(&mesh, &m, &fixed, p.modes as usize)?;
@@ -687,8 +797,8 @@ impl Command for SimThermal {
         p: SimThermalParams,
     ) -> Result<SimThermalOutput, CommandError> {
         let target = target_container(tx, &p.common)?;
-        let m = p.material.resolve()?;
         let b = body(tx, &target, &p.body)?;
+        let m = p.material.for_body(tx.document(), &b)?;
         let mut conditions = Vec::new();
         for c in &p.conditions {
             let faces = faces_of(tx, &b, "conditions", &c.faces)?;
@@ -960,6 +1070,7 @@ pub fn register(registry: &mut crate::commands::CommandRegistry) {
     registry.register(SimStatic);
     registry.register(SimFrequency);
     registry.register(SimThermal);
+    registry.register(SimMaterialSet);
     registry.register(MotionStudy);
 }
 
@@ -1090,5 +1201,92 @@ mod tests {
             );
             assert_eq!(history, e.history().applied());
         }
+    }
+
+    #[test]
+    fn assigned_physical_material_is_used_and_persisted() {
+        let mut e = beam();
+        run(
+            &mut e,
+            "sim-material-set",
+            json!({"body":"name:Beam","material":"aluminum"}),
+        );
+        let result = run(
+            &mut e,
+            "sim-thermal",
+            json!({"body":"name:Beam","use_body_material":true,"mesh_size":20,
+            "conditions":[{"faces":"face & plane:yz@0","temperature":0},
+                {"faces":"face & plane:yz@200","power":10}]}),
+        );
+        let k = crate::sim::material("aluminum").unwrap().conductivity_w_mk * 1e-3;
+        assert!((result["max_c"].as_f64().unwrap() - 10.0 * 200.0 / (k * 400.0)).abs() < 1e-6);
+        let d = e
+            .document()
+            .model
+            .groups()
+            .find(|(_, g)| g.name == "Beam")
+            .unwrap()
+            .1
+            .definition;
+        assert_eq!(
+            super::body_material(e.document(), crate::document::ContainerRef::Definition(d)),
+            Some("aluminum")
+        );
+        let options = crate::io::native::WriteOptions {
+            deterministic: true,
+            include_history: false,
+            ..Default::default()
+        };
+        let data =
+            crate::io::native::write_document(e.document(), &[], &options, &crate::io::NoProgress)
+                .unwrap();
+        let loaded = crate::io::native::read_document(&data, &crate::io::NoProgress).unwrap();
+        assert_eq!(
+            super::body_material(
+                &loaded.document,
+                crate::document::ContainerRef::Definition(d)
+            ),
+            Some("aluminum")
+        );
+    }
+
+    #[test]
+    fn simulation_uses_world_dimensions_of_scaled_bodies() {
+        let mut e = beam();
+        run(
+            &mut e,
+            "scale",
+            json!({"targets":"name:Beam","factors":[2,2,2],"pivot":[0,0,0]}),
+        );
+        let out = run(
+            &mut e,
+            "sim-thermal",
+            json!({"body":"name:Beam","mesh_size":20,
+            "conditions":[{"faces":"face & plane:yz@0","temperature":0},
+                {"faces":"face & plane:yz@200","power":10}]}),
+        );
+        // The placed bar is 400×40×40 mm: R = 400/(0.05×1600)=5 K/W.
+        assert!(
+            (out["max_c"].as_f64().unwrap() - 50.0).abs() < 1e-5,
+            "{out}"
+        );
+        let result = e
+            .document()
+            .model
+            .groups()
+            .find(|(_, g)| g.name.starts_with("Analysis:"))
+            .unwrap()
+            .1;
+        let bounds = e
+            .document()
+            .definition(result.definition)
+            .unwrap()
+            .entities
+            .mesh()
+            .aabb();
+        let bounds = bounds.transformed(&result.transform);
+        // Analysis copies intentionally expand slightly to avoid depth fighting.
+        assert!((bounds.center().x - 200.0).abs() < 1e-6, "{bounds:?}");
+        assert!((bounds.max.x - 400.0).abs() < 0.1, "{bounds:?}");
     }
 }

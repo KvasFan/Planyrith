@@ -261,7 +261,19 @@ impl Command for Route {
     }
 
     fn meta(&self) -> CommandMeta {
-        meta("route", "Route Tube")
+        let mut result = meta("route", "Route Tube");
+        result.steps = [
+            "Pick the tube path start",
+            "Pick tube path points; Enter or double-click finishes",
+        ]
+        .into_iter()
+        .map(|prompt| crate::commands::ToolStep {
+            prompt: prompt.into(),
+            value_field: "length, [x,y,z] absolute or <x,y,z> relative".into(),
+            inference: crate::inference::InferenceKind::ALL.to_vec(),
+        })
+        .collect();
+        result
     }
 }
 

@@ -910,6 +910,8 @@ fn thermal_convection_over_rpc_and_cli() {
         ));
     }
     frames.push(rpc(6, "session.save", json!({"doc_id": "d1"})));
+    frames.push(rpc(7,"command.execute",json!({"doc_id":"d1","name":"sim-material-set","params":{"body":"name:Bar","material":"aluminum"}})));
+    frames.push(rpc(8, "session.save", json!({"doc_id":"d1"})));
     let (replies, _) = serve(&[], &frames);
     for reply in replies.values() {
         assert!(reply.get("error").is_none(), "{reply}");
@@ -925,6 +927,7 @@ fn thermal_convection_over_rpc_and_cli() {
             path.to_str().unwrap(),
             "--body",
             "name:Bar",
+            "--use-body-material",
             "--mesh-size",
             "10mm",
             "--conditions",

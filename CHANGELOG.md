@@ -76,6 +76,12 @@ The version number marks builds from main; no packages are published for it.
   build has File › Work Together…, opened filled in by `?join=<document>`.
 
 ### Fixed
+- Simulation's GUI binds the chosen body independently of face selection, with translated
+  physical material presets, persistent assignments and per-condition face lists/model picking.
+  Analyses mesh the body's placed dimensions and use world force directions; nested contents
+  are refused. The result's normals no longer receive the placement twice.
+- Routing offers a path-drawing tool from its window, with inference, preview, numeric points,
+  Enter/double-click completion and one-step undo; preselected edges remain supported.
 - Native plugins faulted in Windows development and test builds: wasmi, optimized while
   the code calling it was not, mixed two calling conventions (docs/02 Decisions,
   2026-11-10). Release builds were not affected.

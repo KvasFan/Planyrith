@@ -1,0 +1,5 @@
+# Assign physical properties independently of appearance materials.
+rectangle --corner-a 0,0,0 --corner-b 100,10,0
+push-pull --face '{face & last}' --distance 10
+make-group --targets all --name Bar
+sim-material-set --body name:Bar --material aluminum

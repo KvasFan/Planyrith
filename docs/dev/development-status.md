@@ -27,6 +27,20 @@ the browser, Windows tests under Wine and Windows/macOS compilation; optimized C
 match all three new command goldens. It is pushed. GitHub run 43229219017 failed before any job
 steps: the account is locked for billing (verified in its annotation). Do not rerun for this.
 
+**GUI feedback during the batch (2026-11-12):** the user could not insert tubes or choose
+physical materials/loaded faces for simulation. The fix adds Draw Tube Path (a real interactive
+tool dispatching `route`, with preview and Enter/double-click completion); Simulation binds a
+body by persistent occurrence, independently of current face selection, offers independent
+face lists and model picking/capture, translated physical presets persisted by `sim-material-set`
+and `use_body_material` on analyses. The window scrolls and has enough default height for its
+controls; long properties occupy the value column. Real widget/viewport tests cover material
+choice, both face lists, model capture, the run action and tube drawing/undo. Also fixed a
+numerical semantic issue: meshing now uses the body's placed world dimensions with source-to-copy
+face-id mapping, world forces/gravity and correct result normals; nested mixed bodies fail.
+The scaled-bar test checks the independent thermal resistance. The 1.21 patch was parked in
+ignored `target/assembly-tangency-in-progress.patch` while fixing this feedback; resume it after
+the GUI fix commit, then complete its tests and the batch's final local gate/build/push.
+
 **1.18 implemented (2026-11-12):** `mold-split` builds two planar mold halves, a section
 wire and the parting surface, with blank margin and shrink compensation; `route` builds hollow
 round tubes on open point/edge paths with tangent elbows and explicit diameter × wall presets

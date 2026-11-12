@@ -2267,6 +2267,116 @@ enum SimPage {
     Motion,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+struct SimBody {
+    parent: planyrith_core::document::EditContext,
+    inner: planyrith_core::document::InstancePath,
+    query: String,
+    label: String,
+}
+
+fn simulation_bodies(session: &Session) -> Vec<SimBody> {
+    use planyrith_core::document::{EditContext, EntityKey, EntityView, InstancePath};
+    fn walk(
+        doc: &planyrith_core::document::Document,
+        path: InstancePath,
+        prefix: &str,
+        out: &mut Vec<SimBody>,
+        depth: usize,
+    ) {
+        if depth > 64 || out.len() >= 4096 {
+            return;
+        }
+        let Ok((c, _)) = doc.resolve_container(&path) else {
+            return;
+        };
+        let Some(entities) = doc.container(c) else {
+            return;
+        };
+        if entities.mesh().is_solid() {
+            // Raw model geometry, or a definition reached through its one occurrence.
+            if path.steps.is_empty() {
+                out.push(SimBody {
+                    parent: EditContext { path: path.clone() },
+                    inner: path.clone(),
+                    query: "face".into(),
+                    label: t("Model geometry"),
+                });
+            }
+        }
+        for id in entities.iter() {
+            let Some(d) = entities.definition_of(id).and_then(|d| doc.definition(d)) else {
+                continue;
+            };
+            let Some(pid) = entities.pid_of(id) else {
+                continue;
+            };
+            let name = match entities.view(id) {
+                Some(EntityView::Group(g)) => g.name.as_str(),
+                Some(EntityView::Instance(i)) => i.name.as_deref().unwrap_or(&d.name),
+                _ => &d.name,
+            };
+            let name = if name.is_empty() {
+                t("Unnamed body")
+            } else {
+                name.to_string()
+            };
+            let label = if prefix.is_empty() {
+                name
+            } else {
+                format!("{prefix} / {name}")
+            };
+            let inner = path.child(EntityKey::Pid(pid));
+            if d.entities.mesh().is_solid()
+                && d.entities.groups().next().is_none()
+                && d.entities.instances().next().is_none()
+            {
+                out.push(SimBody {
+                    parent: EditContext { path: path.clone() },
+                    inner: inner.clone(),
+                    query: format!("@{}", pid.0),
+                    label: label.clone(),
+                });
+            }
+            walk(doc, inner, &label, out, depth + 1);
+        }
+    }
+    let mut out = Vec::new();
+    walk(session.doc(), InstancePath::default(), "", &mut out, 0);
+    out
+}
+
+fn physical_material_label(index: usize) -> String {
+    match index {
+        0 => t("Steel"),
+        1 => t("Stainless steel"),
+        2 => t("Aluminum"),
+        3 => t("Titanium"),
+        4 => t("Copper"),
+        5 => t("Brass"),
+        6 => t("Cast iron"),
+        7 => t("ABS"),
+        8 => t("PLA"),
+        9 => t("Nylon"),
+        10 => t("Oak"),
+        11 => t("Concrete"),
+        _ => t("Glass"),
+    }
+}
+
+#[derive(Clone, Copy)]
+enum SimFaceRole {
+    Fixed,
+    Loaded,
+    Hot,
+    Cold,
+}
+
+enum FacePickAction {
+    Pick,
+    Capture,
+}
+
 /// Tools › Simulation… (docs/05 §8.16–§8.17): stress, natural frequencies,
 /// heat conduction and motion studies.
 pub struct SimulationWindow {
@@ -2275,6 +2385,11 @@ pub struct SimulationWindow {
     page: SimPage,
     body: String,
     material: usize,
+    bound: Option<SimBody>,
+    bodies: Vec<SimBody>,
+    bodies_generation: Option<u64>,
+    select_request: bool,
+    pick_restore: Option<planyrith_core::document::EditContext>,
     mesh_mm: f64,
     fixed: String,
     load_faces: String,
@@ -2307,6 +2422,11 @@ impl Default for SimulationWindow {
             page: SimPage::Stress,
             body: "selection".into(),
             material: 0,
+            bound: None,
+            bodies: Vec::new(),
+            bodies_generation: None,
+            select_request: false,
+            pick_restore: None,
             mesh_mm: 0.0,
             fixed: String::new(),
             load_faces: String::new(),
@@ -2335,6 +2455,148 @@ impl Default for SimulationWindow {
 }
 
 impl SimulationWindow {
+    /// Requests the selection tool for a simulation face-picking action.
+    pub fn take_select_request(&mut self) -> bool {
+        std::mem::take(&mut self.select_request)
+    }
+
+    fn bind(&mut self, session: &Session, body: SimBody) {
+        if self.bound.as_ref() == Some(&body) {
+            return;
+        }
+        self.body = body.query.clone();
+        self.fixed.clear();
+        self.load_faces.clear();
+        self.hot.clear();
+        self.cold.clear();
+        if let Ok((c, _)) = session.doc().resolve_container(&body.inner) {
+            let name = planyrith_core::commands::simulation::body_material(session.doc(), c)
+                .unwrap_or("steel");
+            self.material = planyrith_core::sim::MATERIALS
+                .iter()
+                .position(|v| *v == name)
+                .unwrap_or(0);
+        }
+        self.bound = Some(body);
+        self.note = None;
+    }
+
+    fn bind_selection(&mut self, session: &Session) {
+        let selected = session
+            .engine
+            .selection()
+            .iter()
+            .map(|p| p.canonical(session.doc()))
+            .collect::<Vec<_>>();
+        if let Some(body) = self
+            .bodies
+            .iter()
+            .find(|b| {
+                selected.iter().any(|p| {
+                    (p.instances == b.parent.path && p.target.to_string() == b.query)
+                        || p.instances == b.inner
+                })
+            })
+            .cloned()
+        {
+            self.bind(session, body);
+        } else {
+            self.note = Some(t("Select one closed solid group or component."));
+        }
+    }
+
+    fn execute_bound(
+        &self,
+        session: &mut Session,
+        name: &str,
+        params: Value,
+    ) -> Result<Value, String> {
+        let previous = session.engine.context().clone();
+        if name != "motion-study"
+            && let Some(body) = &self.bound
+        {
+            session
+                .engine
+                .set_context(body.parent.clone())
+                .map_err(|e| e.to_string())?;
+        }
+        let result = session.execute(name, params);
+        let restore = session
+            .engine
+            .set_context(previous)
+            .map_err(|e| e.to_string());
+        match (result, restore) {
+            (Err(e), _) | (_, Err(e)) => Err(e),
+            (Ok(v), Ok(())) => Ok(v),
+        }
+    }
+
+    fn assign_material(&mut self, session: &mut Session) {
+        self.note = Some(note(self.execute_bound(session, "sim-material-set", json!({"body": self.body, "material": planyrith_core::sim::MATERIALS[self.material]})), |_| t("Physical material assigned.")));
+    }
+
+    fn face_field(&mut self, role: SimFaceRole) -> &mut String {
+        match role {
+            SimFaceRole::Fixed => &mut self.fixed,
+            SimFaceRole::Loaded => &mut self.load_faces,
+            SimFaceRole::Hot => &mut self.hot,
+            SimFaceRole::Cold => &mut self.cold,
+        }
+    }
+
+    fn face_controls(
+        &mut self,
+        ui: &mut egui::Ui,
+        session: &mut Session,
+        label: String,
+        role: SimFaceRole,
+    ) {
+        let bound = self.bound.clone();
+        let action = Self::faces_row(ui, session, label, self.face_field(role), bound.as_ref());
+        match action {
+            Some(FacePickAction::Pick) => {
+                if let Some(body) = &self.bound {
+                    let previous = session.engine.context().clone();
+                    match session
+                        .engine
+                        .set_context(planyrith_core::document::EditContext {
+                            path: body.inner.clone(),
+                        }) {
+                        Ok(()) => {
+                            self.pick_restore.get_or_insert(previous);
+                            session.engine.set_selection(Default::default());
+                            self.select_request = true;
+                            self.note = Some(t(
+                                "Pick faces in the model, then press Use Selected Faces in the intended row.",
+                            ));
+                        }
+                        Err(e) => self.note = Some(e.to_string()),
+                    }
+                }
+            }
+            Some(FacePickAction::Capture) => {
+                if let Some(body) = &self.bound {
+                    let mut pids = Vec::new();
+                    for p in session.engine.selection().iter() {
+                        let p = p.canonical(session.doc());
+                        if p.instances == body.inner
+                            && let Ok(r) = session.doc().resolve(&p)
+                            && matches!(r.entity, planyrith_core::ids::EntityId::Face(_))
+                        {
+                            pids.push(p.target.to_string());
+                        }
+                    }
+                    *self.face_field(role) = pids.join("|");
+                    if let Some(previous) = self.pick_restore.take() {
+                        let _ = session.engine.set_context(previous);
+                    }
+                } else if let Some(query) = selected_query(session, true) {
+                    *self.face_field(role) = query;
+                }
+            }
+            None => {}
+        }
+    }
     fn base(&self) -> serde_json::Map<String, Value> {
         let mut m = serde_json::Map::new();
         m.insert("body".into(), json!(self.body));
@@ -2342,6 +2604,9 @@ impl SimulationWindow {
             "material".into(),
             json!(planyrith_core::sim::MATERIALS[self.material]),
         );
+        if self.bound.is_some() {
+            m.insert("use_body_material".into(), json!(true));
+        }
         if self.mesh_mm > 0.0 {
             m.insert("mesh_size".into(), json!(self.mesh_mm));
         }
@@ -2412,7 +2677,10 @@ impl SimulationWindow {
             (name, params)
         };
         self.lines.clear();
-        self.note = Some(match session.execute(name, params) {
+        if let Some(previous) = self.pick_restore.take() {
+            let _ = session.engine.set_context(previous);
+        }
+        self.note = Some(match self.execute_bound(session, name, params) {
             Ok(out) => self.summary(&out),
             Err(e) => e,
         });
@@ -2500,17 +2768,128 @@ impl SimulationWindow {
         s
     }
 
-    fn faces_row(ui: &mut egui::Ui, session: &Session, label: String, text: &mut String) {
-        ui.label(label);
-        ui.horizontal(|ui| {
-            ui.add(egui::TextEdit::singleline(text).desired_width(150.0));
-            if ui.button(t("Selected Faces")).clicked()
-                && let Some(q) = selected_query(session, true)
+    fn faces_row(
+        ui: &mut egui::Ui,
+        session: &mut Session,
+        label: String,
+        text: &mut String,
+        bound: Option<&SimBody>,
+    ) -> Option<FacePickAction> {
+        use planyrith_core::document::{
+            EditContext, EntityKey, EntityPath, Query, QueryEnv, Selection,
+        };
+        let mut action = None;
+        ui.label(&label);
+        ui.vertical(|ui| {
+            ui.horizontal(|ui| {
+                if ui
+                    .add_enabled(bound.is_some(), egui::Button::new(t("Pick in Model")))
+                    .clicked()
+                {
+                    action = Some(FacePickAction::Pick);
+                }
+                if ui.button(t("Use Selected Faces")).clicked() {
+                    action = Some(FacePickAction::Capture);
+                }
+            });
+            if let Some(body) = bound
+                && let Ok((c, world)) = session.doc().resolve_container(&body.inner)
+                && let Some(entities) = session.doc().container(c)
             {
-                *text = q;
+                let context = EditContext {
+                    path: body.inner.clone(),
+                };
+                let env = QueryEnv {
+                    context: &context,
+                    selection: session.engine.selection(),
+                    last: session.engine.last_created(),
+                };
+                let mut selected: std::collections::BTreeSet<_> = Query::from(text.as_str())
+                    .parse()
+                    .ok()
+                    .and_then(|q| q.eval(session.doc(), &env).ok())
+                    .into_iter()
+                    .flat_map(|s| {
+                        s.iter()
+                            .map(|p| p.canonical(session.doc()).target)
+                            .collect::<Vec<_>>()
+                    })
+                    .collect();
+                let faces = entities
+                    .mesh()
+                    .faces()
+                    .enumerate()
+                    .filter_map(|(i, (f, face))| {
+                        let pid = entities.pid_of(f.into())?;
+                        let n = (world.matrix3.inverse().transpose() * face.plane.normal)
+                            .normalize_or_zero();
+                        let p = world.transform_point3(entities.mesh().face_aabb(f).ok()?.center());
+                        Some((
+                            pid,
+                            t_args(
+                                "Face { $number }: normal { $normal }, center { $center } mm",
+                                &[
+                                    ("number", (i + 1).to_string().into()),
+                                    (
+                                        "normal",
+                                        format!("{:.1}, {:.1}, {:.1}", n.x, n.y, n.z).into(),
+                                    ),
+                                    (
+                                        "center",
+                                        format!("{:.1}, {:.1}, {:.1}", p.x, p.y, p.z).into(),
+                                    ),
+                                ],
+                            ),
+                        ))
+                    })
+                    .collect::<Vec<_>>();
+                let mut changed = false;
+                ui.label(t_args(
+                    "{ $count } faces selected",
+                    &[("count", selected.len().to_string().into())],
+                ));
+                egui::CollapsingHeader::new(t("Face list"))
+                    .id_salt(format!("faces-{label}"))
+                    .show(ui, |ui| {
+                        egui::ScrollArea::vertical()
+                            .id_salt(format!("face-scroll-{label}"))
+                            .max_height(125.0)
+                            .show(ui, |ui| {
+                                for (pid, label) in &faces {
+                                    let key = EntityKey::Pid(*pid);
+                                    let mut on = selected.contains(&key);
+                                    if ui.checkbox(&mut on, label).changed() {
+                                        if on {
+                                            selected.insert(key);
+                                        } else {
+                                            selected.remove(&key);
+                                        }
+                                        changed = true;
+                                    }
+                                }
+                            });
+                    });
+                if changed {
+                    *text = selected
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                        .join("|");
+                    let mut highlight = Selection::new();
+                    for key in selected {
+                        highlight.insert(EntityPath::new(body.inner.clone(), key));
+                    }
+                    session.engine.set_selection(highlight);
+                }
             }
+            egui::CollapsingHeader::new(t("Advanced face query"))
+                .id_salt(format!("query-{label}"))
+                .show(ui, |ui| {
+                    ui.text_edit_singleline(text);
+                });
         });
         ui.end_row();
+        action
     }
 
     /// Draws the window.
@@ -2519,9 +2898,31 @@ impl SimulationWindow {
             return;
         }
         let mut open = true;
+        if self.bodies_generation != Some(session.engine.generation()) {
+            self.bodies = simulation_bodies(session);
+            self.bodies_generation = Some(session.engine.generation());
+            if self
+                .bound
+                .as_ref()
+                .is_some_and(|body| !self.bodies.iter().any(|b| b.inner == body.inner))
+            {
+                self.bound = None;
+                self.body = "selection".into();
+            }
+        }
+        if self.bound.is_none() {
+            if !session.engine.selection().is_empty() {
+                self.bind_selection(session);
+            }
+            if self.bound.is_none() && self.bodies.len() == 1 {
+                self.bind(session, self.bodies[0].clone());
+            }
+        }
         egui::Window::new(t("Simulation"))
             .open(&mut open)
             .default_width(420.0)
+            .default_height(760.0)
+            .vscroll(true)
             .show(ctx, |ui| {
                 ui.horizontal_wrapped(|ui| {
                     ui.selectable_value(&mut self.page, SimPage::Stress, t("Stress"));
@@ -2544,37 +2945,53 @@ impl SimulationWindow {
                     });
                     ui.checkbox(&mut self.interference, t("Check collisions"));
                 } else {
-                    ui.label(t(
-                        "Name the body and its faces (pick them inside the body, then come back out).",
-                    ));
-                    egui::Grid::new("sim").num_columns(2).show(ui, |ui| {
+                    ui.label(t("Choose the body, its physical material and the faces for each condition."));
+                    egui::Grid::new("sim").num_columns(2).max_col_width(340.0).show(ui, |ui| {
                         ui.label(t("Body"));
                         ui.horizontal(|ui| {
-                            ui.add(egui::TextEdit::singleline(&mut self.body).desired_width(150.0));
-                            if ui.button(t("Selected Group")).clicked()
-                                && let Some(q) = selected_query(session, false)
-                            {
-                                self.body = q;
+                            let mut choice = None;
+                            egui::ComboBox::from_id_salt("simulation-body")
+                                .selected_text(self.bound.as_ref().map_or_else(||t("Choose Body"),|b|b.label.clone()))
+                                .show_ui(ui,|ui| {
+                                    for (i, body) in self.bodies.iter().enumerate() {
+                                        if ui.selectable_label(self.bound.as_ref() == Some(body), &body.label).clicked() { choice = Some(i); }
+                                    }
+                                });
+                            if let Some(i) = choice { self.bind(session,self.bodies[i].clone()); }
+                            if ui.button(t("Selected Group")).clicked() {
+                                self.bind_selection(session);
                             }
                         });
                         ui.end_row();
-                        ui.label(t("Material"));
+                        ui.label(t("Physical Material"));
                         let materials = planyrith_core::sim::MATERIALS;
+                        let previous_material = self.material;
                         egui::ComboBox::from_id_salt("sim material")
-                            .selected_text(materials[self.material])
+                            .selected_text(physical_material_label(self.material))
                             .show_ui(ui, |ui| {
-                                for (i, m) in materials.iter().enumerate() {
-                                    ui.selectable_value(&mut self.material, i, *m);
+                                for i in 0..materials.len() {
+                                    ui.selectable_value(&mut self.material, i, physical_material_label(i));
                                 }
                             });
+                        if previous_material != self.material && self.bound.is_some() { self.assign_material(session); }
                         ui.end_row();
+                        ui.label("");
+                        if ui.add_enabled(self.bound.is_some(),egui::Button::new(t("Apply Physical Material"))).clicked() { self.assign_material(session); }
+                        ui.end_row();
+                        if let Some(m) = planyrith_core::sim::material(materials[self.material]) {
+                            ui.label("");
+                            ui.label(t_args("E { $e } MPa; density { $density } kg/m³; conductivity { $k } W/(m·K)", &[
+                                ("e",format!("{:.0}",m.youngs_mpa).into()), ("density",format!("{:.0}",m.density_kg_m3).into()),
+                                ("k",format!("{:.2}",m.conductivity_w_mk).into())]));
+                            ui.end_row();
+                        }
                         ui.label(t("Mesh size"));
                         ui.add(egui::DragValue::new(&mut self.mesh_mm).range(0.0..=10_000.0).suffix(" mm"));
                         ui.end_row();
                         match self.page {
                             SimPage::Stress => {
-                                Self::faces_row(ui, session, t("Fixed faces"), &mut self.fixed);
-                                Self::faces_row(ui, session, t("Loaded faces"), &mut self.load_faces);
+                                self.face_controls(ui, session, t("Fixed faces"), SimFaceRole::Fixed);
+                                self.face_controls(ui, session, t("Loaded faces"), SimFaceRole::Loaded);
                                 ui.checkbox(&mut self.pressure, t("Pressure"));
                                 if self.pressure {
                                     ui.add(egui::DragValue::new(&mut self.pressure_mpa).speed(0.1).suffix(" MPa"));
@@ -2593,7 +3010,7 @@ impl SimulationWindow {
                                 ui.end_row();
                             }
                             SimPage::Frequency => {
-                                Self::faces_row(ui, session, t("Fixed faces"), &mut self.fixed);
+                                self.face_controls(ui, session, t("Fixed faces"), SimFaceRole::Fixed);
                                 ui.label(t("Frequencies"));
                                 ui.add(egui::DragValue::new(&mut self.modes).range(1..=12));
                                 ui.end_row();
@@ -2602,7 +3019,7 @@ impl SimulationWindow {
                                 ui.end_row();
                             }
                             SimPage::Heat => {
-                                Self::faces_row(ui, session, t("Cooled faces"), &mut self.cold);
+                                self.face_controls(ui, session, t("Cooled faces"), SimFaceRole::Cold);
                                 ui.checkbox(&mut self.cold_convection, t("Convection to air"));
                                 ui.end_row();
                                 if self.cold_convection {
@@ -2613,7 +3030,7 @@ impl SimulationWindow {
                                 ui.label(if self.cold_convection { t("Ambient temperature") } else { t("Held at") });
                                 ui.add(egui::DragValue::new(&mut self.cold_c).speed(1.0).suffix(" °C"));
                                 ui.end_row();
-                                Self::faces_row(ui, session, t("Heated faces"), &mut self.hot);
+                                self.face_controls(ui, session, t("Heated faces"), SimFaceRole::Hot);
                                 ui.checkbox(&mut self.hot_power, t("Heat power"));
                                 ui.add(
                                     egui::DragValue::new(&mut self.hot_value)
@@ -2632,7 +3049,7 @@ impl SimulationWindow {
                     }
                     if self.page != SimPage::Motion && ui.button(t("Clear Results")).clicked() {
                         self.lines.clear();
-                        self.note = Some(match session.execute("analysis-clear", json!({})) {
+                        self.note = Some(match self.execute_bound(session,"analysis-clear", json!({})) {
                             Ok(_) => t("Done"),
                             Err(e) => e,
                         });
@@ -3022,6 +3439,7 @@ pub struct RoutingWindow {
     position: [f64; 3],
     axis: [f64; 3],
     note: Option<String>,
+    draw_request: Option<Value>,
 }
 
 impl Default for RoutingWindow {
@@ -3041,11 +3459,16 @@ impl Default for RoutingWindow {
             position: [0.0; 3],
             axis: [0.0, 0.0, 1.0],
             note: None,
+            draw_request: None,
         }
     }
 }
 
 impl RoutingWindow {
+    /// Consumes a request to draw a new path in the model.
+    pub fn take_draw_request(&mut self) -> Option<Value> {
+        self.draw_request.take()
+    }
     fn section(&self) -> Value {
         let mut p = json!({"size": planyrith_core::geom::routing::SIZES[self.size]});
         if self.custom {
@@ -3099,6 +3522,8 @@ impl RoutingWindow {
         egui::Window::new(t("Routing"))
             .open(&mut open)
             .default_width(420.0)
+            .default_height(680.0)
+            .vscroll(true)
             .show(ctx, |ui| {
                 ui.label(t("Outer diameter × wall thickness (mm)"));
                 egui::ComboBox::from_id_salt("tube size")
@@ -3126,6 +3551,13 @@ impl RoutingWindow {
                     });
                 }
                 ui.separator();
+                if ui.button(t("Draw Tube Path")).clicked() {
+                    let mut params = self.section();
+                    if self.bend_radius_mm > 0.0 {
+                        params["bend_radius"] = json!(self.bend_radius_mm);
+                    }
+                    self.draw_request = Some(params);
+                }
                 ui.label(t("Select an open chain of edges for the tube path."));
                 ui.horizontal(|ui| {
                     ui.label(t("Bend radius (0 = automatic)"));
@@ -3190,7 +3622,7 @@ impl RoutingWindow {
                     ui.label(n);
                 }
             });
-        self.open = open;
+        self.open = open && self.draw_request.is_none();
     }
 }
 
@@ -3524,6 +3956,131 @@ mod gui_tests {
 
     use crate::app::App;
     use crate::i18n::t;
+
+    /// Actual material and face widgets keep the body bound while the
+    /// selection changes, then run the shared stress command.
+    #[test]
+    fn simulation_material_and_face_controls_work() {
+        use super::*;
+        let mut session = Session::new();
+        for (name, params) in [
+            (
+                "rectangle",
+                json!({"corner_a":[0,0,0],"corner_b":[200,20,0]}),
+            ),
+            (
+                "push-pull",
+                json!({"face":{"Query":"face & last"},"distance":20}),
+            ),
+            ("make-group", json!({"targets":"all","name":"Beam"})),
+            ("select", json!({"query":"group"})),
+        ] {
+            session.execute(name, params).unwrap();
+        }
+        let window = SimulationWindow {
+            open: true,
+            mesh_mm: 20.0,
+            ..Default::default()
+        };
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1400.0, 1200.0))
+            .with_max_steps(64)
+            .build_ui_state(
+                |ui, state: &mut (SimulationWindow, Session)| {
+                    state.0.window(ui.ctx(), &mut state.1)
+                },
+                (window, session),
+            );
+        h.run_steps(3);
+        let body = h.state().0.body.clone();
+        assert!(body.starts_with('@'));
+        h.get_by_value("Steel").click();
+        h.run_steps(3);
+        h.get_by_label("Aluminum").click();
+        h.run_steps(3);
+        assert_eq!(h.state().0.material, 2);
+        assert_eq!(
+            h.state().0.note.as_deref(),
+            Some("Physical material assigned.")
+        );
+        h.query_all_by_label("Face list").next().unwrap().click();
+        h.run();
+        h.get_by_label_contains("normal -1.0,").click();
+        h.run_steps(3);
+        assert!(!h.state().0.fixed.is_empty());
+        assert_eq!(h.state().0.body, body);
+        h.query_all_by_label("Face list").next().unwrap().click();
+        h.run();
+        h.query_all_by_label("Face list").nth(1).unwrap().click();
+        h.run();
+        h.get_by_label_contains("normal 1.0,").scroll_to_me();
+        h.run();
+        h.get_by_label_contains("normal 1.0,").click();
+        h.run_steps(3);
+        assert!(
+            !h.state().0.load_faces.is_empty(),
+            "fixed={:?}, loaded={:?}",
+            h.state().0.fixed,
+            h.state().0.load_faces
+        );
+        assert_ne!(h.state().0.fixed, h.state().0.load_faces);
+        assert_eq!(h.state().0.body, body);
+        h.query_all_by_label("Pick in Model")
+            .nth(1)
+            .unwrap()
+            .click();
+        h.run_steps(3);
+        assert!(h.state_mut().0.take_select_request());
+        assert!(!h.state().1.engine.context().path.steps.is_empty());
+        h.state_mut()
+            .1
+            .execute("select", json!({"query":"face & plane:yz@200"}))
+            .unwrap();
+        h.run_steps(3);
+        h.query_all_by_label("Use Selected Faces")
+            .nth(1)
+            .unwrap()
+            .click();
+        h.run_steps(3);
+        assert!(h.state().1.engine.context().path.steps.is_empty());
+        assert!(!h.state().0.load_faces.is_empty());
+        assert_eq!(h.state().0.body, body);
+        h.get_by_label("Run").click();
+        h.run_steps(3);
+        assert!(
+            h.state()
+                .0
+                .note
+                .as_deref()
+                .unwrap()
+                .starts_with("Largest stress"),
+            "{:?}",
+            h.state().0.note
+        );
+        assert!(planyrith_core::diagnostics::validate(h.state().1.doc()).is_clean());
+    }
+
+    #[test]
+    fn routing_window_starts_a_draw_request_without_a_selection() {
+        use super::*;
+        let window = RoutingWindow {
+            open: true,
+            ..Default::default()
+        };
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1200.0, 900.0))
+            .build_ui_state(
+                |ui, state: &mut (RoutingWindow, Session)| state.0.window(ui.ctx(), &mut state.1),
+                (window, Session::new()),
+            );
+        h.run_steps(3);
+        h.get_by_label("Draw Tube Path").click();
+        h.run_steps(3);
+        assert!(!h.state().0.open);
+        let params = h.state_mut().0.take_draw_request().unwrap();
+        assert_eq!(params["size"], "20x1.5");
+        assert!(params.get("path").is_none());
+    }
 
     /// Tools › Measure… computes the mass properties of the model, and
     /// Tools › Pattern… repeats the selection, through the real menus.

@@ -148,6 +148,10 @@ fn thermal_convection_undo() {
         ),
         ("make-group", json!({"targets": "all", "name": "Bar"})),
         (
+            "sim-material-set",
+            json!({"body":"name:Bar","material":"aluminum"}),
+        ),
+        (
             "sim-thermal",
             json!({"body": "name:Bar", "mesh_size": 10,
             "conditions": [{"faces": "face & plane:yz@0", "power": 10},

@@ -1089,10 +1089,7 @@ impl App {
         if text.is_empty() {
             // Enter alone confirms the current inferred point (docs/05 §1).
             let tool = self.tools[self.active].0.as_mut();
-            let flow = match self.viewport.pointer() {
-                Some(p) if tool.step() > 0 => tool.click(p, &cx),
-                _ => Flow::Continue,
-            };
+            let flow = tool.confirm(self.viewport.pointer(), &cx);
             self.apply_flows(vec![flow]);
             return;
         }
@@ -2697,6 +2694,7 @@ impl App {
     /// Activates the tool a panel asked for.
     fn activate_request(&mut self, request: ToolRequest) {
         let (command, tool): (&str, Box<dyn Tool>) = match request {
+            ToolRequest::Route(params) => ("route", Box::new(tools::RouteTool::new(params))),
             ToolRequest::Paint(m) => (
                 "material-apply",
                 Box::new(tools::PaintTool::with_material(m)),
@@ -3499,6 +3497,12 @@ impl App {
         self.product.window(&ctx, &mut self.session);
         self.molds.window(&ctx, &mut self.session);
         self.routing.window(&ctx, &mut self.session);
+        if let Some(params) = self.routing.take_draw_request() {
+            self.activate_request(ToolRequest::Route(params));
+        }
+        if self.simulation.take_select_request() {
+            self.activate_label("Select");
+        }
         self.together.window(&ctx, &mut self.session);
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -4019,6 +4023,44 @@ mod tests {
             .mesh()
             .face_count();
         assert_eq!(faces, 6 + 2 * 8, "two edges rounded in 8 pieces each");
+    }
+
+    #[test]
+    fn a_tube_path_is_drawn_and_confirmed_in_the_viewport() {
+        let mut shell = Shell::new();
+        shell
+            .app
+            .session
+            .execute(
+                "position-camera",
+                json!({"eye":[900,-1200,1400],"target":[150,100,0]}),
+            )
+            .unwrap();
+        shell.app.activate_request(ToolRequest::Route(
+            json!({"size":"20x1.5","bend_radius":30}),
+        ));
+        shell.frame(Vec::new());
+        shell.click(DVec3::ZERO);
+        shell.click(DVec3::X * 300.0);
+        shell.click(DVec3::new(300.0, 300.0, 0.0));
+        assert_eq!(shell.app.session.doc().model.groups().count(), 0);
+        shell.type_text("", true);
+        shell.ok("route");
+        assert_eq!(shell.app.session.doc().model.groups().count(), 1);
+        let group = shell.app.session.doc().model.groups().next().unwrap().1;
+        assert!(
+            shell
+                .app
+                .session
+                .doc()
+                .definition(group.definition)
+                .unwrap()
+                .entities
+                .mesh()
+                .is_solid()
+        );
+        shell.app.session.undo().unwrap();
+        assert_eq!(shell.app.session.doc().model.groups().count(), 0);
     }
 
     #[test]

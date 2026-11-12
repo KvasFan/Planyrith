@@ -1009,6 +1009,28 @@ the fitting as one group and one undo step. `length_mm` is the sum of port-to-ce
 for junctions. The Routing window collects branch dimensions and direction. Tests check
 wall solidity, bore/port classification, rotations, native persistence and rollback.
 
+### 8.21 Simulation and routing selection workflow (2026-11-12 fix)
+The Simulation window binds a chosen body's persistent occurrence independently of the current
+selection. Choose a body from the model or the selection; changing face selection does not
+replace it. Fixed, loaded, heated and cooled faces have independent lists and model-picking
+actions, restricted to that body's container. Run uses the body's parent context and restores
+the user's edit context afterwards. Lists expose face direction and position, with highlighting;
+advanced query entry remains available. The physical material picker uses translated names,
+shows properties and assigns the chosen preset to the body's definition (the model for raw
+geometry), with `sim-material-set { body, material }`, one undo step. `use_body_material: true`
+in simulation parameters loads that assignment; absent assignments use the supplied/default
+preset. Appearance materials are separate from physical simulation properties.
+The analysis copy is transformed to world millimeters before meshing, with a map back from
+definition face ids to the copy's face ids. Forces, gravity and mesh size use world axes and
+millimeters even for scaled/rotated bodies. Results are placed back in the parent's context.
+Nested mixed bodies are refused rather than silently ignoring their children.
+
+The Routing window offers Draw Tube Path: click points with inference and numeric entry,
+then Enter or double-click to dispatch the same `route` command; Backspace removes a point,
+Escape cancels, and the path/tube previews without changing the document. Existing selected-edge
+insertion remains available. Tests exercise the actual GUI body/material/face controls and
+route input, plus command/native/undo/CLI/RPC parity for physical material assignments.
+
 ## 9. View tools (category `view`) — not undoable, do not dirty the document
 
 - `orbit { yaw: Angle, pitch: Angle, pivot?: Point }` — middle-drag; `Shift` = pan; orbits about the
