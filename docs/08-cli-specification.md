@@ -288,6 +288,16 @@ from a trusted copy instead (any `http://` origin may connect; browsers refuse `
 Interactive line editor with completion over command names and params, history, `:undo`,
 `:redo`, `:q`, `:json on|off`. Each line is a `batch` line.
 
+### Move interference reports (1.22)
+`planyrith tool move -f assembly.plyr --targets 'name:Slider' --delta 20mm,0,0
+--check-collisions --json` translates the selection and returns an optional `output.interference`
+report (docs/05 §4.4, §8.4). Volumes are mm³; bounds are world mm. Only pairs involving changed
+visible closed objects are included. Touching is permitted and undecidable intersections are
+listed separately. This reports the destination and does not block movement or test the swept
+path. Without the flag, output and behavior are unchanged. RPC uses
+`command.execute {doc_id, name: "move", params: {targets: "name:Slider", delta: [20,0,0],
+check_collisions: true}}` and returns the same report; undo remains one step.
+
 ## 4. Units and numbers (`units.rs`)
 
 - Bare numbers use the session unit (`--units`) or the document's display unit.

@@ -36,9 +36,9 @@ pub use rounding::{Chamfer, ChamferParams, Fillet, FilletParams, RoundingOutput}
 pub use select::{Select, SelectOutput, SelectParams};
 pub use thicken::{Thicken, ThickenOutput, ThickenParams};
 pub use transform::{
-    AxisPlane, Mirror, MirrorParams, Move, MoveParams, Pattern, PatternKind, PatternParams, Rotate,
-    RotateParams, Scale, ScaleAbout, ScaleOutput, ScaleParams, Spacing, TransformOutput,
-    reflection,
+    AxisPlane, Mirror, MirrorParams, Move, MoveOutput, MoveParams, Pattern, PatternKind,
+    PatternParams, Rotate, RotateParams, Scale, ScaleAbout, ScaleOutput, ScaleParams, Spacing,
+    TransformOutput, reflection,
 };
 
 use crate::commands::CommandRegistry;

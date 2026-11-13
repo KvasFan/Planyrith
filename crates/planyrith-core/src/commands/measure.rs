@@ -7,7 +7,7 @@
 //! reference point near the object, bounds a tetrahedron whose exact
 //! integrals are summed (signed, so holes and hollows count right).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use glam::{DAffine3, DMat3, DVec3};
 use schemars::JsonSchema;
@@ -459,77 +459,7 @@ impl Command for InterferenceCheck {
         p: InterferenceParams,
     ) -> Result<InterferenceOutput, CommandError> {
         let items = objects(tx, &p.common, p.targets.as_ref(), p.include_hidden)?;
-        let doc = tx.document();
-        let tol = *tx.tolerances();
-        let mut solids: Vec<(&DrawItem, &HalfEdgeMesh, Aabb)> = Vec::new();
-        let mut closed: BTreeMap<ContainerRef, bool> = BTreeMap::new();
-        for item in &items {
-            let Some(entities) = doc.container(item.container) else {
-                continue;
-            };
-            let mesh = entities.mesh();
-            let ok = match closed.get(&item.container) {
-                Some(c) => *c,
-                None => {
-                    let c = diagnose(mesh, &tol)?.is_printable();
-                    closed.insert(item.container, c);
-                    c
-                }
-            };
-            if !ok {
-                continue;
-            }
-            let mut bb = Aabb::EMPTY;
-            for (_, v) in mesh.vertices() {
-                bb = bb.including(item.world.transform_point3(v.position));
-            }
-            solids.push((item, mesh, bb));
-        }
-        let mut out = InterferenceOutput {
-            interferences: Vec::new(),
-            checked: solids.len(),
-            undecided: Vec::new(),
-        };
-        for i in 0..solids.len() {
-            for j in i + 1..solids.len() {
-                let (a, ma, ba) = solids[i];
-                let (b, mb, bb) = solids[j];
-                let Some(overlap) = ba.intersection(&bb) else {
-                    continue;
-                };
-                if overlap.is_empty() || (overlap.max - overlap.min).min_element() <= tol.length {
-                    continue;
-                }
-                let names = || [occurrence_name(doc, &a.path), occurrence_name(doc, &b.path)];
-                match boolean(BooleanOp::Intersect, ma, &a.world, mb, &b.world, &tol) {
-                    Ok(r) => {
-                        let mut volume = 0.0;
-                        let mut bounds = Aabb::EMPTY;
-                        for s in &r.solids {
-                            volume += s.volume().unwrap_or(0.0).abs();
-                            for (_, v) in s.vertices() {
-                                bounds = bounds.including(v.position);
-                            }
-                        }
-                        // Touching faces share no volume.
-                        if volume > tol.length * tol.length * tol.length * 1e3 && !bounds.is_empty()
-                        {
-                            let [a_name, b_name] = names();
-                            out.interferences.push(Interference {
-                                a: a.path.clone(),
-                                a_name,
-                                b: b.path.clone(),
-                                b_name,
-                                volume_mm3: volume,
-                                bounds_mm: [bounds.min.to_array(), bounds.max.to_array()],
-                            });
-                        }
-                    }
-                    Err(_) => out.undecided.push(names()),
-                }
-            }
-        }
-        Ok(out)
+        interference(tx.document(), &items, None)
     }
 
     fn meta(&self) -> CommandMeta {
@@ -541,6 +471,87 @@ impl Command for InterferenceCheck {
             steps: Vec::new(),
         }
     }
+}
+
+/// Checks closed occurrences, optionally restricting pairs to those involving
+/// an affected occurrence. Shared by measurement and Move (docs/05 §4.4, §8.4).
+pub(crate) fn interference(
+    doc: &Document,
+    items: &[DrawItem],
+    involving: Option<&BTreeSet<InstancePath>>,
+) -> Result<InterferenceOutput, CommandError> {
+    let tol = doc.tolerances();
+    let mut solids: Vec<(&DrawItem, &HalfEdgeMesh, Aabb)> = Vec::new();
+    let mut closed: BTreeMap<ContainerRef, bool> = BTreeMap::new();
+    for item in items {
+        let Some(entities) = doc.container(item.container) else {
+            continue;
+        };
+        let mesh = entities.mesh();
+        let ok = match closed.get(&item.container) {
+            Some(c) => *c,
+            None => {
+                let c = diagnose(mesh, tol)?.is_printable();
+                closed.insert(item.container, c);
+                c
+            }
+        };
+        if !ok {
+            continue;
+        }
+        let mut bb = Aabb::EMPTY;
+        for (_, v) in mesh.vertices() {
+            bb = bb.including(item.world.transform_point3(v.position));
+        }
+        solids.push((item, mesh, bb));
+    }
+    let mut out = InterferenceOutput {
+        interferences: Vec::new(),
+        checked: solids.len(),
+        undecided: Vec::new(),
+    };
+    for i in 0..solids.len() {
+        for j in i + 1..solids.len() {
+            let (a, ma, ba) = solids[i];
+            let (b, mb, bb) = solids[j];
+            if involving.is_some_and(|paths| !paths.contains(&a.path) && !paths.contains(&b.path)) {
+                continue;
+            }
+            let Some(overlap) = ba.intersection(&bb) else {
+                continue;
+            };
+            if overlap.is_empty() || (overlap.max - overlap.min).min_element() <= tol.length {
+                continue;
+            }
+            let names = || [occurrence_name(doc, &a.path), occurrence_name(doc, &b.path)];
+            match boolean(BooleanOp::Intersect, ma, &a.world, mb, &b.world, tol) {
+                Ok(r) => {
+                    let mut volume = 0.0;
+                    let mut bounds = Aabb::EMPTY;
+                    for s in &r.solids {
+                        volume += s.volume().unwrap_or(0.0).abs();
+                        for (_, v) in s.vertices() {
+                            bounds = bounds.including(v.position);
+                        }
+                    }
+                    // Touching faces share no volume.
+                    if volume > tol.length * tol.length * tol.length * 1e3 && !bounds.is_empty() {
+                        let [a_name, b_name] = names();
+                        out.interferences.push(Interference {
+                            a: a.path.clone(),
+                            a_name,
+                            b: b.path.clone(),
+                            b_name,
+                            volume_mm3: volume,
+                            bounds_mm: [bounds.min.to_array(), bounds.max.to_array()],
+                        });
+                    }
+                }
+                Err(_) => out.undecided.push(names()),
+            }
+        }
+    }
+    Ok(out)
 }
 
 // ----- cut list -------------------------------------------------------------------------
@@ -811,6 +822,220 @@ mod tests {
         assert_eq!(list.len(), 1, "{out}");
         assert!((list[0]["volume_mm3"].as_f64().unwrap() - 125_000.0).abs() < 1e-3);
         assert_eq!(out["checked"], 4);
+    }
+
+    fn native(e: &Engine) -> Vec<u8> {
+        crate::io::native::write_document(
+            e.document(),
+            &[],
+            &crate::io::native::WriteOptions {
+                deterministic: true,
+                include_history: false,
+                ..Default::default()
+            },
+            &crate::io::NoProgress,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn move_collision_reports_ignore_unrelated_pairs_and_preserve_native_undo() {
+        let mut e = engine();
+        for (name, x) in [("A", 0.0), ("B", 200.0), ("C", 1000.0), ("D", 1050.0)] {
+            block(&mut e, [x, 0.0, 0.0], [100.0; 3], name);
+        }
+        let initial = native(&e);
+        let params =
+            json!({"targets":"name:B & group", "delta":[-150,0,0], "check_collisions":true});
+        let report = e.execute_erased("move", params.clone()).unwrap();
+        assert_eq!(report["moved"], 1);
+        let pairs = report["interference"]["interferences"].as_array().unwrap();
+        assert_eq!(pairs.len(), 1, "{report}");
+        assert_eq!(pairs[0]["a_name"], "A");
+        assert_eq!(pairs[0]["b_name"], "B");
+        assert!((pairs[0]["volume_mm3"].as_f64().unwrap() - 500_000.0).abs() < 1e-3);
+        assert_eq!(report["interference"]["checked"], 4);
+        assert_eq!(report["interference"]["undecided"], json!([]));
+        let moved = native(&e);
+        let loaded = crate::io::native::read_document(&moved, &crate::io::NoProgress).unwrap();
+        let mut unchecked = Engine::new(
+            crate::io::native::read_document(&initial, &crate::io::NoProgress)
+                .unwrap()
+                .document,
+            Arc::new(CommandRegistry::with_builtins()),
+        );
+        let plain = unchecked
+            .execute_erased(
+                "move",
+                json!({"targets":"name:B & group", "delta":[-150,0,0]}),
+            )
+            .unwrap();
+        assert!(plain.get("interference").is_none());
+        assert_eq!(
+            moved,
+            native(&unchecked),
+            "checking does not change native data"
+        );
+        let persisted = Engine::new(loaded.document, Arc::new(CommandRegistry::with_builtins()));
+        assert_eq!(moved, native(&persisted));
+        e.undo().unwrap();
+        assert_eq!(
+            native(&e),
+            initial,
+            "no extra history entry for measurement"
+        );
+        e.redo().unwrap();
+        assert_eq!(native(&e), moved);
+        e.undo().unwrap();
+        assert_eq!(
+            e.execute_erased("move", params).unwrap(),
+            report,
+            "stable order/results"
+        );
+        e.undo().unwrap();
+        let touching = e
+            .execute_erased(
+                "move",
+                json!({"targets":"name:B & group", "delta":[-100,0,0], "check_collisions":true}),
+            )
+            .unwrap();
+        assert_eq!(touching["interference"]["interferences"], json!([]));
+        assert_eq!(touching["interference"]["undecided"], json!([]));
+    }
+
+    #[test]
+    fn move_collision_reports_include_new_copies_but_exclude_hidden_and_open_objects() {
+        let mut e = engine();
+        block(&mut e, [0.0; 3], [100.0; 3], "A");
+        let initial = native(&e);
+        let copies = e.execute_erased("move", json!({"targets":"group", "delta":[50,0,0], "copy":true, "copies":2, "check_collisions":true})).unwrap();
+        assert_eq!(copies["moved"], 0);
+        assert_eq!(copies["copies"].as_array().unwrap().len(), 2);
+        assert_eq!(
+            copies["interference"]["interferences"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2,
+            "{copies}"
+        );
+        assert_eq!(copies["interference"]["checked"], 3);
+        e.undo().unwrap();
+        assert_eq!(e.document().model.groups().count(), 1);
+        let mut e = Engine::new(
+            crate::io::native::read_document(&initial, &crate::io::NoProgress)
+                .unwrap()
+                .document,
+            Arc::new(CommandRegistry::with_builtins()),
+        );
+        block(&mut e, [200.0, 0.0, 0.0], [100.0; 3], "Hidden");
+        e.execute_erased("hide", json!({"targets":"name:Hidden & group"}))
+            .unwrap();
+        e.execute_erased(
+            "rectangle",
+            json!({"corner_a":[200,0,50], "corner_b":[300,100,50]}),
+        )
+        .unwrap();
+        e.execute_erased("make-group", json!({"targets":"edge|face", "name":"Open"}))
+            .unwrap();
+        let out = e
+            .execute_erased(
+                "move",
+                json!({"targets":"name:A & group", "delta":[200,0,0], "check_collisions":true}),
+            )
+            .unwrap();
+        assert_eq!(out["interference"]["checked"], 1);
+        assert_eq!(out["interference"]["interferences"], json!([]));
+    }
+
+    #[test]
+    fn move_collision_reports_follow_nested_placements_and_shared_mesh_edits() {
+        let mut e = engine();
+        block(&mut e, [0.0; 3], [100.0; 3], "Inner");
+        e.execute_erased(
+            "make-component",
+            json!({"targets":"group", "name":"Assembly"}),
+        )
+        .unwrap();
+        let component = e.document().model.instances().next().unwrap().0;
+        let component_pid = e
+            .document()
+            .model
+            .pid_of(crate::ids::EntityId::Instance(component))
+            .unwrap();
+        // Repeated nested contents retain distinct occurrence paths.
+        e.execute_erased(
+            "move",
+            json!({"targets":"instance", "delta":[300,0,0], "copy":true}),
+        )
+        .unwrap();
+        block(&mut e, [150.0, 0.0, 0.0], [100.0; 3], "Obstacle");
+        let report = e.execute_erased("move", json!({"targets":format!("@{}", component_pid.0), "delta":[100,0,0], "check_collisions":true})).unwrap();
+        assert_eq!(
+            report["interference"]["interferences"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1,
+            "{report}"
+        );
+        e.undo().unwrap();
+        block(&mut e, [450.0, 0.0, 0.0], [100.0; 3], "Other obstacle");
+        // Editing the shared definition changes the world placement of both
+        // nested objects; both must be checked, including the other occurrence.
+        let context = crate::document::EditContext {
+            path: InstancePath {
+                steps: vec![crate::document::EntityKey::Pid(component_pid)],
+            },
+        };
+        e.set_context(context).unwrap();
+        let report = e
+            .execute_erased(
+                "move",
+                json!({"targets":"group", "delta":[100,0,0], "check_collisions":true}),
+            )
+            .unwrap();
+        assert_eq!(
+            report["interference"]["interferences"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2,
+            "{report}"
+        );
+        // Move the loose mesh within the shared inner group too. Copy-on-edit
+        // may fork that group; changed containers must still be checked.
+        let inner = e
+            .document()
+            .definition(e.document().model.instances().next().unwrap().1.definition)
+            .unwrap()
+            .entities
+            .groups()
+            .next()
+            .unwrap()
+            .0;
+        let mut context = e.context().clone();
+        context
+            .path
+            .steps
+            .push(crate::document::EntityKey::Id(crate::ids::EntityId::Group(
+                inner,
+            )));
+        e.set_context(context).unwrap();
+        let report = e
+            .execute_erased(
+                "move",
+                json!({"targets":"edge|face", "delta":[-20,0,0], "check_collisions":true}),
+            )
+            .unwrap();
+        assert_eq!(
+            report["interference"]["interferences"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2,
+            "{report}"
+        );
     }
 
     #[test]

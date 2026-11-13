@@ -343,13 +343,15 @@ pub struct MoveTool {
     cursor: Option<DVec3>,
     /// Tool Options: copy (as Ctrl does).
     copy: bool,
+    pointer_copy: bool,
+    check_collisions: bool,
 }
 
 impl MoveTool {
     fn params(&self, to: DVec3, copy: bool) -> Option<Value> {
         let (from, targets) = self.grab.as_ref()?;
         (from.distance(to) > tol().length)
-            .then(|| json!({ "targets": targets, "from": pt(*from), "to": pt(to), "copy": copy }))
+            .then(|| json!({ "targets": targets, "from": pt(*from), "to": pt(to), "copy": copy, "check_collisions": self.check_collisions }))
     }
 }
 
@@ -375,6 +377,7 @@ impl Tool for MoveTool {
 
     fn hover(&mut self, p: &Pointer, _cx: &Cx<'_>) {
         self.cursor = Some(p.inference.point);
+        self.pointer_copy = p.modifiers.command;
     }
 
     fn click(&mut self, p: &Pointer, cx: &Cx<'_>) -> Flow {
@@ -409,7 +412,9 @@ impl Tool for MoveTool {
             )
             .ok_or("move the cursor to give the direction")?,
         };
-        let params = self.params(to, false).ok_or("that is no move")?;
+        let params = self
+            .params(to, self.copy || self.pointer_copy)
+            .ok_or("that is no move")?;
         self.grab = None;
         Ok(Flow::run("move", params))
     }
@@ -433,6 +438,13 @@ impl Tool for MoveTool {
 
     fn options(&mut self, ui: &mut egui::Ui, _cx: &Cx<'_>) {
         ui.checkbox(&mut self.copy, t("Copy (also Ctrl while clicking)"));
+        ui.checkbox(
+            &mut self.check_collisions,
+            t("Check collisions while moving"),
+        )
+        .on_hover_text(t(
+            "Report overlaps at the current position; movement remains free.",
+        ));
     }
 
     fn escape(&mut self) -> bool {
@@ -451,7 +463,10 @@ impl Tool for MoveTool {
     }
 
     fn preview(&self, _cx: &Cx<'_>) -> Option<(String, Value)> {
-        Some(("move".into(), self.params(self.cursor?, false)?))
+        Some((
+            "move".into(),
+            self.params(self.cursor?, self.copy || self.pointer_copy)?,
+        ))
     }
 }
 

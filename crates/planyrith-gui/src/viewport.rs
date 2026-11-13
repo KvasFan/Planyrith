@@ -12,6 +12,7 @@ use std::collections::BTreeSet;
 
 use egui::{Color32, PointerButton, Sense, Stroke, Vec2};
 use glam::{DVec2, DVec3};
+use planyrith_core::commands::measure::InterferenceOutput;
 use planyrith_core::document::{
     Camera, ContainerRef, Document, EditContext, EntityKey, EntityPath, InstancePath, Selection,
 };
@@ -58,6 +59,8 @@ pub struct Preview {
     pub touched: BTreeSet<ContainerRef>,
     /// Identifies this preview (a new one invalidates the render cache).
     pub serial: u64,
+    /// Overlaps at this scratch placement, rendered as red bounds.
+    pub interference: Option<InterferenceOutput>,
 }
 
 /// A component or material dragged from a panel (docs/07 §6). Starting the
@@ -669,6 +672,30 @@ impl Viewport {
                 dashed: true,
                 kind: OverlayKind::Detached,
             }));
+        if let Some(report) = preview.and_then(|p| p.interference.as_ref()) {
+            overlay
+                .lines
+                .extend(report.interferences.iter().flat_map(|pair| {
+                    let bounds = Aabb {
+                        min: DVec3::from(pair.bounds_mm[0]),
+                        max: DVec3::from(pair.bounds_mm[1]),
+                    };
+                    let corners = bounds.corners();
+                    (0..8).flat_map(move |i| {
+                        (0..3).filter_map(move |axis| {
+                            let j = i ^ (1 << axis);
+                            (i < j).then_some(OverlayLine {
+                                color: Some(planyrith_core::document::Rgba8::rgb(230, 40, 40)),
+                                a: corners[i],
+                                b: corners[j],
+                                infinite: false,
+                                dashed: false,
+                                kind: OverlayKind::Detached,
+                            })
+                        })
+                    })
+                }));
+        }
         let hover = response.hover_pos();
         let want_ids = hover.is_some() && self.nav.is_none() && hover != self.last_hover;
         let frame_camera = Camera { aspect, ..shown };

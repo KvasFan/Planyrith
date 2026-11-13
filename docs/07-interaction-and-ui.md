@@ -78,6 +78,13 @@ pub trait InteractiveTool {
   Preview is throttled to 60 Hz and skipped if the previous preview took > 16 ms (then only the
   rubber-band overlay is shown).
 
+Move's Tool Options includes **Check collisions while moving** (docs/05 §4.4). The
+scratch command measures volumetric intersections at its current placement, displays their
+bounds in red and reports the pair count in the status bar (names/volumes in the tooltip).
+Undecided pairs are shown separately. The option is off initially; checks share preview
+throttling, and their results are cleared with the preview. Copy and numeric input retain the
+option. Movement remains free; this is an advisory check of each displayed placement.
+
 ## 4. Status bar and hints
 
 - Left: context breadcrumb (`Model › Kitchen › Cabinet (3 instances)`), clickable to exit levels.

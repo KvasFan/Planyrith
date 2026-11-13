@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 
+use planyrith_core::commands::measure::InterferenceOutput;
 use planyrith_core::commands::{CommandRegistry, Delta, Engine, Event};
 use planyrith_core::document::{Camera, ContainerRef, Document, EditContext};
 use planyrith_core::inference::{Inference, InferenceEngine, InferenceRequest};
@@ -22,6 +23,16 @@ use planyrith_core::spatial::{DocumentIndex, Hit, HitFilter};
 use serde_json::Value;
 
 use crate::platform::{self, now_rfc3339};
+
+/// A scratch command result used to render an interactive preview (docs/07 §3).
+pub struct CommandPreview {
+    /// The scratch document after applying the command.
+    pub doc: Document,
+    /// Containers changed by the command.
+    pub touched: BTreeSet<ContainerRef>,
+    /// Optional destination interference measurements (docs/05 §4.4).
+    pub interference: Option<InterferenceOutput>,
+}
 
 /// An open document.
 pub struct Session {
@@ -639,11 +650,7 @@ impl Session {
     /// Runs a command on a copy of the document (a tool's preview, docs/07
     /// §3): the copy and the containers the command changed. The document
     /// itself, its history and its journal are untouched.
-    pub fn preview(
-        &self,
-        name: &str,
-        params: Value,
-    ) -> Result<(Document, BTreeSet<ContainerRef>), String> {
+    pub fn preview(&self, name: &str, params: Value) -> Result<CommandPreview, String> {
         let mut fork = Engine::new(self.doc().clone(), Arc::clone(&self.registry));
         fork.set_storage(Arc::clone(&self.storage));
         fork.set_last_created(self.engine.last_created().to_vec());
@@ -665,15 +672,25 @@ impl Session {
                 }
             }
         }));
-        fork.execute_erased(name, params)
+        let output = fork
+            .execute_erased(name, params)
             .map_err(|e| format!("{name}: {e}"))?;
+        let interference = output
+            .get("interference")
+            .map(|report| serde_json::from_value(report.clone()))
+            .transpose()
+            .map_err(|e| e.to_string())?;
         let doc = fork.into_document();
         let mut touched = touched.take();
         if everything.get() {
             touched.extend(self.doc().containers());
             touched.extend(doc.containers());
         }
-        Ok((doc, touched))
+        Ok(CommandPreview {
+            doc,
+            touched,
+            interference,
+        })
     }
 
     /// Refreshes tools after installing or enabling an extension.

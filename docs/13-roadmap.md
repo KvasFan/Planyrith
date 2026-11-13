@@ -244,7 +244,8 @@ scenes; a bill of materials; collision detection while dragging; driving a mate 
 - **Done (2026-11-09):** mates (all but tangent) with the solver and freedom shown, driving by
   editing a mate's value, exploded views kept in the container (collapsed again on demand rather
   than per scene), the bill of materials (docs/05 §5.17). Tangency is completed in 1.21;
-  collision checks while dragging in the viewport remain; interference is checked on demand (§8.4).
+  Move checks placement interference during viewport editing in 1.22; Rotate/Scale and
+  continuous path collision remain deferred. Interference is also checked on demand (§8.4).
 
 ## 1.13.0 — Engineering drawings
 Sheet views tied to the model and kept current: projected, section, detail, auxiliary and
@@ -324,17 +325,36 @@ Complete the tangent mate reserved in 1.12: circular axes tangent to planes or o
 axes (external or internal contact), with exact radii from curve descriptors. Reject circular
 references whose placement distorts their radii. Acceptance: analytic contact distances,
 degrees of freedom, conflicts, transformed occurrences, native/undo and CLI/RPC/GUI tests.
-Other unfinished assembly items, including collision checks during viewport dragging, remain.
+Viewport Move interference checks follow in 1.22.
 - **Done (2026-11-12):** tangent mates between circular cylinders and planes or circular
   cylinders, external/internal contact, similarity-transformed radii and deterministic
   initialization at symmetric starts. Analytic distances, freedom, conflicts, native
   persistence/undo, CLI/RPC and the actual Assembly button are covered (docs/05 §5.17).
 
+## 1.22.0 — Interference during Move
+Complete the assembly viewport gap with optional collision checks during Move: reuse the
+core's volumetric interference measurement in the command's destination and scratch previews,
+report only pairs involving changed or copied occurrences, draw intersection bounds and show
+counts/undecided pairs. Preserve one-step undo and ordinary movement with the option off.
+Acceptance: analytic overlap/contact, unrelated-pair exclusion, nested/shared/copied objects,
+hidden/open objects, native undo and CLI/RPC/GUI parity. This is advisory placement checking;
+continuous path collision and stopping at contact remain deferred.
+
+- **Done (2026-11-13):** `move --check-collisions` reports affected pairs through CLI/RPC;
+  Move's Tool Options enables scratch reports, red intersection bounds and localized status.
+  Tests cover nested/shared placements, changed meshes, copies, hidden/open objects, native
+  data and one-step undo; the existing command goldens and frozen API remain compatible.
+
 ## Post-1.0 candidates
 Other limits remain listed against their original milestones; no unrelated feature scope is
-added by the continuation milestones 1.19–1.21.
+added by the continuation milestones 1.19–1.22.
 
 ## Decisions
+
+- 2026-11-13 — **Continuation after 1.21.** At the user's request to continue development,
+  1.22 addresses the explicit viewport interference gap of 1.12 using the existing Move and
+  measurement commands. It adds no dependency, release or file-format version. Rotate/Scale
+  checks and continuous collision detection are outside this milestone.
 
 - 2026-11-12 — **Continuous development after 1.18.** At the user's request to proceed
   through the next milestones without pausing at each, 1.19–1.21 complete three explicit gaps

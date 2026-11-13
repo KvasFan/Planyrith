@@ -1146,3 +1146,9 @@ t-pick-the-tube-path-start = Scegli l'inizio del percorso del tubo
 t-pick-tube-path-points-enter-or-double-click-finishes = Scegli i punti del percorso del tubo; Invio o doppio clic termina
 t-count-faces-selected = { $count } facce selezionate
 t-internal-or-opposite-side-tangent-contact = Contatto tangente interno o sul lato opposto
+
+# Movement interference checks (docs/05 §4.4).
+t-check-collisions-while-moving = Controlla collisioni durante lo spostamento
+t-report-overlaps-at-the-current-position-movement-remains-free = Segnala le sovrapposizioni nella posizione corrente; lo spostamento resta libero.
+t-no-interference-at-this-position = Nessuna interferenza in questa posizione
+t-interferences-count-undecided-undecided = Interferenze: { $count }; indeterminate: { $undecided }

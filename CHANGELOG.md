@@ -4,7 +4,7 @@ All notable changes to Planyrith are recorded here. Versions follow
 [Semantic Versioning](https://semver.org/); before 1.0, minor versions are milestones of
 [`docs/13-roadmap.md`](docs/13-roadmap.md).
 
-## 0.12.0-alpha.1 — engineering milestones 1.7–1.21 (not published)
+## 0.12.0-alpha.1 — engineering milestones 1.7–1.22 (not published)
 
 Per-person undo and joining from the browser (1.7), then the engineering milestones: measuring
 and making, constrained sketches, feature history, solid features, assemblies, engineering
@@ -12,6 +12,10 @@ drawings, sheet metal and frames, surfaces and analysis, simulation, product dat
 The version number marks builds from main; no packages are published for it.
 
 ### Added
+- Milestone 1.22, interference during Move (docs/05 §4.4): `--check-collisions` reports
+  destination overlaps involving changed/copied visible closed objects; the Move option
+  checks scratch placements with red intersection bounds and counts, including undecided
+  pairs. Contact stays free and ordinary moves keep their existing behavior/output.
 - Milestone 1.21, assembly tangency (docs/05 §5.17): circular cylinders tangent to planes
   or other cylinders, external/internal contact, exact transformed radii and deterministic
   starts for coaxial or perpendicular references; Tangent in the Assembly window.
@@ -79,6 +83,7 @@ The version number marks builds from main; no packages are published for it.
   build has File › Work Together…, opened filled in by `?join=<document>`.
 
 ### Fixed
+- Move previews and numeric completion honor the Copy option and held Ctrl modifier.
 - Simulation's GUI binds the chosen body independently of face selection, with translated
   physical material presets, persistent assignments and per-condition face lists/model picking.
   Analyses mesh the body's placed dimensions and use world force directions; nested contents

@@ -191,6 +191,7 @@ perpendicular to hovered edge); `Esc` = cancel current step (second `Esc` = canc
 - **Purpose:** translate (and optionally copy) entities or vertices/edges/faces with auto-fold.
 - **Params:** `targets: Sel`, `from: Point` (grab point), `to: Point` | `delta: Vector`,
   `copy: bool` (false; `Ctrl` toggles), `copies: Count` (1) with `array: Linear { count, spacing: Between|Total } | None`,
+  `check_collisions: bool` (false; report volumetric overlaps at the destination),
   `check_intersections: bool` (false: a move whose edges would cross other edges is refused;
   true: those edges are split, docs/03 §4.8), `auto_fold: bool` (true; `Alt` forces).
 - **Interactive:** hover an entity (auto-select if nothing selected; with a selection, moving any
@@ -202,10 +203,28 @@ perpendicular to hovered edge); `Esc` = cancel current step (second `Esc` = canc
 - **Behavior:** vertices/edges/faces → `transform_vertices` (`docs/03 §4.8`); groups/instances →
   transform update (no geometry change). Moving an instance glued to a face slides it on the face.
   Copy of a group → new instance of the same hidden definition (copy-on-edit, `docs/04 §3.1`).
-- **Output:** `{ moved: usize, copies: Vec<Pid>, folded_faces: usize, merged_vertices: usize }`.
+- **Collision checks (1.22):** with `check_collisions`, run the same intersection measurement
+  as §8.4 after applying the move or copies. Only pairs involving changed occurrences count;
+  unrelated pre-existing overlaps are left out. Changed placements, newly copied occurrences
+  and every occurrence of changed mesh containers are included, including nested contents and
+  components following a glued face. Check visible closed objects throughout the model,
+  irrespective of the active context; hidden objects and open meshes are excluded. Touching
+  counts as no interference; failed intersections remain explicitly `undecided`. Movement is
+  free and the result is advisory. This samples the current/destination placement; it does
+  not sweep the path or prevent passing through a part between samples.
+- **Output:** `{ moved: usize, copies: Vec<Pid>, folded_faces: usize, merged_vertices: usize,
+  interference?: { interferences, checked, undecided } }`; `interference` is absent unless
+  requested and has the units and fields of §8.4. `checked` counts all visible closed objects.
+- **GUI:** Move › Tool Options › Check collisions while moving. The scratch preview uses
+  the same command, shows red boxes around intersection bounds and a status count with pair
+  names and volumes in its tooltip. Copy/Ctrl previews and numeric entry use the same flags.
+  Turning the option off, cancelling or finishing clears the scratch report. Slow checks use
+  the existing preview settling delay (docs/07 §3); no scratch check alters history or files.
 - **Undo:** one step including all array copies.
 - **Tests:** move a vertex of a cube top → auto-fold creates 1 hidden edge; move with `copy` ×3
   → 3 new instances; typed `1500` along locked red axis moves exactly 1500 mm in X.
+  Collision checks cover overlap/contact, unrelated pairs, copies, hidden/open objects,
+  nested and shared definitions, native undo/redo, CLI/RPC parity and the actual GUI option.
 
 ### 4.5 `rotate`
 - **Params:** `targets: Sel`, `center: Point`, `axis: Vector`, `angle: Angle` | `from_point,
@@ -586,8 +605,8 @@ Mates place the groups and components of the edit context against each other (mi
 - **GUI:** Tools › Assembly…: a face or edge selected inside a component (opened, or picked one
   level down) becomes Side A or Side B; buttons add the mates; the list shows the state, driving
   values to drag (the parts follow) and delete; Explode and Collapse with a spread factor; the
-  bill of materials with Copy as CSV. Interference while moving parts is checked with Tools ›
-  Measure… › Interference (§8.4).
+  bill of materials with Copy as CSV. Move's collision option (§4.4) checks interference
+  while placing parts; Tools › Measure… › Interference (§8.4) checks the entire model on demand.
 - **Tests:** a cube mated onto another (face to face, two sides flush) has no freedom left;
   driving the distance slides it 30 mm; a conflicting distance is refused; exploding and
   collapsing restore every placement; two equal components count as one row of two.
@@ -1153,6 +1172,13 @@ UI hints are generated from one source.
 - [ ] Documented in `docs/08` command table.
 
 ## Decisions
+
+- 2026-11-13 — **Move interference (1.22).** Complete the assembly viewport gap with an
+  opt-in advisory destination check on the existing `move` command. Reuse §8.4 rather than
+  a second collision definition; preserve free direct modeling, ordinary output and native
+  files when disabled. Detect affected occurrences from placement changes and mesh deltas,
+  so shared definitions, nested parts and copies do not require re-evaluating a stale query.
+  Continuous path collision, stopping at contact and Rotate/Scale checks remain deferred.
 
 - 2026-11-12 — **Molds and routing (1.18):** planar mold divisions reuse the solid boolean
   kernel; round tubes use explicit outer-diameter × wall presets, without claiming a pressure

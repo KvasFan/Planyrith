@@ -4,16 +4,18 @@
 //! their transform; guides and section planes are re-placed. With `copy`,
 //! copies are made instead (linear or radial arrays with `copies`).
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use glam::{DAffine3, DVec3};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::commands::common::{SideRows, mesh_piece, place_geometry, refuse_locked, targets_in};
+use crate::commands::measure::{InterferenceOutput, interference};
 use crate::commands::params::{PointSchema, Target, VectorSchema, check_point, target_container};
+use crate::commands::solid_check::objects;
 use crate::commands::{
-    Command, CommandCategory, CommandError, CommandMeta, CommonParams, ToolStep, Transaction,
+    Command, CommandCategory, CommandError, CommandMeta, CommonParams, Delta, ToolStep, Transaction,
 };
 use crate::document::{AnchorKind, Dimension, Document, EntityRecord, EntityView, Guide, Query};
 use crate::geom::TransformOptions;
@@ -372,6 +374,18 @@ fn parse_targets(q: &Query) -> Result<(), CommandError> {
 
 // ----- move ---------------------------------------------------------------------------------
 
+/// `move` output (docs/05 §4.4), including optional interference measurements.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct MoveOutput {
+    /// The transformation results.
+    #[serde(flatten)]
+    pub transform: TransformOutput,
+    /// Interferences at the resulting placement, when requested. Only pairs
+    /// involving changed or copied occurrences are measured; units are mm³/mm.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interference: Option<InterferenceOutput>,
+}
+
 /// `move` parameters (docs/05 §4.4).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct MoveParams {
@@ -404,6 +418,10 @@ pub struct MoveParams {
     /// Split edges and faces where moved geometry crosses other geometry.
     #[serde(default)]
     pub check_intersections: bool,
+    /// Report volumetric interference involving moved/copied visible closed
+    /// objects at the destination (mm³/mm); does not block movement.
+    #[serde(default)]
+    pub check_collisions: bool,
     /// Fold faces that would become non-planar.
     #[serde(default = "yes")]
     pub auto_fold: bool,
@@ -429,7 +447,7 @@ pub struct Move;
 
 impl Command for Move {
     type Params = MoveParams;
-    type Output = TransformOutput;
+    type Output = MoveOutput;
 
     fn name(&self) -> &'static str {
         "move"
@@ -441,17 +459,25 @@ impl Command for Move {
         check_point("delta", p.delta()?)
     }
 
-    fn apply(
-        &self,
-        tx: &mut Transaction<'_>,
-        p: MoveParams,
-    ) -> Result<TransformOutput, CommandError> {
+    fn apply(&self, tx: &mut Transaction<'_>, p: MoveParams) -> Result<MoveOutput, CommandError> {
         let delta = p.delta()?;
         let opts = TransformOptions {
             auto_fold: p.auto_fold,
             check_intersections: p.check_intersections,
         };
-        run_transform(
+        // Capture placements only when requested. Comparing occurrences, rather
+        // than re-resolving the query after copying, also covers nested contents,
+        // shared definitions and components that follow a glued face.
+        let before = if p.check_collisions {
+            objects(tx, &p.common, None, false)?
+                .into_iter()
+                .map(|item| (item.path, (item.container, item.world)))
+                .collect::<BTreeMap<_, _>>()
+        } else {
+            BTreeMap::new()
+        };
+        let start = tx.deltas().len();
+        let transform = run_transform(
             tx,
             &p.common,
             &p.targets,
@@ -460,7 +486,37 @@ impl Command for Move {
             p.spacing,
             opts,
             |s| translation(delta * s),
-        )
+        )?;
+        let interference = if p.check_collisions {
+            let changed_meshes: BTreeSet<_> = tx.deltas()[start..]
+                .iter()
+                .filter_map(|delta| match delta {
+                    Delta::Mesh { container, .. } => Some(*container),
+                    _ => None,
+                })
+                .collect();
+            let items = objects(tx, &p.common, None, false)?;
+            let tol = tx.tolerances();
+            let affected = items
+                .iter()
+                .filter(|item| {
+                    changed_meshes.contains(&item.container)
+                        || before.get(&item.path).is_none_or(|(container, world)| {
+                            *container != item.container
+                                || !world.matrix3.abs_diff_eq(item.world.matrix3, tol.angle)
+                                || world.translation.distance(item.world.translation) > tol.length
+                        })
+                })
+                .map(|item| item.path.clone())
+                .collect();
+            Some(interference(tx.document(), &items, Some(&affected))?)
+        } else {
+            None
+        };
+        Ok(MoveOutput {
+            transform,
+            interference,
+        })
     }
 
     fn meta(&self) -> CommandMeta {

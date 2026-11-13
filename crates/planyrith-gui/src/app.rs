@@ -1333,11 +1333,12 @@ impl App {
         }
         let started = Instant::now();
         match self.session.preview(&name, params) {
-            Ok((doc, touched)) => {
+            Ok(result) => {
                 state.serial += 1;
                 state.shown = Some(Preview {
-                    doc,
-                    touched,
+                    doc: result.doc,
+                    touched: result.touched,
+                    interference: result.interference,
                     serial: state.serial,
                 });
                 state.error = None;
@@ -2245,6 +2246,50 @@ impl App {
         } else if let Some(hover) = &self.viewport.hover {
             ui.separator();
             ui.weak(hover);
+        }
+        if let Some(report) = self
+            .preview
+            .shown
+            .as_ref()
+            .and_then(|p| p.interference.as_ref())
+        {
+            ui.separator();
+            let message = if report.interferences.is_empty() && report.undecided.is_empty() {
+                t("No interference at this position")
+            } else {
+                t_args(
+                    "Interferences: { $count }; undecided: { $undecided }",
+                    &[
+                        ("count", report.interferences.len().to_string().into()),
+                        ("undecided", report.undecided.len().to_string().into()),
+                    ],
+                )
+            };
+            let label = egui::RichText::new(message);
+            let label = if report.interferences.is_empty() && report.undecided.is_empty() {
+                label.weak()
+            } else {
+                label.color(ui.visuals().error_fg_color)
+            };
+            ui.label(label).on_hover_text(
+                report
+                    .interferences
+                    .iter()
+                    .map(|pair| {
+                        format!(
+                            "{} / {}: {:.3} mm³",
+                            pair.a_name, pair.b_name, pair.volume_mm3
+                        )
+                    })
+                    .chain(
+                        report
+                            .undecided
+                            .iter()
+                            .map(|[a, b]| format!("{a} / {b}: ?")),
+                    )
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            );
         }
         if let Some(e) = &self.preview.error {
             ui.separator();
@@ -4943,6 +4988,154 @@ mod tests {
         shell.ok("text");
         assert_eq!(count(&shell, |v| matches!(v, EntityView::Text(_))), 1);
         shell.frame(Vec::new());
+    }
+
+    /// docs/13 1.22: the actual Move option measures scratch placements,
+    /// including copies, and numeric completion remains a single undo step.
+    #[test]
+    fn move_collision_option_checks_preview_and_numeric_copies() {
+        use egui_kittest::{Harness, kittest::Queryable};
+        for copy in [false, true] {
+            let mut h = Harness::builder()
+                .with_size(egui::vec2(1400.0, 900.0))
+                .build_eframe(|cc| App::new(cc, None));
+            for (name, x) in [("A", 0), ("B", 200)] {
+                for (cmd, p) in [
+                    (
+                        "rectangle",
+                        json!({"corner_a":[x,0,0],"corner_b":[x+100,100,0]}),
+                    ),
+                    (
+                        "push-pull",
+                        json!({"face":{"Query":"face & last"},"distance":100}),
+                    ),
+                    ("make-group", json!({"targets":"edge|face","name":name})),
+                ] {
+                    h.state_mut().session.execute(cmd, p).unwrap();
+                }
+            }
+            h.state_mut()
+                .session
+                .execute(
+                    "position-camera",
+                    json!({"eye":[-400,-900,900],"target":[150,50,0]}),
+                )
+                .unwrap();
+            h.state_mut()
+                .session
+                .execute("select", json!({"query":"name:B & group"}))
+                .unwrap();
+            h.state_mut().activate_label("Move");
+            h.run_steps(2);
+            h.get_by_label("Check collisions while moving").click();
+            h.run_steps(2);
+            if copy {
+                h.get_by_label("Copy (also Ctrl while clicking)").click();
+            }
+            h.run_steps(2);
+            let real_before =
+                planyrith_core::io::export::json::document_to_json(h.state().session.doc())
+                    .unwrap();
+            let grab = h
+                .state()
+                .viewport
+                .cx(&h.state().session)
+                .to_screen(DVec3::new(200.0, 0.0, 0.0))
+                .unwrap();
+            let destination = h
+                .state()
+                .viewport
+                .cx(&h.state().session)
+                .to_screen(DVec3::new(50.0, 0.0, 0.0))
+                .unwrap();
+            let click = |h: &mut Harness<App>, pos| {
+                h.hover_at(pos);
+                h.run_steps(1);
+                for pressed in [true, false] {
+                    h.event(egui::Event::PointerButton {
+                        pos,
+                        button: egui::PointerButton::Primary,
+                        pressed,
+                        modifiers: egui::Modifiers::NONE,
+                    });
+                    h.run_steps(1);
+                }
+            };
+            click(&mut h, grab);
+            h.hover_at(destination);
+            h.run_steps(30);
+            let preview = h.state().preview.shown.as_ref().expect("a Move preview");
+            let report = preview.interference.as_ref().expect("the requested check");
+            assert_eq!(report.interferences.len(), 1, "{report:?}");
+            assert_eq!(report.checked, if copy { 3 } else { 2 });
+            assert_eq!(
+                planyrith_core::io::export::json::document_to_json(h.state().session.doc())
+                    .unwrap(),
+                real_before
+            );
+            assert!(h.query_by_label_contains("Interferences: 1").is_some());
+            // Toggling the option changes the preview request even when the
+            // destination stays still, and cancellation discards the report.
+            h.get_by_label("Check collisions while moving").click();
+            h.run_steps(30);
+            assert!(
+                h.state()
+                    .preview
+                    .shown
+                    .as_ref()
+                    .unwrap()
+                    .interference
+                    .is_none()
+            );
+            h.get_by_label("Check collisions while moving").click();
+            h.run_steps(30);
+            assert!(
+                h.state()
+                    .preview
+                    .shown
+                    .as_ref()
+                    .unwrap()
+                    .interference
+                    .is_some()
+            );
+            h.key_press(Key::Escape);
+            h.run_steps(2);
+            assert!(h.state().preview.shown.is_none());
+            click(&mut h, grab);
+            h.hover_at(destination);
+            h.run_steps(30);
+            h.event(egui::Event::Text("[50,0,0]".into()));
+            h.key_press(Key::Enter);
+            h.run_steps(2);
+            assert!(h.state().preview.shown.is_none());
+            assert_eq!(
+                h.state().session.doc().model.groups().count(),
+                if copy { 3 } else { 2 }
+            );
+            assert_eq!(
+                h.state().session.engine.history().undo_label(),
+                Some("Move")
+            );
+            let checked = h
+                .state_mut()
+                .session
+                .execute("interference-check", json!({}))
+                .unwrap();
+            assert_eq!(
+                checked["interferences"].as_array().unwrap().len(),
+                1,
+                "{checked}"
+            );
+            h.state_mut().undo();
+            h.run_steps(2);
+            let checked = h
+                .state_mut()
+                .session
+                .execute("interference-check", json!({}))
+                .unwrap();
+            assert_eq!(checked["interferences"], json!([]));
+            assert_eq!(h.state().session.doc().model.groups().count(), 2);
+        }
     }
 
     #[test]

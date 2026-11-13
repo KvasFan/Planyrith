@@ -1031,6 +1031,126 @@ fn tangent_mates_match_between_typed_cli_and_rpc() {
     assert!(String::from_utf8(help.stdout).unwrap().contains("tangent"));
 }
 
+/// docs/05 §4.4: typed Move collision reports equal RPC and do not add an undo step.
+#[test]
+fn move_collisions_match_between_cli_and_rpc() {
+    use serde_json::json;
+    let dir = scratch("move-collisions");
+    let cli_path = dir.join("cli.plyr");
+    let rpc_path = dir.join("rpc.plyr");
+    planyrith()
+        .args(["new", "-f", cli_path.to_str().unwrap()])
+        .assert()
+        .success();
+    std::fs::copy(&cli_path, &rpc_path).unwrap();
+    let mut steps = Vec::new();
+    for (name, x) in [("A", 0), ("B", 200)] {
+        steps.extend([
+            (
+                "rectangle",
+                json!({"corner_a":[x,0,0],"corner_b":[x+100,100,0]}),
+            ),
+            (
+                "push-pull",
+                json!({"face":{"Query":"face & last"},"distance":100}),
+            ),
+            ("make-group", json!({"targets":"edge|face","name":name})),
+        ]);
+    }
+    let mut frames = vec![rpc(1, "session.open", json!({"path":rpc_path}))];
+    for (i, (name, params)) in steps.iter().enumerate() {
+        planyrith()
+            .args([
+                "tool",
+                name,
+                "-f",
+                cli_path.to_str().unwrap(),
+                "--params-json",
+                &params.to_string(),
+            ])
+            .assert()
+            .success();
+        frames.push(rpc(
+            i as i64 + 2,
+            "command.execute",
+            json!({"doc_id":"d1", "name":name, "params":params}),
+        ));
+    }
+    let params = json!({"targets":"name:B & group","delta":[-150,0,0],"check_collisions":true});
+    frames.push(rpc(
+        8,
+        "command.execute",
+        json!({"doc_id":"d1","name":"move","params":params}),
+    ));
+    frames.push(rpc(9, "session.save", json!({"doc_id":"d1"})));
+    frames.push(rpc(10, "history.undo", json!({"doc_id":"d1"})));
+    frames.push(rpc(
+        11,
+        "command.execute",
+        json!({"doc_id":"d1","name":"interference-check","params":{}}),
+    ));
+    frames.push(rpc(12, "history.redo", json!({"doc_id":"d1"})));
+    frames.push(rpc(
+        13,
+        "command.execute",
+        json!({"doc_id":"d1","name":"interference-check","params":{}}),
+    ));
+    let (replies, _) = serve(&[], &frames);
+    for reply in replies.values() {
+        assert!(reply.get("error").is_none(), "{reply}");
+    }
+    let output = planyrith()
+        .args([
+            "tool",
+            "move",
+            "-f",
+            cli_path.to_str().unwrap(),
+            "--targets",
+            "name:B & group",
+            "--delta=-150mm,0,0",
+            "--check-collisions",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let cli_report = json_of(&output.stdout);
+    let result = &replies[&8]["result"]["output"];
+    assert_eq!(&cli_report["output"], result);
+    assert!(
+        (result["interference"]["interferences"][0]["volume_mm3"]
+            .as_f64()
+            .unwrap()
+            - 500_000.0)
+            .abs()
+            < 1e-3
+    );
+    assert_eq!(replies[&11]["result"]["output"]["interferences"], json!([]));
+    assert_eq!(replies[&13]["result"]["output"], result["interference"]);
+    let canonical = |path| {
+        let loaded = planyrith_core::io::native::read_document(
+            &std::fs::read(path).unwrap(),
+            &planyrith_core::io::NoProgress,
+        )
+        .unwrap();
+        planyrith_core::io::export::json::document_to_json(&loaded.document).unwrap()
+    };
+    assert_eq!(canonical(cli_path), canonical(rpc_path));
+    let help = planyrith()
+        .args(["tool", "move", "--help"])
+        .output()
+        .unwrap();
+    let help = String::from_utf8(help.stdout).unwrap();
+    assert!(
+        help.contains("--check-collisions") && help.contains("mm³/mm"),
+        "{help}"
+    );
+}
+
 #[test]
 fn annotation_style_is_available_over_rpc_and_survives_save() {
     use serde_json::json;
