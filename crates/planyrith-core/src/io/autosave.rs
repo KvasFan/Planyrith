@@ -91,6 +91,7 @@ pub struct Autosave {
     doc_key: StorageKey,
     rows: Vec<JournalRow>,
     last_snapshot_s: f64,
+    interval_s: f64,
 }
 
 impl Autosave {
@@ -101,7 +102,21 @@ impl Autosave {
             doc_key,
             rows: Vec::new(),
             last_snapshot_s: now_s,
+            interval_s: SNAPSHOT_EVERY_SECONDS,
         }
+    }
+
+    /// Sets the snapshot interval (10–3600 seconds), preserving pending rows
+    /// and the last snapshot time (docs/13 1.29). Invalid values are rejected.
+    pub fn set_interval_seconds(&mut self, seconds: f64) -> Result<(), IoError> {
+        if !seconds.is_finite() || !(10.0..=3600.0).contains(&seconds) {
+            return Err(IoError::Storage {
+                key: self.doc_key.to_string(),
+                reason: "snapshot interval must be 10–3600 seconds".into(),
+            });
+        }
+        self.interval_s = seconds;
+        Ok(())
     }
 
     /// Restarts the snapshot timer at `now_s` (when the frontend's clock
@@ -144,7 +159,7 @@ impl Autosave {
     pub fn due(&self, now_s: f64) -> bool {
         !self.rows.is_empty()
             && (self.rows.len() >= SNAPSHOT_EVERY_COMMANDS
-                || now_s - self.last_snapshot_s >= SNAPSHOT_EVERY_SECONDS)
+                || now_s - self.last_snapshot_s >= self.interval_s)
     }
 
     /// Writes `bytes` (the whole document, journal included) as the snapshot

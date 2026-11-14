@@ -149,6 +149,9 @@
                 "g": 138,
                 "r": 49
               },
+              "extension_gap": 20.0,
+              "extension_overshoot": 40.0,
+              "extension_visible": true,
               "font": {
                 "bold": true,
                 "family": "Inter",
@@ -348,7 +351,11 @@
             },
             "leader_visible": true,
             "screen_position": null,
-            "world_offset": null
+            "world_offset": [
+              100.0,
+              100.0,
+              0.0
+            ]
           },
           "screen_offset": [
             40.0,

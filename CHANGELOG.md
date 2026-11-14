@@ -4,7 +4,7 @@ All notable changes to Planyrith are recorded here. Versions follow
 [Semantic Versioning](https://semver.org/); before 1.0, minor versions are milestones of
 [`docs/13-roadmap.md`](docs/13-roadmap.md).
 
-## 0.12.0-alpha.1 — engineering milestones 1.7–1.22 (not published)
+## 0.12.0-alpha.1 — engineering milestones 1.7–1.32 (not published)
 
 Per-person undo and joining from the browser (1.7), then the engineering milestones: measuring
 and making, constrained sketches, feature history, solid features, assemblies, engineering
@@ -12,6 +12,18 @@ drawings, sheet metal and frames, surfaces and analysis, simulation, product dat
 The version number marks builds from main; no packages are published for it.
 
 ### Added
+- 1.23: optional destination interference reports for Rotate and Scale, with Tool Options,
+  copied occurrences and reflected/nonuniform placements.
+- 1.24: optional assembly placements in scenes, restored with undo, recovery, collaboration
+  and read-only enforcement.
+- 1.25: dimension extension-line gap, overshoot and visibility in Label Style/Entity Info.
+- 1.26: View/Pushpin text leader editing, with explicit model-space offsets and shared overlays.
+- 1.27: lofts through profiles with matching holes, preserving through cavities.
+- 1.28: camera placement by direction, target distance and eye height; Camera Placement form.
+- 1.29: per-user autosave snapshot interval, preserving pending journals and recovery.
+- 1.30: validated per-user tool shortcuts, with reset and consistent menu/toolbar hints.
+- 1.31: separate default model/import/export folders in Preferences.
+- 1.32: transparent previews of changed/new faces, keeping unchanged model faces opaque.
 - Milestone 1.22, interference during Move (docs/05 §4.4): `--check-collisions` reports
   destination overlaps involving changed/copied visible closed objects; the Move option
   checks scratch placements with red intersection bounds and counts, including undecided
@@ -83,6 +95,8 @@ The version number marks builds from main; no packages are published for it.
   build has File › Work Together…, opened filled in by `?join=<document>`.
 
 ### Fixed
+- Reflected indexed meshes now reverse their cached face planes with their loops; mirrored
+  solid intersections no longer fail the outer-loop orientation invariant.
 - Move previews and numeric completion honor the Copy option and held Ctrl modifier.
 - Simulation's GUI binds the chosen body independently of face selection, with translated
   physical material presets, persistent assignments and per-condition face lists/model picking.

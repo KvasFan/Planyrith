@@ -1134,3 +1134,79 @@ fn realistic_style_lights_from_the_sky() {
     );
     assert_eq!(back, plain);
 }
+
+/// docs/13 1.32: changing one face must not ghost the entire model root.
+#[test]
+fn scratch_opacity_changes_one_face_and_clears_without_rebuilding_the_model() {
+    let Some(gpu) = gpu() else {
+        return;
+    };
+    let mut renderer = Renderer::new(
+        gpu.device.clone(),
+        gpu.queue.clone(),
+        RendererOptions::default(),
+    );
+    let mut e = Engine::new(Document::new(), Arc::new(CommandRegistry::with_builtins()));
+    rect(&mut e, [-200.0, -100.0, 0.0], [-20.0, 100.0, 0.0]);
+    rect(&mut e, [20.0, -100.0, 0.0], [200.0, 100.0, 0.0]);
+    let before = e.document().clone();
+    run(
+        &mut e,
+        "move",
+        json!({"targets":"face & last","delta":[0,0,50]}),
+    );
+    let doc = e.document();
+    let camera = Camera {
+        eye: DVec3::new(0.0, 0.0, 1000.0),
+        target: DVec3::ZERO,
+        up: DVec3::Y,
+        projection: Projection::Parallel { height_mm: 400.0 },
+        aspect: WIDTH as f64 / HEIGHT as f64,
+    };
+    let style = Style::default();
+    let opaque = frame(
+        &mut renderer,
+        doc,
+        &Selection::new(),
+        &EditContext::model(),
+        &camera,
+        &style,
+        false,
+    );
+    renderer.set_preview_faces(planyrith_core::io::render_mesh::preview_changed_faces(
+        &before, doc,
+    ));
+    let ghost = frame(
+        &mut renderer,
+        doc,
+        &Selection::new(),
+        &EditContext::model(),
+        &camera,
+        &style,
+        false,
+    );
+    let (left, right) = (WIDTH / 2 - 50, WIDTH / 2 + 50);
+    assert_eq!(
+        ghost.get_pixel(left, HEIGHT / 2),
+        opaque.get_pixel(left, HEIGHT / 2),
+        "unchanged face stays opaque"
+    );
+    assert_ne!(
+        ghost.get_pixel(right, HEIGHT / 2),
+        opaque.get_pixel(right, HEIGHT / 2),
+        "changed face is transparent"
+    );
+    renderer.set_preview_faces(Default::default());
+    assert_eq!(
+        frame(
+            &mut renderer,
+            doc,
+            &Selection::new(),
+            &EditContext::model(),
+            &camera,
+            &style,
+            false
+        ),
+        opaque
+    );
+}

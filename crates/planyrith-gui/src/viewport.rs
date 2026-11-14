@@ -53,6 +53,9 @@ struct NavDrag {
 /// A tool's preview: a copy of the document with the command applied, and
 /// the containers that differ from the document (docs/07 §3).
 pub struct Preview {
+    /// Only changed/new faces are transparent.
+    pub ghost_faces:
+        std::collections::BTreeMap<InstancePath, BTreeSet<planyrith_core::ids::FaceId>>,
     /// The copy.
     pub doc: Document,
     /// Containers the preview changed.
@@ -635,6 +638,7 @@ impl Viewport {
         // Containers drawn from another version than last frame's.
         let serial = preview.map(|p| p.serial);
         if serial != self.preview_drawn {
+            renderer.set_preview_faces(preview.map(|p| p.ghost_faces.clone()).unwrap_or_default());
             let touched: BTreeSet<ContainerRef> =
                 preview.map(|p| p.touched.clone()).unwrap_or_default();
             for c in self.preview_touched.iter().chain(touched.iter()) {

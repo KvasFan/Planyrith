@@ -5,13 +5,26 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
+use crate::document::EntityPath;
 use crate::document::camera::Camera;
 use crate::document::shadows::ShadowSettings;
 use crate::ids::{Pid, SceneId, StyleId, TagId};
 
+/// A local occurrence placement captured by a scene (docs/13 1.24).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ScenePlacement {
+    /// Persistent path to the group or component.
+    pub path: EntityPath,
+    /// Placement in its owning container.
+    pub transform: glam::DAffine3,
+}
+
 /// A scene (docs/04 §6).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Scene {
+    /// Optional assembly placements; absent scenes leave geometry unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub placements: Option<Vec<ScenePlacement>>,
     /// Unique name.
     pub name: String,
     /// Free text.
@@ -41,6 +54,7 @@ impl Scene {
     /// A scene capturing nothing but a name.
     pub fn named(name: impl Into<String>) -> Self {
         Scene {
+            placements: None,
             name: name.into(),
             description: String::new(),
             camera: None,

@@ -275,6 +275,13 @@ tags, non-invertible transforms, `next_pid` monotonicity. `repair` fixes what it
 
 ## Decisions
 
+- 2026-11-14 — **Optional scene/annotation fields (1.24–1.25).** Scenes may contain
+  `placements: [{path, transform}]`, with persistent occurrence paths and local transforms.
+  DimStyle may contain `extension_gap`, `extension_overshoot` (mm) and `extension_visible`.
+  All are optional, default to historical behavior and are omitted when absent, keeping
+  format version 1 and the frozen corpus unchanged. Pushpin/View text leaders use the
+  existing optional world offset; no new native enum variant is introduced.
+
 - 2026-11-09 — **Bounds of nested contents.** A container's bounds used to transform each
   nested definition's box, so every turned level grew the box (on the user's house model a
   turned cut-out figure's box reached 200 mm past the figure). Each definition now keeps, once

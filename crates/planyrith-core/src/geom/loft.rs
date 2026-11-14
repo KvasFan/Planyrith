@@ -196,6 +196,65 @@ pub fn loft(
     Ok(solid)
 }
 
+/// A loft with corresponding outer/inner profile loops (docs/13 1.27).
+/// Inner loops are paired in stored order; each cavity must lie entirely
+/// inside the outer loft and outside cavities already removed.
+pub fn loft_with_holes(
+    profiles: &[Vec<Vec<DVec3>>],
+    sides: FaceSides,
+    tol: &Tolerances,
+) -> Result<HalfEdgeMesh, GeometryError> {
+    use crate::geom::boolean::{BooleanOp, boolean};
+    if profiles.len() < 2 || profiles.first().is_none_or(Vec::is_empty) {
+        return Err(GeometryError::NotApplicable(
+            "a loft needs two or more face profiles".into(),
+        ));
+    }
+    let count = profiles[0].len();
+    if profiles.iter().any(|p| p.len() != count) {
+        return Err(GeometryError::NotApplicable(
+            "every loft profile must have the same hole count".into(),
+        ));
+    }
+    let loops = |k: usize| profiles.iter().map(|p| p[k].clone()).collect::<Vec<_>>();
+    let mut solid = loft(&loops(0), sides.clone(), tol)?;
+    for k in 1..count {
+        let hole = loft(&loops(k), sides.clone(), tol)?;
+        let before = solid.volume()?;
+        let hole_volume = hole.volume()?;
+        let result = boolean(
+            BooleanOp::Subtract,
+            &solid,
+            &glam::DAffine3::IDENTITY,
+            &hole,
+            &glam::DAffine3::IDENTITY,
+            tol,
+        )?;
+        let mut meshes = result.solids;
+        if meshes.len() != 1 {
+            return Err(GeometryError::NonRobust(
+                "loft cavities must leave one connected solid".into(),
+            ));
+        }
+        let Some(next) = meshes.pop() else {
+            return Err(GeometryError::NonRobust(
+                "loft cavity removed the solid".into(),
+            ));
+        };
+        let extent = crate::math::Aabb::from_points(hole.vertices().map(|(_, v)| v.position))
+            .size()
+            .length();
+        let volume_tolerance = tol.length * extent * extent * 4.0;
+        if (before - next.volume()? - hole_volume).abs() > volume_tolerance {
+            return Err(GeometryError::NonRobust(
+                "loft cavities cross an outer wall or each other".into(),
+            ));
+        }
+        solid = next;
+    }
+    Ok(solid)
+}
+
 /// cos 20° (the importers' soften angle): side pieces closer than this are
 /// smoothed together.
 const SMOOTH_COS: f64 = 0.939_692_621;

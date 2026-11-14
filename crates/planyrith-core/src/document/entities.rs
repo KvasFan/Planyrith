@@ -237,6 +237,15 @@ pub enum ArrowStyle {
 /// Dimension appearance (docs/04 §3.5 `DimStyle`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DimStyle {
+    /// Extension-line gap from the measured point, mm (absent: zero).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extension_gap: Option<Length>,
+    /// Extension past the dimension line, mm (absent: zero).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extension_overshoot: Option<Length>,
+    /// Extension-line visibility override (absent: visible).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extension_visible: Option<bool>,
     /// Optional text color; absent uses the frontend's annotation color.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<crate::document::Rgba8>,
@@ -256,6 +265,9 @@ pub struct DimStyle {
 impl Default for DimStyle {
     fn default() -> Self {
         DimStyle {
+            extension_gap: None,
+            extension_overshoot: None,
+            extension_visible: None,
             color: None,
             font: None,
             text_height: Length::mm(100.0),

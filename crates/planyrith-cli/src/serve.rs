@@ -1177,12 +1177,14 @@ impl Server {
             .get(&name)
             .map(|c| c.meta().view_only)
             .ok_or_else(|| RpcError::params(format!("unknown command `{name}`")))?;
-        if self.readonly && !view_only {
-            return Err(RpcError::readonly(&format!("`{name}`")));
-        }
+        let readonly = self.readonly;
         let global = self.global.clone();
         let current = self.current;
         let doc = self.doc_mut(p)?;
+        let view_only = view_only && doc.session.engine.command_is_view_only(&name, &params);
+        if readonly && !view_only {
+            return Err(RpcError::readonly(&format!("`{name}`")));
+        }
         // Consecutive calls with the same group form one undo step; another
         // client's call ends it.
         if doc.group.as_ref().map(|(g, _)| g) != group.as_ref() || doc.group_client != current {

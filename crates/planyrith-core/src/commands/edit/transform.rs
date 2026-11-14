@@ -4,7 +4,7 @@
 //! their transform; guides and section planes are re-placed. With `copy`,
 //! copies are made instead (linear or radial arrays with `copies`).
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use glam::{DAffine3, DVec3};
 use schemars::JsonSchema;
@@ -374,7 +374,70 @@ fn parse_targets(q: &Query) -> Result<(), CommandError> {
 
 // ----- move ---------------------------------------------------------------------------------
 
-/// `move` output (docs/05 §4.4), including optional interference measurements.
+/// Placements before a checked transform; tracks mesh edits and shared occurrences.
+struct CollisionSnapshot {
+    paths: BTreeSet<crate::document::InstancePath>,
+    start: usize,
+}
+impl CollisionSnapshot {
+    fn capture(
+        tx: &Transaction<'_>,
+        common: &CommonParams,
+        enabled: bool,
+    ) -> Result<Option<Self>, CommandError> {
+        if !enabled {
+            return Ok(None);
+        }
+        Ok(Some(Self {
+            paths: objects(tx, common, None, false)?
+                .into_iter()
+                .map(|i| i.path)
+                .collect(),
+            start: tx.deltas().len(),
+        }))
+    }
+    fn report(
+        snapshot: Option<Self>,
+        tx: &Transaction<'_>,
+        common: &CommonParams,
+    ) -> Result<Option<InterferenceOutput>, CommandError> {
+        let Some(snapshot) = snapshot else {
+            return Ok(None);
+        };
+        let changed: BTreeSet<_> = tx.deltas()[snapshot.start..]
+            .iter()
+            .filter_map(|d| match d {
+                Delta::Mesh { container, .. } => Some(*container),
+                _ => None,
+            })
+            .collect();
+        let items = objects(tx, common, None, false)?;
+        let transformed: BTreeSet<_> = tx.deltas()[snapshot.start..]
+            .iter()
+            .filter_map(|delta| match delta {
+                Delta::TransformChanged { container, id, .. } => {
+                    tx.document().container(*container)?.pid_of(*id)
+                }
+                _ => None,
+            })
+            .collect();
+        let affected = items
+            .iter()
+            .filter(|item| {
+                changed.contains(&item.container)
+                    || !snapshot.paths.contains(&item.path)
+                    || item.path.steps.iter().any(|key| match key {
+                        crate::document::EntityKey::Pid(pid) => transformed.contains(pid),
+                        _ => false,
+                    })
+            })
+            .map(|item| item.path.clone())
+            .collect();
+        interference(tx.document(), &items, Some(&affected)).map(Some)
+    }
+}
+
+/// `move`/`rotate` output (docs/05 §4.4–§4.5), including optional interference measurements.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct MoveOutput {
     /// The transformation results.
@@ -465,18 +528,7 @@ impl Command for Move {
             auto_fold: p.auto_fold,
             check_intersections: p.check_intersections,
         };
-        // Capture placements only when requested. Comparing occurrences, rather
-        // than re-resolving the query after copying, also covers nested contents,
-        // shared definitions and components that follow a glued face.
-        let before = if p.check_collisions {
-            objects(tx, &p.common, None, false)?
-                .into_iter()
-                .map(|item| (item.path, (item.container, item.world)))
-                .collect::<BTreeMap<_, _>>()
-        } else {
-            BTreeMap::new()
-        };
-        let start = tx.deltas().len();
+        let snapshot = CollisionSnapshot::capture(tx, &p.common, p.check_collisions)?;
         let transform = run_transform(
             tx,
             &p.common,
@@ -487,32 +539,7 @@ impl Command for Move {
             opts,
             |s| translation(delta * s),
         )?;
-        let interference = if p.check_collisions {
-            let changed_meshes: BTreeSet<_> = tx.deltas()[start..]
-                .iter()
-                .filter_map(|delta| match delta {
-                    Delta::Mesh { container, .. } => Some(*container),
-                    _ => None,
-                })
-                .collect();
-            let items = objects(tx, &p.common, None, false)?;
-            let tol = tx.tolerances();
-            let affected = items
-                .iter()
-                .filter(|item| {
-                    changed_meshes.contains(&item.container)
-                        || before.get(&item.path).is_none_or(|(container, world)| {
-                            *container != item.container
-                                || !world.matrix3.abs_diff_eq(item.world.matrix3, tol.angle)
-                                || world.translation.distance(item.world.translation) > tol.length
-                        })
-                })
-                .map(|item| item.path.clone())
-                .collect();
-            Some(interference(tx.document(), &items, Some(&affected))?)
-        } else {
-            None
-        };
+        let interference = CollisionSnapshot::report(snapshot, tx, &p.common)?;
         Ok(MoveOutput {
             transform,
             interference,
@@ -578,6 +605,9 @@ pub struct RotateParams {
     /// Spacing of the copies.
     #[serde(default)]
     pub spacing: Spacing,
+    /// Report destination overlaps of changed visible closed objects (mm³/mm).
+    #[serde(default)]
+    pub check_collisions: bool,
     /// Fold faces that would become non-planar.
     #[serde(default = "yes")]
     pub auto_fold: bool,
@@ -620,7 +650,7 @@ pub struct Rotate;
 
 impl Command for Rotate {
     type Params = RotateParams;
-    type Output = TransformOutput;
+    type Output = MoveOutput;
 
     fn name(&self) -> &'static str {
         "rotate"
@@ -636,18 +666,15 @@ impl Command for Rotate {
         p.angle(doc.tolerances()).map(|_| ())
     }
 
-    fn apply(
-        &self,
-        tx: &mut Transaction<'_>,
-        p: RotateParams,
-    ) -> Result<TransformOutput, CommandError> {
+    fn apply(&self, tx: &mut Transaction<'_>, p: RotateParams) -> Result<MoveOutput, CommandError> {
         let angle = p.angle(tx.tolerances())?;
         let (center, axis) = (p.center, p.axis.normalize());
         let opts = TransformOptions {
             auto_fold: p.auto_fold,
             check_intersections: false,
         };
-        run_transform(
+        let snapshot = CollisionSnapshot::capture(tx, &p.common, p.check_collisions)?;
+        let transform = run_transform(
             tx,
             &p.common,
             &p.targets,
@@ -656,7 +683,11 @@ impl Command for Rotate {
             p.spacing,
             opts,
             |s| rotation_about(center, axis, Angle::radians(angle * s)),
-        )
+        )?;
+        Ok(MoveOutput {
+            transform,
+            interference: CollisionSnapshot::report(snapshot, tx, &p.common)?,
+        })
     }
 
     fn meta(&self) -> CommandMeta {
@@ -720,6 +751,9 @@ pub struct ScaleParams {
     /// Default pivot.
     #[serde(default)]
     pub about: ScaleAbout,
+    /// Report destination overlaps of changed visible closed objects (mm³/mm).
+    #[serde(default)]
+    pub check_collisions: bool,
     /// Fold faces that would become non-planar.
     #[serde(default = "yes")]
     pub auto_fold: bool,
@@ -757,6 +791,9 @@ impl ScaleParams {
 /// `scale` output.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct ScaleOutput {
+    /// Optional advisory destination interference report.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interference: Option<InterferenceOutput>,
     /// Factors applied.
     pub factors: [f64; 3],
     /// World bounds of the targets afterwards (`None` when empty).
@@ -818,6 +855,7 @@ impl Command for Scale {
     }
 
     fn apply(&self, tx: &mut Transaction<'_>, p: ScaleParams) -> Result<ScaleOutput, CommandError> {
+        let snapshot = CollisionSnapshot::capture(tx, &p.common, p.check_collisions)?;
         let factors = p.factors()?;
         let target = target_container(tx, &p.common)?;
         let ids = targets_in(tx, &target, &p.targets)?;
@@ -848,6 +886,7 @@ impl Command for Scale {
             .collect();
         let after = bounds(tx, &target, &alive)?;
         Ok(ScaleOutput {
+            interference: CollisionSnapshot::report(snapshot, tx, &p.common)?,
             factors: factors.to_array(),
             bbox_after: (!after.is_empty()).then(|| [after.min.to_array(), after.max.to_array()]),
         })

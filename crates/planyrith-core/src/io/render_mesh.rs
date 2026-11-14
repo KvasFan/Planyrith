@@ -10,7 +10,7 @@
 //! ranges in key order, draw items in depth-first container order, so the
 //! same document gives the same buffers before and after a save/reload.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Range;
 
 use glam::{DAffine3, DVec2, DVec3};
@@ -860,6 +860,104 @@ pub fn draw_list(
         item.faded = !context.is_prefix_of(&item.path);
     }
     items
+}
+
+/// Faces whose appearance or world geometry differs in an interactive scratch
+/// document (docs/07 §3, milestone 1.32). Paths and persistent face ids keep
+/// unchanged faces opaque even when their container was rebuilt.
+pub fn preview_changed_faces(
+    before: &Document,
+    after: &Document,
+) -> BTreeMap<InstancePath, BTreeSet<FaceId>> {
+    changed_preview_faces(before, after, None)
+}
+
+/// The same preview comparison, using known changed containers to avoid
+/// scanning untouched meshes. `touched` must include every edited mesh or
+/// appearance container; changed occurrence placements are always detected.
+pub fn preview_changed_faces_in(
+    before: &Document,
+    after: &Document,
+    touched: &BTreeSet<ContainerRef>,
+) -> BTreeMap<InstancePath, BTreeSet<FaceId>> {
+    changed_preview_faces(before, after, Some(touched))
+}
+
+fn changed_preview_faces(
+    before: &Document,
+    after: &Document,
+    touched: Option<&BTreeSet<ContainerRef>>,
+) -> BTreeMap<InstancePath, BTreeSet<FaceId>> {
+    let old: BTreeMap<_, _> = draw_list(before, &Selection::new(), &EditContext::model(), true)
+        .into_iter()
+        .map(|i| (i.path.clone(), i))
+        .collect();
+    let mut changed = BTreeMap::new();
+    for item in draw_list(after, &Selection::new(), &EditContext::model(), true) {
+        let Some(entities) = after.container(item.container) else {
+            continue;
+        };
+        let prior = old.get(&item.path);
+        let prior_entities = prior.and_then(|i| before.container(i.container));
+        let placed = prior.is_some_and(|i| {
+            i.world
+                .abs_diff_eq(item.world, after.tolerances().parametric)
+                && i.material_override == item.material_override
+        });
+        if placed
+            && prior.is_some_and(|i| i.container == item.container)
+            && touched.is_some_and(|set| !set.contains(&item.container))
+        {
+            continue;
+        }
+        let mut faces = BTreeSet::new();
+        for (id, face) in entities.mesh().faces() {
+            let same = placed
+                && prior_entities.is_some_and(|previous| {
+                    let Some(EntityId::Face(old_id)) = entities
+                        .pid_of(EntityId::Face(id))
+                        .and_then(|pid| previous.id_of(pid))
+                    else {
+                        return false;
+                    };
+                    let Some(old_face) = previous.mesh().face(old_id) else {
+                        return false;
+                    };
+                    if old_face.sides != face.sides {
+                        return false;
+                    }
+                    let old_loops = std::iter::once(old_face.outer)
+                        .chain(old_face.holes.iter().copied())
+                        .collect::<Vec<_>>();
+                    let new_loops = std::iter::once(face.outer)
+                        .chain(face.holes.iter().copied())
+                        .collect::<Vec<_>>();
+                    old_loops.len() == new_loops.len()
+                        && old_loops.into_iter().zip(new_loops).all(|(a, b)| {
+                            let (Ok(a), Ok(b)) = (
+                                previous.mesh().loop_positions(a),
+                                entities.mesh().loop_positions(b),
+                            ) else {
+                                return false;
+                            };
+                            a.len() == b.len()
+                                && (0..b.len()).any(|shift| {
+                                    a.iter().enumerate().all(|(i, p)| {
+                                        p.distance(b[(i + shift) % b.len()])
+                                            <= after.tolerances().length
+                                    })
+                                })
+                        })
+                });
+            if !same {
+                faces.insert(id);
+            }
+        }
+        if !faces.is_empty() {
+            changed.insert(item.path, faces);
+        }
+    }
+    changed
 }
 
 #[cfg(test)]

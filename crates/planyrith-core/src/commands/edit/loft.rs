@@ -11,7 +11,7 @@ use crate::commands::{
     Command, CommandCategory, CommandError, CommandMeta, CommonParams, Transaction,
 };
 use crate::document::{ComponentDefinition, Document, Entities, EntityRecord, Group, Query};
-use crate::geom::loft::loft;
+use crate::geom::loft::loft_with_holes;
 use crate::ids::{EntityId, FaceId, Pid};
 
 /// `loft` parameters.
@@ -92,15 +92,11 @@ impl Command for Loft {
                 .mesh();
             let mut loops = Vec::with_capacity(faces.len());
             for &f in &faces {
-                if mesh.face(f).is_some_and(|x| !x.holes.is_empty()) {
-                    return Err(CommandError::NotApplicable(
-                        "profiles with holes are not supported; loft their outlines".into(),
-                    ));
-                }
+                let face = mesh.face_ref(f)?;
                 loops.push(
-                    mesh.face_vertices(f)?
-                        .into_iter()
-                        .map(|v| mesh.position(v))
+                    std::iter::once(face.outer)
+                        .chain(face.holes.iter().copied())
+                        .map(|id| mesh.loop_positions(id))
                         .collect::<Result<Vec<_>, _>>()?,
                 );
             }
@@ -110,7 +106,7 @@ impl Command for Loft {
                 .unwrap_or_default();
             (loops, sides)
         };
-        let solid = loft(&loops, sides, tx.tolerances())?;
+        let solid = loft_with_holes(&loops, sides, tx.tolerances())?;
         let volume_mm3 = solid.volume()?;
         let face_count = solid.face_count();
         if !p.keep_profiles {

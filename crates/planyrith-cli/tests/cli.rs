@@ -2272,3 +2272,174 @@ fn browsers_join_over_a_websocket() {
         }
     }
 }
+
+/// docs/13 1.23–1.28: optional parameters agree across typed CLI, RPC and native files.
+#[test]
+fn continuation_options_match_cli_and_rpc() {
+    use serde_json::json;
+    let dir = scratch("continuation");
+    let seed = dir.join("seed.plyr");
+    let batch = dir.join("seed.plyrb");
+    std::fs::write(
+        &batch,
+        r#"rectangle --corner-a 0,0,0 --corner-b 100,100,0
+push-pull --face '{face & last}' --distance 100
+make-group --targets all --name A
+rectangle --corner-a 200,0,0 --corner-b 300,100,0
+push-pull --face '{face & last}' --distance 100
+make-group --targets 'edge|face' --name B
+line --points 0,-200,0 --points 100,-200,0
+dimension --start 0,-200,0 --end 100,-200,0 --offset 0,20,0
+text --at 0,-200,0 --text Anchor
+scene-add --name Base --capture '{"placements":true}'
+explode-view --factor 1
+scene-add --name Spread --capture '{"placements":true}'
+scene-activate --scene Base
+"#,
+    )
+    .unwrap();
+    planyrith()
+        .args([
+            "batch",
+            batch.to_str().unwrap(),
+            "-f",
+            seed.to_str().unwrap(),
+            "--deterministic",
+        ])
+        .assert()
+        .success();
+    let cases = [
+        (
+            "rotate",
+            json!({"targets":"name:B & group","center":[125,50,0],"angle":std::f64::consts::PI,"check_collisions":true,"copy":true}),
+            vec![
+                "--targets",
+                "name:B & group",
+                "--center",
+                "125,50,0",
+                "--angle",
+                "180deg",
+                "--check-collisions",
+                "--copy",
+            ],
+        ),
+        (
+            "scale",
+            json!({"targets":"name:B & group","pivot":[300,0,0],"factors":[2.5,1.0,1.0],"check_collisions":true}),
+            vec![
+                "--targets",
+                "name:B & group",
+                "--pivot",
+                "300,0,0",
+                "--factors",
+                "2.5",
+                "--factors",
+                "1",
+                "--factors",
+                "1",
+                "--check-collisions",
+            ],
+        ),
+        (
+            "label-style",
+            json!({"targets":"dimension","extension_gap":5,"extension_overshoot":3,"extension_visible":true}),
+            vec![
+                "--targets",
+                "dimension",
+                "--extension-gap",
+                "5mm",
+                "--extension-overshoot",
+                "3mm",
+                "--extension-visible",
+            ],
+        ),
+        (
+            "label-style",
+            json!({"targets":"text","leader_mode":"pushpin","leader_offset":[10,20,30]}),
+            vec![
+                "--targets",
+                "text",
+                "--leader-mode",
+                "pushpin",
+                "--leader-offset",
+                "10,20,30",
+            ],
+        ),
+        (
+            "position-camera",
+            json!({"eye":[10,20,0],"eye_height":1600,"look_dir":[0,2,0],"target_distance":500}),
+            vec![
+                "--eye",
+                "10,20,0",
+                "--eye-height",
+                "1600mm",
+                "--look-dir",
+                "0,2,0",
+                "--target-distance",
+                "500mm",
+            ],
+        ),
+        (
+            "scene-activate",
+            json!({"scene":"Spread"}),
+            vec!["--scene", "Spread"],
+        ),
+    ];
+    for (index, (name, params, args)) in cases.into_iter().enumerate() {
+        let cli = dir.join(format!("cli-{index}.plyr"));
+        let rpc_path = dir.join(format!("rpc-{index}.plyr"));
+        std::fs::copy(&seed, &cli).unwrap();
+        std::fs::copy(&seed, &rpc_path).unwrap();
+        let output = planyrith()
+            .args(["tool", name, "-f", cli.to_str().unwrap(), "--json"])
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{name}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let output = json_of(&output.stdout);
+        let (replies, _) = serve(
+            &[],
+            &[
+                rpc(1, "session.open", json!({"path":rpc_path})),
+                rpc(
+                    2,
+                    "command.execute",
+                    json!({"doc_id":"d1","name":name,"params":params}),
+                ),
+                rpc(3, "session.save", json!({"doc_id":"d1"})),
+            ],
+        );
+        for reply in replies.values() {
+            assert!(reply.get("error").is_none(), "{reply}");
+        }
+        assert_eq!(output["output"], replies[&2]["result"]["output"], "{name}");
+        let canonical = |path: &Path| {
+            let loaded = planyrith_core::io::native::read_document(
+                &std::fs::read(path).unwrap(),
+                &planyrith_core::io::NoProgress,
+            )
+            .unwrap();
+            planyrith_core::io::export::json::document_to_json(&loaded.document).unwrap()
+        };
+        assert_eq!(canonical(&cli), canonical(&rpc_path), "{name}: native data");
+    }
+    let (replies, _) = serve(
+        &["--readonly"],
+        &[
+            rpc(1, "session.open", json!({"path":seed})),
+            rpc(
+                2,
+                "command.execute",
+                json!({"doc_id":"d1","name":"scene-activate","params":{"scene":"Spread"}}),
+            ),
+        ],
+    );
+    assert!(
+        replies[&2].get("error").is_some(),
+        "a placed scene must not bypass read-only mode"
+    );
+}

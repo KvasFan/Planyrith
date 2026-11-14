@@ -281,8 +281,69 @@ pub struct PositionCameraParams {
     #[schemars(with = "PointSchema")]
     pub eye: DVec3,
     /// Point looked at.
-    #[schemars(with = "PointSchema")]
-    pub target: DVec3,
+    #[serde(default)]
+    #[schemars(with = "Option<PointSchema>")]
+    pub target: Option<DVec3>,
+    /// View direction, instead of target.
+    #[serde(default)]
+    #[schemars(with = "Option<VectorSchema>")]
+    pub look_dir: Option<DVec3>,
+    /// Eye-target distance with look_dir, positive mm (default: current distance).
+    #[serde(default)]
+    pub target_distance: Option<Length>,
+    /// Height above the eye/base point along model Z, mm.
+    #[serde(default)]
+    pub eye_height: Option<Length>,
+}
+
+impl PositionCameraParams {
+    fn placement(&self, doc: &Document) -> Result<(DVec3, DVec3), CommandError> {
+        let eye = self.eye + DVec3::Z * self.eye_height.map_or(0.0, Length::as_mm);
+        check_point("eye", eye)?;
+        let target = match (self.target, self.look_dir) {
+            (Some(target), None) => {
+                if self.target_distance.is_some() {
+                    return Err(CommandError::invalid_param(
+                        "target_distance",
+                        "requires look_dir",
+                    ));
+                }
+                target
+            }
+            (None, Some(dir)) => {
+                if !dir.is_finite() || dir.try_normalize().is_none() {
+                    return Err(CommandError::invalid_param(
+                        "look_dir",
+                        "must be a finite nonzero direction",
+                    ));
+                }
+                let distance = self
+                    .target_distance
+                    .map_or(doc.camera.distance().max(1.0), Length::as_mm);
+                if !distance.is_finite() || distance <= doc.tolerances().length {
+                    return Err(CommandError::invalid_param(
+                        "target_distance",
+                        "must be positive finite mm greater than tolerance",
+                    ));
+                }
+                eye + dir.normalize() * distance
+            }
+            _ => {
+                return Err(CommandError::invalid_param(
+                    "target",
+                    "give exactly one of target or look_dir",
+                ));
+            }
+        };
+        check_point("target", target)?;
+        if doc.tolerances().same_point(eye, target) {
+            return Err(CommandError::invalid_param(
+                "target",
+                "must differ from the eye",
+            ));
+        }
+        Ok((eye, target))
+    }
 }
 
 /// The `position-camera` command.
@@ -298,15 +359,7 @@ impl Command for PositionCamera {
     }
 
     fn validate(&self, doc: &Document, p: &PositionCameraParams) -> Result<(), CommandError> {
-        check_point("eye", p.eye)?;
-        check_point("target", p.target)?;
-        if doc.tolerances().same_point(p.eye, p.target) {
-            return Err(CommandError::invalid_param(
-                "target",
-                "must differ from the eye",
-            ));
-        }
-        Ok(())
+        p.placement(doc).map(|_| ())
     }
 
     fn apply(
@@ -315,8 +368,9 @@ impl Command for PositionCamera {
         p: PositionCameraParams,
     ) -> Result<CameraOutput, CommandError> {
         let mut camera = tx.camera();
-        camera.eye = p.eye;
-        camera.target = p.target;
+        let (eye, target) = p.placement(tx.document())?;
+        camera.eye = eye;
+        camera.target = target;
         tx.set_camera(camera);
         Ok(CameraOutput { camera })
     }

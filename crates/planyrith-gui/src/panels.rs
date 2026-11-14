@@ -20,6 +20,7 @@ use crate::tools::{Cx, Tool};
 pub struct PanelState {
     new_tag: String,
     new_scene: String,
+    capture_placements: bool,
     renaming_tag: Option<(String, String)>,
     renaming_scene: Option<(String, String)>,
     selected_scene: Option<String>,
@@ -357,6 +358,13 @@ struct AnnotationDraft {
     color: [u8; 4],
     leader: bool,
     text: bool,
+    gap: f64,
+    overshoot: f64,
+    extensions: bool,
+    pinned: bool,
+    anchored: bool,
+    linear: bool,
+    leader_offset: [f64; 3],
 }
 
 fn annotation_style(ui: &mut egui::Ui, session: &mut Session, error: &mut Option<String>) {
@@ -393,6 +401,33 @@ fn annotation_style(ui: &mut egui::Ui, session: &mut Session, error: &mut Option
             }
             _ => return None,
         };
+        let (gap, overshoot, extensions, pinned, leader_offset) = match view {
+            EntityView::Text(text) => (
+                0.0,
+                0.0,
+                true,
+                text.layout
+                    .as_ref()
+                    .is_some_and(|l| l.world_offset.is_some()),
+                text.layout
+                    .as_ref()
+                    .and_then(|l| l.world_offset)
+                    .unwrap_or(glam::DVec3::new(100.0, 100.0, 0.0))
+                    .to_array(),
+            ),
+            EntityView::Dimension(
+                Dimension::Linear { style, .. } | Dimension::Radial { style, .. },
+            ) => (
+                style.extension_gap.map_or(0.0, |v| v.as_mm()),
+                style.extension_overshoot.map_or(0.0, |v| v.as_mm()),
+                style.extension_visible.unwrap_or(true),
+                false,
+                [0.0; 3],
+            ),
+            _ => (0.0, 0.0, true, false, [0.0; 3]),
+        };
+        let anchored = matches!(view, EntityView::Text(text) if text.anchor.is_some());
+        let linear = matches!(view, EntityView::Dimension(Dimension::Linear { .. }));
         let color = color.unwrap_or(Rgba8::rgb(20, 20, 20));
         Some(AnnotationDraft {
             font,
@@ -400,6 +435,13 @@ fn annotation_style(ui: &mut egui::Ui, session: &mut Session, error: &mut Option
             color: [color.r, color.g, color.b, color.a],
             leader,
             text,
+            gap,
+            overshoot,
+            extensions,
+            pinned,
+            anchored,
+            linear,
+            leader_offset,
         })
     });
     let Some(first) = first else { return };
@@ -462,7 +504,34 @@ fn annotation_style(ui: &mut egui::Ui, session: &mut Session, error: &mut Option
             ui.color_edit_button_srgba_unmultiplied(&mut draft.color);
         });
         if draft.text {
-            ui.checkbox(&mut draft.leader, t("Show leader"));
+            ui.add_enabled(
+                draft.anchored,
+                egui::Checkbox::new(&mut draft.leader, t("Show leader")),
+            );
+            ui.add_enabled(
+                draft.anchored,
+                egui::Checkbox::new(&mut draft.pinned, t("Fix leader in model space")),
+            );
+            if draft.anchored && draft.pinned {
+                ui.label(t("Leader offset (mm)"));
+                for value in &mut draft.leader_offset {
+                    ui.add(egui::DragValue::new(value).range(-1e9..=1e9).suffix(" mm"));
+                }
+            }
+        } else if draft.linear {
+            ui.checkbox(&mut draft.extensions, t("Show extension lines"));
+            ui.label(t("Extension gap"));
+            ui.add(
+                egui::DragValue::new(&mut draft.gap)
+                    .range(0.0..=1e9)
+                    .suffix(" mm"),
+            );
+            ui.label(t("Extension overshoot"));
+            ui.add(
+                egui::DragValue::new(&mut draft.overshoot)
+                    .range(0.0..=1e9)
+                    .suffix(" mm"),
+            );
         }
         ui.weak(t("Unavailable font faces use a substitute for display."));
         ui.horizontal(|ui| {
@@ -483,7 +552,9 @@ fn annotation_style(ui: &mut egui::Ui, session: &mut Session, error: &mut Option
             session,
             error,
             "label-style",
-            json!({"targets":"selection","font":draft.font,"arrow":draft.arrow,"color":format!("#{:02x}{:02x}{:02x}{:02x}",draft.color[0],draft.color[1],draft.color[2],draft.color[3]),"leader_visible":draft.text.then_some(draft.leader)}),
+            json!({"targets":"selection","font":draft.font,"arrow":draft.arrow,"color":format!("#{:02x}{:02x}{:02x}{:02x}",draft.color[0],draft.color[1],draft.color[2],draft.color[3]),"leader_visible":draft.text.then_some(draft.leader),
+            "extension_gap":draft.linear.then_some(draft.gap),"extension_overshoot":draft.linear.then_some(draft.overshoot),"extension_visible":draft.linear.then_some(draft.extensions),
+            "leader_mode":(draft.text && draft.anchored).then_some(if draft.pinned {"pushpin"} else {"view"}),"leader_offset":(draft.text && draft.anchored && draft.pinned).then_some(draft.leader_offset)}),
         );
     }
 }
@@ -731,6 +802,12 @@ pub fn scenes(
                         let label = ui.selectable_label(selected, name);
                         if label.clicked() {
                             state.selected_scene = Some(name.clone());
+                            state.capture_placements = session
+                                .doc()
+                                .scenes
+                                .by_name(name)
+                                .and_then(|id| session.doc().scenes.get(id))
+                                .is_some_and(|scene| scene.placements.is_some());
                             actions.push(("scene-activate", json!({ "scene": name })));
                         }
                         if label.double_clicked() {
@@ -744,6 +821,10 @@ pub fn scenes(
             }
         });
     ui.separator();
+    ui.checkbox(
+        &mut state.capture_placements,
+        t("Capture assembly placements"),
+    );
     ui.horizontal(|ui| {
         ui.add(egui::TextEdit::singleline(&mut state.new_scene).hint_text(t("Scene name")));
         if ui
@@ -759,7 +840,10 @@ pub fn scenes(
             } else {
                 state.new_scene.trim().to_string()
             };
-            actions.push(("scene-add", json!({ "name": name })));
+            actions.push((
+                "scene-add",
+                json!({ "name": name, "capture": {"placements":state.capture_placements} }),
+            ));
             state.selected_scene = Some(name);
             state.new_scene.clear();
         }
@@ -772,7 +856,10 @@ pub fn scenes(
                 .on_hover_text(t("Capture the current view into it"))
                 .clicked()
             {
-                actions.push(("scene-update", json!({ "scene": selected })));
+                actions.push((
+                    "scene-update",
+                    json!({ "scene": selected, "capture":{"placements":state.capture_placements} }),
+                ));
             }
             if ui.add_enabled(index > 0, egui::Button::new("▲")).clicked() {
                 actions.push((
@@ -1209,5 +1296,120 @@ mod tests {
         assert!(subtree_matches(doc, *kitchen, "chair", 0));
         assert!(!subtree_matches(doc, *kitchen, "table", 0));
         assert!(!crate::resources::matches("chair", label));
+    }
+    #[test]
+    fn annotation_controls_dispatch_extension_and_pushpin_styles() {
+        use egui_kittest::{Harness, kittest::Queryable};
+        let mut session = Session::new();
+        session
+            .execute("line", json!({"points":[[0,0,0],[100,0,0]]}))
+            .unwrap();
+        session
+            .execute("text", json!({"at":[0,0,0],"text":"Anchor"}))
+            .unwrap();
+        session
+            .execute(
+                "dimension",
+                json!({"start":[0,0,0],"end":[100,0,0],"offset":[0,20,0]}),
+            )
+            .unwrap();
+        session.execute("select", json!({"query":"text"})).unwrap();
+        let mut h = Harness::new_ui_state(
+            |ui, state: &mut (Session, Option<String>)| {
+                annotation_style(ui, &mut state.0, &mut state.1)
+            },
+            (session, None),
+        );
+        h.run();
+        h.get_by_label("Annotation style").click();
+        h.run();
+        h.get_by_label("Fix leader in model space").click();
+        h.run();
+        h.get_by_label("Apply style").click();
+        h.run();
+        assert_eq!(h.state().1, None);
+        let text = h.state().0.doc().model.texts().next().unwrap().1;
+        assert_eq!(
+            text.layout.as_ref().unwrap().world_offset,
+            Some(glam::DVec3::new(100.0, 100.0, 0.0))
+        );
+        h.state_mut()
+            .0
+            .execute("select", json!({"query":"dimension"}))
+            .unwrap();
+        h.run();
+        h.get_by_label("Show extension lines").click();
+        h.run();
+        h.get_by_label("Apply style").click();
+        h.run();
+        let (_, dimension) = h.state().0.doc().model.dimensions().next().unwrap();
+        let planyrith_core::document::Dimension::Linear { style, .. } = dimension else {
+            panic!("linear dimension");
+        };
+        assert_eq!(style.extension_visible, Some(false));
+        assert_eq!(h.state().1, None);
+    }
+
+    #[test]
+    fn scenes_panel_captures_and_restores_assembly_positions() {
+        use egui_kittest::{Harness, kittest::Queryable};
+        let mut session = Session::new();
+        session
+            .execute(
+                "rectangle",
+                json!({"corner_a":[0,0,0],"corner_b":[100,100,0]}),
+            )
+            .unwrap();
+        session
+            .execute(
+                "push-pull",
+                json!({"face":{"Query":"face & last"},"distance":100}),
+            )
+            .unwrap();
+        session
+            .execute("make-group", json!({"targets":"all","name":"Part"}))
+            .unwrap();
+        let state = PanelState {
+            new_scene: "Placed".into(),
+            ..Default::default()
+        };
+        let mut h = Harness::new_ui_state(
+            |ui, state: &mut (Session, PanelState, Option<String>)| {
+                scenes(ui, &mut state.0, &mut state.1, &mut state.2)
+            },
+            (session, state, None),
+        );
+        h.run();
+        h.get_by_label("Capture assembly placements").click();
+        h.run();
+        h.get_by_label("Add").click();
+        h.run();
+        assert!(
+            h.state()
+                .0
+                .doc()
+                .scenes
+                .iter()
+                .next()
+                .unwrap()
+                .1
+                .placements
+                .is_some()
+        );
+        h.state_mut()
+            .0
+            .execute("move", json!({"targets":"group","delta":[300,0,0]}))
+            .unwrap();
+        h.state_mut().1.capture_placements = false;
+        h.get_by_label("Placed").click();
+        h.run();
+        assert!(
+            h.state().1.capture_placements,
+            "updating a stored assembly scene keeps its capture option"
+        );
+        assert!(h.state().0.doc().aabb().min.x.abs() < 1e-6);
+        h.state_mut().0.undo().unwrap();
+        assert!((h.state().0.doc().aabb().min.x - 300.0).abs() < 1e-6);
+        assert_eq!(h.state().2, None);
     }
 }

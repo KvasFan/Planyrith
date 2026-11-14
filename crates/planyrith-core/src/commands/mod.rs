@@ -717,6 +717,23 @@ impl Engine {
         self.generation
     }
 
+    /// Whether an invocation is view-only. A scene with captured assembly
+    /// placements changes the document and must be routed/journaled as an edit.
+    pub fn command_is_view_only(&self, name: &str, params: &serde_json::Value) -> bool {
+        self.registry.get(name).is_some_and(|c| c.meta().view_only)
+            && !self.scene_placement_edit(name, params)
+    }
+
+    fn scene_placement_edit(&self, name: &str, params: &serde_json::Value) -> bool {
+        name == "scene-activate"
+            && params
+                .get("scene")
+                .and_then(serde_json::Value::as_str)
+                .and_then(|name| self.doc.scenes.by_name(name))
+                .and_then(|id| self.doc.scenes.get(id))
+                .is_some_and(|scene| scene.placements.is_some())
+    }
+
     /// Executes a stateless command by type (docs/01 §3.2).
     pub fn execute<C: Command + Default>(
         &mut self,
@@ -734,7 +751,12 @@ impl Engine {
         params: C::Params,
     ) -> Result<C::Output, CommandError> {
         command.validate(&self.doc, &params)?;
-        let meta = command.meta();
+        let mut meta = command.meta();
+        if meta.name == "scene-activate" {
+            let value =
+                serde_json::to_value(&params).map_err(|e| CommandError::Internal(e.to_string()))?;
+            meta.view_only = meta.view_only && !self.scene_placement_edit(&meta.name, &value);
+        }
         self.run(&meta, |tx| command.apply(tx, params))
     }
 
@@ -754,7 +776,8 @@ impl Engine {
         if params.get("dry_run").and_then(serde_json::Value::as_bool) == Some(true) {
             return Ok(serde_json::json!({ "dry_run": true, "valid": true }));
         }
-        let meta = command.meta();
+        let mut meta = command.meta();
+        meta.view_only = self.command_is_view_only(name, &params);
         self.run(&meta, |tx| command.apply_json(tx, params))
     }
 

@@ -1,2 +1,3 @@
 # Place the eye and the target.
 position-camera --eye 3000,-2000,1500 --target 500,300,0
+position-camera --eye 0,0,0 --look-dir 0,1,0 --target-distance 1000mm --eye-height 1600mm

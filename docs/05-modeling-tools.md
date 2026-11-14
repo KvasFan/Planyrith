@@ -1148,6 +1148,9 @@ UI hints are generated from one source.
 
 ## 12. Default shortcuts (GUI; user-remappable; CLI unaffected)
 
+Tool letters can be remapped or unassigned in Preferences › Tool shortcuts (1.30).
+Space and navigation/value keys retain their roles; menu hints use the effective mapping.
+
 | Key | Tool | Key | Tool |
 |---|---|---|---|
 | Space | select | L | line |
@@ -1171,14 +1174,53 @@ UI hints are generated from one source.
 - [ ] Undo/redo returns byte-identical document (test).
 - [ ] Documented in `docs/08` command table.
 
+### Continuation milestones 1.23–1.28 (2026-11-14)
+
+- `rotate` and `scale` accept optional `check_collisions` (false), with the same advisory
+  destination `interference` output as Move (§4.4); Rotate includes copies. GUI Tool Options
+  exposes the flags. Checks do not test the swept path or add undo steps.
+- `scene-add`/`scene-update` capture flag `placements` (false) records groups/components by
+  persistent occurrence path, including nested placements. Activation restores existing
+  occurrences in one transaction, ignores deleted references and rejects attempts to change
+  locked occurrences or conflicting placements of shared definitions. Ordinary scenes leave placements unchanged.
+- `label-style` accepts `extension_gap`, `extension_overshoot` (nonnegative mm),
+  `extension_visible` (bool) for linear dimension extension lines. Defaults keep historical
+  appearance; resetting clears overrides. Anchors and measurements are unchanged.
+- `label-style` accepts `leader_mode: view|pushpin`: View keeps a screen offset; Pushpin
+  keeps a model-space offset. `leader_offset` supplies that offset in owning-container mm
+  and implies Pushpin; switching to View clears it and uses the saved screen offset. Pushpin
+  without an existing or explicit offset fails; screen-only text has no leader mode. Text's
+  existing `layout.world_offset` creates a Pushpin label directly. Offsets transform once.
+  Appearance reset preserves label placement. These controls use the shared viewport/image
+  overlay; geometry-only vector view exports still omit model annotation labels.
+- Loft accepts matching holes in every profile, paired in stored loop order. Different hole
+  counts, crossed/overlapping loft walls or invalid solids fail without changing profiles.
+  Through cavities use the same material as the outer wall; the result is one solid group.
+- `position-camera` accepts either `target` or `look_dir` (mutually exclusive), optional
+  `target_distance` (positive mm; default preserves the current eye-target distance) and
+  `eye_height` (mm above `eye` along model Z). The command remains view-only. GUI Camera
+  Placement collects eye/base, direction/destination and height, dispatching this command.
+
+Acceptance for each: typed CLI/RPC, tests of measured geometry or view behavior, invalid-input
+rollback, compatible native persistence and an actual GUI control test before completion.
+
 ## Decisions
+
+- 2026-11-14 — **Continuation command details (1.23–1.28).** Transform checks use actual
+  transform/mesh deltas and new persistent paths, avoiding missed motion on large parts after
+  small changes of scale. Placement-capturing scene activation is dynamically an edit for
+  history, recovery, collaboration and read-only enforcement; ordinary scenes remain views.
+  Pushpin offsets are explicit local millimeters, since the core has no viewport pixel height
+  from which to infer a unique model-space label location. Native model extension/leader
+  controls share viewport and rendered-image overlays; geometry-only vector view exports and
+  paper-space annotation tools retain their existing scope.
 
 - 2026-11-13 — **Move interference (1.22).** Complete the assembly viewport gap with an
   opt-in advisory destination check on the existing `move` command. Reuse §8.4 rather than
   a second collision definition; preserve free direct modeling, ordinary output and native
   files when disabled. Detect affected occurrences from placement changes and mesh deltas,
   so shared definitions, nested parts and copies do not require re-evaluating a stale query.
-  Continuous path collision, stopping at contact and Rotate/Scale checks remain deferred.
+  Continuous path collision and stopping at contact remain deferred; Rotate/Scale follow in 1.23.
 
 - 2026-11-12 — **Molds and routing (1.18):** planar mold divisions reuse the solid boolean
   kernel; round tubes use explicit outer-diameter × wall presets, without claiming a pressure

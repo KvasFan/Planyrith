@@ -70,6 +70,16 @@ humans or GUI automation before releases, with expected screenshots.
 
 ## Decisions
 
+- 2026-11-14 — **Ten-stage continuation acceptance (1.23–1.32).** The core's
+  `tests/continuation.rs` covers analytic interference, scene placement/native/undo behavior,
+  extension lines, text leaders, hollow-loft volumes (including property tests), camera
+  validation, recovery policy and per-face preview identity. CLI typed/RPC parity and the
+  command batches cover new parameters; GUI tests click the new controls and loft menu;
+  renderer snapshots compare opaque/ghosted adjacent faces and reset. The final workspace
+  run passes 859 tests (six existing ignored benchmarks/examples), with GPU/converter required
+  and the fixed property seed. Formatting, native and wasm Clippy, dependency policy and
+  architecture boundaries pass; no release or platform certification is implied.
+
 - 2026-10-31 — **Installable preview.** Release distribution and publication
   gates are specified in docs/16. Windows tests install, run the historical
   format module, save/reopen native data and uninstall; Linux tests extracted

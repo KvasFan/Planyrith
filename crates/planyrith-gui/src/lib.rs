@@ -12,6 +12,7 @@
 
 mod app;
 mod bundled;
+mod camera_placement;
 mod engineering;
 mod extensions;
 pub mod i18n;

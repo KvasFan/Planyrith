@@ -26,6 +26,11 @@ use crate::platform::{self, now_rfc3339};
 
 /// A scratch command result used to render an interactive preview (docs/07 §3).
 pub struct CommandPreview {
+    /// New/changed faces by occurrence, for selective preview opacity.
+    pub ghost_faces: std::collections::BTreeMap<
+        planyrith_core::document::InstancePath,
+        BTreeSet<planyrith_core::ids::FaceId>,
+    >,
     /// The scratch document after applying the command.
     pub doc: Document,
     /// Containers changed by the command.
@@ -239,6 +244,15 @@ impl Session {
         self.autosave = Some(Autosave::new(key, 0.0));
     }
 
+    /// Applies the user's snapshot interval without resetting pending work.
+    pub fn set_autosave_interval(&mut self, seconds: f64) {
+        if let Some(autosave) = &mut self.autosave
+            && let Err(error) = autosave.set_interval_seconds(seconds)
+        {
+            self.warnings.borrow_mut().push(error.to_string());
+        }
+    }
+
     /// Deletes this document's autosave (its changes were saved or
     /// discarded).
     pub fn drop_autosave(&mut self) {
@@ -369,15 +383,11 @@ impl Session {
 
     /// Runs a command and records it in the journal (docs/09 §3).
     pub fn execute(&mut self, name: &str, params: Value) -> Result<Value, String> {
-        let view_only = self
-            .engine
-            .registry()
-            .get(name)
-            .map(|c| c.meta().view_only)
-            .unwrap_or(false);
+        let view_only = self.engine.command_is_view_only(name, &params);
         // Recording a part: the change becomes its next feature.
         if !view_only
             && self.record_features
+            && name != "scene-activate"
             && !name.starts_with("feature-")
             && !name.starts_with("part-")
             && self.open_part().is_some()
@@ -686,7 +696,10 @@ impl Session {
             touched.extend(self.doc().containers());
             touched.extend(doc.containers());
         }
+        let ghost_faces =
+            planyrith_core::io::render_mesh::preview_changed_faces_in(self.doc(), &doc, &touched);
         Ok(CommandPreview {
+            ghost_faces,
             doc,
             touched,
             interference,

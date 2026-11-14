@@ -1,6 +1,6 @@
 # Scenes capture the camera, tag visibility and style.
 camera-standard --view top
-scene-add --name Plan
+scene-add --name Plan --capture '{"placements":true}'
 tag-create --name Walls
 camera-standard --view front
 scene-add --name Front --capture '{"tags": false}'

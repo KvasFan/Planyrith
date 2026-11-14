@@ -484,6 +484,8 @@ pub struct RotateTool {
     forced: Option<Axis>,
     /// Tool Options: copy (as Ctrl does).
     copy: bool,
+    pointer_copy: bool,
+    check_collisions: bool,
 }
 
 impl RotateTool {
@@ -494,7 +496,7 @@ impl RotateTool {
         (from.distance(*center) > tol().length && to.distance(*center) > tol().length).then(|| {
             json!({
                 "targets": targets, "center": pt(*center), "axis": pt(plane.normal),
-                "from_point": pt(from), "to_point": pt(to), "copy": copy,
+                "from_point": pt(from), "to_point": pt(to), "copy": copy, "check_collisions": self.check_collisions,
             })
         })
     }
@@ -529,6 +531,7 @@ impl Tool for RotateTool {
 
     fn hover(&mut self, p: &Pointer, _cx: &Cx<'_>) {
         self.cursor = Some(p.inference.point);
+        self.pointer_copy = p.modifiers.command;
     }
 
     fn click(&mut self, p: &Pointer, cx: &Cx<'_>) -> Flow {
@@ -565,6 +568,7 @@ impl Tool for RotateTool {
         let radians = signed(angle(text, cx)?, current);
         let params = json!({
             "targets": targets, "center": pt(center), "axis": pt(plane.normal), "angle": radians,
+            "copy": self.copy || self.pointer_copy, "check_collisions": self.check_collisions,
         });
         self.center = None;
         self.from = None;
@@ -610,6 +614,10 @@ impl Tool for RotateTool {
 
     fn options(&mut self, ui: &mut egui::Ui, _cx: &Cx<'_>) {
         ui.checkbox(&mut self.copy, t("Copy (also Ctrl while clicking)"));
+        ui.checkbox(
+            &mut self.check_collisions,
+            t("Check collisions at this placement"),
+        );
     }
 
     fn escape(&mut self) -> bool {
@@ -632,7 +640,10 @@ impl Tool for RotateTool {
     }
 
     fn preview(&self, _cx: &Cx<'_>) -> Option<(String, Value)> {
-        Some(("rotate".into(), self.params(self.cursor?, false)?))
+        Some((
+            "rotate".into(),
+            self.params(self.cursor?, self.copy || self.pointer_copy)?,
+        ))
     }
 }
 
@@ -649,6 +660,7 @@ pub struct ScaleTool {
     grip: Option<ScaleGrip>,
     cursor: Option<DVec3>,
     hovered: Option<DVec3>,
+    check_collisions: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -657,6 +669,7 @@ struct ScaleGrip {
     pivot: DVec3,
     grip: DVec3,
     uniform: bool,
+    check_collisions: bool,
 }
 
 fn selection_bounds(cx: &Cx<'_>, hovered: Option<&EntityPath>) -> Option<(Aabb, String)> {
@@ -709,7 +722,7 @@ impl ScaleGrip {
     fn params(&self, factors: DVec3) -> Option<Value> {
         let degenerate = factors.to_array().iter().any(|f| f.abs() <= 1e-6);
         (!degenerate).then(|| {
-            json!({ "targets": self.targets, "factors": [factors.x, factors.y, factors.z], "pivot": pt(self.pivot) })
+            json!({ "targets": self.targets, "factors": [factors.x, factors.y, factors.z], "pivot": pt(self.pivot), "check_collisions": self.check_collisions })
         })
     }
 }
@@ -776,6 +789,7 @@ impl Tool for ScaleTool {
                 pivot,
                 grip,
                 uniform: corner != p.modifiers.shift,
+                check_collisions: self.check_collisions,
             });
             return Flow::Continue;
         }
@@ -816,6 +830,16 @@ impl Tool for ScaleTool {
         let params = grip.params(factors).ok_or("a factor of zero")?;
         self.grip = None;
         Ok(Flow::run("scale", params))
+    }
+
+    fn options(&mut self, ui: &mut egui::Ui, _cx: &Cx<'_>) {
+        ui.checkbox(
+            &mut self.check_collisions,
+            t("Check collisions at this placement"),
+        );
+        if let Some(grip) = &mut self.grip {
+            grip.check_collisions = self.check_collisions;
+        }
     }
 
     fn escape(&mut self) -> bool {
@@ -1077,5 +1101,80 @@ impl Tool for PaintTool {
                 }
             });
         }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod continuation_tests {
+    use super::*;
+    use egui_kittest::{Harness, kittest::Queryable};
+    #[test]
+    fn rotate_and_scale_options_reach_previews_and_numeric_completion() {
+        let rotate = RotateTool {
+            center: Some((DVec3::ZERO, Plane::XY, "group".into())),
+            from: Some(DVec3::X),
+            cursor: Some(DVec3::Y),
+            ..Default::default()
+        };
+        let scale = ScaleTool {
+            grip: Some(ScaleGrip {
+                targets: "group".into(),
+                pivot: DVec3::ZERO,
+                grip: DVec3::ONE,
+                uniform: true,
+                check_collisions: false,
+            }),
+            cursor: Some(DVec3::splat(2.0)),
+            ..Default::default()
+        };
+        let mut h = Harness::new_ui_state(
+            |ui,
+             p: &mut (
+                RotateTool,
+                ScaleTool,
+                crate::session::Session,
+                crate::viewport::Viewport,
+            )| {
+                let cx = p.3.cx(&p.2);
+                p.0.options(ui, &cx);
+                p.1.options(ui, &cx);
+            },
+            (
+                rotate,
+                scale,
+                crate::session::Session::new(),
+                crate::viewport::Viewport::default(),
+            ),
+        );
+        h.run();
+        h.query_all_by_label("Check collisions at this placement")
+            .next()
+            .unwrap()
+            .click();
+        h.run();
+        h.query_all_by_label("Check collisions at this placement")
+            .nth(1)
+            .unwrap()
+            .click();
+        h.run();
+        h.get_by_label("Copy (also Ctrl while clicking)").click();
+        h.run();
+        let state = h.state_mut();
+        let cx = state.3.cx(&state.2);
+        let (_, params) = state.0.preview(&cx).unwrap();
+        assert_eq!(params["check_collisions"], true);
+        assert_eq!(params["copy"], true);
+        let Flow::Run(commands) = state.0.value("90", &cx).unwrap() else {
+            panic!("rotate command");
+        };
+        assert_eq!(commands[0].1["check_collisions"], true);
+        assert_eq!(commands[0].1["copy"], true);
+        let (_, params) = state.1.preview(&cx).unwrap();
+        assert_eq!(params["check_collisions"], true);
+        let Flow::Run(commands) = state.1.value("2", &cx).unwrap() else {
+            panic!("scale command");
+        };
+        assert_eq!(commands[0].1["check_collisions"], true);
     }
 }

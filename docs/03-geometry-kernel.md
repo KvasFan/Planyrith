@@ -527,6 +527,14 @@ W and K.
 
 ## Decisions
 
+- 2026-11-14 — **Hollow lofts and reflected mesh planes.** `loft_with_holes` (1.27)
+  pairs profile loops by stored order, lofts the outer boundary and subtracts each lofted
+  cavity. Every subtraction must leave one solid and remove the cavity's volume within
+  `4 * length_tolerance * cavity_extent²`; partial/overlapping cavities fail. Volume properties,
+  native undo and the existing profile picker cover the command. Reflection already reversed
+  indexed face loops, but its cached planes followed the unreversed winding; flip those
+  planes too. This fixes the invariant failure in mirrored solid intersections found by 1.23.
+
 - 2026-11-09 — **Position keys independent of where a loop starts.** The command fuzzer (60 000
   sequences) found an explode that gave a split face's id, and so its pid, to its upper or its
   lower half depending on whether the document had been saved and reopened: the two halves

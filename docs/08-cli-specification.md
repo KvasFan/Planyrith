@@ -288,7 +288,7 @@ from a trusted copy instead (any `http://` origin may connect; browsers refuse `
 Interactive line editor with completion over command names and params, history, `:undo`,
 `:redo`, `:q`, `:json on|off`. Each line is a `batch` line.
 
-### Move interference reports (1.22)
+### Transform interference reports (1.22–1.23)
 `planyrith tool move -f assembly.plyr --targets 'name:Slider' --delta 20mm,0,0
 --check-collisions --json` translates the selection and returns an optional `output.interference`
 report (docs/05 §4.4, §8.4). Volumes are mm³; bounds are world mm. Only pairs involving changed
@@ -296,7 +296,7 @@ visible closed objects are included. Touching is permitted and undecidable inter
 listed separately. This reports the destination and does not block movement or test the swept
 path. Without the flag, output and behavior are unchanged. RPC uses
 `command.execute {doc_id, name: "move", params: {targets: "name:Slider", delta: [20,0,0],
-check_collisions: true}}` and returns the same report; undo remains one step.
+check_collisions: true}}` and returns the same report; undo remains one step. Rotate and Scale accept the same optional flag.
 
 ## 4. Units and numbers (`units.rs`)
 
@@ -711,3 +711,10 @@ On failure: `{"ok": false, "error": {"code": "E1002", "message": "...", "param":
   the spec's `planyrith recover <doc>`, and saves where the other session verbs save (in place,
   `-o`, or not with `--no-save`); the autosave is deleted only after the recovered document was
   written.
+
+### Continuation command options (1.24–1.28)
+Scene capture JSON accepts `placements: true`. `label-style` exposes `--extension-gap <mm>`,
+`--extension-overshoot <mm>`, `--extension-visible <bool>` and `--leader-mode view|pushpin`.
+Loft profiles may contain matching holes. `position-camera` accepts `--look-dir x,y,z`,
+`--target-distance <mm>` and `--eye-height <mm>` as alternatives/extensions to `--target`.
+All options are mirrored in JSON-RPC by snake_case names; see docs/05 continuation semantics.

@@ -248,6 +248,11 @@ struct Settings {
     invert_wheel: bool,
     /// View › Touch Layout: on, off, or automatic (`None`, docs/07 §13.1).
     touch_layout: Option<bool>,
+    autosave_seconds: f64,
+    tool_shortcuts: std::collections::BTreeMap<String, String>,
+    model_folder: String,
+    import_folder: String,
+    export_folder: String,
 }
 
 impl Default for Settings {
@@ -265,6 +270,11 @@ impl Default for Settings {
             snap_px: DEFAULT_SNAP_PX,
             invert_wheel: false,
             touch_layout: None,
+            autosave_seconds: 120.0,
+            tool_shortcuts: Default::default(),
+            model_folder: String::new(),
+            import_folder: String::new(),
+            export_folder: String::new(),
         }
     }
 }
@@ -413,6 +423,7 @@ pub struct App {
     sheets: crate::sheets::Sheets,
     /// Journal and snapshot the documents (off in tests).
     autosave: bool,
+    camera_placement: crate::camera_placement::Placement,
     /// The document (`None`: untitled) whose unsaved work can be recovered.
     recovery: Option<Option<PathBuf>>,
     /// Files uploaded from the computer, not yet stored.
@@ -521,7 +532,12 @@ impl App {
     }
 
     /// The app with an empty document.
-    fn blank(tree: Tree<Pane>, settings: Settings) -> Self {
+    fn blank(tree: Tree<Pane>, mut settings: Settings) -> Self {
+        if !settings.autosave_seconds.is_finite()
+            || !(10.0..=3600.0).contains(&settings.autosave_seconds)
+        {
+            settings.autosave_seconds = 120.0;
+        }
         App {
             #[cfg(not(target_arch = "wasm32"))]
             opening: None,
@@ -582,6 +598,7 @@ impl App {
             extensions: Default::default(),
             sheets: Default::default(),
             autosave: false,
+            camera_placement: Default::default(),
             recovery: None,
             #[cfg(target_arch = "wasm32")]
             uploads: Default::default(),
@@ -901,6 +918,9 @@ impl App {
         let mut dialog = Self::document_dialog()
             .default_file_filter("Planyrith documents")
             .default_file_name("Untitled.plyr");
+        if let Some(folder) = self.preferred_folder(true, true) {
+            dialog = dialog.initial_directory(folder);
+        }
         if let Some(source) = &self.session.path {
             let target = PathBuf::from(planyrith_core::io::model_file::default_save_path(
                 &source.to_string_lossy(),
@@ -954,6 +974,10 @@ impl App {
             #[cfg(not(target_arch = "wasm32"))]
             Pending::Open(None) => {
                 self.dialog = Self::document_dialog();
+                if let Some(folder) = self.preferred_folder(false, true) {
+                    self.dialog = std::mem::replace(&mut self.dialog, platform::file_dialog())
+                        .initial_directory(folder);
+                }
                 self.dialog_purpose = Some(DialogPurpose::Open);
                 self.dialog.pick_file();
             }
@@ -1173,6 +1197,106 @@ impl App {
         }
     }
 
+    fn effective_shortcut(&self, index: usize) -> Option<Key> {
+        let (tool, default) = &self.tools[index];
+        match self.settings.tool_shortcuts.get(tool.command()) {
+            Some(value) if value.is_empty() => None,
+            Some(value) if value.len() == 1 && value.bytes().all(|c| c.is_ascii_alphabetic()) => {
+                Key::from_name(&value.to_ascii_uppercase())
+            }
+            _ => *default,
+        }
+    }
+
+    fn assign_shortcut(&mut self, index: usize, choice: Option<String>) -> Result<(), String> {
+        if index == 0 {
+            return Err(t("Space always selects the Select tool"));
+        }
+        let key = match choice.as_deref() {
+            None => self.tools[index].1,
+            Some("") => None,
+            Some(key) if key.len() == 1 && key.bytes().all(|c| c.is_ascii_alphabetic()) => {
+                Key::from_name(&key.to_ascii_uppercase())
+            }
+            _ => return Err(t("Use one letter or leave the shortcut unassigned")),
+        };
+        if let Some(key) = key
+            && (0..self.tools.len()).any(|i| i != index && self.effective_shortcut(i) == Some(key))
+        {
+            return Err(t("That shortcut is already assigned"));
+        }
+        let command = self.tools[index].0.command().to_string();
+        match choice {
+            Some(key) => {
+                self.settings
+                    .tool_shortcuts
+                    .insert(command, key.to_ascii_uppercase());
+            }
+            None => {
+                self.settings.tool_shortcuts.remove(&command);
+            }
+        }
+        Ok(())
+    }
+
+    fn shortcut_preferences(&mut self, ui: &mut egui::Ui) {
+        ui.collapsing(t("Tool shortcuts"), |ui| {
+            if ui.button(t("Reset tool shortcuts")).clicked() {
+                self.settings.tool_shortcuts.clear();
+            }
+            egui::ScrollArea::vertical()
+                .max_height(220.0)
+                .id_salt("shortcut-list")
+                .show(ui, |ui| {
+                    for index in 1..self.tools.len() {
+                        let label = t(self.tools[index].0.label());
+                        let command = self.tools[index].0.command().to_string();
+                        let mut choice = self.settings.tool_shortcuts.get(&command).cloned();
+                        let old = choice.clone();
+                        ui.horizontal(|ui| {
+                            ui.label(label);
+                            egui::ComboBox::from_id_salt(("shortcut", &command))
+                                .selected_text(
+                                    self.effective_shortcut(index)
+                                        .map_or_else(|| t("Unassigned"), |k| k.name().to_string()),
+                                )
+                                .show_ui(ui, |ui| {
+                                    ui.selectable_value(&mut choice, None, t("Default"));
+                                    ui.selectable_value(
+                                        &mut choice,
+                                        Some(String::new()),
+                                        t("Unassigned"),
+                                    );
+                                    for key in 'A'..='Z' {
+                                        ui.selectable_value(
+                                            &mut choice,
+                                            Some(key.to_string()),
+                                            key.to_string(),
+                                        );
+                                    }
+                                });
+                        });
+                        if choice != old
+                            && let Err(error) = self.assign_shortcut(index, choice)
+                        {
+                            self.error(error);
+                        }
+                    }
+                });
+        });
+    }
+
+    fn preferred_folder(&self, saves: bool, model: bool) -> Option<PathBuf> {
+        let value = if model {
+            &self.settings.model_folder
+        } else if saves {
+            &self.settings.export_folder
+        } else {
+            &self.settings.import_folder
+        };
+        (!value.trim().is_empty()).then(|| PathBuf::from(value.trim()))
+    }
+
     fn typed(&mut self, text: &str) {
         let accepts = self.tool().command() != "select" || self.revalue_open;
         let starts_value = text
@@ -1187,8 +1311,9 @@ impl App {
             self.activate(0);
             return;
         }
-        let index = self.tools.iter().position(|(_, key)| {
-            key.is_some_and(|k| k != Key::Space && k.name().eq_ignore_ascii_case(text))
+        let index = (0..self.tools.len()).find(|&i| {
+            self.effective_shortcut(i)
+                .is_some_and(|k| k != Key::Space && k.name().eq_ignore_ascii_case(text))
         });
         if let Some(i) = index {
             self.activate(i);
@@ -1337,6 +1462,7 @@ impl App {
                 state.serial += 1;
                 state.shown = Some(Preview {
                     doc: result.doc,
+                    ghost_faces: result.ghost_faces,
                     touched: result.touched,
                     interference: result.interference,
                     serial: state.serial,
@@ -1726,6 +1852,10 @@ impl App {
                 });
             });
             ui.menu_button(t("Camera"), |ui| {
+                if ui.button(t("Camera Placement…")).clicked() {
+                    self.camera_placement.show(&self.session.doc().camera);
+                    ui.close();
+                }
                 ui.menu_button(t("Standard Views"), |ui| {
                     for (label, view) in [
                         (en("Top"), "top"),
@@ -1961,7 +2091,7 @@ impl App {
             return;
         };
         let mut button = egui::Button::new(t(label)).selected(i == self.active);
-        if let Some(key) = self.tools[i].1 {
+        if let Some(key) = self.effective_shortcut(i) {
             button = button.shortcut_text(key.name());
         }
         if ui.add(button).clicked() {
@@ -2047,7 +2177,8 @@ impl App {
                     else {
                         continue;
                     };
-                    let (tool, key) = &self.tools[i];
+                    let (tool, _) = &self.tools[i];
+                    let key = self.effective_shortcut(i);
                     let Some(icon) = Icon::for_command(command) else {
                         continue;
                     };
@@ -2389,88 +2520,122 @@ impl App {
             .pivot(egui::Align2::CENTER_CENTER)
             .default_pos(ctx.content_rect().center())
             .show(ctx, |ui| {
-                ui.heading(t("General"));
-                egui::Grid::new("preferences-general")
-                    .num_columns(2)
-                    .spacing([24.0, 6.0])
+                egui::ScrollArea::vertical()
+                    .max_height(ctx.content_rect().height() * 0.8)
                     .show(ui, |ui| {
-                        ui.label(t("Language"));
+                        ui.heading(t("General"));
+                        egui::Grid::new("preferences-general")
+                            .num_columns(2)
+                            .spacing([24.0, 6.0])
+                            .show(ui, |ui| {
+                                ui.label(t("Language"));
+                                ui.horizontal(|ui| {
+                                    self.language_radios(ui);
+                                });
+                                ui.end_row();
+                                ui.label(t("Theme"));
+                                ui.horizontal(|ui| {
+                                    for choice in
+                                        [ThemeChoice::System, ThemeChoice::Light, ThemeChoice::Dark]
+                                    {
+                                        if ui
+                                            .radio(self.settings.theme == choice, t(choice.label()))
+                                            .clicked()
+                                        {
+                                            self.set_theme(ui.ctx(), choice);
+                                        }
+                                    }
+                                });
+                                ui.end_row();
+                                ui.label(t("Interface Size"));
+                                egui::ComboBox::from_id_salt("preferences-ui-scale")
+                                    .selected_text(format!(
+                                        "{:.0} %",
+                                        self.settings.ui_scale * 100.0
+                                    ))
+                                    .show_ui(ui, |ui| {
+                                        self.ui_scale_radios(ui);
+                                    });
+                                ui.end_row();
+                            });
+                        ui.add_space(8.0);
+                        ui.heading(t("Accessibility"));
+                        ui.checkbox(
+                            &mut self.settings.high_contrast,
+                            t("High-Contrast Snap Marks"),
+                        );
+                        self.axis_palette_checkbox(ui);
+                        ui.add_space(8.0);
+                        ui.heading(t("Drawing"));
                         ui.horizontal(|ui| {
-                            self.language_radios(ui);
-                        });
-                        ui.end_row();
-                        ui.label(t("Theme"));
-                        ui.horizontal(|ui| {
-                            for choice in
-                                [ThemeChoice::System, ThemeChoice::Light, ThemeChoice::Dark]
+                            ui.label(t("Snap distance"));
+                            ui.add(
+                                egui::Slider::new(&mut self.settings.snap_px, 4.0..=24.0)
+                                    .step_by(1.0)
+                                    .suffix(" px"),
+                            )
+                            .on_hover_text(t(
+                                "How close the pointer must come to snap to a point or edge",
+                            ));
+                            if (self.settings.snap_px - DEFAULT_SNAP_PX).abs() > 0.1
+                                && ui.small_button(t("Default")).clicked()
                             {
-                                if ui
-                                    .radio(self.settings.theme == choice, t(choice.label()))
-                                    .clicked()
-                                {
-                                    self.set_theme(ui.ctx(), choice);
-                                }
+                                self.settings.snap_px = DEFAULT_SNAP_PX;
                             }
                         });
-                        ui.end_row();
-                        ui.label(t("Interface Size"));
-                        egui::ComboBox::from_id_salt("preferences-ui-scale")
-                            .selected_text(format!("{:.0} %", self.settings.ui_scale * 100.0))
-                            .show_ui(ui, |ui| {
-                                self.ui_scale_radios(ui);
-                            });
-                        ui.end_row();
-                    });
-                ui.add_space(8.0);
-                ui.heading(t("Accessibility"));
-                ui.checkbox(
-                    &mut self.settings.high_contrast,
-                    t("High-Contrast Snap Marks"),
-                );
-                self.axis_palette_checkbox(ui);
-                ui.add_space(8.0);
-                ui.heading(t("Drawing"));
-                ui.horizontal(|ui| {
-                    ui.label(t("Snap distance"));
-                    ui.add(
-                        egui::Slider::new(&mut self.settings.snap_px, 4.0..=24.0)
-                            .step_by(1.0)
-                            .suffix(" px"),
-                    )
-                    .on_hover_text(t(
-                        "How close the pointer must come to snap to a point or edge",
-                    ));
-                    if (self.settings.snap_px - DEFAULT_SNAP_PX).abs() > 0.1
-                        && ui.small_button(t("Default")).clicked()
-                    {
-                        self.settings.snap_px = DEFAULT_SNAP_PX;
-                    }
-                });
-                ui.checkbox(&mut self.settings.invert_wheel, t("Scrolling up zooms out"));
-                ui.add_space(8.0);
-                ui.heading(t("Graphics"));
-                ui.checkbox(
-                    &mut self.settings.antialiasing,
-                    t("Smooth edges (antialiasing)"),
-                )
-                .on_hover_text(t("Turn off on slow graphics hardware"));
-                ui.add_space(8.0);
-                ui.heading(t("Files"));
-                ui.horizontal(|ui| {
-                    ui.label(t_args(
-                        "Recent files: { $count }",
-                        &[("count", self.settings.recent.len().to_string().into())],
-                    ));
-                    if ui
-                        .add_enabled(
-                            !self.settings.recent.is_empty(),
-                            egui::Button::new(t("Clear")),
+                        ui.checkbox(&mut self.settings.invert_wheel, t("Scrolling up zooms out"));
+                        ui.add_space(8.0);
+                        ui.heading(t("Graphics"));
+                        ui.checkbox(
+                            &mut self.settings.antialiasing,
+                            t("Smooth edges (antialiasing)"),
                         )
-                        .clicked()
-                    {
-                        self.settings.recent.clear();
-                    }
-                });
+                        .on_hover_text(t("Turn off on slow graphics hardware"));
+                        ui.add_space(8.0);
+                        ui.horizontal(|ui| {
+                            ui.label(t("Autosave interval"));
+                            ui.add(
+                                egui::DragValue::new(&mut self.settings.autosave_seconds)
+                                    .range(10.0..=3600.0)
+                                    .suffix(" s"),
+                            );
+                            if ui.small_button(t("Default interval")).clicked() {
+                                self.settings.autosave_seconds = 120.0;
+                            }
+                        });
+                        self.shortcut_preferences(ui);
+                        ui.heading(t("Files"));
+                        for (label, value) in [
+                            (en("Model folder"), &mut self.settings.model_folder),
+                            (en("Import folder"), &mut self.settings.import_folder),
+                            (en("Export folder"), &mut self.settings.export_folder),
+                        ] {
+                            ui.horizontal(|ui| {
+                                ui.label(t(label));
+                                ui.text_edit_singleline(value);
+                            });
+                        }
+                        if ui.button(t("Reset folders")).clicked() {
+                            self.settings.model_folder.clear();
+                            self.settings.import_folder.clear();
+                            self.settings.export_folder.clear();
+                        }
+                        ui.horizontal(|ui| {
+                            ui.label(t_args(
+                                "Recent files: { $count }",
+                                &[("count", self.settings.recent.len().to_string().into())],
+                            ));
+                            if ui
+                                .add_enabled(
+                                    !self.settings.recent.is_empty(),
+                                    egui::Button::new(t("Clear")),
+                                )
+                                .clicked()
+                            {
+                                self.settings.recent.clear();
+                            }
+                        });
+                    });
             });
         self.preferences_open = open && self.preferences_open;
     }
@@ -2715,6 +2880,10 @@ impl App {
             .title(&t(title))
             .add_file_filter_extensions(&kind, extensions.to_vec())
             .default_file_filter(&kind);
+        if let Some(folder) = self.preferred_folder(saves, false) {
+            self.dialog = std::mem::replace(&mut self.dialog, platform::file_dialog())
+                .initial_directory(folder);
+        }
         if saves {
             self.dialog.save_file();
         } else {
@@ -3514,6 +3683,9 @@ impl App {
         self.texture_window(&ctx);
         self.shadows_window(&ctx);
         self.preferences_window(&ctx);
+        if let Some(params) = self.camera_placement.window(&ctx) {
+            self.run("position-camera", params);
+        }
         self.print_check.window(&ctx, &mut self.session);
         self.viewport.photo.window(&ctx, &mut self.session);
         if std::mem::take(&mut self.viewport.photo.pick) {
@@ -3559,6 +3731,10 @@ impl App {
                     .title(&t("Rendered Image"))
                     .add_file_filter_extensions(&kind, vec!["png", "jpg"])
                     .default_file_filter(&kind);
+                if let Some(folder) = self.preferred_folder(true, false) {
+                    self.dialog = std::mem::replace(&mut self.dialog, platform::file_dialog())
+                        .initial_directory(folder);
+                }
                 self.dialog.save_file();
                 self.dialog_purpose = Some(DialogPurpose::RenderImage);
             }
@@ -3575,6 +3751,8 @@ impl App {
         self.dropped_files(&ctx);
         #[cfg(target_arch = "wasm32")]
         self.stored_uploads();
+        self.session
+            .set_autosave_interval(self.settings.autosave_seconds);
         self.session.tick(ctx.input(|i| i.time));
         #[cfg(target_arch = "wasm32")]
         platform::web::set_unsaved(self.session.dirty());
@@ -5136,6 +5314,164 @@ mod tests {
             assert_eq!(checked["interferences"], json!([]));
             assert_eq!(h.state().session.doc().model.groups().count(), 2);
         }
+    }
+
+    #[test]
+    fn tool_shortcut_settings_validate_persist_dispatch_and_reset() {
+        let mut app = App::blank(default_layout(), Settings::default());
+        let line = app
+            .tools
+            .iter()
+            .position(|(t, _)| t.command() == "line")
+            .unwrap();
+        let rectangle = app
+            .tools
+            .iter()
+            .position(|(t, _)| t.command() == "rectangle")
+            .unwrap();
+        app.assign_shortcut(line, Some("X".into())).unwrap();
+        assert!(app.assign_shortcut(rectangle, Some("X".into())).is_err());
+        assert!(app.assign_shortcut(line, Some("1".into())).is_err());
+        assert!(app.assign_shortcut(0, Some("X".into())).is_err());
+        let settings: Settings =
+            serde_json::from_value(serde_json::to_value(&app.settings).unwrap()).unwrap();
+        let mut app = App::blank(default_layout(), settings);
+        app.typed("x");
+        assert_eq!(app.tool().command(), "line");
+        app.value = "100".into();
+        app.typed("mm");
+        assert_eq!(app.value, "100mm");
+        app.value.clear();
+        app.typed(" ");
+        assert_eq!(app.tool().command(), "select");
+        app.settings.tool_shortcuts.clear();
+        app.typed("l");
+        assert_eq!(app.tool().command(), "line");
+    }
+
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn folder_preferences_initialize_dialogs_and_document_location_wins() {
+        let root = std::env::temp_dir().join(format!("planyrith-folders-{}", std::process::id()));
+        for folder in ["models", "imports", "exports", "existing"] {
+            std::fs::create_dir_all(root.join(folder)).unwrap();
+        }
+        let settings = Settings {
+            model_folder: root.join("models").to_string_lossy().into(),
+            import_folder: root.join("imports").to_string_lossy().into(),
+            export_folder: root.join("exports").to_string_lossy().into(),
+            ..Default::default()
+        };
+        let settings: Settings =
+            serde_json::from_value(serde_json::to_value(settings).unwrap()).unwrap();
+        let mut app = App::blank(default_layout(), settings);
+        app.perform(Pending::Open(None));
+        assert_eq!(
+            app.dialog.config_mut().initial_directory,
+            root.join("models")
+        );
+        app.open_resource_dialog(FileRequest::Import);
+        assert_eq!(
+            app.dialog.config_mut().initial_directory,
+            root.join("imports")
+        );
+        app.open_resource_dialog(FileRequest::Export);
+        assert_eq!(
+            app.dialog.config_mut().initial_directory,
+            root.join("exports")
+        );
+        app.save_as();
+        assert_eq!(
+            app.dialog.config_mut().initial_directory,
+            root.join("models")
+        );
+        app.session.path = Some(root.join("existing/model.plyr"));
+        app.save_as();
+        assert_eq!(
+            app.dialog.config_mut().initial_directory,
+            root.join("existing")
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn preference_controls_reset_shortcuts_folders_and_autosave_interval() {
+        use egui_kittest::{Harness, kittest::Queryable};
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1400.0, 1000.0))
+            .build_eframe(|cc| App::new(cc, None));
+        {
+            let app = h.state_mut();
+            app.preferences_open = true;
+            app.settings.autosave_seconds = 300.0;
+            app.settings.model_folder = "/models".into();
+            app.settings.import_folder = "/imports".into();
+            app.settings.export_folder = "/exports".into();
+            app.settings
+                .tool_shortcuts
+                .insert("line".into(), "X".into());
+        }
+        h.run();
+        h.get_by_label("Default interval").scroll_to_me();
+        h.run();
+        h.get_by_label("Default interval").click();
+        h.run();
+        assert!((h.state().settings.autosave_seconds - 120.0).abs() < 1e-6);
+        h.get_by_label("Tool shortcuts").click();
+        h.run();
+        h.get_by_label("Reset tool shortcuts").click();
+        h.run();
+        assert!(h.state().settings.tool_shortcuts.is_empty());
+        h.get_by_label("Tool shortcuts").click();
+        h.run();
+        h.get_by_label("Reset folders").scroll_to_me();
+        h.run();
+        h.get_by_label("Reset folders").click();
+        h.run();
+        assert!(
+            h.state().settings.model_folder.is_empty()
+                && h.state().settings.import_folder.is_empty()
+                && h.state().settings.export_folder.is_empty()
+        );
+    }
+
+    #[test]
+    fn loft_selected_faces_menu_preserves_profile_cavities() {
+        use egui_kittest::{Harness, kittest::Queryable};
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1400.0, 900.0))
+            .build_eframe(|cc| App::new(cc, None));
+        for z in [0, 200] {
+            for (name, params) in [
+                (
+                    "rectangle",
+                    json!({"corner_a":[0,0,z],"corner_b":[100,100,z]}),
+                ),
+                (
+                    "rectangle",
+                    json!({"corner_a":[25,25,z],"corner_b":[75,75,z]}),
+                ),
+                ("delete", json!({"targets":"face & area<3000"})),
+            ] {
+                h.state_mut().session.execute(name, params).unwrap();
+            }
+        }
+        h.state_mut()
+            .session
+            .execute("select", json!({"query":"face"}))
+            .unwrap();
+        h.run_steps(2);
+        h.get_by_label("Tools").click();
+        h.run_steps(2);
+        h.get_by_label("Loft Selected Faces").click();
+        h.run_steps(2);
+        let doc = h.state().session.doc();
+        let (_, part) = doc.model.groups().next().unwrap();
+        let mesh = doc.definition(part.definition).unwrap().entities.mesh();
+        assert!(mesh.is_solid());
+        assert!((mesh.volume().unwrap() - 1_500_000.0).abs() < 1e-3);
+        h.state_mut().undo();
+        assert_eq!(h.state().session.doc().model.mesh().face_count(), 2);
     }
 
     #[test]

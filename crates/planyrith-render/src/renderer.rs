@@ -9,7 +9,7 @@
 //! then the selection overlay (tinted faces and thick edges).
 
 use std::borrow::Cow;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::num::NonZeroU64;
 use std::ops::Range;
 use std::sync::{Arc, Mutex};
@@ -19,7 +19,7 @@ use glam::{DAffine3, DMat3, DVec3};
 use planyrith_core::commands::Delta;
 use planyrith_core::document::{
     Camera, ContainerRef, Document, EdgeColorMode, EdgeStyle, FaceMode, FrontOrBack, ImageRef,
-    Projection, Rgba8, Style, Watermark, WatermarkPlacement,
+    InstancePath, Projection, Rgba8, Style, Watermark, WatermarkPlacement,
 };
 use planyrith_core::geom::HalfEdgeMesh;
 use planyrith_core::ids::{EdgeId, FaceId, MaterialId};
@@ -222,6 +222,7 @@ struct GpuMesh {
     vertices: Option<wgpu::Buffer>,
     indices: Option<wgpu::Buffer>,
     ranges: Vec<(MaterialKey, Range<u32>)>,
+    triangle_faces: Vec<FaceId>,
     edges: Option<wgpu::Buffer>,
     edge_count: u32,
     bounds: Aabb,
@@ -234,6 +235,35 @@ struct GpuMesh {
     /// The two local faces of each edge.
     edge_faces: Vec<[u32; 2]>,
     show_hidden: bool,
+}
+
+/// Contiguous material/index ranges of one preview opacity.
+fn preview_ranges(
+    mesh: &GpuMesh,
+    faces: Option<&BTreeSet<FaceId>>,
+) -> Vec<(MaterialKey, Range<u32>, bool)> {
+    let mut result = Vec::new();
+    for (key, range) in &mesh.ranges {
+        let is_ghost = |index: u32| {
+            faces.is_some_and(|set| {
+                mesh.triangle_faces
+                    .get(index as usize / 3)
+                    .is_some_and(|face| set.contains(face))
+            })
+        };
+        let mut start = range.start;
+        let mut ghost = is_ghost(start);
+        for index in (range.start + 3..range.end).step_by(3) {
+            let next = is_ghost(index);
+            if next != ghost {
+                result.push((*key, start..index, ghost));
+                start = index;
+                ghost = next;
+            }
+        }
+        result.push((*key, start..range.end, ghost));
+    }
+    result
 }
 
 /// Offscreen targets of one size.
@@ -349,6 +379,7 @@ pub struct Renderer {
     white: wgpu::BindGroup,
     textures: BTreeMap<ImageRef, wgpu::BindGroup>,
     meshes: BTreeMap<ContainerRef, GpuMesh>,
+    preview_faces: BTreeMap<InstancePath, BTreeSet<FaceId>>,
     uniforms: wgpu::Buffer,
     uniform_capacity: u64,
     uniform_group: wgpu::BindGroup,
@@ -529,6 +560,7 @@ impl Renderer {
             white,
             textures: BTreeMap::new(),
             meshes: BTreeMap::new(),
+            preview_faces: BTreeMap::new(),
             uniforms,
             uniform_capacity,
             uniform_group,
@@ -580,6 +612,12 @@ impl Renderer {
                 }
             }
         }
+    }
+
+    /// Sets transient faces to render at 40% opacity in scratch previews
+    /// (docs/13 1.32). Empty restores ordinary rendering; model data is untouched.
+    pub fn set_preview_faces(&mut self, faces: BTreeMap<InstancePath, BTreeSet<FaceId>>) {
+        self.preview_faces = faces;
     }
 
     /// Drops one container's buffers (it changed, or a preview drew another
@@ -982,8 +1020,9 @@ impl Renderer {
                 .transform_point3(mesh.bounds.center())
                 .distance(camera.eye);
 
-            // Faces.
-            for (key, range) in &mesh.ranges {
+            // Split only at changes of preview opacity, preserving material ranges.
+            let face_ranges = preview_ranges(mesh, self.preview_faces.get(&item.path));
+            for (key, range, ghost) in &face_ranges {
                 let (mut color, texture) = face_color(doc, style, *key, item.material_override);
                 let texture = texture.filter(|t| textured_mode && self.textures.contains_key(t));
                 // A texture shows its own colors unless the material
@@ -1002,6 +1041,9 @@ impl Renderer {
                     }
                     FaceMode::XRay => color[3] *= 0.5,
                     _ => {}
+                }
+                if *ghost {
+                    color[3] *= 0.4;
                 }
                 let mut u = DrawUniform {
                     color,
@@ -2537,6 +2579,13 @@ fn upload(
         vertices: vertex_buffer,
         indices: index_buffer,
         ranges: mesh.indices_by_material.clone(),
+        triangle_faces: mesh
+            .indices
+            .as_chunks::<3>()
+            .0
+            .iter()
+            .map(|triangle| mesh.face_lookup[mesh.face_ids[triangle[0] as usize] as usize])
+            .collect(),
         edges: edge_buffer,
         edge_count: edge_instances.len() as u32,
         bounds: mesh.bounds,

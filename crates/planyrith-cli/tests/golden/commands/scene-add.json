@@ -185,6 +185,7 @@
           "hidden_entities": [],
           "include_in_animation": true,
           "name": "Plan",
+          "placements": [],
           "section_planes": {},
           "shadows": {
             "dark": 45,

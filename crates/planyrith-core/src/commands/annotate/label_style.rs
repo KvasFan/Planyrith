@@ -17,6 +17,16 @@ fn selection() -> Query {
     Query::from("selection")
 }
 
+/// Text leader placement mode (docs/05 §7.3, milestone 1.26).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum LeaderMode {
+    /// Label follows its screen offset while the view changes.
+    View,
+    /// Label keeps an offset in the owning container, mm.
+    Pushpin,
+}
+
 /// Patch applied to the selected texts and dimensions; absent fields stay unchanged.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct LabelStyleParams {
@@ -41,6 +51,22 @@ pub struct LabelStyleParams {
     /// Show text leaders; dimension lines are unaffected.
     #[serde(default)]
     pub leader_visible: Option<bool>,
+    /// Linear dimension extension-line gap, nonnegative mm.
+    #[serde(default)]
+    pub extension_gap: Option<Length>,
+    /// Linear dimension extension past the dimension line, nonnegative mm.
+    #[serde(default)]
+    pub extension_overshoot: Option<Length>,
+    /// Show linear dimension extension lines.
+    #[serde(default)]
+    pub extension_visible: Option<bool>,
+    /// Text label placement: view-relative or fixed in model space.
+    #[serde(default)]
+    pub leader_mode: Option<LeaderMode>,
+    /// Pushpin offset in the owning container, mm; implies pushpin mode.
+    #[serde(default)]
+    #[schemars(with = "Option<[f64; 3]>")]
+    pub leader_offset: Option<glam::DVec3>,
     /// Reset appearance before applying the patch; keep content, placement and anchors.
     #[serde(default)]
     pub reset: bool,
@@ -69,10 +95,35 @@ impl Command for LabelStyle {
             && p.color.is_none()
             && p.text_height.is_none()
             && p.leader_visible.is_none()
+            && p.extension_gap.is_none()
+            && p.extension_overshoot.is_none()
+            && p.extension_visible.is_none()
+            && p.leader_mode.is_none()
+            && p.leader_offset.is_none()
         {
             return Err(CommandError::invalid_param(
                 "style",
                 "provide an appearance field or reset",
+            ));
+        }
+        for (name, value) in [
+            ("extension_gap", p.extension_gap),
+            ("extension_overshoot", p.extension_overshoot),
+        ] {
+            if value.is_some_and(|v| !v.as_mm().is_finite() || !(0.0..=1e9).contains(&v.as_mm())) {
+                return Err(CommandError::invalid_param(
+                    name,
+                    "must be finite, nonnegative mm within the model extent",
+                ));
+            }
+        }
+        if let Some(offset) = p.leader_offset {
+            crate::commands::params::check_point("leader_offset", offset)?;
+        }
+        if p.leader_mode == Some(LeaderMode::View) && p.leader_offset.is_some() {
+            return Err(CommandError::invalid_param(
+                "leader_offset",
+                "a model offset requires pushpin mode",
             ));
         }
         if let Some(font) = &p.font
@@ -160,6 +211,27 @@ impl Command for LabelStyle {
                     if let Some(visible) = p.leader_visible {
                         layout.leader_visible = visible;
                     }
+                    if let Some(offset) = p.leader_offset {
+                        layout.world_offset = Some(offset);
+                    }
+                    match p.leader_mode {
+                        Some(LeaderMode::View) => layout.world_offset = None,
+                        Some(LeaderMode::Pushpin) if layout.world_offset.is_none() => {
+                            return Err(CommandError::invalid_param(
+                                "leader_offset",
+                                "pushpin mode needs a model offset",
+                            ));
+                        }
+                        _ => {}
+                    }
+                    if (p.leader_mode.is_some() || p.leader_offset.is_some())
+                        && text.anchor.is_none()
+                    {
+                        return Err(CommandError::invalid_param(
+                            "leader_mode",
+                            "screen-only text has no leader anchor",
+                        ));
+                    }
                     text.layout = Some(layout);
                     EntityRecord::Text(text)
                 }
@@ -188,6 +260,15 @@ impl Command for LabelStyle {
                         if let Some(font) = &mut style.font {
                             font.model_height_mm = Some(height.as_mm());
                         }
+                    }
+                    if let Some(gap) = p.extension_gap {
+                        style.extension_gap = Some(gap);
+                    }
+                    if let Some(over) = p.extension_overshoot {
+                        style.extension_overshoot = Some(over);
+                    }
+                    if let Some(visible) = p.extension_visible {
+                        style.extension_visible = Some(visible);
                     }
                     EntityRecord::Dimension(dim)
                 }

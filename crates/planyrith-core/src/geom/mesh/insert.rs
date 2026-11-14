@@ -178,7 +178,17 @@ pub fn transform_indexed(piece: &IndexedMesh, t: &DAffine3) -> IndexedMesh {
         *p = t.transform_point3(*p);
     }
     for face in &mut out.faces {
-        face.plane = face.plane.map(|plane| plane.transformed(t));
+        face.plane = face.plane.map(|plane| {
+            let transformed = plane.transformed(t);
+            // Plane::transformed follows the transformed loop winding. The
+            // reflection branch below reverses that loop to keep solid faces
+            // outward, so the stored plane must reverse with it.
+            if mirrored {
+                transformed.flipped()
+            } else {
+                transformed
+            }
+        });
         if mirrored {
             for lp in &mut face.loops {
                 lp.reverse();

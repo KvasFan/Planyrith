@@ -1152,3 +1152,37 @@ t-check-collisions-while-moving = Controlla collisioni durante lo spostamento
 t-report-overlaps-at-the-current-position-movement-remains-free = Segnala le sovrapposizioni nella posizione corrente; lo spostamento resta libero.
 t-no-interference-at-this-position = Nessuna interferenza in questa posizione
 t-interferences-count-undecided-undecided = Interferenze: { $count }; indeterminate: { $undecided }
+
+t-check-collisions-at-this-placement = Controlla collisioni in questa posizione
+
+t-capture-assembly-placements = Memorizza posizioni dell’assieme
+
+t-fix-leader-in-model-space = Fissa il richiamo nello spazio del modello
+t-leader-offset-mm = Spostamento del richiamo (mm)
+t-show-extension-lines = Mostra linee di estensione
+t-extension-gap = Distacco delle linee di estensione
+t-extension-overshoot = Prolungamento delle linee di estensione
+
+t-camera-placement = Posizionamento della camera
+t-camera-placement-more = Posizionamento della camera…
+t-eye-base-point-mm = Occhio / punto di base (mm)
+t-use-a-look-direction = Usa una direzione di osservazione
+t-look-direction = Direzione di osservazione
+t-target-point-mm = Punto osservato (mm)
+t-eye-height = Altezza dell’occhio
+t-target-distance = Distanza del punto osservato
+t-apply-camera-placement = Applica posizione della camera
+
+t-autosave-interval = Intervallo di autosalvataggio
+t-default-interval = Intervallo predefinito
+
+t-space-always-selects-the-select-tool = La barra spaziatrice attiva sempre Seleziona
+t-use-one-letter-or-leave-the-shortcut-unassigned = Usa una lettera oppure lascia la scorciatoia non assegnata
+t-that-shortcut-is-already-assigned = Questa scorciatoia è già assegnata
+t-tool-shortcuts = Scorciatoie degli strumenti
+t-reset-tool-shortcuts = Ripristina scorciatoie degli strumenti
+t-unassigned = Non assegnata
+t-model-folder = Cartella dei modelli
+t-import-folder = Cartella di importazione
+t-export-folder = Cartella di esportazione
+t-reset-folders = Ripristina cartelle

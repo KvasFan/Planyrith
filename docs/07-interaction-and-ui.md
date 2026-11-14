@@ -230,6 +230,14 @@ View › Touch Layout chooses Automatic, On or Off (a user setting).
 
 ## Decisions
 
+- 2026-11-14 — **Preferences and previews (1.29–1.32).** Autosave snapshot intervals are
+  per-user seconds (10–3600, default 120); journals remain immediate. Tool shortcuts are
+  optional single-key overrides, validated against reserved navigation/value keys and other
+  tools; reset restores the defaults and menus show the effective key. File preferences keep
+  separate model/import/export folders; an explicit document location wins for Save As.
+  Previews compare individual faces/occurrences so only changed geometry becomes transparent.
+  Settings remain outside documents; each feature has input/persistence and regression tests.
+
 - 2026-11-08 — **Touch layout** (§13.1). A layout that switches by itself rather than a separate
   mobile interface: the same tools and panels, reached with fingers, so nothing is missing on a
   tablet and nothing new has to be learned. 900 points is where the default docks leave the
@@ -256,7 +264,7 @@ View › Touch Layout chooses Automatic, On or Off (a user setting).
   do not store them: the core cannot draw, and a picture made at save time would
   need a GPU in the CLI.
 
-- 2026-11-03 — **Semi-transparent previews stay deferred.** The renderer can fade
+- 2026-11-03 — **Semi-transparent previews (superseded by 1.32 on 2026-11-14).** The renderer can fade
   whole containers, and a preview knows which containers it changed, but most
   drawing happens in the model root, so ghosting changed containers would make the
   whole model translucent at every preview. It needs per-face differences between

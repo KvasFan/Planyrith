@@ -231,8 +231,20 @@ fn dimension_lines(doc: &Document, item: &DrawItem, dim: &Dimension, out: &mut O
     if radial {
         line(p, q);
     } else {
-        line(view.measured[0], p);
-        line(view.measured[1], q);
+        if style.extension_visible.unwrap_or(true) {
+            for (measured, end) in view.measured.into_iter().zip([p, q]) {
+                let span = end - measured;
+                let length = span.length();
+                if length > doc.tolerances().length {
+                    let direction = span / length;
+                    let gap = style.extension_gap.map_or(0.0, |v| v.as_mm());
+                    let overshoot = style.extension_overshoot.map_or(0.0, |v| v.as_mm());
+                    if gap < length + overshoot {
+                        line(measured + direction * gap, end + direction * overshoot);
+                    }
+                }
+            }
+        }
         line(p, q);
         // End marks, scaled with the text height.
         let along = (q - p).normalize_or_zero();

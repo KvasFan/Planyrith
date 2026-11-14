@@ -108,6 +108,12 @@ The core never calls `std::fs` directly outside `NativeFs`. Open/save commands t
 
 ## Decisions
 
+- 2026-11-14 — **Snapshot interval preference (1.29).** Preferences stores 10–3600 seconds
+  per user (default 120), and applies it before ticking current/new/recovered sessions.
+  Changing the interval preserves the last snapshot time and every pending journal row.
+  The 200-command threshold and immediate command journaling remain active; the core accepts
+  caller-provided time and validates intervals without reading a clock.
+
 - 2026-11-12 — **Converter discovery under Cargo 1.100.** Native storage resolves the
   explicit converter path first, otherwise its application sibling. Development executables
   may live under `<profile>/deps` or `<profile>/build/<package>/<hash>/out`; both map to

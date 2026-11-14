@@ -276,6 +276,13 @@ exposes a frame-time overlay (`F11` panel).
 
 ## Decisions
 
+- 2026-11-14 — **Selective scratch opacity (1.32).** Compare persistent face ids, loop
+  coordinates, appearance and occurrence placements between the model and scratch document.
+  Known untouched containers skip face scans. Render only changed/new faces at 40% of their
+  material opacity, splitting contiguous index ranges at opacity changes and reusing the
+  transparent pass. Unchanged faces in the same container stay opaque. Clearing the preview
+  clears the transient face mask; authoritative picking continues on the real document.
+
 - 2026-11-09 — **Zoom extents fits what is shown** (§7). `zoom-extents` without targets and
   `camera-standard --extents` fit the faces, edges and images that are drawn (not hidden by a
   flag or a tag), from their points (`render_mesh::visible_bounds`); hidden geometry far away

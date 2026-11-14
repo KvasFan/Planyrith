@@ -244,8 +244,8 @@ scenes; a bill of materials; collision detection while dragging; driving a mate 
 - **Done (2026-11-09):** mates (all but tangent) with the solver and freedom shown, driving by
   editing a mate's value, exploded views kept in the container (collapsed again on demand rather
   than per scene), the bill of materials (docs/05 §5.17). Tangency is completed in 1.21;
-  Move checks placement interference during viewport editing in 1.22; Rotate/Scale and
-  continuous path collision remain deferred. Interference is also checked on demand (§8.4).
+  Move checks placement interference in 1.22, Rotate/Scale in 1.23, and scenes capture
+  assembly placements in 1.24. Continuous path collision remains deferred. Interference is also checked on demand (§8.4).
 
 ## 1.13.0 — Engineering drawings
 Sheet views tied to the model and kept current: projected, section, detail, auxiliary and
@@ -345,11 +345,118 @@ continuous path collision and stopping at contact remain deferred.
   Tests cover nested/shared placements, changed meshes, copies, hidden/open objects, native
   data and one-step undo; the existing command goldens and frozen API remain compatible.
 
+## 1.23.0 — Transform interference
+
+Extend the destination interference option of Move to Rotate and Scale, including copies
+and mirrored/nonuniform placements. CLI/RPC first, matching GUI options, analytic tests,
+native undo and unchanged defaults.
+
+- **Done (2026-11-14):** Rotate/Scale share delta-based interference measurement, with
+  CLI/RPC and Tool Options, reflected/nonuniform placements, copies and native undo tests.
+
+## 1.24.0 — Assembly placements in scenes
+
+Optionally capture occurrence placements in scenes and restore them atomically on
+activation. Preserve legacy scenes, stable persistent paths, hidden/nested occurrences,
+native round trips and undo.
+
+- **Done (2026-11-14):** Scenes optionally capture persistent occurrence paths and local
+  transforms. Atomic restore, shared/nested/deleted references, native undo,
+  recovery/routing classification, read-only RPC and the Scenes-panel control are tested.
+
+## 1.25.0 — Dimension extension lines
+
+Add editable extension-line gaps, overshoot and visibility through label-style, Entity
+Info and shared viewport/image overlays. Preserve anchors, measured values and historical
+defaults.
+
+- **Done (2026-11-14):** Label Style and Entity Info edit optional dimension extension
+  gap, overshoot and visibility. Shared overlay geometry, unchanged measurement/anchors,
+  native, undo and frontend tests pass.
+
+## 1.26.0 — Text leader placement
+
+Add View and Pushpin leader modes through text/label-style and Entity Info. View mode uses
+screen offsets; Pushpin fixes the label position in model space. Share viewport and
+rendered-image overlay behavior; model vector view exports retain their geometry-only
+scope.
+
+- **Done (2026-11-14):** View/Pushpin leaders use the existing layout offset, with
+  explicit local-mm editing and validated mode changes. Anchor, native/undo, CLI/RPC and
+  actual control tests pass.
+
+## 1.27.0 — Lofts with cavities
+
+Loft face profiles with corresponding holes, preserving through cavities and rejecting
+mismatched or intersecting profiles atomically. Existing picking tool, native undo,
+analytic volume and CLI/RPC coverage.
+
+- **Done (2026-11-14):** Matching profile holes become subtractive through cavities with
+  connectivity and volume validation. Analytic/property tests, invalid inputs, native
+  undo, CLI goldens and the actual Loft Selected Faces menu pass.
+
+## 1.28.0 — Camera direction and eye height
+
+Complete position-camera with a look direction, optional target distance and eye height
+above a picked base point. Validate degenerate directions and preserve target-based calls;
+expose a camera placement form.
+
+- **Done (2026-11-14):** position-camera accepts direction, target distance and eye
+  height; Camera Placement dispatches it. Invalid directions, view-only history, native
+  goldens, CLI/RPC and actual Apply-button tests pass.
+
+## 1.29.0 — Autosave interval preference
+
+Expose the snapshot interval in Preferences, persist it per user and apply it to
+current/new/recovered sessions without discarding journals or pending work. Keep the
+existing default and test recovery.
+
+- **Done (2026-11-14):** Preferences persists 10–3600-second snapshot intervals (120 by
+  default). Pending rows, recovery, invalid-policy checks and the actual reset control
+  pass.
+
+## 1.30.0 — Tool shortcut preferences
+
+Allow per-user remapping of single-key tool shortcuts with collision validation, reset and
+consistent tool-menu hints. Preserve value-field input, reserved keys and document
+independence.
+
+- **Done (2026-11-14):** Per-user letter overrides/unassigned tools support
+  collision/reserved-key validation, reset and matching menu/toolbar hints. Persistence,
+  keyboard/value input and the reset control are tested.
+
+## 1.31.0 — Default file folders
+
+Persist separate model/import/export folder preferences and use them in file dialogs while
+keeping explicit document locations and browser storage semantics. Expose
+editable/resettable preferences.
+
+- **Done (2026-11-14):** Separate model/import/export folders initialize
+  model/resource/render-image dialogs. Existing document locations win for Save As, and
+  browser uploads retain their picker. Persistence, precedence and reset tests pass.
+
+## 1.32.0 — Changed-geometry previews
+
+Render only changed/new preview faces with transparency; unchanged model geometry stays
+opaque. Compare stable mesh identities and placements, keep picking on the real document,
+and cover cancellation and GPU rendering.
+
+- **Done (2026-11-14):** Persistent face/path comparisons identify changed/new faces,
+  skipping untouched containers. Those faces use 40% material opacity; CPU identity/native
+  tests and GPU comparisons prove adjacent unchanged faces remain opaque and clearing
+  restores normal rendering.
+
 ## Post-1.0 candidates
 Other limits remain listed against their original milestones; no unrelated feature scope is
-added by the continuation milestones 1.19–1.22.
+added by the continuation milestones 1.19–1.32.
 
 ## Decisions
+
+- 2026-11-14 — **Ten uninterrupted milestones.** At the user’s request, 1.23–1.32 complete
+  remaining modeling, scene, annotation, camera, preference and preview work. Existing UV
+  projection/copy, component libraries, edge effects and imported cameras are already built
+  and do not count as new milestones. Each stage keeps existing defaults and its own tests;
+  the batch ends with the workspace quality gates. No release or file-format bump is implied.
 
 - 2026-11-13 — **Continuation after 1.21.** At the user's request to continue development,
   1.22 addresses the explicit viewport interference gap of 1.12 using the existing Move and

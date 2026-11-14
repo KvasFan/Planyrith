@@ -1,6 +1,6 @@
 //! Implements docs/05-modeling-tools.md §5.7 (scenes): `scene-add`,
 //! `scene-update`, `scene-delete`, `scene-rename`, `scene-reorder` (undoable)
-//! and `scene-activate` (a view command, not undoable). Scenes capture and
+//! and `scene-activate` (a view, or an undoable assembly restore in 1.24). Scenes capture and
 //! restore the camera, tag visibility, the active style, hidden entities,
 //! section plane states and shadow settings; the axes visibility is the
 //! frontend's to give and to apply (docs/05 Decisions).
@@ -51,6 +51,8 @@ fn check_new_name(doc: &Document, param: &str, name: &str) -> Result<(), Command
 pub struct SceneCapture {
     /// The camera.
     pub camera: bool,
+    /// Capture assembly occurrence placements (off by default).
+    pub placements: bool,
     /// The visibility of every tag.
     pub tags: bool,
     /// The active style.
@@ -67,6 +69,7 @@ impl Default for SceneCapture {
     fn default() -> Self {
         SceneCapture {
             camera: true,
+            placements: false,
             tags: true,
             style: true,
             hidden: true,
@@ -136,6 +139,30 @@ fn all_pids(doc: &Document) -> Vec<(crate::document::ContainerRef, EntityId, Pid
 /// Fills the captured properties of `scene` from the document (and `camera`).
 fn capture(doc: &Document, camera: Camera, flags: SceneCapture, scene: &mut Scene) {
     scene.camera = flags.camera.then_some(camera);
+    scene.placements = flags.placements.then(|| {
+        use crate::document::{EditContext, EntityKey, EntityPath, Selection};
+        crate::io::render_mesh::draw_list(doc, &Selection::new(), &EditContext::model(), true)
+            .into_iter()
+            .flat_map(|item| {
+                doc.container(item.container)
+                    .into_iter()
+                    .flat_map(move |entities| {
+                        let path = item.path.clone();
+                        entities.iter().filter_map(move |id| {
+                            Some(crate::document::scenes::ScenePlacement {
+                                path: EntityPath {
+                                    instances: path.clone(),
+                                    target: EntityKey::Pid(entities.pid_of(id)?),
+                                },
+                                transform: entities
+                                    .transform_of(id)
+                                    .filter(|_| entities.definition_of(id).is_some())?,
+                            })
+                        })
+                    })
+            })
+            .collect()
+    });
     scene.tag_visibility = flags.tags.then(|| {
         doc.tags
             .iter()
@@ -439,7 +466,7 @@ pub struct SceneActivateParams {
 }
 
 /// The `scene-activate` command: restores what the scene captured (a view
-/// command: not undoable).
+/// command unless assembly placements were captured, docs/13 1.24).
 #[derive(Debug, Default, Clone, Copy)]
 pub struct SceneActivate;
 
@@ -467,6 +494,52 @@ impl Command for SceneActivate {
             .get(id)
             .cloned()
             .ok_or_else(|| CommandError::Internal("scene vanished".into()))?;
+        if let Some(placements) = &scene.placements {
+            let mut restores = BTreeMap::new();
+            for placement in placements {
+                let Ok(r) = tx.document().resolve(&placement.path) else {
+                    continue;
+                };
+                let doc = tx.document();
+                let Some(entities) = doc.container(r.container) else {
+                    continue;
+                };
+                let unchanged = entities.transform_of(r.entity).is_some_and(|t| {
+                    t.abs_diff_eq(placement.transform, doc.tolerances().parametric)
+                });
+                if !unchanged
+                    && (doc.locked_step(&placement.path.instances).is_some()
+                        || entities.is_locked(r.entity))
+                {
+                    return Err(CommandError::NotApplicable(
+                        "a captured occurrence is locked".into(),
+                    ));
+                }
+                if !placement.transform.is_finite()
+                    || !crate::math::transform::is_invertible(
+                        &placement.transform,
+                        doc.tolerances(),
+                    )
+                {
+                    return Err(CommandError::invalid_param(
+                        "scene",
+                        "invalid captured placement",
+                    ));
+                }
+                if let Some(previous) =
+                    restores.insert((r.container, r.entity), placement.transform)
+                    && !previous.abs_diff_eq(placement.transform, doc.tolerances().parametric)
+                {
+                    return Err(CommandError::invalid_param(
+                        "scene",
+                        "conflicting placements of a shared occurrence",
+                    ));
+                }
+            }
+            for ((container, id), transform) in restores {
+                tx.set_transform(container, id, transform)?;
+            }
+        }
         if let Some(camera) = scene.camera {
             tx.set_camera(camera);
         }

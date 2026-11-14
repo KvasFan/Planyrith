@@ -238,6 +238,11 @@ Frontends and the RPC server fan events out to subscribers. Event kinds:
 
 ## Decisions
 
+- 2026-11-14 — **Conditional scene edits (1.24).** `Engine::command_is_view_only` uses the
+  invocation and document as well as static metadata: activating a scene with captured
+  assembly placements is an edit. Engine execution, GUI routing/journaling and RPC read-only
+  enforcement share that classification. Ordinary scene activation remains view-only.
+
 - 2026-10-30 — **Optional converter boundary.** SKP decoding/encoding is an
   optional, separately distributed process. `Storage::convert_skp` exchanges
   native/model bytes and versioned warning metadata; `NativeFs` owns process
