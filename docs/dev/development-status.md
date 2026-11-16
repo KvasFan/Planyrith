@@ -5,7 +5,29 @@ implementation stands, what is done, what remains, and how to resume. Update it 
 every working session. Ground truth for *what to build* stays in `docs/00`–`docs/15`; this file
 is only *progress state*. Release packaging is specified in `docs/16`.
 
-_Last updated: 2026-11-12 (0.11.0-alpha.4 published; main is 0.12.0-alpha.1, unpublished, with milestones 1.7–1.21)._
+_Last updated: 2026-11-16 (0.11.0-alpha.4 published; main is 0.12.0-alpha.1, unpublished, with milestones 1.7–1.43)._
+
+**Completing reserved gaps (2026-11-16):** asked to resume and implement and test every
+missing feature, the limits recorded against earlier milestones became 1.33–1.43 (docs/13,
+Decisions 2026-11-16), each a commit with core, CLI/RPC and GUI tests and docs: 1.33 arc and
+circle constraints (radius, equal radius, concentric, on-curve, tangency; docs/03 §11.4);
+1.34 stacked sheet-metal flanges and corner reliefs; 1.35 trimming and splitting by a
+surface (cutter slabs, docs/03 §4.21); 1.36 persistent feature references across
+regeneration (recorded shapes, `refs`, fixes recorded Push/Pull picks); 1.37 Move stopping at
+first contact; 1.38 curved IGES surfaces (Delaunay in scaled parameters) and IGES subfigures as
+components; 1.39 STEP graphical annotations (draughting callouts); 1.40 stepped mold partings
+and `mold-undercuts`; 1.41 boundary-fitted simulation meshes (`fit_boundary`); 1.42 Mirror,
+Revolve and Pattern viewport tools; 1.43 USD import of text layers and packages. New command:
+`mold-undercuts` (batch, golden, native fixture, frozen API entry); the API and native corpus
+also gained the 1.18–1.20 commands that had been missed. `completed_features_match_cli_and_rpc`
+in `crates/planyrith-cli/tests/cli.rs` checks CLI/RPC parity for the new options.
+Remaining limits, by design or needing the user: internal tangency between filled circles in
+one plane (refused by the kernel, segments cross); flanges on a flange's side edges;
+freeform parting surfaces and side actions; IGES solids (186); STEP semantic PMI; binary USD;
+DWG/3DS; the 0.11 SKP items needing 2023/2024 fixtures or the target application; macOS
+packaging. A gate failure on 2026-11-16 was a test-isolation bug (wine reuses process ids and
+keeps its temp folder, so a scratch file survived): every scratch directory now starts empty.
+Gate passes recorded for `e0152f0` and `c574250` (both pushed); the last commits follow.
 
 **Continuous development (2026-11-12):** the user requested proceeding through the next
 milestones without stopping at each. Docs/13 plans 1.19 branch fittings, 1.20 thermal convection,
