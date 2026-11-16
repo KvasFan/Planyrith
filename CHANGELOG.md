@@ -12,6 +12,8 @@ drawings, sheet metal and frames, surfaces and analysis, simulation, product dat
 The version number marks builds from main; no packages are published for it.
 
 ### Added
+- 1.42: Mirror, Revolve and Pattern as viewport tools: pick the line, axis or spacing, with
+  previews, Tool Options and typed values.
 - 1.41: simulation meshes can fit their boundary to curved faces (`fit_boundary`, on in the
   Simulation window), instead of stepping at the cell size.
 - 1.40: stepped mold parting surfaces and per-face undercut detection (`mold-undercuts`),

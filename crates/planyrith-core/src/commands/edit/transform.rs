@@ -1135,8 +1135,19 @@ impl Command for Mirror {
             category: CommandCategory::Edit,
             label: "Mirror".into(),
             view_only: false,
-            // Collected by Tools › Mirror… (docs/05 §4.21).
-            steps: Vec::new(),
+            // The Mirror tool, or Tools › Mirror… (docs/05 §4.21).
+            steps: vec![
+                ToolStep {
+                    prompt: "Pick the first point of the mirror line".into(),
+                    value_field: String::new(),
+                    inference: InferenceKind::ALL.to_vec(),
+                },
+                ToolStep {
+                    prompt: "Pick the second point of the mirror line".into(),
+                    value_field: String::new(),
+                    inference: InferenceKind::ALL.to_vec(),
+                },
+            ],
         }
     }
 }
@@ -1530,8 +1541,19 @@ impl Command for Pattern {
             category: CommandCategory::Edit,
             label: "Pattern".into(),
             view_only: false,
-            // Collected by Tools › Pattern… (docs/05 §4.23).
-            steps: Vec::new(),
+            // The Pattern tool, or Tools › Pattern… (docs/05 §4.23).
+            steps: vec![
+                ToolStep {
+                    prompt: "Pick the base point (circular: the center)".into(),
+                    value_field: String::new(),
+                    inference: InferenceKind::ALL.to_vec(),
+                },
+                ToolStep {
+                    prompt: "Pick the spacing point (circular: any point)".into(),
+                    value_field: "spacing; afterwards N x for the instances".into(),
+                    inference: InferenceKind::ALL.to_vec(),
+                },
+            ],
         }
     }
 }

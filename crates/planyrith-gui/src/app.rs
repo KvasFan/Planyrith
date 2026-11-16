@@ -1974,6 +1974,10 @@ impl App {
                     self.extensions.soften_open = true;
                     ui.close();
                 }
+                // Picked in the viewport (milestone 1.42), or set in a window.
+                self.tool_button(ui, "Mirror");
+                self.tool_button(ui, "Revolve");
+                self.tool_button(ui, "Pattern");
                 if ui.button(t("Mirror…")).clicked() {
                     self.mirror.open = true;
                     ui.close();
@@ -3851,6 +3855,27 @@ mod tests {
     use planyrith_core::inference::InferenceKind;
 
     use super::*;
+
+    /// Tools › Mirror, Revolve and Pattern activate the viewport tools
+    /// (milestone 1.42).
+    #[test]
+    fn feature_tools_are_in_the_tools_menu() {
+        use egui_kittest::Harness;
+        use egui_kittest::kittest::Queryable;
+        let mut harness = Harness::builder()
+            .with_size(egui::vec2(1400.0, 1000.0))
+            .build_eframe(|cc| App::new(cc, None));
+        harness.run_steps(2);
+        for label in ["Mirror", "Revolve", "Pattern"] {
+            harness.get_by_label(&t("Tools")).click();
+            harness.run_steps(2);
+            harness
+                .get_by_role_and_label(egui::accesskit::Role::Button, &t(label))
+                .click();
+            harness.run_steps(2);
+            assert_eq!(harness.state().tool().label(), label);
+        }
+    }
 
     #[test]
     #[cfg(not(target_arch = "wasm32"))]

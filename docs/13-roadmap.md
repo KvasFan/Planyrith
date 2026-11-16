@@ -208,7 +208,7 @@ milestones 1.8–1.18 (see Decisions). In order:
   existing tools and the GUI keep working (all CI gates).
 - **Done (2026-11-09):** all six items, each as a command with tests, a CLI batch and golden
   file, documentation and a Tools-menu window (the Measure window holds the three
-  measurements). Interactive click-by-click tools for mirror, revolve and pattern can follow.
+  measurements). Click-by-click tools for mirror, revolve and pattern followed in 1.42.
 
 ## 1.9.0 — Constrained sketches
 Geometric constraints (coincident, horizontal, vertical, parallel, perpendicular, tangent,
@@ -536,6 +536,9 @@ bodies are no longer stepped at the cell size.
 
 Complete 1.8: viewport tools that collect the mirror plane, revolve axis and pattern direction
 by clicking, dispatching the same commands.
+
+- **Done (2026-11-16):** Mirror, Revolve and Pattern tools in the Tools menu with previews,
+  Tool Options, value-field entry and retyping, and Tool Help steps (docs/05 §4.21–§4.23).
 
 ## 1.43.0 — USD import
 

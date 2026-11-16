@@ -379,9 +379,12 @@ perpendicular to hovered edge); `Esc` = cancel current step (second `Esc` = canc
 - **Output:** `TransformOutput` (`copies` with `copy`). **Undo:** one step.
 - **GUI:** Tools › Mirror…: a plane by its axes (red–blue, green–blue, red–green); a copy is
   placed beside the selection (the plane touches the selection's far side), in place through
-  its center.
+  its center. The Mirror tool (1.42): with a selection (or the entity under the first click),
+  pick two points of the mirror line in the drawing plane; the mirror plane holds the line and
+  stands square to that plane, previewed while moving; Tool Options › Keep the originals
+  (on).
 - **Tests:** a reflection is its own inverse; a mirrored box stays a closed solid; a face
-  mirrored in place keeps its area.
+  mirrored in place keeps its area; the tool's two picks mirror a box across a line.
 
 ### 4.22 `revolve`
 - **Params:** `profile: Sel` (one face of the edit context, holes allowed); the axis as
@@ -392,9 +395,12 @@ perpendicular to hovered edge); `Esc` = cancel current step (second `Esc` = canc
   profile crosses it.
 - **Output:** `{ group, faces, volume_mm3 }`. **Undo:** one step.
 - **GUI:** Tools › Revolve…: select the face and one edge in its plane, set the angle and the
-  segments.
+  segments. The Revolve tool (1.42): click the profile face, then two points of the axis; the
+  turn comes from Tool Options (360°) or the value field before the second point, and typing
+  an angle afterwards replaces the last revolve's turn.
 - **Tests:** a rectangle off the axis makes a ring of the exact polygonal volume; a quarter turn
-  about a drawn edge is a quarter of it; the result is printable; undo restores.
+  about a drawn edge is a quarter of it; the result is printable; undo restores; the tool
+  revolves a picked face by a typed turn and retypes it.
 
 ### 4.23 `pattern`
 - **Params:** `targets: Sel`; `kind: linear|circular|path`; `count` (instances in the first
@@ -410,9 +416,14 @@ perpendicular to hovered edge); `Esc` = cancel current step (second `Esc` = canc
   instances in all.
 - **Output:** `TransformOutput`. **Undo:** one step.
 - **GUI:** Tools › Pattern…: in rows (with a second row direction), around an axis through a
-  point, or along the selected edges.
+  point, or along the selected edges. The Pattern tool (1.42): linear — pick a base point, then
+  a point at the spacing (or type the spacing); circular — pick the center, about the drawing
+  plane's normal, then any point; Tool Options set the kind and the instances (3), and `N x`
+  (or a length, linear) typed afterwards replaces the last pattern's count (or spacing).
 - **Tests:** a 4 × 3 grid makes 11 copies; six instances around an axis are symmetric; five
-  along a bent path end at its end, turned with it.
+  along a bent path end at its end, turned with it; the tool's picks make a linear pattern,
+  `5x` and a spacing retype it, a circular one centers on the pick; Tools › Mirror, Revolve and
+  Pattern activate the tools.
 
 ## 5. Organization tools (category `organize`)
 

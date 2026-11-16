@@ -8,11 +8,12 @@ use serde::{Deserialize, Serialize};
 use crate::commands::common::{definition_uuid, targets_of};
 use crate::commands::params::{PointSchema, VectorSchema, check_point, target_container};
 use crate::commands::{
-    Command, CommandCategory, CommandError, CommandMeta, CommonParams, Transaction,
+    Command, CommandCategory, CommandError, CommandMeta, CommonParams, ToolStep, Transaction,
 };
 use crate::document::{ComponentDefinition, Document, Entities, EntityRecord, Group, Query};
 use crate::geom::revolve::revolve;
 use crate::ids::{EntityId, Pid};
+use crate::inference::InferenceKind;
 use crate::units::Angle;
 
 fn full_turn() -> Angle {
@@ -221,8 +222,24 @@ impl Command for Revolve {
             label: "Revolve".into(),
             category: CommandCategory::Edit,
             view_only: false,
-            // Collected by Tools › Revolve… (docs/05 §4.22).
-            steps: Vec::new(),
+            // The Revolve tool, or Tools › Revolve… (docs/05 §4.22).
+            steps: vec![
+                ToolStep {
+                    prompt: "Pick the profile face".into(),
+                    value_field: String::new(),
+                    inference: InferenceKind::ALL.to_vec(),
+                },
+                ToolStep {
+                    prompt: "Pick a point of the axis".into(),
+                    value_field: String::new(),
+                    inference: InferenceKind::ALL.to_vec(),
+                },
+                ToolStep {
+                    prompt: "Pick a second point of the axis".into(),
+                    value_field: "turn".into(),
+                    inference: InferenceKind::ALL.to_vec(),
+                },
+            ],
         }
     }
 }

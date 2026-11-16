@@ -7,6 +7,7 @@ mod annotate;
 mod component;
 mod draw;
 mod edit;
+mod feature;
 mod rounding;
 mod routing;
 mod select;
@@ -30,6 +31,7 @@ pub use annotate::{
 pub use component::ComponentTool;
 pub use draw::{ArcKind, ArcTool, BezierTool, LineTool, RectangleTool, RoundTool};
 pub use edit::{EraserTool, MoveTool, OffsetTool, PaintTool, PushPullTool, RotateTool, ScaleTool};
+pub use feature::{MirrorTool, PatternTool, RevolveTool};
 pub use rounding::{EdgeRoundTool, FacesTool};
 pub use routing::RouteTool;
 pub use select::SelectTool;
@@ -318,6 +320,9 @@ pub fn catalogue() -> Vec<(Box<dyn Tool>, Option<egui::Key>)> {
             None,
         ),
         (Box::new(RouteTool::default()), None),
+        (Box::new(MirrorTool::default()), None),
+        (Box::new(RevolveTool::default()), None),
+        (Box::new(PatternTool::default()), None),
     ]
 }
 
