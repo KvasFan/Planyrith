@@ -24,6 +24,7 @@ pub mod skp;
 pub mod step21;
 pub mod stl;
 pub mod three_mf;
+pub mod usd;
 
 use std::io::Read;
 
@@ -72,11 +73,13 @@ pub enum ImportFormat {
     Fbx,
     /// IGES 5.x (planar trimmed and bounded surfaces).
     Iges,
+    /// USD text layers (`.usda`) and USDZ packages of them (milestone 1.43).
+    Usd,
 }
 
 impl ImportFormat {
     /// Every import format.
-    pub const ALL: [ImportFormat; 15] = [
+    pub const ALL: [ImportFormat; 16] = [
         ImportFormat::Obj,
         ImportFormat::Stl,
         ImportFormat::Gltf,
@@ -92,6 +95,7 @@ impl ImportFormat {
         ImportFormat::Ifc,
         ImportFormat::Fbx,
         ImportFormat::Iges,
+        ImportFormat::Usd,
     ];
 
     /// Registered formats; SKP additionally requires a converter-capable backend.
@@ -120,6 +124,7 @@ impl ImportFormat {
             "ifc" => ImportFormat::Ifc,
             "fbx" => ImportFormat::Fbx,
             "igs" | "iges" => ImportFormat::Iges,
+            "usda" | "usdz" | "usd" => ImportFormat::Usd,
             _ => return None,
         })
     }
@@ -274,6 +279,7 @@ pub fn importer(format: ImportFormat) -> Option<Box<dyn Importer>> {
         ImportFormat::Ifc => Some(Box::new(ifc::IfcImporter)),
         ImportFormat::Fbx => Some(Box::new(fbx::FbxImporter)),
         ImportFormat::Iges => Some(Box::new(crate::io::iges::IgesImporter)),
+        ImportFormat::Usd => Some(Box::new(usd::UsdImporter)),
     }
 }
 

@@ -93,7 +93,7 @@ control via `planyrith export --format json`. It is **not** required to load the
 | OBJ (+MTL) | ✔ | ✔ | groups → groups or components (`o`/`g`), materials, UVs, normals (as soft edges). |
 | 3MF | ✔ | ✔ | the 3D printing package: mesh objects with base materials or color groups, components and build items on import; one welded object per visible occurrence with faces, base-material colors and the file unit on export (`W2007` for objects that are not closed solids). |
 | PLY (ASCII/binary) | ✔ | ✔ | polygon meshes, e.g. from 3D scanning: vertex and face colors become materials on import; export writes triangles with the front color on each vertex (binary little-endian unless `--ascii`). |
-| USD (`.usda`, `.usdz`) | — | ✔ | a text stage, or packed (stored, 64-byte aligned) for augmented-reality viewers: one mesh per occurrence and material, Z up, `metersPerUnit` from `--file-units`, preview-surface materials with their textures. |
+| USD (`.usda`, `.usdz`) | ✔ (text layers, milestone 1.43) | ✔ | export: a text stage, or packed (stored, 64-byte aligned) for augmented-reality viewers: one mesh per occurrence and material, Z up, `metersPerUnit` from `--file-units`, preview-surface materials with their textures. Import: text layers and USDZ packages of them — meshes placed by their transform operations, `upAxis` and `metersPerUnit`, preview-surface materials (color, opacity, roughness, metalness, texture) and display colors, texture coordinates, references (inside the layer, or to another text layer beside it or in the package) as components; invisible and `class` prims are not drawn; binary (crate) layers are refused. |
 | IFC (IFC2X3, IFC4) | ✔ | ✔ (IFC4) | a building model for BIM tools: one storey holding an element per top-level group or component and the loose faces, triangulated face sets per material with surface colors, millimeters. |
 | COLLADA (`.dae`, 1.4/1.5) | ✔ | ✔ | geometry (triangles, polylists, polygons with holes), materials with colors, textures and transparency, the node tree with instanced nodes, unit and up axis; export shares a component's geometry among its instances. |
 | FBX (binary 7.x; ASCII 7.x import) | ✔ | ✔ (binary 7.4) | meshes (polygons of any size, texture coordinates, normals as soft edges, per-polygon materials), materials with colors, opacity and diffuse textures (embedded or beside the file), the model hierarchy with its full transform chain, unit and axes; export shares a component's geometry among its instances, embeds textures and writes Y up unless `--z-up`. Animation, skinning, cameras and lights are not read. |
@@ -109,7 +109,7 @@ control via `planyrith export --format json`. It is **not** required to load the
 | SVG / PDF | — | ✔ | 2D export of a view (`--2d`) and of sheets (`docs/15`). Hidden-line removal in software; vector output. |
 | `.plyr/.plyrc` | ✔ | ✔ | merge another document as a group/component. |
 
-Out of scope (documented as future work): 3DS, DWG; USD import; FBX 6 and earlier; IGES
+Out of scope (documented as future work): 3DS, DWG; binary USD layers; FBX 6 and earlier; IGES
 solids (186) and STEP semantic annotations (tolerances and dimensions as data, beyond their
 graphical presentation).
 Import of any unsupported entity yields `W2004` with counts, never a failure.
@@ -721,3 +721,16 @@ save unless `--no-thumbnail`. `manifest.json` carries `title`, `author`, `descri
   to a curve under their leader's start when there is one, else they, notes and other callouts
   with text become notes with a world leader from their first polyline's start. Screen-only
   notes and detached dimensions are not written.
+- 2026-11-16 — **USD import (milestone 1.43).** Only the text syntax is read (a binary crate
+  layer, alone or as a package's first layer, is refused naming the reason), with the same
+  reasoning as the export: no library, and text is what every USD tool can write. The reader
+  takes stage metadata (`upAxis`, Y by default; `metersPerUnit`, 0.01 by default, matched to a
+  document unit or applied as a factor; `defaultPrim`), prims with their attributes (first
+  time sample), connections, relationships and references; variant sets are skipped.
+  Transform operations compose in `xformOpOrder` (`translate`, `scale`, `rotateX|Y|Z`, the six
+  three-axis rotations about their first axis first, `orient`, `transform` as row vectors,
+  `!invert!` and `!resetXformStack!`). Polygons are ear clipped in their best-fitting plane;
+  `orientation = "leftHanded"` reverses them. A referencing prim keeps its own transform when
+  it has operations, else takes the referenced prim's, and places the referenced meshes again,
+  so the shared importer makes them a component (docs/09 §6). Missing references and textures
+  are `W2004` notices.

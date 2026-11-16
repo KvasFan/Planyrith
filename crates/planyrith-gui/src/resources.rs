@@ -90,7 +90,7 @@ impl FileRequest {
                 &[
                     "glb", "gltf", "obj", "stl", "3mf", "ply", "dae", "ifc", "fbx", "dxf", "skp",
                     "skb", "plyr", "plyrc", "png", "jpg", "jpeg", "webp", "csv", "step", "stp",
-                    "igs", "iges",
+                    "igs", "iges", "usda", "usdz", "usd",
                 ],
                 false,
             ),
@@ -1388,6 +1388,21 @@ fn face_mode_label(mode: FaceMode) -> &'static str {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    /// Every extension File › Import offers is an import format the core
+    /// reads, USD included (milestone 1.43).
+    #[test]
+    fn the_import_filter_matches_the_formats() {
+        use planyrith_core::io::import::ImportFormat;
+        let (_, _, extensions, _) = FileRequest::Import.dialog();
+        for ext in extensions {
+            let format = ImportFormat::from_extension(ext).unwrap();
+            assert!(ImportFormat::supported().contains(&format), "{ext}");
+        }
+        for ext in ["usda", "usdz"] {
+            assert!(extensions.contains(&ext));
+        }
+    }
 
     #[test]
     fn search_matches_every_word_ignoring_case() {

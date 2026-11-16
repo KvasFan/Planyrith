@@ -545,6 +545,10 @@ by clicking, dispatching the same commands.
 Complete docs/09's USD row: import of text USD (`.usda`) and USDZ packages holding text layers:
 meshes, transforms, references as components, display colors and preview materials.
 
+- **Done (2026-11-16):** `import` of `.usda`/`.usdz` (text layers) with transforms, units,
+  materials and textures, references as components; File › Import offers it (docs/09 §5 and
+  Decisions). Binary layers remain out of scope.
+
 ## Post-1.0 candidates
 Other limits remain listed against their original milestones; no unrelated feature scope is
 added by the continuation milestones 1.19–1.32.

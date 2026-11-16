@@ -2822,3 +2822,76 @@ text --at 400,200,100 --text Corner --layout '{\"world_offset\":[100,100,100],\"
         "{info}"
     );
 }
+
+/// docs/13 1.43: a text USD stage imports through the command line, with
+/// its referenced prim placed again as a component.
+#[test]
+fn usd_text_stages_import() {
+    let dir = scratch("usd-import");
+    let stage = dir.join("pair.usda");
+    std::fs::write(
+        &stage,
+        r#"#usda 1.0
+(
+    metersPerUnit = 0.001
+    upAxis = "Z"
+)
+
+def Xform "World"
+{
+    def Mesh "Tri"
+    {
+        int[] faceVertexCounts = [4]
+        int[] faceVertexIndices = [0, 1, 2, 3]
+        point3f[] points = [(0, 0, 0), (100, 0, 0), (100, 100, 0), (0, 100, 0)]
+        color3f[] primvars:displayColor = [(0, 0, 1)]
+    }
+
+    def Xform "Again" (
+        references = </World/Tri>
+    )
+    {
+        double3 xformOp:translate = (200, 0, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+}
+"#,
+    )
+    .unwrap();
+    let doc = dir.join("pair.plyr");
+    planyrith()
+        .args(["new", "-o", doc.to_str().unwrap()])
+        .assert()
+        .success();
+    let out = json_of(
+        &planyrith()
+            .args([
+                "import",
+                "-f",
+                doc.to_str().unwrap(),
+                stage.to_str().unwrap(),
+                "--json",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout,
+    );
+    assert_eq!(out["output"]["format"], "usd", "{out}");
+    let info = json_of(
+        &planyrith()
+            .args(["info", "-f", doc.to_str().unwrap(), "--json"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout,
+    );
+    assert_eq!(
+        info["output"]["counts"]["definitions_total"]["instances"], 2,
+        "{info}"
+    );
+    assert_eq!(
+        info["output"]["bounds"]["max"],
+        serde_json::json!([300.0, 100.0, 0.0])
+    );
+}
