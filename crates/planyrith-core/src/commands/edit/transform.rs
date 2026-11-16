@@ -437,6 +437,84 @@ impl CollisionSnapshot {
     }
 }
 
+/// How much of `delta` the groups and components `targets` names can move
+/// before touching another visible object, and where they touch (docs/05
+/// §4.4, milestone 1.37).
+fn stop_at_contact(
+    tx: &mut Transaction<'_>,
+    common: &CommonParams,
+    targets: &Query,
+    delta: DVec3,
+) -> Result<(f64, Option<ContactOutput>), CommandError> {
+    use super::contact::{Body, first_contact};
+    use crate::document::{EntityKey, InstancePath};
+    let target = target_container(tx, common)?;
+    let ids = targets_in(tx, &target, targets)?;
+    let entities = tx
+        .document()
+        .container(target.container)
+        .ok_or_else(|| CommandError::Internal("edit context vanished".into()))?;
+    let mut prefixes: Vec<Vec<EntityKey>> = Vec::new();
+    for id in &ids {
+        match id {
+            EntityId::Group(_) | EntityId::Instance(_) => {
+                let pid = entities
+                    .pid_of(*id)
+                    .ok_or_else(|| CommandError::Internal("an object without a pid".into()))?;
+                let mut steps = target.context.path.steps.clone();
+                steps.push(EntityKey::Pid(pid));
+                prefixes.push(steps);
+            }
+            EntityId::Edge(_) | EntityId::Face(_) => {
+                return Err(CommandError::invalid_param(
+                    "stop_at_contact",
+                    "only groups and components stop at contact; make the geometry a group first",
+                ));
+            }
+            _ => {}
+        }
+    }
+    let moving_path = |path: &InstancePath| {
+        prefixes
+            .iter()
+            .any(|p| path.steps.len() >= p.len() && path.steps[..p.len()] == p[..])
+    };
+    let tol = *tx.tolerances();
+    let doc = tx.document();
+    let (mut moving, mut still) = (Vec::new(), Vec::new());
+    for item in objects(tx, common, None, false)? {
+        let Some(body) = Body::of(doc, &item, &tol) else {
+            continue;
+        };
+        if moving_path(&item.path) {
+            moving.push(body);
+        } else {
+            still.push(body);
+        }
+    }
+    if moving.is_empty() {
+        return Err(CommandError::invalid_param(
+            "stop_at_contact",
+            "the targets hold no visible geometry to stop",
+        ));
+    }
+    Ok(match first_contact(&moving, &still, delta, &tol) {
+        Some(c) => {
+            let name = |p: &InstancePath| crate::document::selection::occurrence_name(doc, p);
+            (
+                c.fraction,
+                Some(ContactOutput {
+                    fraction: c.fraction,
+                    distance_mm: c.fraction * delta.length(),
+                    moving: name(&c.moving),
+                    against: name(&c.against),
+                }),
+            )
+        }
+        None => (1.0, None),
+    })
+}
+
 /// `move`/`rotate` output (docs/05 §4.4–§4.5), including optional interference measurements.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct MoveOutput {
@@ -447,6 +525,10 @@ pub struct MoveOutput {
     /// involving changed or copied occurrences are measured; units are mm³/mm.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub interference: Option<InterferenceOutput>,
+    /// Where the move stopped at contact (with `stop_at_contact`, when it
+    /// touched something before the end).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contact: Option<ContactOutput>,
 }
 
 /// `move` parameters (docs/05 §4.4).
@@ -485,9 +567,26 @@ pub struct MoveParams {
     /// objects at the destination (mm³/mm); does not block movement.
     #[serde(default)]
     pub check_collisions: bool,
+    /// Stop moved groups and components where they first touch another
+    /// visible object along the straight path (milestone 1.37).
+    #[serde(default)]
+    pub stop_at_contact: bool,
     /// Fold faces that would become non-planar.
     #[serde(default = "yes")]
     pub auto_fold: bool,
+}
+
+/// Where a move stopped at contact (docs/05 §4.4, milestone 1.37).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct ContactOutput {
+    /// The share of the requested move made (0 to 1).
+    pub fraction: f64,
+    /// The distance moved, mm.
+    pub distance_mm: f64,
+    /// The moved object that touched.
+    pub moving: String,
+    /// The object it touched.
+    pub against: String,
 }
 
 impl MoveParams {
@@ -519,11 +618,24 @@ impl Command for Move {
     fn validate(&self, _doc: &Document, p: &MoveParams) -> Result<(), CommandError> {
         parse_targets(&p.targets)?;
         check_copies(p.copies)?;
+        if p.stop_at_contact && p.copy {
+            return Err(CommandError::invalid_param(
+                "stop_at_contact",
+                "copies do not stop at contact; move the objects themselves",
+            ));
+        }
         check_point("delta", p.delta()?)
     }
 
     fn apply(&self, tx: &mut Transaction<'_>, p: MoveParams) -> Result<MoveOutput, CommandError> {
-        let delta = p.delta()?;
+        let mut delta = p.delta()?;
+        let contact = if p.stop_at_contact {
+            let (fraction, contact) = stop_at_contact(tx, &p.common, &p.targets, delta)?;
+            delta *= fraction;
+            contact
+        } else {
+            None
+        };
         let opts = TransformOptions {
             auto_fold: p.auto_fold,
             check_intersections: p.check_intersections,
@@ -543,6 +655,7 @@ impl Command for Move {
         Ok(MoveOutput {
             transform,
             interference,
+            contact,
         })
     }
 
@@ -687,6 +800,7 @@ impl Command for Rotate {
         Ok(MoveOutput {
             transform,
             interference: CollisionSnapshot::report(snapshot, tx, &p.common)?,
+            contact: None,
         })
     }
 

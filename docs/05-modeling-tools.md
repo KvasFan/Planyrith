@@ -192,6 +192,7 @@ perpendicular to hovered edge); `Esc` = cancel current step (second `Esc` = canc
 - **Params:** `targets: Sel`, `from: Point` (grab point), `to: Point` | `delta: Vector`,
   `copy: bool` (false; `Ctrl` toggles), `copies: Count` (1) with `array: Linear { count, spacing: Between|Total } | None`,
   `check_collisions: bool` (false; report volumetric overlaps at the destination),
+  `stop_at_contact: bool` (false; stop at first contact along the path, below),
   `check_intersections: bool` (false: a move whose edges would cross other edges is refused;
   true: those edges are split, docs/03 §4.8), `auto_fold: bool` (true; `Alt` forces).
 - **Interactive:** hover an entity (auto-select if nothing selected; with a selection, moving any
@@ -212,10 +213,25 @@ perpendicular to hovered edge); `Esc` = cancel current step (second `Esc` = canc
   counts as no interference; failed intersections remain explicitly `undecided`. Movement is
   free and the result is advisory. This samples the current/destination placement; it does
   not sweep the path or prevent passing through a part between samples.
+- **Moving to contact (1.37):** with `stop_at_contact`, the groups and components named move
+  along the straight path only until they first touch another visible object (one with faces,
+  anywhere in the model; hidden ones are left out). Under a translation two polyhedra first
+  touch where a vertex meets a face or an edge meets an edge: each moving object's vertices are
+  cast along the move against the others' triangles, the others' vertices back against its
+  triangles, and its edges are swept against theirs (docs/03 §4.8 frames). Only contacts moving
+  *into* the other object count — against a face's outward normal, or into an edge's outward
+  cone (the sum of its faces' normals) — so objects resting on each other slide along or apart
+  freely; faces of open meshes count from both sides. The move is scaled to the earliest
+  contact (0 when already touching in the direction of the move). Loose edges and faces are
+  refused (make them a group), as are copies. Contacts already crossing at the start count
+  only where the move goes further into them.
 - **Output:** `{ moved: usize, copies: Vec<Pid>, folded_faces: usize, merged_vertices: usize,
-  interference?: { interferences, checked, undecided } }`; `interference` is absent unless
-  requested and has the units and fields of §8.4. `checked` counts all visible closed objects.
-- **GUI:** Move › Tool Options › Check collisions while moving. The scratch preview uses
+  interference?: { interferences, checked, undecided }, contact?: { fraction, distance_mm,
+  moving, against } }`; `interference` is absent unless requested and has the units and fields
+  of §8.4. `checked` counts all visible closed objects. `contact` is present when the move
+  stopped before its end.
+- **GUI:** Move › Tool Options › Stop at contact (previews and the final move; not copies).
+  Move › Tool Options › Check collisions while moving. The scratch preview uses
   the same command, shows red boxes around intersection bounds and a status count with pair
   names and volumes in its tooltip. Copy/Ctrl previews and numeric entry use the same flags.
   Turning the option off, cancelling or finishing clears the scratch report. Slow checks use
@@ -225,6 +241,10 @@ perpendicular to hovered edge); `Esc` = cancel current step (second `Esc` = canc
   → 3 new instances; typed `1500` along locked red axis moves exactly 1500 mm in X.
   Collision checks cover overlap/contact, unrelated pairs, copies, hidden/open objects,
   nested and shared definitions, native undo/redo, CLI/RPC parity and the actual GUI option.
+  Stopping: a box moving 500 stops after 200 against another and no further, moves freely
+  away, undoes in one step; a box resting on a floor slides but does not sink; crossed ridges
+  touch edge to edge at the analytic gap with no interference left; copies are refused;
+  CLI/RPC parity and the actual option.
 
 ### 4.5 `rotate`
 - **Params:** `targets: Sel`, `center: Point`, `axis: Vector`, `angle: Angle` | `from_point,
@@ -1265,7 +1285,7 @@ rollback, compatible native persistence and an actual GUI control test before co
   a second collision definition; preserve free direct modeling, ordinary output and native
   files when disabled. Detect affected occurrences from placement changes and mesh deltas,
   so shared definitions, nested parts and copies do not require re-evaluating a stale query.
-  Continuous path collision and stopping at contact remain deferred; Rotate/Scale follow in 1.23.
+  Rotate/Scale follow in 1.23; stopping at contact along a straight move follows in 1.37.
 
 - 2026-11-12 — **Molds and routing (1.18):** planar mold divisions reuse the solid boolean
   kernel; round tubes use explicit outer-diameter × wall presets, without claiming a pressure

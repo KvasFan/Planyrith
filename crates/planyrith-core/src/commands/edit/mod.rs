@@ -9,6 +9,7 @@
 
 #![warn(unused_variables, dead_code)]
 
+mod contact;
 mod erase;
 mod loft;
 mod modeling;

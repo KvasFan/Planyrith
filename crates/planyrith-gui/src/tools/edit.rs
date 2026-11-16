@@ -345,13 +345,20 @@ pub struct MoveTool {
     copy: bool,
     pointer_copy: bool,
     check_collisions: bool,
+    /// Tool Options: stop moved groups and components at first contact.
+    stop_at_contact: bool,
 }
 
 impl MoveTool {
     fn params(&self, to: DVec3, copy: bool) -> Option<Value> {
         let (from, targets) = self.grab.as_ref()?;
-        (from.distance(to) > tol().length)
-            .then(|| json!({ "targets": targets, "from": pt(*from), "to": pt(to), "copy": copy, "check_collisions": self.check_collisions }))
+        (from.distance(to) > tol().length).then(|| {
+            let mut p = json!({ "targets": targets, "from": pt(*from), "to": pt(to), "copy": copy, "check_collisions": self.check_collisions });
+            if self.stop_at_contact && !copy {
+                p["stop_at_contact"] = json!(true);
+            }
+            p
+        })
     }
 }
 
@@ -445,6 +452,10 @@ impl Tool for MoveTool {
         .on_hover_text(t(
             "Report overlaps at the current position; movement remains free.",
         ));
+        ui.checkbox(&mut self.stop_at_contact, t("Stop at contact"))
+            .on_hover_text(t(
+                "Moved groups and components stop where they first touch another object (not copies).",
+            ));
     }
 
     fn escape(&mut self) -> bool {
@@ -1109,6 +1120,36 @@ impl Tool for PaintTool {
 mod continuation_tests {
     use super::*;
     use egui_kittest::{Harness, kittest::Queryable};
+
+    /// Move › Tool Options › Stop at contact reaches the previews and the
+    /// final move, but not copies (milestone 1.37).
+    #[test]
+    fn stop_at_contact_reaches_the_move() {
+        let tool = MoveTool {
+            grab: Some((DVec3::ZERO, "group".into())),
+            ..Default::default()
+        };
+        let mut h = Harness::new_ui_state(
+            |ui, p: &mut (MoveTool, crate::session::Session, crate::viewport::Viewport)| {
+                let cx = p.2.cx(&p.1);
+                p.0.options(ui, &cx);
+            },
+            (
+                tool,
+                crate::session::Session::new(),
+                crate::viewport::Viewport::default(),
+            ),
+        );
+        h.run();
+        h.get_by_label(&t("Stop at contact")).click();
+        h.run();
+        let tool = &h.state().0;
+        let params = tool.params(DVec3::X * 100.0, false).unwrap();
+        assert_eq!(params["stop_at_contact"], true);
+        let params = tool.params(DVec3::X * 100.0, true).unwrap();
+        assert!(params.get("stop_at_contact").is_none());
+    }
+
     #[test]
     fn rotate_and_scale_options_reach_previews_and_numeric_completion() {
         let rotate = RotateTool {

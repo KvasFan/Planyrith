@@ -2541,6 +2541,13 @@ rectangle --corner-a 0,120,60 --corner-b 100,140,60
     const PART: &str = "part-create --name P --no-component
 feature-add --part group --command rectangle --params '{\"corner_a\":[0,0,0],\"corner_b\":[100,50,0]}'
 ";
+    const TWO_BOXES: &str = "rectangle --corner-a 0,0,0 --corner-b 100,100,0
+push-pull --face '{face & last}' --distance 100
+make-group --targets 'edge|face' --name A
+rectangle --corner-a 300,20,20 --corner-b 400,80,20
+push-pull --face '{face & last}' --distance 60
+make-group --targets 'edge|face' --name B
+";
     check_parity(
         "completed",
         vec![
@@ -2607,6 +2614,18 @@ feature-add --part group --command rectangle --params '{\"corner_a\":[0,0,0],\"c
                     "push-pull",
                     "--params",
                     r#"{"face":{"Pid":6},"distance":20}"#,
+                ],
+            },
+            ParityCase {
+                seed: TWO_BOXES,
+                name: "move",
+                params: json!({"targets":"group & name:A","delta":[500,0,0],"stop_at_contact":true}),
+                args: vec![
+                    "--targets",
+                    "group & name:A",
+                    "--delta",
+                    "500,0,0",
+                    "--stop-at-contact",
                 ],
             },
         ],

@@ -245,7 +245,7 @@ scenes; a bill of materials; collision detection while dragging; driving a mate 
   editing a mate's value, exploded views kept in the container (collapsed again on demand rather
   than per scene), the bill of materials (docs/05 §5.17). Tangency is completed in 1.21;
   Move checks placement interference in 1.22, Rotate/Scale in 1.23, and scenes capture
-  assembly placements in 1.24. Continuous path collision remains deferred. Interference is also checked on demand (§8.4).
+  assembly placements in 1.24; Move stops at contact in 1.37. Interference is also checked on demand (§8.4).
 
 ## 1.13.0 — Engineering drawings
 Sheet views tied to the model and kept current: projected, section, detail, auxiliary and
@@ -489,6 +489,10 @@ regenerated geometry to earlier geometry (plane, position, area), with the match
 
 Complete the deferred continuous collision of 1.12/1.22: an optional Move mode that stops a
 moving occurrence at first contact along its straight path, CLI/RPC first.
+
+- **Done (2026-11-16):** `move --stop-at-contact` with exact vertex–face and edge–edge contact
+  for translations, `contact` in the output and Move's Tool Options (docs/05 §4.4). Rotations
+  keep the advisory destination check of 1.23.
 
 ## 1.38.0 — Curved and assembled IGES
 

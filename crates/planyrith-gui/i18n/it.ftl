@@ -1213,3 +1213,5 @@ t-no-cutter-yet = Nessun taglio ancora
 t-or-split-it-with-a-surface-reaching-past-it-a-group = Oppure dividilo con una superficie che lo oltrepassa (un gruppo):
 t-split-by-cutter = Dividi con il taglio
 t-count-picked-faces-or-edges-were-found-again-where-the-change-moved-them = { $count } facce o spigoli scelti sono stati ritrovati dove la modifica li ha spostati.
+t-stop-at-contact = Fermati al contatto
+t-moved-groups-and-components-stop-where-they-first-touch-another-object-not-copies = Gruppi e componenti spostati si fermano dove toccano per primi un altro oggetto (non le copie).
