@@ -111,6 +111,37 @@ pub(crate) fn face_sets(
     Ok(sets)
 }
 
+/// The faces `q` names as loops in edit-context coordinates: a cutting
+/// surface (milestone 1.35).
+pub(crate) fn cutter_faces(
+    tx: &Transaction<'_>,
+    target: &Target,
+    param: &str,
+    q: &Query,
+) -> Result<Vec<Vec<Vec<DVec3>>>, CommandError> {
+    let mut out = Vec::new();
+    for set in face_sets(tx, target, param, q, true)? {
+        let mesh = tx
+            .document()
+            .container(set.container)
+            .ok_or_else(|| CommandError::Internal("a container vanished".into()))?
+            .mesh();
+        for f in &set.faces {
+            out.push(
+                rings(mesh, *f)?
+                    .into_iter()
+                    .map(|r| {
+                        r.iter()
+                            .map(|p| set.to_target.transform_point3(*p))
+                            .collect()
+                    })
+                    .collect(),
+            );
+        }
+    }
+    Ok(out)
+}
+
 /// A face's loops (outer first), in its container's coordinates.
 pub(crate) fn rings(mesh: &HalfEdgeMesh, f: FaceId) -> Result<Vec<Vec<DVec3>>, CommandError> {
     let face = mesh.face_ref(f)?;
@@ -452,11 +483,38 @@ pub struct SurfaceTrimParams {
     /// The surface: faces of the edit context, or groups.
     pub surface: Query,
     /// A point of the cutting plane.
-    #[schemars(with = "PointSchema")]
-    pub point: DVec3,
+    #[serde(default)]
+    #[schemars(with = "Option<PointSchema>")]
+    pub point: Option<DVec3>,
     /// The plane's normal: what lies on the side it points to is removed.
-    #[schemars(with = "VectorSchema")]
-    pub normal: DVec3,
+    #[serde(default)]
+    #[schemars(with = "Option<VectorSchema>")]
+    pub normal: Option<DVec3>,
+    /// Or a cutting surface (faces of the edit context, or groups): what
+    /// lies on the side its faces face, within its extent, is removed
+    /// (milestone 1.35).
+    #[serde(default)]
+    pub by: Option<Query>,
+    /// With `by`: remove what lies on the other side instead.
+    #[serde(default)]
+    pub flip: bool,
+}
+
+/// What cuts a surface: a plane (edit-context coordinates) or a surface's
+/// faces with the slab on the side to remove.
+enum Cutter {
+    Plane(Plane),
+    Surface {
+        faces: Box<HalfEdgeMesh>,
+        slab: Box<HalfEdgeMesh>,
+    },
+}
+
+/// What happens to one face.
+enum Cut {
+    Keep,
+    Remove,
+    Split(Vec<Vec<Vec<DVec3>>>),
 }
 
 /// What `surface-trim` did.
@@ -468,6 +526,111 @@ pub struct SurfaceTrimOutput {
     pub pieces: usize,
     /// Area removed, mm².
     pub removed_mm2: f64,
+}
+
+/// A face (loops `r`) cut by a plane: what lies on the normal's side goes.
+fn cut_by_plane(
+    r: &[Vec<DVec3>],
+    sides: &FaceSides,
+    plane: &Plane,
+    tol: &Tolerances,
+) -> Result<Cut, CommandError> {
+    let s: Vec<f64> = r
+        .iter()
+        .flatten()
+        .map(|v| plane.signed_distance(*v))
+        .collect();
+    if s.iter().all(|x| *x <= tol.length) {
+        return Ok(Cut::Keep);
+    }
+    if s.iter().all(|x| *x >= -tol.length) {
+        return Ok(Cut::Remove);
+    }
+    // A copy of the face, cut along the plane.
+    let mut tmp = HalfEdgeMesh::from_indexed(&indexed(&[(r.to_vec(), sides.clone())], tol), tol)?;
+    let Some(tf) = tmp.faces().map(|(g, _)| g).next() else {
+        return Ok(Cut::Keep);
+    };
+    for (a, b) in face_cut(&tmp, tf, plane, tol) {
+        tmp.add_edge(a, b, tol, &mut NoDeltas)?;
+    }
+    let parts: Vec<FaceId> = tmp.faces().map(|(g, _)| g).collect();
+    let mut kept = Vec::new();
+    for g in parts {
+        if plane.signed_distance(inside_point(&tmp, g, tol)?) < 0.0 {
+            kept.push(rings(&tmp, g)?);
+        }
+    }
+    Ok(Cut::Split(kept))
+}
+
+/// A face (loops `r`, container coordinates) cut where `faces` (edit-context
+/// coordinates) cross it; pieces inside `slab` go.
+fn cut_by_surface(
+    r: &[Vec<DVec3>],
+    sides: &FaceSides,
+    to_target: &DAffine3,
+    inv: &DAffine3,
+    faces: &HalfEdgeMesh,
+    slab: &HalfEdgeMesh,
+    tol: &Tolerances,
+) -> Result<Cut, CommandError> {
+    use crate::geom::boolean::{Classification, classify_point};
+    let world: Vec<Vec<DVec3>> = r
+        .iter()
+        .map(|l| l.iter().map(|p| to_target.transform_point3(*p)).collect())
+        .collect();
+    let mut tmp = HalfEdgeMesh::from_indexed(&indexed(&[(world, sides.clone())], tol), tol)?;
+    let Some(tf) = tmp.faces().map(|(g, _)| g).next() else {
+        return Ok(Cut::Keep);
+    };
+    let mut chords = Vec::new();
+    for (g, _) in faces.faces() {
+        chords.extend(crate::geom::intersect::face_face(
+            &tmp,
+            tf,
+            &DAffine3::IDENTITY,
+            faces,
+            g,
+            &DAffine3::IDENTITY,
+            tol,
+        )?);
+    }
+    for c in chords {
+        tmp.add_edge(c.a, c.b, tol, &mut NoDeltas)?;
+    }
+    // Chords that end inside the face split nothing: drop them.
+    let dangling: Vec<EdgeId> = tmp
+        .edges()
+        .map(|(e, _)| e)
+        .filter(|e| matches!(tmp.edge_faces(*e), Ok([Some(a), Some(b)]) if a == b))
+        .collect();
+    for e in dangling {
+        if tmp.edge(e).is_some() {
+            tmp.erase_edge(e, tol, &mut NoDeltas)?;
+        }
+    }
+    let parts: Vec<FaceId> = tmp.faces().map(|(g, _)| g).collect();
+    let mut kept = Vec::new();
+    let mut gone = 0;
+    for g in &parts {
+        let inside = classify_point(slab, inside_point(&tmp, *g, tol)?, tol)?;
+        if inside == Classification::Inside {
+            gone += 1;
+        } else {
+            kept.push(
+                rings(&tmp, *g)?
+                    .into_iter()
+                    .map(|l| l.iter().map(|p| inv.transform_point3(*p)).collect())
+                    .collect(),
+            );
+        }
+    }
+    Ok(match gone {
+        0 => Cut::Keep,
+        n if n == parts.len() => Cut::Remove,
+        _ => Cut::Split(kept),
+    })
 }
 
 fn on_segment(x: DVec3, a: DVec3, b: DVec3, tol: &Tolerances) -> bool {
@@ -494,10 +657,21 @@ impl Command for SurfaceTrim {
     }
 
     fn validate(&self, _: &Document, p: &SurfaceTrimParams) -> Result<(), CommandError> {
-        if p.normal.try_normalize().is_none() {
-            return Err(CommandError::invalid_param("normal", "must be non-zero"));
+        match (&p.by, p.point, p.normal) {
+            (Some(_), None, None) => Ok(()),
+            (None, Some(_), Some(n)) if n.try_normalize().is_some() && !p.flip => Ok(()),
+            (None, Some(_), Some(_)) if p.flip => Err(CommandError::invalid_param(
+                "flip",
+                "turn the plane's normal around instead",
+            )),
+            (None, Some(_), Some(_)) => {
+                Err(CommandError::invalid_param("normal", "must be non-zero"))
+            }
+            _ => Err(CommandError::invalid_param(
+                "by",
+                "give a plane (point and normal) or a cutting surface (by)",
+            )),
         }
-        Ok(())
     }
 
     fn apply(
@@ -507,9 +681,55 @@ impl Command for SurfaceTrim {
     ) -> Result<SurfaceTrimOutput, CommandError> {
         let target = target_container(tx, &p.common)?;
         let tol = *tx.tolerances();
-        let point = target.local.transform_point3(p.point);
-        let normal = target.local.transform_vector3(p.normal);
         let sets = face_sets(tx, &target, "surface", &p.surface, false)?;
+        let cutter = match (&p.by, p.point, p.normal) {
+            (Some(by), _, _) => {
+                let faces = cutter_faces(tx, &target, "by", by)?;
+                let dir = crate::geom::surface::facing(&faces)?;
+                // Deep enough to hold everything trimmed.
+                let mut reach = 0.0f64;
+                let all = faces.iter().flatten().flatten();
+                for set in &sets {
+                    let mesh = tx
+                        .document()
+                        .container(set.container)
+                        .ok_or_else(|| CommandError::Internal("a container vanished".into()))?
+                        .mesh();
+                    for (_, v) in mesh.vertices() {
+                        let q = set.to_target.transform_point3(v.position);
+                        for c in all.clone() {
+                            reach = reach.max(q.distance(*c));
+                        }
+                    }
+                }
+                let dir = if p.flip { -dir } else { dir };
+                let slab = crate::geom::surface::slab(&faces, dir, 2.0 * reach + 1.0, &tol)?;
+                let mesh = HalfEdgeMesh::from_indexed(
+                    &indexed(
+                        &faces
+                            .iter()
+                            .map(|f| (f.clone(), FaceSides::default()))
+                            .collect::<Vec<_>>(),
+                        &tol,
+                    ),
+                    &tol,
+                )?;
+                Cutter::Surface {
+                    faces: Box::new(mesh),
+                    slab: Box::new(slab),
+                }
+            }
+            (None, Some(point), Some(normal)) => Cutter::Plane(Plane::from_point_normal(
+                target.local.transform_point3(point),
+                target.local.transform_vector3(normal),
+            )),
+            _ => {
+                return Err(CommandError::invalid_param(
+                    "by",
+                    "give a plane or a surface",
+                ));
+            }
+        };
         let mut out = SurfaceTrimOutput {
             trimmed: 0,
             pieces: 0,
@@ -517,8 +737,14 @@ impl Command for SurfaceTrim {
         };
         for set in sets {
             let inv = crate::geom::intersect::invert(&set.to_target)?;
-            let n = (set.to_target.matrix3.transpose() * normal).normalize_or_zero();
-            let plane = Plane::from_point_normal(inv.transform_point3(point), n);
+            let plane = match &cutter {
+                Cutter::Plane(pl) => {
+                    let n = (set.to_target.matrix3.transpose() * pl.normal).normalize_or_zero();
+                    let point = pl.normal * -pl.d;
+                    Some(Plane::from_point_normal(inv.transform_point3(point), n))
+                }
+                Cutter::Surface { .. } => None,
+            };
             let mut erase = Vec::new();
             let mut touched: Vec<EdgeId> = Vec::new();
             let mut soft: Vec<(DVec3, DVec3)> = Vec::new();
@@ -531,15 +757,18 @@ impl Command for SurfaceTrim {
                     .mesh();
                 for f in &set.faces {
                     let r = rings(mesh, *f)?;
-                    let s: Vec<f64> = r
-                        .iter()
-                        .flatten()
-                        .map(|v| plane.signed_distance(*v))
-                        .collect();
-                    if s.iter().all(|x| *x <= tol.length) {
+                    let face = mesh.face_ref(*f)?;
+                    let sides = face.sides.clone();
+                    let cut = match (&cutter, &plane) {
+                        (_, Some(plane)) => cut_by_plane(&r, &sides, plane, &tol)?,
+                        (Cutter::Surface { faces, slab }, None) => {
+                            cut_by_surface(&r, &sides, &set.to_target, &inv, faces, slab, &tol)?
+                        }
+                        (Cutter::Plane(_), None) => Cut::Keep,
+                    };
+                    if matches!(cut, Cut::Keep) {
                         continue;
                     }
-                    let face = mesh.face_ref(*f)?;
                     erase.push(*f);
                     let mut loops = vec![face.outer];
                     loops.extend(face.holes.iter().copied());
@@ -559,30 +788,17 @@ impl Command for SurfaceTrim {
                         }
                     }
                     let area = rings_area(&r);
-                    if s.iter().all(|x| *x >= -tol.length) {
-                        out.removed_mm2 += area;
-                        continue;
-                    }
-                    // A copy of the face, cut along the plane.
-                    let sides = face.sides.clone();
-                    let mut tmp =
-                        HalfEdgeMesh::from_indexed(&indexed(&[(r, sides.clone())], &tol), &tol)?;
-                    let Some(tf) = tmp.faces().map(|(g, _)| g).next() else {
-                        continue;
-                    };
-                    for (a, b) in face_cut(&tmp, tf, &plane, &tol) {
-                        tmp.add_edge(a, b, &tol, &mut NoDeltas)?;
-                    }
-                    let parts: Vec<FaceId> = tmp.faces().map(|(g, _)| g).collect();
-                    let mut left = 0.0;
-                    for g in parts {
-                        if plane.signed_distance(inside_point(&tmp, g, &tol)?) < 0.0 {
-                            let pr = rings(&tmp, g)?;
-                            left += rings_area(&pr);
-                            kept.push((pr, sides.clone()));
+                    match cut {
+                        Cut::Split(parts) => {
+                            let mut left = 0.0;
+                            for pr in parts {
+                                left += rings_area(&pr);
+                                kept.push((pr, sides.clone()));
+                            }
+                            out.removed_mm2 += area - left;
                         }
+                        _ => out.removed_mm2 += area,
                     }
-                    out.removed_mm2 += area - left;
                 }
             }
             if erase.is_empty() {
@@ -632,7 +848,7 @@ impl Command for SurfaceTrim {
         }
         if out.trimmed == 0 {
             return Err(CommandError::NotApplicable(
-                "nothing of the surface lies on the plane's normal side".into(),
+                "nothing of the surface lies on the side to remove".into(),
             ));
         }
         Ok(out)
@@ -908,5 +1124,97 @@ mod tests {
         assert_eq!(x["open_edges"], 4);
         let err = e.execute_erased("surface-extend", json!({"edges": "edge", "distance": 10}));
         assert!(err.is_err());
+    }
+
+    /// A vertical chevron (two faces) grouped as "Cutter"; whether its faces
+    /// face +x.
+    fn chevron(e: &mut Engine) -> bool {
+        run(
+            e,
+            "line",
+            json!({ "points": [[40, -10, -10], [60, 50, -10], [60, 50, 10], [40, -10, 10]], "close": true }),
+        );
+        run(
+            e,
+            "line",
+            json!({ "points": [[60, 50, -10], [40, 110, -10], [40, 110, 10], [60, 50, 10]], "close": true }),
+        );
+        run(
+            e,
+            "make-group",
+            json!({ "targets": "all", "name": "Cutter" }),
+        );
+        let doc = e.document();
+        let (_, g) = doc.model.groups().next().unwrap();
+        let mesh = doc.definition(g.definition).unwrap().entities.mesh();
+        mesh.faces().map(|(_, f)| f.plane.normal.x).sum::<f64>() > 0.0
+    }
+
+    #[test]
+    fn a_surface_trims_another() {
+        for flip in [false, true] {
+            let mut e = Engine::new(Document::new(), Arc::new(CommandRegistry::with_builtins()));
+            // Removing the +x side, or the other.
+            let plus_x = chevron(&mut e) != flip;
+            let removed = if plus_x {
+                10_000.0 - 15_500.0 / 3.0
+            } else {
+                15_500.0 / 3.0
+            };
+            run(
+                &mut e,
+                "rectangle",
+                json!({ "corner_a": [0, 0, 0], "corner_b": [100, 100, 0] }),
+            );
+            let out = run(
+                &mut e,
+                "surface-trim",
+                json!({ "surface": "face", "by": "group & name:Cutter", "flip": flip }),
+            );
+            assert!(
+                (f(&out["removed_mm2"]) - removed).abs() < 1e-6,
+                "{flip}: {out}"
+            );
+            let mesh = e.document().model.mesh();
+            let left: f64 = mesh.faces().map(|(g, _)| mesh.face_area(g).unwrap()).sum();
+            assert!((left - (10_000.0 - removed)).abs() < 1e-6, "{left}");
+            // Nothing kept lies beyond the chevron on the removed side.
+            for (_, v) in mesh.vertices() {
+                let p = v.position;
+                let x = if p.y <= 50.0 {
+                    40.0 + (p.y + 10.0) / 3.0
+                } else {
+                    60.0 - (p.y - 50.0) / 3.0
+                };
+                if !plus_x {
+                    assert!(p.x >= x - 1e-6, "{p}");
+                } else {
+                    assert!(p.x <= x + 1e-6, "{p}");
+                }
+            }
+            e.undo().unwrap();
+            let mesh = e.document().model.mesh();
+            assert_eq!(mesh.face_count(), 1);
+        }
+        // A sheet beyond the cutter's extent (above its height) is untouched.
+        let mut e = Engine::new(Document::new(), Arc::new(CommandRegistry::with_builtins()));
+        chevron(&mut e);
+        run(
+            &mut e,
+            "rectangle",
+            json!({ "corner_a": [0, 0, 50], "corner_b": [100, 100, 50] }),
+        );
+        let err = e
+            .execute_erased("surface-trim", json!({ "surface": "face", "by": "group" }))
+            .unwrap_err();
+        assert!(err.to_string().contains("nothing"), "{err}");
+        // A plane or a surface, not both.
+        let err = e
+            .execute_erased(
+                "surface-trim",
+                json!({ "surface": "face", "by": "group", "point": [0, 0, 0], "normal": [1, 0, 0] }),
+            )
+            .unwrap_err();
+        assert!(err.to_string().contains("plane"), "{err}");
     }
 }

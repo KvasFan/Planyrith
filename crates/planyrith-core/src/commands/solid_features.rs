@@ -898,11 +898,18 @@ pub struct SplitParams {
     /// A face of the solid to split.
     pub face: Query,
     /// A point of the cutting plane.
-    #[schemars(with = "PointSchema")]
-    pub point: DVec3,
+    #[serde(default)]
+    #[schemars(with = "Option<PointSchema>")]
+    pub point: Option<DVec3>,
     /// The cutting plane's normal.
-    #[schemars(with = "VectorSchema")]
-    pub normal: DVec3,
+    #[serde(default)]
+    #[schemars(with = "Option<VectorSchema>")]
+    pub normal: Option<DVec3>,
+    /// Or a cutting surface: faces of the edit context, or groups. It must
+    /// reach past the solid on every side; "Split 1" lies on the side its
+    /// faces face (milestone 1.35).
+    #[serde(default)]
+    pub by: Option<Query>,
 }
 
 /// A box on the `n` side of the plane through `p`, covering `size`.
@@ -942,10 +949,17 @@ impl Command for SplitSolid {
     }
 
     fn validate(&self, _: &Document, p: &SplitParams) -> Result<(), CommandError> {
-        if p.normal.try_normalize().is_none() {
-            return Err(CommandError::invalid_param("normal", "must be non-zero"));
+        match (&p.by, p.point, p.normal) {
+            (Some(_), None, None) => Ok(()),
+            (None, Some(_), Some(n)) if n.try_normalize().is_some() => Ok(()),
+            (None, Some(_), Some(_)) => {
+                Err(CommandError::invalid_param("normal", "must be non-zero"))
+            }
+            _ => Err(CommandError::invalid_param(
+                "by",
+                "give a plane (point and normal) or a cutting surface (by)",
+            )),
         }
-        Ok(())
     }
 
     fn apply(
@@ -956,15 +970,47 @@ impl Command for SplitSolid {
         let target = target_container(tx, &p.common)?;
         let face = one_face(tx, &target, "face", &p.face)?;
         let (faces, solid) = shell_of(tx, &target, face)?;
-        let point = target.local.transform_point3(p.point);
-        let n = target.local.transform_vector3(p.normal).normalize();
         let tol = *tx.tolerances();
-        let size = 4.0 * bounds_diagonal(&solid)
-            + solid
-                .vertices()
-                .map(|(_, v)| (v.position - point).length())
-                .fold(0.0, f64::max);
-        let tool = half_space(point, n, size, &tol)?;
+        let reach = |from: DVec3| {
+            4.0 * bounds_diagonal(&solid)
+                + solid
+                    .vertices()
+                    .map(|(_, v)| (v.position - from).length())
+                    .fold(0.0, f64::max)
+        };
+        let tool = match (&p.by, p.point, p.normal) {
+            (Some(by), _, _) => {
+                let cutter = crate::commands::surfaces::cutter_faces(tx, &target, "by", by)?;
+                let dir = crate::geom::surface::facing(&cutter)?;
+                for q in crate::geom::surface::border_points(&cutter, &tol) {
+                    if crate::geom::boolean::classify_point(&solid, q, &tol)?
+                        == crate::geom::boolean::Classification::Inside
+                    {
+                        return Err(CommandError::NotApplicable(
+                            "the cutting surface must reach past the solid on every side".into(),
+                        ));
+                    }
+                }
+                let from = cutter
+                    .first()
+                    .and_then(|f| f.first())
+                    .and_then(|r| r.first())
+                    .copied()
+                    .unwrap_or_default();
+                crate::geom::surface::slab(&cutter, dir, reach(from), &tol)?
+            }
+            (None, Some(point), Some(normal)) => {
+                let point = target.local.transform_point3(point);
+                let n = target.local.transform_vector3(normal).normalize();
+                half_space(point, n, reach(point), &tol)?
+            }
+            _ => {
+                return Err(CommandError::invalid_param(
+                    "by",
+                    "give a plane or a surface",
+                ));
+            }
+        };
         let above = boolean(
             BooleanOp::Intersect,
             &solid,
@@ -1396,5 +1442,74 @@ mod tests {
             (out["volume_mm3"].as_f64().unwrap() - (200_000.0 + 160.0 * 4.0 * 30.0)).abs() < 1e-3
         );
         assert!(e.document().model.mesh().is_solid());
+    }
+
+    /// A cube of 100 beside a cutting surface drawn first and grouped.
+    fn cube_and_cutter(cutter: &[Value]) -> Engine {
+        let mut e = Engine::new(Document::new(), Arc::new(CommandRegistry::with_builtins()));
+        for points in cutter {
+            e.execute_erased("line", json!({ "points": points, "close": true }))
+                .unwrap();
+        }
+        e.execute_erased("make-group", json!({ "targets": "all", "name": "Cutter" }))
+            .unwrap();
+        e.execute_erased(
+            "rectangle",
+            json!({ "corner_a": [0, 0, 0], "corner_b": [100, 100, 0] }),
+        )
+        .unwrap();
+        e.execute_erased(
+            "push-pull",
+            json!({ "face": { "Query": "face & plane:xy@0" }, "distance": 100 }),
+        )
+        .unwrap();
+        e
+    }
+
+    #[test]
+    fn a_surface_splits_a_solid() {
+        // A ridge facing up, past the cube on every side.
+        let mut e = cube_and_cutter(&[
+            json!([[-50, -50, 30], [50, -50, 70], [50, 150, 70], [-50, 150, 30]]),
+            json!([[50, -50, 70], [150, -50, 30], [150, 150, 30], [50, 150, 70]]),
+        ]);
+        assert!((volume(&e).abs() - 1e6).abs() < 1e-6);
+        e.execute_erased(
+            "split-solid",
+            json!({ "face": "face & plane:xy@0", "by": "group & name:Cutter" }),
+        )
+        .unwrap();
+        let doc = e.document();
+        let mut volumes: Vec<(String, f64)> = doc
+            .model
+            .groups()
+            .filter(|(_, g)| g.name.starts_with("Split"))
+            .map(|(_, g)| {
+                let m = doc.definition(g.definition).unwrap().entities.mesh();
+                assert!(m.is_solid());
+                (g.name.clone(), m.volume().unwrap())
+            })
+            .collect();
+        volumes.sort_by(|a, b| a.0.cmp(&b.0));
+        assert_eq!(volumes.len(), 2, "{volumes:?}");
+        assert!((volumes[0].1 - 400_000.0).abs() < 1e-3, "{volumes:?}");
+        assert!((volumes[1].1 - 600_000.0).abs() < 1e-3, "{volumes:?}");
+        e.undo().unwrap();
+        assert!((volume(&e).abs() - 1e6).abs() < 1e-6);
+
+        // A surface ending inside the solid does not split it.
+        let mut e = cube_and_cutter(&[json!([
+            [20, 20, 50],
+            [80, 20, 50],
+            [80, 80, 50],
+            [20, 80, 50]
+        ])]);
+        let err = e
+            .execute_erased(
+                "split-solid",
+                json!({ "face": "face & plane:xy@0", "by": "group & name:Cutter" }),
+            )
+            .unwrap_err();
+        assert!(err.to_string().contains("reach past"), "{err}");
     }
 }

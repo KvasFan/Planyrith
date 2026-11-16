@@ -2530,6 +2530,14 @@ sheet-metal-base --profile face --thickness 2
 sheet-metal-flange --part group --edge 0 --length 30
 sheet-metal-flange --part group --edge 1 --length 30
 ";
+    const RIDGE_CUBE: &str =
+        "line --points -50,-50,30 --points 50,-50,70 --points 50,150,70 --points -50,150,30 --close
+line --points 50,-50,70 --points 150,-50,30 --points 150,150,30 --points 50,150,70 --close
+make-group --targets all --name Ridge
+rectangle --corner-a 0,0,0 --corner-b 100,100,0
+push-pull --face '{face & plane:xy@0}' --distance 100
+rectangle --corner-a 0,120,60 --corner-b 100,140,60
+";
     check_parity(
         "completed",
         vec![
@@ -2565,6 +2573,24 @@ sheet-metal-flange --part group --edge 1 --length 30
                     "round",
                     "--relief-size",
                     "4mm",
+                ],
+            },
+            ParityCase {
+                seed: RIDGE_CUBE,
+                name: "split-solid",
+                params: json!({"face":"face & plane:xy@0","by":"group & name:Ridge"}),
+                args: vec!["--face", "face & plane:xy@0", "--by", "group & name:Ridge"],
+            },
+            ParityCase {
+                seed: RIDGE_CUBE,
+                name: "surface-trim",
+                params: json!({"surface":"face & plane:xy@60","by":"group & name:Ridge","flip":true}),
+                args: vec![
+                    "--surface",
+                    "face & plane:xy@60",
+                    "--by",
+                    "group & name:Ridge",
+                    "--flip",
                 ],
             },
         ],

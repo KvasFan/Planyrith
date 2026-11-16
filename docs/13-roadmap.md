@@ -472,6 +472,10 @@ reliefs where two flanges meet at a base corner, in the 3D part and the flat pat
 Complete 1.11/1.15: trim a surface by another surface and split a solid by a surface (open
 surface groups), keeping both sides as separate groups.
 
+- **Done (2026-11-16):** `surface-trim --by [--flip]` and `split-solid --by` with the cutter's
+  slab (docs/03 §4.21, docs/05 §8.9, §8.14); Surfaces and Solid Features windows pick the
+  cutter from the selection. Cutters must face one way along their mean normal.
+
 ## 1.36.0 — Persistent references across regeneration
 
 Complete 1.10: feature references to faces and edges survive regeneration by matching

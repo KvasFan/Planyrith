@@ -340,6 +340,16 @@ sign of the volume, and neighboring side pieces closer than 20° are softened an
 - **Trimming:** a face crossing the plane is copied into a scratch mesh, cut along the plane
   (the section slices of docs/05 §5.11), and the pieces whose inner point lies on the kept
   side replace it.
+- **Cutting surfaces (1.35):** a surface used as a cutter faces its area-weighted mean normal
+  `d`; it is refused when a face's normal turns back (`n·d ≤ 0`), so it is one sheet seen along
+  `d`. Its *slab* is the solid swept along `d` by a depth: its faces turned over, the same faces
+  moved by `d × depth`, and a wall on each border edge (a directed edge whose reverse no other
+  face uses; an edge used twice the same way, or by three faces, is refused). A point inside the
+  slab lies on the surface's `d` side within its extent. Trimming by a surface cuts each face
+  along its intersections with the cutter's faces (§4.12), drops chords that end inside the
+  face, and removes the pieces whose inner point is inside the slab (built along `−d` when
+  flipped). Splitting a solid by a surface intersects and subtracts the slab (§4.13), deep enough
+  to hold the solid, once every border vertex of the cutter lies outside the solid.
 
 ### 4.22 Routing (`geom::routing`)
 Round hollow sections have explicit outer diameter and radial wall thickness, in millimeters.

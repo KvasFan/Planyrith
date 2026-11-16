@@ -1256,6 +1256,7 @@ pub struct SolidFeaturesWindow {
     angle_deg: f64,
     plane: Plane,
     height_mm: f64,
+    cutter: Option<String>,
     note: Option<String>,
 }
 
@@ -1273,6 +1274,7 @@ impl Default for SolidFeaturesWindow {
             angle_deg: 3.0,
             plane: Plane::GreenBlue,
             height_mm: 20.0,
+            cutter: None,
             note: None,
         }
     }
@@ -1428,6 +1430,19 @@ impl SolidFeaturesWindow {
                                             "normal": self.plane.normal().to_array() }),
                                 ),
                             }
+                        }
+                        ui.label(t("Or split it with a surface reaching past it (a group):"));
+                        cutter_row(ui, session, &mut self.cutter, &mut self.note);
+                        if ui
+                            .add_enabled(self.cutter.is_some(), egui::Button::new(t("Split by Cutter")))
+                            .clicked()
+                            && let Some(by) = self.cutter.clone()
+                        {
+                            self.run(
+                                session,
+                                "split-solid",
+                                json!({ "face": "selection & face", "by": by }),
+                            );
                         }
                     }
                     SolidPage::Dome => {
@@ -2035,6 +2050,8 @@ pub struct SurfacesWindow {
     distance_mm: f64,
     point: [f64; 3],
     normal: [f64; 3],
+    cutter: Option<String>,
+    flip: bool,
     note: Option<String>,
 }
 
@@ -2047,6 +2064,8 @@ impl Default for SurfacesWindow {
             distance_mm: 100.0,
             point: [0.0; 3],
             normal: [1.0, 0.0, 0.0],
+            cutter: None,
+            flip: false,
             note: None,
         }
     }
@@ -2121,6 +2140,22 @@ impl SurfacesWindow {
                         json!({ "surface": "selection", "point": self.point, "normal": self.normal }),
                     );
                 }
+                ui.label(t("Or cut it with another surface (a group):"));
+                cutter_row(ui, session, &mut self.cutter, &mut self.note);
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut self.flip, t("Remove the side the cutter faces away from"));
+                    if ui
+                        .add_enabled(self.cutter.is_some(), egui::Button::new(t("Trim by Cutter")))
+                        .clicked()
+                        && let Some(by) = self.cutter.clone()
+                    {
+                        self.run(
+                            session,
+                            "surface-trim",
+                            json!({ "surface": "selection", "by": by, "flip": self.flip }),
+                        );
+                    }
+                });
                 ui.separator();
                 ui.label(t("Select two or more surface groups, then:"));
                 if ui.button(t("Knit Surfaces")).clicked() {
@@ -2324,6 +2359,30 @@ impl AnalysisWindow {
             });
         self.open = open;
     }
+}
+
+/// Records the selected groups as a cutting surface (milestone 1.35).
+fn cutter_row(
+    ui: &mut egui::Ui,
+    session: &Session,
+    cutter: &mut Option<String>,
+    note: &mut Option<String>,
+) {
+    ui.horizontal(|ui| {
+        if ui.button(t("Use Selection as Cutter")).clicked() {
+            *cutter = selected_query(session, false);
+            if cutter.is_none() {
+                *note = Some(t("Select the cutting surface's group first."));
+            }
+        }
+        match cutter {
+            Some(q) => ui.label(t_args(
+                "Cutter: { $cutter }",
+                &[("cutter", q.clone().into())],
+            )),
+            None => ui.label(t("No cutter yet")),
+        };
+    });
 }
 
 /// The selected entities of one kind as a query of their pids
@@ -4052,6 +4111,132 @@ mod gui_tests {
 
     use crate::app::App;
     use crate::i18n::t;
+
+    /// Trim and split by a cutting surface from the windows' buttons
+    /// (milestone 1.35).
+    #[test]
+    fn cutter_buttons_trim_and_split() {
+        use super::*;
+        let mut session = Session::new();
+        for points in [
+            json!([[-50, -50, 30], [50, -50, 70], [50, 150, 70], [-50, 150, 30]]),
+            json!([[50, -50, 70], [150, -50, 30], [150, 150, 30], [50, 150, 70]]),
+        ] {
+            session
+                .execute("line", json!({ "points": points, "close": true }))
+                .unwrap();
+        }
+        session
+            .execute("make-group", json!({ "targets": "all", "name": "Ridge" }))
+            .unwrap();
+        session
+            .execute(
+                "rectangle",
+                json!({ "corner_a": [0, 0, 0], "corner_b": [100, 100, 0] }),
+            )
+            .unwrap();
+        session
+            .execute(
+                "push-pull",
+                json!({ "face": { "Query": "face & plane:xy@0" }, "distance": 100 }),
+            )
+            .unwrap();
+        let window = SolidFeaturesWindow {
+            open: true,
+            page: SolidPage::Split,
+            ..Default::default()
+        };
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1000.0, 900.0))
+            .with_max_steps(64)
+            .build_ui_state(
+                |ui, state: &mut (SolidFeaturesWindow, Session)| {
+                    state.0.window(ui.ctx(), &mut state.1)
+                },
+                (window, session),
+            );
+        h.state_mut()
+            .1
+            .execute("select", json!({ "query": "group" }))
+            .unwrap();
+        h.run();
+        h.get_by_label(&t("Use Selection as Cutter")).click();
+        h.run();
+        assert!(h.state().0.cutter.is_some());
+        h.state_mut()
+            .1
+            .execute("select", json!({ "query": "face & plane:xy@0" }))
+            .unwrap();
+        h.run();
+        h.get_by_label(&t("Split by Cutter")).click();
+        h.run();
+        let splits = h
+            .state()
+            .1
+            .doc()
+            .model
+            .groups()
+            .filter(|(_, g)| g.name.starts_with("Split"))
+            .count();
+        assert_eq!(splits, 2, "{:?}", h.state().0.note);
+
+        // Trim a sheet by the same ridge from the Surfaces window.
+        let mut session = Session::new();
+        for points in [
+            json!([[-50, -50, 30], [50, -50, 70], [50, 150, 70], [-50, 150, 30]]),
+            json!([[50, -50, 70], [150, -50, 30], [150, 150, 30], [50, 150, 70]]),
+        ] {
+            session
+                .execute("line", json!({ "points": points, "close": true }))
+                .unwrap();
+        }
+        session
+            .execute("make-group", json!({ "targets": "all", "name": "Ridge" }))
+            .unwrap();
+        session
+            .execute(
+                "rectangle",
+                json!({ "corner_a": [0, 0, 60], "corner_b": [100, 100, 60] }),
+            )
+            .unwrap();
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1000.0, 900.0))
+            .with_max_steps(64)
+            .build_ui_state(
+                |ui, state: &mut (SurfacesWindow, Session)| state.0.window(ui.ctx(), &mut state.1),
+                (
+                    SurfacesWindow {
+                        open: true,
+                        ..Default::default()
+                    },
+                    session,
+                ),
+            );
+        h.state_mut()
+            .1
+            .execute("select", json!({ "query": "group" }))
+            .unwrap();
+        h.run();
+        h.get_by_label(&t("Use Selection as Cutter")).click();
+        h.run();
+        h.state_mut()
+            .1
+            .execute("select", json!({ "query": "face" }))
+            .unwrap();
+        h.run();
+        h.get_by_label(&t("Trim by Cutter")).click();
+        h.run();
+        let note = h.state().0.note.clone().unwrap_or_default();
+        assert!(
+            !note.contains("rror") && !note.contains("nothing"),
+            "{note}"
+        );
+        // The ridge crosses z = 60 at x = 25 and 75: half the sheet lies on
+        // each side of it.
+        let mesh = h.state().1.doc().model.mesh();
+        let area: f64 = mesh.faces().map(|(f, _)| mesh.face_area(f).unwrap()).sum();
+        assert!((area - 5_000.0).abs() < 1e-6, "{area} {note}");
+    }
 
     /// The Fabrication window's stacked flange and relief controls
     /// (docs/05 §8.12, milestone 1.34).

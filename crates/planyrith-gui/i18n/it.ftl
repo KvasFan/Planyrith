@@ -1202,3 +1202,13 @@ t-apply-reliefs = Applica scarichi
 t-relieve-the-corners-where-two-flanges-meet-a-size-of-0-removes-the-reliefs = Scarica gli angoli dove si incontrano due flange; una misura di 0 rimuove gli scarichi
 t-square = Quadrato
 t-round = Tondo
+
+t-or-cut-it-with-another-surface-a-group = Oppure taglia con un’altra superficie (un gruppo):
+t-remove-the-side-the-cutter-faces-away-from = Rimuovi il lato opposto a quello verso cui guarda il taglio
+t-trim-by-cutter = Rifila con il taglio
+t-use-selection-as-cutter = Usa la selezione come taglio
+t-select-the-cutting-surface-s-group-first = Seleziona prima il gruppo della superficie di taglio.
+t-cutter-cutter = Taglio: { $cutter }
+t-no-cutter-yet = Nessun taglio ancora
+t-or-split-it-with-a-surface-reaching-past-it-a-group = Oppure dividilo con una superficie che lo oltrepassa (un gruppo):
+t-split-by-cutter = Dividi con il taglio

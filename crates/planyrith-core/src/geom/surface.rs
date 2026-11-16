@@ -296,6 +296,146 @@ pub fn soften(mesh: &mut IndexedMesh, max_angle: f64) {
     }
 }
 
+/// A polygon's area-weighted normal (Newell), its holes subtracted.
+fn area_normal(rings: &[Vec<DVec3>]) -> DVec3 {
+    let mut n = DVec3::ZERO;
+    for ring in rings {
+        for (p, q) in ring.iter().zip(ring.iter().cycle().skip(1)) {
+            n += p.cross(*q);
+        }
+    }
+    n * 0.5
+}
+
+/// The direction a cutting surface faces: its area-weighted mean normal
+/// (docs/03 §4.21, milestone 1.35). Refused when a face turns back against
+/// it, so the surface is a single sheet seen along it.
+pub fn facing(faces: &[Vec<Vec<DVec3>>]) -> Result<DVec3, GeometryError> {
+    let normals: Vec<DVec3> = faces.iter().map(|f| area_normal(f)).collect();
+    let sum: DVec3 = normals.iter().copied().sum();
+    let dir = sum
+        .try_normalize()
+        .ok_or_else(|| GeometryError::NotApplicable("the cutting surface has no area".into()))?;
+    for n in &normals {
+        if let Some(u) = n.try_normalize()
+            && u.dot(dir) <= 1e-6
+        {
+            return Err(GeometryError::NotApplicable(
+                "the cutting surface turns back on itself; use one that faces one way".into(),
+            ));
+        }
+    }
+    Ok(dir)
+}
+
+/// The solid swept by a surface along `dir` over `depth`: its faces turned
+/// over, the same faces moved by `dir × depth`, and a wall on each border
+/// edge (docs/03 §4.21). Points inside lie on the surface's `dir` side,
+/// within its extent.
+pub fn slab(
+    faces: &[Vec<Vec<DVec3>>],
+    dir: DVec3,
+    depth: f64,
+    tol: &Tolerances,
+) -> Result<crate::geom::HalfEdgeMesh, GeometryError> {
+    use crate::geom::boolean::{Piece, stitch};
+    // Welded vertex numbers, to find the border: directed edges whose
+    // reverse no other face uses.
+    let mut points: Vec<DVec3> = Vec::new();
+    let mut number = |p: DVec3| -> usize {
+        if let Some(i) = points.iter().position(|q| tol.same_point(*q, p)) {
+            i
+        } else {
+            points.push(p);
+            points.len() - 1
+        }
+    };
+    let mut used: BTreeMap<(usize, usize), usize> = BTreeMap::new();
+    let mut directed: Vec<(usize, usize, DVec3, DVec3)> = Vec::new();
+    for face in faces {
+        for ring in face {
+            for (p, q) in ring.iter().zip(ring.iter().cycle().skip(1)) {
+                let (i, j) = (number(*p), number(*q));
+                if i == j {
+                    continue;
+                }
+                *used.entry((i, j)).or_default() += 1;
+                directed.push((i, j, *p, *q));
+            }
+        }
+    }
+    if used.values().any(|n| *n > 1) {
+        return Err(GeometryError::NotApplicable(
+            "the cutting surface's faces are not oriented alike, or an edge borders three faces"
+                .into(),
+        ));
+    }
+    let shift = dir * depth;
+    let sides = FaceSides::default();
+    let mut pieces = Vec::new();
+    for face in faces {
+        pieces.push(Piece {
+            loops: face
+                .iter()
+                .map(|r| r.iter().rev().copied().collect())
+                .collect(),
+            sides: sides.clone(),
+        });
+        pieces.push(Piece {
+            loops: face
+                .iter()
+                .map(|r| r.iter().map(|p| *p + shift).collect())
+                .collect(),
+            sides: sides.clone(),
+        });
+    }
+    for &(i, j, p, q) in &directed {
+        if !used.contains_key(&(j, i)) {
+            pieces.push(Piece {
+                loops: vec![vec![p, q, q + shift, p + shift]],
+                sides: sides.clone(),
+            });
+        }
+    }
+    let mut solid = stitch(&pieces, tol)?;
+    if !solid.is_solid() {
+        return Err(GeometryError::NonRobust(
+            "the cutting surface does not sweep into a closed solid".into(),
+        ));
+    }
+    if solid.volume()? < 0.0 {
+        let all = solid.faces().map(|(f, _)| f).collect();
+        crate::geom::planar::reverse_faces(&mut solid, &all, tol, &mut crate::geom::NoDeltas)?;
+    }
+    Ok(solid)
+}
+
+/// The border vertices of a surface (on edges only one face uses).
+pub fn border_points(faces: &[Vec<Vec<DVec3>>], tol: &Tolerances) -> Vec<DVec3> {
+    let mut edges: Vec<(DVec3, DVec3)> = Vec::new();
+    for face in faces {
+        for ring in face {
+            for (p, q) in ring.iter().zip(ring.iter().cycle().skip(1)) {
+                edges.push((*p, *q));
+            }
+        }
+    }
+    let mut out: Vec<DVec3> = Vec::new();
+    for &(p, q) in &edges {
+        let twin = edges
+            .iter()
+            .any(|&(a, b)| tol.same_point(a, q) && tol.same_point(b, p));
+        if !twin {
+            for x in [p, q] {
+                if !out.iter().any(|y| tol.same_point(*y, x)) {
+                    out.push(x);
+                }
+            }
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
@@ -344,5 +484,41 @@ mod tests {
             assert_eq!(e.flags.contains(EdgeFlags::SOFT), *u == 2);
         }
         assert!(fill(&boundary[..2], 4, FillMethod::Auto, &tol).is_err());
+    }
+
+    #[test]
+    fn a_surface_sweeps_into_a_slab() {
+        let tol = Tolerances::default();
+        let square = |z: f64, flip: bool| {
+            let mut r = vec![
+                DVec3::new(0.0, 0.0, z),
+                DVec3::new(10.0, 0.0, z),
+                DVec3::new(10.0, 10.0, z),
+                DVec3::new(0.0, 10.0, z),
+            ];
+            if flip {
+                r.reverse();
+            }
+            vec![r]
+        };
+        // Two squares side by side, one tilted up: one sheet facing +z.
+        let tilted = vec![vec![
+            DVec3::new(10.0, 0.0, 0.0),
+            DVec3::new(20.0, 0.0, 5.0),
+            DVec3::new(20.0, 10.0, 5.0),
+            DVec3::new(10.0, 10.0, 0.0),
+        ]];
+        let faces = vec![square(0.0, false), tilted];
+        let dir = facing(&faces).unwrap();
+        assert!(dir.z > 0.9 && dir.x < 0.0, "{dir}");
+        let solid = slab(&faces, dir, 40.0, &tol).unwrap();
+        assert!(solid.is_solid());
+        // A prism: base area projected across the direction × depth.
+        let base: f64 = faces.iter().map(|f| area_normal(f).dot(dir)).sum();
+        assert!((solid.volume().unwrap() - base * 40.0).abs() < 1e-6);
+        assert_eq!(border_points(&faces, &tol).len(), 6);
+        // A face turned back is refused.
+        let folded = vec![square(0.0, false), square(5.0, true)];
+        assert!(facing(&folded).is_err());
     }
 }

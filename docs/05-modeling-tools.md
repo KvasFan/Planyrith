@@ -814,8 +814,10 @@ on the selection.
 - **`draft { faces, angle, pull (+Z), neutral? (origin) }`.** Each named face leans by `angle`
   about its line on the neutral plane: every vertex moves across the face by its height along
   `pull` times tan(angle) (inward for a positive angle); faces stay flat (folded when they cannot).
-- **`split-solid { face, point, normal }`.** The solid is cut by the plane into two groups ("Split
-  1" on the normal's side, then the rest).
+- **`split-solid { face, point?, normal? | by? }`.** The solid is cut by the plane into two groups
+  ("Split 1" on the normal's side, then the rest). With `by` (faces of the edit context or
+  groups, milestone 1.35), a surface cuts instead: it must reach past the solid on every side,
+  and "Split 1" lies on the side its faces face (docs/03 §4.21).
 - **`dome { face, height, layers (8) }`.** An elliptic cap on a flat face without holes: the
   outline scaled by cos θ and raised by `height · sin θ` in `layers` rings to a small flat top,
   lofted (§4.17) and joined to the solid.
@@ -887,19 +889,27 @@ need not be solid; `surface-knit` makes a solid when the pieces close a volume.
   continue each face past its edge in the face's own plane; where two edges meet, the strips
   share the corner line along the mean direction (mitered). The strips join the edit context's
   geometry and take the faces' materials.
-- `surface-trim { surface: Sel (faces, or groups), point, normal }`: cuts the faces along the
-  plane and removes what lies on the side the normal points to; faces crossing it keep their
-  part on the other side. Smooth edges inside the kept part stay smooth; edges that become the
-  border are drawn. A closed solid is better split with `split-solid` (§8.9).
+- `surface-trim { surface: Sel (faces, or groups), point?, normal? | by?, flip (false) }`: cuts
+  the faces along the plane and removes what lies on the side the normal points to; faces
+  crossing it keep their part on the other side. With `by` (another surface: faces or groups,
+  milestone 1.35), the faces are cut where that surface crosses them and what lies on the side
+  its faces face, within its extent, is removed (the other side with `flip`; docs/03 §4.21).
+  Smooth edges inside the kept part stay smooth; edges that become the border are drawn. A
+  closed solid is better split with `split-solid` (§8.9).
 - `surface-knit { surfaces: Sel (two or more groups), name ("Knit surface") }`: one group of
   all their faces, merged where corners coincide (within the length tolerance); a surface
   running along a joined edge the same way as the ones before it is turned over so the shell is
   oriented. Refused when an edge would border three faces.
 - **Output:** `{ surface?, faces, area_mm2, open_edges, closed, volume_mm3? }`; trim
-  `{ trimmed, pieces, removed_mm2 }`. **Undo:** one step each. **GUI:** Tools › Surfaces….
+  `{ trimmed, pieces, removed_mm2 }`. **Undo:** one step each. **GUI:** Tools › Surfaces…
+  (Trim Surface by a plane, or Use Selection as Cutter then Trim by Cutter).
 - **Tests:** a saddle filled 6 × 6 has 72 triangles and 24 open edges; two saddles sharing a
   side knit into 144 faces with 36 open edges; trimming at x = 40 leaves nothing beyond it; a
-  100 × 60 face extended by 10 gains 3600 mm² in four mitered strips.
+  100 × 60 face extended by 10 gains 3600 mm² in four mitered strips. A vertical chevron trims
+  a 100 × 100 sheet to the analytic area on either side (`flip`), keeps a sheet beyond its
+  extent and undoes; a ridge splits a cube into 400 000 and 600 000 mm³; a surface ending
+  inside the solid is refused; a surface turning back is refused; CLI/RPC parity and the
+  windows' cutter buttons (Use Selection as Cutter, Trim by Cutter, Split by Cutter).
 
 ### 8.15 Analysis: `analysis-curvature`, `analysis-zebra`, `analysis-draft`, `analysis-thickness`, `analysis-comb`, `analysis-clear`
 An analysis measures faces (of the edit context, or every face of named groups and

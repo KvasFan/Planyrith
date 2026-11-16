@@ -12,6 +12,8 @@ drawings, sheet metal and frames, surfaces and analysis, simulation, product dat
 The version number marks builds from main; no packages are published for it.
 
 ### Added
+- 1.35: trimming a surface by another surface and splitting a solid by a surface, from the
+  command line and the Surfaces and Solid Features windows.
 - 1.34: flanges stacked on flanges (returns, hems and Z-bends) and square or round corner
   reliefs, in the folded part, the flat pattern and the Fabrication window.
 - 1.33: arc and circle constraints — radius, equal radii, concentric, point on curve and
