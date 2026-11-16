@@ -15,6 +15,7 @@ fn cli() -> std::path::PathBuf {
 }
 fn scratch(name: &str) -> std::path::PathBuf {
     let path = std::env::temp_dir().join(format!("planyrith-08-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&path);
     std::fs::create_dir_all(&path).unwrap();
     path
 }

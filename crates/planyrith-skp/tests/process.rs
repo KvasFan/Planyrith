@@ -29,6 +29,7 @@ fn native_bytes(doc: &Document) -> Vec<u8> {
 #[test]
 fn converter_process_drives_import_export_open_save_and_exact_undo() {
     let dir = std::env::temp_dir().join(format!("planyrith-skp-process-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let storage = Arc::new(NativeFs {
         skp_adapter: Some(env!("CARGO_BIN_EXE_planyrith-skp").into()),
@@ -84,6 +85,7 @@ fn historical_backup_imports_are_editable_and_undo_redo_is_byte_exact() {
         "planyrith-skp-historical-process-{}",
         std::process::id()
     ));
+    let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let storage = Arc::new(NativeFs {
         skp_adapter: Some(env!("CARGO_BIN_EXE_planyrith-skp").into()),

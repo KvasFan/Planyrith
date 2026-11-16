@@ -46,6 +46,7 @@ fn cli_rpc_and_gui_agree_on_real_models() {
         String::from_utf8(output.stdout).unwrap()
     };
     let dir = std::env::temp_dir().join(format!("planyrith-frontends-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let edits = [
         (
@@ -149,6 +150,7 @@ fn historical_backups_default_to_native_and_explicit_foreign_saves_keep_the_choi
         "planyrith-gui-historical-skb-{}",
         std::process::id()
     ));
+    let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     for year in [2013, 2016, 2026] {
         let fixture = if year < 2017 {
@@ -204,6 +206,7 @@ fn external_skp_opens_and_survives_native_working_copy_when_requested() {
     canonicalize(&mut canonical);
     let dir =
         std::env::temp_dir().join(format!("planyrith-gui-external-skp-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let working = dir.join("working.plyr");
     session.save(Some(&working)).unwrap();
@@ -230,6 +233,7 @@ fn gui_session_opens_and_saves_skp_through_the_same_converter() {
         return;
     }
     let dir = std::env::temp_dir().join(format!("planyrith-gui-skp-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let source = dir.join("cube.skp");
     std::fs::copy(
@@ -274,6 +278,7 @@ fn gui_annotation_edits_survive_skp_save_and_native_working_copies() {
         return;
     }
     let dir = std::env::temp_dir().join(format!("planyrith-gui-skp-labels-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let mut session = Session::new();
     for (name, params) in [

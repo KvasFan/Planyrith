@@ -15,6 +15,7 @@ fn native_working_copy_retains_the_complete_unedited_skp_source() {
         return;
     }
     let dir = std::env::temp_dir().join(format!("planyrith-cli-skp-native-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     for version in [2017, 2026] {
         let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -57,6 +58,7 @@ fn cli_opens_modifies_and_saves_real_skp_without_renaming_native_bytes() {
         return;
     }
     let dir = std::env::temp_dir().join(format!("planyrith-cli-skp-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let skp = dir.join("cube.skp");
     std::fs::copy(
@@ -132,6 +134,7 @@ fn backup_alias_defaults_to_native_without_overwriting_either_source_or_existing
         return;
     }
     let dir = std::env::temp_dir().join(format!("planyrith-cli-legacy-skb-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let original = std::fs::read(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -213,6 +216,7 @@ fn rpc_backup_sessions_default_to_native_and_keep_explicit_save_choices() {
         return;
     }
     let dir = std::env::temp_dir().join(format!("planyrith-rpc-legacy-skb-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let original = std::fs::read(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -271,6 +275,7 @@ fn rpc_and_rhai_share_skp_support_and_return_compatibility_notices() {
         return;
     }
     let dir = std::env::temp_dir().join(format!("planyrith-rpc-skp-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../planyrith-skp/tests/fixtures/box-2017.skp");
