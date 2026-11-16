@@ -101,7 +101,7 @@ control via `planyrith export --format json`. It is **not** required to load the
 | glTF 2.0 / GLB | ✔ | ✔ | nodes → groups/instances (meshes shared → components), PBR base color + texture, transforms, cameras → scenes. KHR_texture_transform supported. |
 | DXF (R12–2018 ASCII) | ✔ | ✔ (3D and 2D) | LINE, LWPOLYLINE/POLYLINE, ARC, CIRCLE, ELLIPSE (segmented), SPLINE (flattened), 3DFACE, POLYFACE mesh, INSERT/BLOCK → components, LAYER → tags, TEXT/MTEXT, DIMENSION (as text+lines on export). |
 | STEP AP203/214/242 | ✔ | ✔ (AP214) | with product structure (milestone 1.17): every exported container is a product (name; part number as its id; description; properties as user-defined attributes; the model's current revision on its definition), each group or component occurrence a next-assembly-usage with its placement; planar faces with straight edges exact, closed shells as manifold solids, open ones as surface models; a placement that is not a rigid motion is applied to its branch's geometry. Import reads the same structure back as components with their properties, planar faces bounded by lines and circular arcs (sampled), voids included, millimeters, meters or inches; files with curved surfaces go to `truck-stepio` (feature `brep`) and are tessellated. |
-| IGES 5.3 | ✔ | ✔ | export: each planar face a trimmed surface (144) on a bilinear plane patch (128) bounded by composite curves of lines (142/102/110), in millimeters, groups and components in world coordinates; import: trimmed and bounded surfaces (144, 143) on planar surfaces (108, 128, 190) with lines, arcs (100), composite curves, copious data (106) and B-spline curves (126, sampled), transformation matrices (124) and the file's unit, stitched into one group or component; curved surfaces are skipped with `W2008`. |
+| IGES 5.3 | ✔ | ✔ | export: each planar face a trimmed surface (144) on a bilinear plane patch (128) bounded by composite curves of lines (142/102/110), in millimeters; loose geometry and groups in world coordinates, each component definition once as a subfigure (308, nested components flattened into it) placed by a subfigure instance (408) with its transformation matrix (124); import: trimmed and bounded surfaces (144, 143) on planar surfaces (108, 128, 190) and on curved ones — B-spline (128), revolution (120), tabulated cylinder (122) and ruled (118) — and freestanding curved surfaces, with lines, arcs (100), composite curves, copious data (106) and B-spline curves (126, sampled), transformation matrices (124) and the file's unit; subfigures become components placed by their instances (nested ones too); curved surfaces become soft triangles within a chord tolerance (`W2008` notice). |
 | SKP / SKB | ✔ (desktop format module, target 2013+) | ✔ (edited 2017 / 2026; unchanged source version retained) | `.skb` is a backup with the same model encoding; direct open/save/import/export, native working-copy default; release certification and fidelity limits in Decisions. |
 | Images (PNG/JPEG/WebP) | ✔ | ✔ (render) | import as image entity or as a material texture. |
 | CSV | ✔ (points) | ✔ (component report) | `x,y,z[,name]` points → guide points or vertices; report: definition, count, bbox, volume, attrs. |
@@ -110,7 +110,7 @@ control via `planyrith export --format json`. It is **not** required to load the
 | `.plyr/.plyrc` | ✔ | ✔ | merge another document as a group/component. |
 
 Out of scope (documented as future work): 3DS, DWG; USD import; FBX 6 and earlier; IGES
-assemblies (308/408) and solids (186) and STEP graphical annotations (PMI).
+solids (186) and STEP graphical annotations (PMI).
 Import of any unsupported entity yields `W2004` with counts, never a failure.
 
 ## 6. Importer/exporter contracts
@@ -692,3 +692,17 @@ save unless `--no-thumbnail`. `manifest.json` carries `title`, `author`, `descri
   files written by IfcOpenShell (walls, slab, round column; IFC4 and IFC2X3; millimeters and
   meters) against IfcOpenShell's own geometry: the same bounds; a second export keeps classes and
   storeys and passes its validation.
+- 2026-11-16 — **IGES curved surfaces and assemblies (milestone 1.38).** Curved surfaces are
+  evaluated in millimeters (rational B-spline surfaces by de Boor on weighted points; the other
+  kinds on their curves' sampled polylines by arc length). Trim loops come from the model-space
+  boundary curves, turned into parameters by the nearest point of a 25 × 25 grid then
+  Gauss–Newton steps, and unwrapped across the seam of a closed surface. The loops are ear
+  clipped in parameters scaled by the surface's mean speed each way; points of the coarsest
+  grid whose cells stay within `max(0.01 mm, 0.002 × size)` of the surface are added inside
+  them (off the lattice, away from the loops), and Lawson flips make the triangulation
+  Delaunay — thin triangles would overestimate a curved surface's area. Loop vertices keep
+  their exact model-space points so neighboring faces weld when stitched; edges between faces
+  turning less than 30° become soft and smooth. At most 40 000 triangles per face. Directory
+  entries with a nonzero subordinate status outside subfigures are not read on their own.
+  On export, each outermost component instance becomes a 408 of its definition's 308; the
+  first occurrence of a definition fills it.

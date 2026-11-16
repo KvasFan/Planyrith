@@ -12,6 +12,8 @@ drawings, sheet metal and frames, surfaces and analysis, simulation, product dat
 The version number marks builds from main; no packages are published for it.
 
 ### Added
+- 1.38: IGES curved surfaces (B-spline, revolution, tabulated, ruled) import as smooth
+  triangles; components travel as IGES subfigures and come back as components.
 - 1.37: Move can stop groups and components at first contact along the path
   (`--stop-at-contact`, Move › Tool Options), with the contact reported.
 - 1.36: faces, edges and objects picked by a part's features are matched again after each

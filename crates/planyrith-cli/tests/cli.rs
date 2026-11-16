@@ -2631,3 +2631,80 @@ make-group --targets 'edge|face' --name B
         ],
     );
 }
+
+/// docs/13 1.38: components leave as IGES subfigures and come back as
+/// components placed where they were.
+#[test]
+fn iges_assemblies_round_trip() {
+    let dir = scratch("iges-assembly");
+    let batch = dir.join("asm.plyrb");
+    std::fs::write(
+        &batch,
+        "rectangle --corner-a 0,0,0 --corner-b 100,50,0
+push-pull --face '{face}' --distance 30
+make-component --targets all --name Block
+move --targets instance --delta 300,0,0 --copy
+",
+    )
+    .unwrap();
+    let doc = dir.join("asm.plyr");
+    let igs = dir.join("asm.igs");
+    let back = dir.join("back.plyr");
+    planyrith()
+        .args([
+            "batch",
+            batch.to_str().unwrap(),
+            "-f",
+            doc.to_str().unwrap(),
+            "--deterministic",
+        ])
+        .assert()
+        .success();
+    planyrith()
+        .args(["export", "-f", doc.to_str().unwrap(), igs.to_str().unwrap()])
+        .assert()
+        .success();
+    let text = std::fs::read_to_string(&igs).unwrap();
+    // Directory entries take two lines each: one subfigure, two placements.
+    let entries = |kind: &str| {
+        text.lines()
+            .filter(|l| l.starts_with(&format!("{kind:>8}")) && l.get(72..73) == Some("D"))
+            .count()
+            / 2
+    };
+    assert_eq!((entries("308"), entries("408")), (1, 2));
+    planyrith()
+        .args(["new", "-o", back.to_str().unwrap()])
+        .assert()
+        .success();
+    let out = json_of(
+        &planyrith()
+            .args([
+                "import",
+                "-f",
+                back.to_str().unwrap(),
+                igs.to_str().unwrap(),
+                "--json",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout,
+    );
+    assert_eq!(out["output"]["faces"], 6, "{out}");
+    let info = json_of(
+        &planyrith()
+            .args(["info", "-f", back.to_str().unwrap(), "--json"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout,
+    );
+    let counts = &info["output"]["counts"];
+    assert_eq!(counts["definitions"], 2, "{info}");
+    assert_eq!(counts["definitions_total"]["instances"], 2, "{info}");
+    assert_eq!(
+        info["output"]["bounds"]["max"],
+        serde_json::json!([400.0, 50.0, 30.0])
+    );
+}

@@ -500,6 +500,11 @@ Complete 1.17's IGES: curved surfaces on import (B-spline, surfaces of revolutio
 cylinders, ruled surfaces), tessellated within tolerance; assemblies (subfigures 308/408)
 in both directions as components.
 
+- **Done (2026-11-16):** curved trimmed, bounded and freestanding surfaces as soft triangles
+  (Delaunay in scaled parameters), subfigures both ways as components (docs/09 §5 and
+  Decisions). The washer golden now holds a subfigure and its placement. IGES solids (186)
+  remain out of scope.
+
 ## 1.39.0 — STEP annotations
 
 Complete 1.17's STEP: dimensions and texts exported as graphical annotations (polylines and
