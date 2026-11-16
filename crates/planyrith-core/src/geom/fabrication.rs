@@ -252,10 +252,22 @@ pub fn profile(name: &str) -> Result<(Vec<Vec<DVec2>>, String), GeometryError> {
     Ok((loops, canonical))
 }
 
-/// One flange of a sheet-metal part.
+/// A further bend at the free end of a flange: a flange on a flange
+/// (milestone 1.34).
 #[derive(
     Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, schemars::JsonSchema,
 )]
+pub struct Bend {
+    /// How far it bends, radians: positive continues toward the flange's
+    /// inside (a return or a hem), negative bends the other way (a Z-bend);
+    /// at most π either way.
+    pub angle_rad: f64,
+    /// Its straight length beyond the bend, mm.
+    pub length_mm: f64,
+}
+
+/// One flange of a sheet-metal part.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
 pub struct Flange {
     /// The outline edge it stands on (from point `edge` to the next).
     pub edge: usize,
@@ -263,6 +275,44 @@ pub struct Flange {
     pub angle_rad: f64,
     /// Its straight length beyond the bend, mm.
     pub length_mm: f64,
+    /// Flanges standing on its free end, in order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub more: Vec<Bend>,
+}
+
+impl Flange {
+    /// Its bends in order, the first one included.
+    pub fn bends(&self) -> Vec<Bend> {
+        std::iter::once(Bend {
+            angle_rad: self.angle_rad,
+            length_mm: self.length_mm,
+        })
+        .chain(self.more.iter().copied())
+        .collect()
+    }
+}
+
+/// The shape of a corner relief.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, schemars::JsonSchema,
+)]
+#[serde(rename_all = "kebab-case")]
+pub enum ReliefShape {
+    /// A square (a rhombus at other angles) with sides along both edges.
+    Square,
+    /// A circle centered on the corner.
+    Round,
+}
+
+/// Material cut from the plate where two flanges meet at a convex corner.
+#[derive(
+    Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, schemars::JsonSchema,
+)]
+pub struct CornerRelief {
+    /// Its shape.
+    pub shape: ReliefShape,
+    /// How far it reaches along each edge from the corner, mm.
+    pub size_mm: f64,
 }
 
 /// A sheet-metal part: a flat outline with flanges on its edges.
@@ -284,6 +334,28 @@ pub struct SheetMetal {
     pub k_factor: f64,
     /// Flanges, one per edge at most.
     pub flanges: Vec<Flange>,
+    /// Reliefs at the corners where two flanges meet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relief: Option<CornerRelief>,
+}
+
+/// The most bends one flange may carry, the first included.
+pub const MAX_BENDS: usize = 8;
+
+/// One bend and leg of a flange, placed in space.
+struct Step {
+    /// The end face the bend turns: bottom edge `a`–`b`, then the top.
+    face: Vec<DVec3>,
+    /// A point on the bend's axis.
+    pivot: DVec3,
+    /// The axis direction (the rotation is positive about it).
+    axis: DVec3,
+    /// The bend's angle, radians (positive).
+    angle: f64,
+    /// Where the leg runs.
+    leg: DVec3,
+    /// The leg's length.
+    length: f64,
 }
 
 impl SheetMetal {
@@ -303,7 +375,146 @@ impl SheetMetal {
 
     /// The bend allowance of a flange: the neutral layer's arc length.
     pub fn bend_allowance(&self, f: &Flange) -> f64 {
-        f.angle_rad * (self.bend_radius_mm + self.k_factor * self.thickness_mm)
+        self.allowance(f.angle_rad)
+    }
+
+    /// The bend allowance of a bend by `angle` either way.
+    pub fn allowance(&self, angle: f64) -> f64 {
+        angle.abs() * (self.bend_radius_mm + self.k_factor * self.thickness_mm)
+    }
+
+    fn flange_on(&self, edge: usize) -> Option<&Flange> {
+        self.flanges.iter().find(|f| f.edge == edge)
+    }
+
+    /// Which corners are relieved: convex corners whose two edges both carry
+    /// flanges, when the part has a relief.
+    pub fn relieved_corners(&self) -> Vec<bool> {
+        let pts = self.points();
+        let n = pts.len();
+        (0..n)
+            .map(|i| {
+                let prev = (i + n - 1) % n;
+                let d_in = pts[i] - pts[prev];
+                let d_out = pts[(i + 1) % n] - pts[i];
+                self.relief.is_some()
+                    && self.flange_on(prev).is_some()
+                    && self.flange_on(i).is_some()
+                    && d_in.perp_dot(d_out) > 0.0
+            })
+            .collect()
+    }
+
+    /// The part of outline edge `i` a flange stands on: the whole edge, less
+    /// the relief at a relieved end.
+    fn edge_span(&self, pts: &[DVec2], relieved: &[bool], i: usize) -> (DVec2, DVec2) {
+        let n = pts.len();
+        let (a, b) = (pts[i], pts[(i + 1) % n]);
+        let along = (b - a).normalize_or_zero();
+        let s = self.relief.map_or(0.0, |r| r.size_mm);
+        let a = if relieved[i] { a + along * s } else { a };
+        let b = if relieved[(i + 1) % n] {
+            b - along * s
+        } else {
+            b
+        };
+        (a, b)
+    }
+
+    /// The plate outline's points at corner `i`: the corner itself, or the
+    /// relief cut around it.
+    fn corner_points(&self, pts: &[DVec2], relieved: &[bool], i: usize) -> Vec<DVec2> {
+        let n = pts.len();
+        let p = pts[i];
+        let (true, Some(relief)) = (relieved[i], self.relief) else {
+            return vec![p];
+        };
+        let s = relief.size_mm;
+        let d_in = (p - pts[(i + n - 1) % n]).normalize_or_zero();
+        let d_out = (pts[(i + 1) % n] - p).normalize_or_zero();
+        let mut out = vec![p - d_in * s];
+        match relief.shape {
+            ReliefShape::Square => out.push(p - d_in * s + d_out * s),
+            ReliefShape::Round => {
+                // Clockwise through the plate from −d_in to d_out.
+                let from = libm::atan2(-d_in.y, -d_in.x);
+                let mut to = libm::atan2(d_out.y, d_out.x);
+                if to > from {
+                    to -= std::f64::consts::TAU;
+                }
+                let steps = 8;
+                for k in 1..steps {
+                    let t = from + (to - from) * f64::from(k) / f64::from(steps);
+                    out.push(p + DVec2::new(libm::cos(t), libm::sin(t)) * s);
+                }
+            }
+        }
+        out.push(p + d_out * s);
+        out
+    }
+
+    /// The plate's outline: the outline with relieved corners cut away.
+    pub fn plate_outline(&self) -> Vec<DVec2> {
+        let pts = self.points();
+        let relieved = self.relieved_corners();
+        (0..pts.len())
+            .flat_map(|i| self.corner_points(&pts, &relieved, i))
+            .collect()
+    }
+
+    /// The bends and legs of flange `f`, in space, and its free end's
+    /// bottom edge.
+    fn steps(&self, f: &Flange, pts: &[DVec2], relieved: &[bool]) -> (Vec<Step>, [DVec3; 2]) {
+        let (o, u, v, w) = self.frame();
+        let at = |p: DVec2| o + u * p.x + v * p.y;
+        let (a2, b2) = self.edge_span(pts, relieved, f.edge);
+        let (mut a, mut b) = (at(a2), at(b2));
+        let t = self.thickness_mm;
+        let r = self.bend_radius_mm;
+        let along = (b - a).normalize_or_zero();
+        // Outward in the plate's plane, and the side the first bend turns to.
+        let mut out = along.cross(w).normalize_or_zero();
+        let mut up = w;
+        let mut steps = Vec::new();
+        for bend in f.bends() {
+            let face = vec![a, b, b + up * t, a + up * t];
+            let toward = out.cross(up);
+            let (pivot, axis) = if bend.angle_rad >= 0.0 {
+                (a + up * (t + r), toward)
+            } else {
+                (a - up * r, -toward)
+            };
+            let angle = bend.angle_rad.abs();
+            let rot = crate::math::transform::rotation_about(
+                pivot,
+                axis,
+                crate::units::Angle::radians(angle),
+            );
+            let leg = rot.transform_vector3(out);
+            steps.push(Step {
+                face,
+                pivot,
+                axis,
+                angle,
+                leg,
+                length: bend.length_mm,
+            });
+            a = rot.transform_point3(a) + leg * bend.length_mm;
+            b = rot.transform_point3(b) + leg * bend.length_mm;
+            up = rot.transform_vector3(up);
+            out = leg;
+        }
+        (steps, [a, b])
+    }
+
+    /// Each flange's outline edge and the bottom edge of its free end.
+    pub fn free_ends(&self) -> Vec<(usize, [DVec3; 2])> {
+        let pts = self.points();
+        let relieved = self.relieved_corners();
+        self.flanges
+            .iter()
+            .map(|f| (f.edge, self.steps(f, &pts, &relieved).1))
+            .collect()
     }
 
     /// Checks the description.
@@ -330,8 +541,32 @@ impl SheetMetal {
             if !(f.angle_rad > 0.0 && f.angle_rad <= std::f64::consts::PI) {
                 return bad("a flange bends more than 0° and at most 180°");
             }
-            if !(f.length_mm > 0.0 && f.length_mm.is_finite()) {
-                return bad("a flange's length must be positive");
+            if f.more.len() + 1 > MAX_BENDS {
+                return bad("a flange carries at most eight bends");
+            }
+            for b in f.bends() {
+                if !(b.angle_rad != 0.0 && b.angle_rad.abs() <= std::f64::consts::PI) {
+                    return bad(
+                        "a flange on a flange bends more than 0° and at most 180° either way",
+                    );
+                }
+                if !(b.length_mm > 0.0 && b.length_mm.is_finite()) {
+                    return bad("a flange's length must be positive");
+                }
+            }
+        }
+        if let Some(r) = self.relief
+            && !(r.size_mm > 0.0 && r.size_mm.is_finite())
+        {
+            return bad("a corner relief's size must be positive");
+        }
+        let pts = self.points();
+        let relieved = self.relieved_corners();
+        for f in &self.flanges {
+            let (a, b) = self.edge_span(&pts, &relieved, f.edge);
+            let along = pts[(f.edge + 1) % n] - pts[f.edge];
+            if (b - a).dot(along.normalize_or_zero()) <= 1e-6 {
+                return bad("the corner reliefs leave no edge for a flange; make them smaller");
             }
         }
         Ok(())
@@ -343,48 +578,44 @@ impl SheetMetal {
         let (o, u, v, w) = self.frame();
         let t = self.thickness_mm;
         let pts = self.points();
+        let relieved = self.relieved_corners();
         let frame = ProfileFrame { origin: o, u, v };
+        let plate = self.plate_outline();
         let mut solid = prism(
             frame,
-            std::slice::from_ref(&pts),
+            std::slice::from_ref(&plate),
             w,
             (o, w),
             (o + w * t, w),
             tol,
         )?;
-        let at = |p: DVec2| o + u * p.x + v * p.y;
+        let r = self.bend_radius_mm;
         for f in &self.flanges {
-            let (a2, b2) = (pts[f.edge], pts[(f.edge + 1) % pts.len()]);
-            let (a, b) = (at(a2), at(b2));
-            let along = (b - a).normalize();
-            // Outward, in the plate's plane.
-            let out = along.cross(w).normalize();
-            let axis_dir = out.cross(w);
-            let r = self.bend_radius_mm;
-            let face = vec![a, b, b + w * t, a + w * t];
+            let (steps, _) = self.steps(f, &pts, &relieved);
             let mut parts = Vec::new();
-            if r + t > tol.length {
-                let bend = revolve(
-                    std::slice::from_ref(&face),
-                    a + w * (t + r),
-                    axis_dir,
-                    f.angle_rad,
-                    32,
-                    FaceSides::default(),
-                    tol,
-                )?;
-                parts.push(bend);
+            for step in steps {
+                if r + t > tol.length {
+                    parts.push(revolve(
+                        std::slice::from_ref(&step.face),
+                        step.pivot,
+                        step.axis,
+                        step.angle,
+                        32,
+                        FaceSides::default(),
+                        tol,
+                    )?);
+                }
+                // The leg starts where the bend ends.
+                let rot = crate::math::transform::rotation_about(
+                    step.pivot,
+                    step.axis,
+                    crate::units::Angle::radians(step.angle),
+                );
+                let start: Vec<DVec3> =
+                    step.face.iter().map(|p| rot.transform_point3(*p)).collect();
+                let end: Vec<DVec3> = start.iter().map(|p| *p + step.leg * step.length).collect();
+                parts.push(loft(&[start, end], FaceSides::default(), tol)?);
             }
-            // The leg starts where the bend ends.
-            let rot = crate::math::transform::rotation_about(
-                a + w * (t + r),
-                axis_dir,
-                crate::units::Angle::radians(f.angle_rad),
-            );
-            let start: Vec<DVec3> = face.iter().map(|p| rot.transform_point3(*p)).collect();
-            let leg_dir = rot.transform_vector3(out);
-            let end: Vec<DVec3> = start.iter().map(|p| *p + leg_dir * f.length_mm).collect();
-            parts.push(loft(&[start, end], FaceSides::default(), tol)?);
             for p in parts {
                 let joined = boolean(
                     BooleanOp::Union,
@@ -402,25 +633,30 @@ impl SheetMetal {
         Ok(solid)
     }
 
-    /// The flat pattern in its own plane: the outline with each flange's
-    /// bend allowance and length added outward, and the bend zones' lines.
+    /// The flat pattern in its own plane: the plate outline (reliefs cut)
+    /// with each flange's bend allowances and lengths added outward, and the
+    /// bend zones' lines.
     pub fn flat(&self) -> (Vec<DVec2>, Vec<[DVec2; 2]>) {
         let pts = self.points();
+        let relieved = self.relieved_corners();
         let n = pts.len();
         let mut outline = Vec::new();
         let mut bends = Vec::new();
         for i in 0..n {
-            let (a, b) = (pts[i], pts[(i + 1) % n]);
-            outline.push(a);
-            if let Some(f) = self.flanges.iter().find(|f| f.edge == i) {
+            outline.extend(self.corner_points(&pts, &relieved, i));
+            if let Some(f) = self.flange_on(i) {
+                let (a, b) = self.edge_span(&pts, &relieved, i);
                 let along = (b - a).normalize();
                 let out = DVec2::new(along.y, -along.x);
-                let ba = self.bend_allowance(f);
-                let width = ba + f.length_mm;
-                outline.push(a + out * width);
-                outline.push(b + out * width);
-                bends.push([a, b]);
-                bends.push([a + out * ba, b + out * ba]);
+                let mut d = 0.0;
+                for bend in f.bends() {
+                    let ba = self.allowance(bend.angle_rad);
+                    bends.push([a + out * d, b + out * d]);
+                    bends.push([a + out * (d + ba), b + out * (d + ba)]);
+                    d += ba + bend.length_mm;
+                }
+                outline.push(a + out * d);
+                outline.push(b + out * d);
             }
         }
         (outline, bends)
@@ -490,6 +726,7 @@ mod tests {
             bend_radius_mm: 2.0,
             k_factor: 0.44,
             flanges,
+            relief: None,
         }
     }
 
@@ -500,6 +737,7 @@ mod tests {
             edge: 0,
             angle_rad: half,
             length_mm: 30.0,
+            more: Vec::new(),
         }]);
         let folded = s.folded(&tol()).unwrap();
         assert!(folded.is_solid());
@@ -520,10 +758,146 @@ mod tests {
             edge: 7,
             angle_rad: half,
             length_mm: 30.0,
+            more: Vec::new(),
         }]);
         assert!(bad.check().is_err());
         bad.flanges.clear();
         bad.thickness_mm = 0.0;
         assert!(bad.check().is_err());
+    }
+
+    fn flange(edge: usize, angle_rad: f64, length_mm: f64, more: Vec<Bend>) -> Flange {
+        Flange {
+            edge,
+            angle_rad,
+            length_mm,
+            more,
+        }
+    }
+
+    #[test]
+    fn flanges_stand_on_flanges() {
+        let half = std::f64::consts::FRAC_PI_2;
+        // Inside radius 2 and thickness 2: a quarter ring per bend.
+        let ring = half / 2.0 * ((2.0f64 + 2.0).powi(2) - 2.0f64.powi(2)) * 200.0;
+        for (second, name) in [(half, "return"), (-half, "Z")] {
+            let s = tray(vec![flange(
+                0,
+                half,
+                30.0,
+                vec![Bend {
+                    angle_rad: second,
+                    length_mm: 15.0,
+                }],
+            )]);
+            let folded = s.folded(&tol()).unwrap();
+            assert!(folded.is_solid(), "{name}");
+            let expect = 200.0 * 100.0 * 2.0 + 2.0 * ring + (30.0 + 15.0) * 2.0 * 200.0;
+            let got = folded.volume().unwrap();
+            assert!(
+                (got - expect).abs() < 0.01 * expect,
+                "{name}: {got} vs {expect}"
+            );
+            // The free end: after the first leg it stands 34 mm up on the
+            // outside face; the second bend carries it back over the plate
+            // (return) or away from it (Z), at the leg's height.
+            let [a, _] = s.free_ends()[0].1;
+            if second > 0.0 {
+                assert!(a.y > -4.0 + 15.0 - 1e-6 && a.z > 34.0, "{name}: {a}");
+            } else {
+                assert!(a.y < -4.0 - 15.0 + 1e-6 && a.z > 34.0, "{name}: {a}");
+            }
+            // Flat: both allowances and lengths outward, four bend lines.
+            let (outline, bends) = s.flat();
+            let ba = half * (2.0 + 0.44 * 2.0);
+            let lowest = outline.iter().map(|p| p.y).fold(f64::INFINITY, f64::min);
+            assert!((lowest + 2.0 * ba + 45.0).abs() < 1e-9, "{name}: {lowest}");
+            assert_eq!(bends.len(), 4);
+        }
+        // Too many bends, a zero bend.
+        let mut bad = tray(vec![flange(
+            0,
+            half,
+            30.0,
+            vec![
+                Bend {
+                    angle_rad: 0.0,
+                    length_mm: 5.0
+                };
+                1
+            ],
+        )]);
+        assert!(bad.check().is_err());
+        bad.flanges[0].more = vec![
+            Bend {
+                angle_rad: 0.2,
+                length_mm: 5.0
+            };
+            MAX_BENDS
+        ];
+        assert!(bad.check().is_err());
+    }
+
+    #[test]
+    fn corner_reliefs_cut_the_plate_and_the_blank() {
+        let half = std::f64::consts::FRAC_PI_2;
+        let ring_area = half / 2.0 * ((2.0f64 + 2.0).powi(2) - 2.0f64.powi(2));
+        let leg = ring_area + 30.0 * 2.0;
+        let mut s = tray(vec![
+            flange(0, half, 30.0, vec![]),
+            flange(1, half, 30.0, vec![]),
+        ]);
+        // Without a relief the flanges keep their whole edges.
+        let plain = s.folded(&tol()).unwrap().volume().unwrap();
+        let expect = 200.0 * 100.0 * 2.0 + leg * (200.0 + 100.0);
+        assert!((plain - expect).abs() < 0.01 * expect);
+        s.relief = Some(CornerRelief {
+            shape: ReliefShape::Square,
+            size_mm: 5.0,
+        });
+        // Only the corner between the two flanged edges is relieved.
+        assert_eq!(s.relieved_corners(), vec![false, true, false, false]);
+        let folded = s.folded(&tol()).unwrap();
+        assert!(folded.is_solid());
+        let expect = (200.0 * 100.0 - 25.0) * 2.0 + leg * (195.0 + 95.0);
+        let got = folded.volume().unwrap();
+        assert!((got - expect).abs() < 0.01 * expect, "{got} vs {expect}");
+        let (outline, _) = s.flat();
+        for q in [
+            DVec2::new(195.0, 0.0),
+            DVec2::new(195.0, 5.0),
+            DVec2::new(200.0, 5.0),
+        ] {
+            assert!(outline.iter().any(|p| p.distance(q) < 1e-9), "{q} missing");
+        }
+        // The blank's strips start at the relief.
+        let ba = half * (2.0 + 0.44 * 2.0);
+        assert!(
+            outline
+                .iter()
+                .any(|p| p.distance(DVec2::new(195.0, -(ba + 30.0))) < 1e-9)
+        );
+        assert!(
+            outline
+                .iter()
+                .any(|p| p.distance(DVec2::new(200.0 + ba + 30.0, 5.0)) < 1e-9)
+        );
+        // A round relief removes a quarter disk (eight chords).
+        s.relief = Some(CornerRelief {
+            shape: ReliefShape::Round,
+            size_mm: 5.0,
+        });
+        let folded = s.folded(&tol()).unwrap();
+        assert!(folded.is_solid());
+        let quarter = 0.5 * 25.0 * 8.0 * libm::sin(half / 8.0);
+        let expect = (200.0 * 100.0 - quarter) * 2.0 + leg * (195.0 + 95.0);
+        let got = folded.volume().unwrap();
+        assert!((got - expect).abs() < 0.01 * expect, "{got} vs {expect}");
+        // Reliefs larger than an edge leave no flange.
+        s.relief = Some(CornerRelief {
+            shape: ReliefShape::Square,
+            size_mm: 150.0,
+        });
+        assert!(s.check().is_err());
     }
 }

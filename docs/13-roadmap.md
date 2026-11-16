@@ -462,6 +462,11 @@ Constraints window.
 Complete sheet metal from 1.14: edge flanges on the outer edges of earlier flanges, and corner
 reliefs where two flanges meet at a base corner, in the 3D part and the flat pattern.
 
+- **Done (2026-11-16):** stacked flanges with signed angles (`stack`), square and round corner
+  reliefs (`relief_shape`, `relief_size`), stacked removal; folded part, blank and the
+  Fabrication window agree (docs/03 §4.20, docs/05 §8.12). Flanges on a flange's side edges
+  remain out of scope.
+
 ## 1.35.0 — Trimming and splitting by surfaces
 
 Complete 1.11/1.15: trim a surface by another surface and split a solid by a surface (open

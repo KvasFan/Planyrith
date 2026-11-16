@@ -316,6 +316,16 @@ sign of the volume, and neighboring side pieces closer than 20° are softened an
   (§4.13).
 - **Unfolding:** each flange adds the bend allowance `angle × (radius + K × thickness)` and its
   length outward from its edge; the bend zone's two lines are its ends.
+- **Flanges on flanges (1.34):** a flange carries further bends in order, each turning the
+  previous leg's free end face (bottom edge `a`–`b`, inside direction `up`). A positive angle
+  turns toward `up` about the axis through `a + up × (thickness + radius)`; a negative one turns
+  the other way about the axis through `a − up × radius`, so the inside radius stays `radius`
+  either way. The leg follows the turned outward direction. Unfolded, each bend adds its
+  allowance (by the angle's size) and its length, with two bend lines per bend.
+- **Corner reliefs (1.34):** at each convex corner whose two edges both carry flanges, a part
+  with a relief cuts the plate: a square (a rhombus at other angles) with sides `size` along
+  both edges, or a circle of radius `size` about the corner (eight chords). The flanges on those
+  edges start `size` from the corner, so the folded part and the blank agree.
 
 ### 4.21 Surfaces (`geom::surface`)
 - **Coons patch:** the boundary (a closed loop of points) is split at its four sharpest corners

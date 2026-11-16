@@ -833,20 +833,30 @@ plane, thickness, inside bend radius, K factor and flanges — as the attribute 
 - `sheet-metal-base { profile: Sel (one face), thickness, bend_radius? (the thickness), k_factor
   (0.44), name }`: the face's outer loop becomes the outline (holes are not kept), the sheet
   grows toward its front, and the face gives way to the part.
-- `sheet-metal-flange { part, edge? | near?, angle (90°), length }`: a flange bent up on the
-  outline edge numbered `edge` (from corner `edge` to the next, counter-clockwise) or nearest
-  the point `near`; again on the same edge replaces it.
-- `sheet-metal-set { part, thickness?, bend_radius?, k_factor?, remove_flange? }`.
+- `sheet-metal-flange { part, edge? | near?, angle (90°), length, stack (false) }`: a flange
+  bent up on the outline edge numbered `edge` (from corner `edge` to the next,
+  counter-clockwise) or nearest the point `near`; again on the same edge replaces it. With
+  `stack`, the flange stands on the free end of the flange already on that edge (or of the one
+  stacked on it last; `near` then picks the flange whose free end is nearest), and a negative
+  angle bends the other way (a Z-bend); up to eight bends per edge (docs/03 §4.20).
+- `sheet-metal-set { part, thickness?, bend_radius?, k_factor?, remove_flange?,
+  remove_stacked?, relief_shape? (square|round), relief_size? }`: `remove_flange` removes an
+  edge's flange with all stacked on it, `remove_stacked` the last stacked one; a relief size
+  relieves every convex corner between two flanged edges, and size 0 removes the reliefs.
 - `sheet-metal-flat { part, offset? }`: a "Flat pattern" group beside the part (or at `offset`
   from the outline's origin): the outline with each flange's bend allowance
   `angle × (radius + K × thickness)` and length added outward, the bend zones' lines drawn on
   its top; the output gives the outline, the bend lines and the blank's size (export it with
   `export --2d` from the top view for cutting).
-- **Output:** `{ part?, volume_mm3, flanges }`; the flat pattern `{ group, outline, bend_lines,
-  size_mm }`. **Undo:** one step each.
-- **GUI:** Tools › Fabrication… › Sheet metal.
+- **Output:** `{ part?, volume_mm3, flanges, bends, reliefs }`; the flat pattern `{ group,
+  outline, bend_lines, size_mm }`. **Undo:** one step each.
+- **GUI:** Tools › Fabrication… › Sheet metal: Add Flange, Stack on Flange (signed angle),
+  Remove Stacked, corner relief shape and size with Apply Reliefs.
 - **Tests:** a 200 × 100 × 2 sheet; two flanges keep a printable solid; a thicker gauge rebuilds
   and undo restores; the blank is 100 + 2 × (allowance + 30) across with four bend lines.
+  Return and Z flanges stacked on a flange match the analytic volume and blank; square and
+  round reliefs cut the plate and the blank; stacking needs a flange; removal and undo; CLI/RPC
+  parity and the window's buttons.
 
 ### 8.13 `frame-member`
 - **Params:** `path: Sel` (edges: the members' center lines), `profile` (`square-tube 40x40x3`,

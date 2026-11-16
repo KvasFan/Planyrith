@@ -22,7 +22,9 @@ use crate::document::{
     ComponentDefinition, ContainerRef, Document, Entities, EntityRecord, Group, Query, Value,
 };
 use crate::geom::HalfEdgeMesh;
-use crate::geom::fabrication::{Flange, ProfileFrame, SheetMetal, prism, profile};
+use crate::geom::fabrication::{
+    Bend, CornerRelief, Flange, ProfileFrame, ReliefShape, SheetMetal, prism, profile,
+};
 use crate::ids::{DefinitionId, EntityId, Pid};
 use crate::units::{Angle, Length};
 
@@ -174,6 +176,20 @@ pub struct SheetMetalOutput {
     pub volume_mm3: f64,
     /// Flanges.
     pub flanges: usize,
+    /// Bends of all flanges, stacked ones included.
+    #[serde(default)]
+    pub bends: usize,
+    /// Relieved corners.
+    #[serde(default)]
+    pub reliefs: usize,
+}
+
+fn bends_of(sm: &SheetMetal) -> usize {
+    sm.flanges.iter().map(|f| 1 + f.more.len()).sum()
+}
+
+fn reliefs_of(sm: &SheetMetal) -> usize {
+    sm.relieved_corners().iter().filter(|r| **r).count()
 }
 
 // ----- sheet-metal-base -----------------------------------------------------------------
@@ -280,6 +296,7 @@ impl Command for SheetMetalBase {
             bend_radius_mm: p.bend_radius.map_or(p.thickness.as_mm(), |r| r.as_mm()),
             k_factor: p.k_factor,
             flanges: Vec::new(),
+            relief: None,
         };
         let folded = sm.folded(tx.tolerances())?;
         let volume_mm3 = folded.volume()?;
@@ -296,6 +313,8 @@ impl Command for SheetMetalBase {
             part: Some(pid),
             volume_mm3,
             flanges: 0,
+            bends: 0,
+            reliefs: 0,
         })
     }
 
@@ -325,11 +344,16 @@ pub struct SheetMetalFlangeParams {
     #[serde(default)]
     #[schemars(with = "Option<PointSchema>")]
     pub near: Option<DVec3>,
-    /// The bend angle (90°).
+    /// The bend angle (90°). With `stack`, negative bends the other way.
     #[serde(default = "right_angle")]
     pub angle: Angle,
     /// The flange's straight length beyond the bend.
     pub length: Length,
+    /// Stand the flange on the free end of the flange already on that edge
+    /// (or of the flange stacked on it last); `near` then picks the flange
+    /// whose free end is nearest (milestone 1.34).
+    #[serde(default)]
+    pub stack: bool,
 }
 
 /// The `sheet-metal-flange` command (an edge flange; again on the same edge
@@ -362,6 +386,21 @@ impl Command for SheetMetalFlange {
         let n = sm.outline.len();
         let edge = match (p.edge, p.near) {
             (Some(e), _) => e,
+            (None, Some(near)) if p.stack => {
+                let q = target.local.transform_point3(near);
+                sm.free_ends()
+                    .into_iter()
+                    .min_by(|(i, x), (j, y)| {
+                        let dist = |e: &[DVec3; 2]| {
+                            crate::math::Segment::new(e[0], e[1]).distance_to_point(q)
+                        };
+                        dist(x).total_cmp(&dist(y)).then(i.cmp(j))
+                    })
+                    .map(|(e, _)| e)
+                    .ok_or_else(|| {
+                        CommandError::NotApplicable("the part has no flange to stack on".into())
+                    })?
+            }
             (None, Some(near)) => {
                 let o = DVec3::from_array(sm.origin);
                 let (u, v) = (DVec3::from_array(sm.u), DVec3::from_array(sm.v));
@@ -382,18 +421,38 @@ impl Command for SheetMetalFlange {
             }
             (None, None) => return Err(CommandError::invalid_param("edge", "give edge or near")),
         };
-        sm.flanges.retain(|f| f.edge != edge);
-        sm.flanges.push(Flange {
-            edge,
-            angle_rad: p.angle.as_radians(),
-            length_mm: p.length.as_mm(),
-        });
+        if p.stack {
+            let f = sm
+                .flanges
+                .iter_mut()
+                .find(|f| f.edge == edge)
+                .ok_or_else(|| {
+                    CommandError::invalid_param(
+                        "edge",
+                        format!("no flange on edge {edge} to stack on"),
+                    )
+                })?;
+            f.more.push(Bend {
+                angle_rad: p.angle.as_radians(),
+                length_mm: p.length.as_mm(),
+            });
+        } else {
+            sm.flanges.retain(|f| f.edge != edge);
+            sm.flanges.push(Flange {
+                edge,
+                angle_rad: p.angle.as_radians(),
+                length_mm: p.length.as_mm(),
+                more: Vec::new(),
+            });
+        }
         sm.flanges.sort_by_key(|f| f.edge);
         let volume_mm3 = rebuild(tx, d, &sm)?;
         Ok(SheetMetalOutput {
             part: None,
             volume_mm3,
             flanges: sm.flanges.len(),
+            bends: bends_of(&sm),
+            reliefs: reliefs_of(&sm),
         })
     }
 
@@ -421,9 +480,18 @@ pub struct SheetMetalSetParams {
     /// A new K factor.
     #[serde(default)]
     pub k_factor: Option<f64>,
-    /// Remove the flange on this outline edge.
+    /// Remove the flange on this outline edge (with all stacked on it).
     #[serde(default)]
     pub remove_flange: Option<usize>,
+    /// Remove the last flange stacked on the flange on this outline edge.
+    #[serde(default)]
+    pub remove_stacked: Option<usize>,
+    /// The shape of the reliefs where two flanges meet at a corner.
+    #[serde(default)]
+    pub relief_shape: Option<ReliefShape>,
+    /// Their size along each edge from the corner; 0 removes the reliefs.
+    #[serde(default)]
+    pub relief_size: Option<Length>,
 }
 
 /// The `sheet-metal-set` command: new gauge, radius or K factor, or a
@@ -444,6 +512,9 @@ impl Command for SheetMetalSet {
             && p.bend_radius.is_none()
             && p.k_factor.is_none()
             && p.remove_flange.is_none()
+            && p.remove_stacked.is_none()
+            && p.relief_shape.is_none()
+            && p.relief_size.is_none()
         {
             return Err(CommandError::invalid_param("thickness", "change something"));
         }
@@ -476,11 +547,43 @@ impl Command for SheetMetalSet {
                 ));
             }
         }
+        if let Some(e) = p.remove_stacked {
+            let f = sm.flanges.iter_mut().find(|f| f.edge == e);
+            if f.and_then(|f| f.more.pop()).is_none() {
+                return Err(CommandError::invalid_param(
+                    "remove_stacked",
+                    format!("no flange stacked on edge {e}"),
+                ));
+            }
+        }
+        match (p.relief_shape, p.relief_size.map(|l| l.as_mm())) {
+            (_, Some(size)) if size.abs() < 1e-12 => sm.relief = None,
+            (shape, Some(size)) => {
+                sm.relief = Some(CornerRelief {
+                    shape: shape
+                        .or(sm.relief.map(|r| r.shape))
+                        .unwrap_or(ReliefShape::Square),
+                    size_mm: size,
+                });
+            }
+            (Some(shape), None) => match sm.relief.as_mut() {
+                Some(r) => r.shape = shape,
+                None => {
+                    return Err(CommandError::invalid_param(
+                        "relief_size",
+                        "give the reliefs a size",
+                    ));
+                }
+            },
+            (None, None) => {}
+        }
         let volume_mm3 = rebuild(tx, d, &sm)?;
         Ok(SheetMetalOutput {
             part: None,
             volume_mm3,
             flanges: sm.flanges.len(),
+            bends: bends_of(&sm),
+            reliefs: reliefs_of(&sm),
         })
     }
 
@@ -785,6 +888,114 @@ mod tests {
 
     fn engine() -> Engine {
         Engine::new(Document::new(), Arc::new(CommandRegistry::with_builtins()))
+    }
+
+    #[test]
+    fn stacked_flanges_and_corner_reliefs() {
+        let mut e = engine();
+        e.execute_erased(
+            "rectangle",
+            json!({ "corner_a": [0, 0, 0], "corner_b": [200, 100, 0] }),
+        )
+        .unwrap();
+        e.execute_erased(
+            "sheet-metal-base",
+            json!({ "profile": "face", "thickness": 2 }),
+        )
+        .unwrap();
+        for edge in [0, 1] {
+            e.execute_erased(
+                "sheet-metal-flange",
+                json!({ "part": "group", "edge": edge, "length": 30 }),
+            )
+            .unwrap();
+        }
+        // Stacking needs a flange to stand on.
+        let err = e
+            .execute_erased(
+                "sheet-metal-flange",
+                json!({ "part": "group", "edge": 2, "length": 10, "stack": true }),
+            )
+            .unwrap_err();
+        assert!(err.to_string().contains("no flange on edge 2"), "{err}");
+        // A return flange on the free end nearest a point high above edge 0,
+        // then a Z-bend on edge 1's.
+        let out = e
+            .execute_erased(
+                "sheet-metal-flange",
+                json!({ "part": "group", "near": [100, -4, 40], "length": 15, "stack": true }),
+            )
+            .unwrap();
+        assert_eq!(out["bends"], 3, "{out}");
+        let out = e
+            .execute_erased(
+                "sheet-metal-flange",
+                json!({ "part": "group", "edge": 1, "angle": -std::f64::consts::FRAC_PI_2,
+                        "length": 15, "stack": true }),
+            )
+            .unwrap();
+        assert_eq!(
+            (out["flanges"].as_u64(), out["bends"].as_u64()),
+            (Some(2), Some(4))
+        );
+        let unrelieved = out["volume_mm3"].as_f64().unwrap();
+        // A square relief at the corner between them.
+        let out = e
+            .execute_erased(
+                "sheet-metal-set",
+                json!({ "part": "group", "relief_shape": "square", "relief_size": 5 }),
+            )
+            .unwrap();
+        assert_eq!(out["reliefs"], 1, "{out}");
+        assert!(out["volume_mm3"].as_f64().unwrap() < unrelieved);
+        let check = e.execute_erased("solid-check", json!({})).unwrap();
+        assert_eq!(check["printable"], true, "{check}");
+        let flat = e
+            .execute_erased("sheet-metal-flat", json!({ "part": "group & name:Sheet*" }))
+            .unwrap();
+        assert_eq!(flat["bend_lines"].as_array().unwrap().len(), 8);
+        assert!(
+            flat["outline"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|p| p == &json!([195.0, 5.0])),
+            "{flat}"
+        );
+        e.undo().unwrap();
+        // Remove the stacked bend, then the relief (size 0); undo brings it.
+        let out = e
+            .execute_erased(
+                "sheet-metal-set",
+                json!({ "part": "group", "remove_stacked": 0 }),
+            )
+            .unwrap();
+        assert_eq!(out["bends"], 3);
+        let out = e
+            .execute_erased(
+                "sheet-metal-set",
+                json!({ "part": "group", "relief_size": 0 }),
+            )
+            .unwrap();
+        assert_eq!(out["reliefs"], 0);
+        e.undo().unwrap();
+        let out = e
+            .execute_erased(
+                "sheet-metal-set",
+                json!({ "part": "group", "k_factor": 0.4 }),
+            )
+            .unwrap();
+        assert_eq!(
+            (out["reliefs"].as_u64(), out["bends"].as_u64()),
+            (Some(1), Some(3))
+        );
+        let err = e
+            .execute_erased(
+                "sheet-metal-set",
+                json!({ "part": "group", "remove_stacked": 0 }),
+            )
+            .unwrap_err();
+        assert!(err.to_string().contains("no flange stacked"), "{err}");
     }
 
     #[test]

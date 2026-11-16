@@ -1192,3 +1192,13 @@ t-the-radius-of-the-selected-arc-or-circle-from-the-length-field = Il raggio del
 t-equal-radius = Raggio uguale
 t-end-on-curve = Estremo sulla curva
 t-the-first-edge-s-end-nearest-the-second-edge-s-arc-or-circle-lies-on-it = L’estremo del primo spigolo più vicino all’arco o al cerchio del secondo giace su di esso
+
+t-negative-angles-bend-a-stacked-flange-the-other-way = Gli angoli negativi piegano dall’altra parte una flangia sovrapposta
+t-corner-relief = Scarico d’angolo
+t-stack-on-flange = Sovrapponi alla flangia
+t-a-flange-on-the-free-end-of-the-flange-on-this-outline-edge = Una flangia sull’estremo libero della flangia di questo lato del contorno
+t-remove-stacked = Rimuovi sovrapposta
+t-apply-reliefs = Applica scarichi
+t-relieve-the-corners-where-two-flanges-meet-a-size-of-0-removes-the-reliefs = Scarica gli angoli dove si incontrano due flange; una misura di 0 rimuove gli scarichi
+t-square = Quadrato
+t-round = Tondo

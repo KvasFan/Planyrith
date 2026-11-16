@@ -1777,6 +1777,8 @@ pub struct FabricationWindow {
     length_mm: f64,
     profile: String,
     miter: bool,
+    relief_round: bool,
+    relief_mm: f64,
     note: Option<String>,
 }
 
@@ -1793,6 +1795,8 @@ impl Default for FabricationWindow {
             length_mm: 30.0,
             profile: "square-tube 40x40x3".into(),
             miter: true,
+            relief_round: false,
+            relief_mm: 5.0,
             note: None,
         }
     }
@@ -1906,10 +1910,18 @@ impl FabricationWindow {
                         ui.add(egui::DragValue::new(&mut self.edge).range(0..=999));
                         ui.end_row();
                         ui.label(t("Angle"));
-                        ui.add(egui::DragValue::new(&mut self.angle_deg).range(1.0..=180.0).suffix("°"));
+                        ui.add(egui::DragValue::new(&mut self.angle_deg).range(-180.0..=180.0).suffix("°"))
+                            .on_hover_text(t("Negative angles bend a stacked flange the other way"));
                         ui.end_row();
                         ui.label(t("Length"));
                         ui.add(egui::DragValue::new(&mut self.length_mm).range(0.1..=10_000.0).suffix(" mm"));
+                        ui.end_row();
+                        ui.label(t("Corner relief"));
+                        ui.horizontal(|ui| {
+                            ui.selectable_value(&mut self.relief_round, false, t("Square"));
+                            ui.selectable_value(&mut self.relief_round, true, t("Round"));
+                            ui.add(egui::DragValue::new(&mut self.relief_mm).range(0.0..=1000.0).suffix(" mm"));
+                        });
                         ui.end_row();
                     });
                     ui.horizontal(|ui| {
@@ -1919,6 +1931,40 @@ impl FabricationWindow {
                                 "sheet-metal-flange",
                                 json!({ "part": "selection", "edge": self.edge,
                                         "angle": self.angle_deg.to_radians(), "length": self.length_mm }),
+                            );
+                        }
+                        if ui
+                            .button(t("Stack on Flange"))
+                            .on_hover_text(t("A flange on the free end of the flange on this outline edge"))
+                            .clicked()
+                        {
+                            self.run(
+                                session,
+                                "sheet-metal-flange",
+                                json!({ "part": "selection", "edge": self.edge, "stack": true,
+                                        "angle": self.angle_deg.to_radians(), "length": self.length_mm }),
+                            );
+                        }
+                        if ui.button(t("Remove Stacked")).clicked() {
+                            self.run(
+                                session,
+                                "sheet-metal-set",
+                                json!({ "part": "selection", "remove_stacked": self.edge }),
+                            );
+                        }
+                    });
+                    ui.horizontal(|ui| {
+                        if ui
+                            .button(t("Apply Reliefs"))
+                            .on_hover_text(t("Relieve the corners where two flanges meet; a size of 0 removes the reliefs"))
+                            .clicked()
+                        {
+                            let shape = if self.relief_round { "round" } else { "square" };
+                            self.run(
+                                session,
+                                "sheet-metal-set",
+                                json!({ "part": "selection", "relief_shape": shape,
+                                        "relief_size": self.relief_mm }),
                             );
                         }
                         if ui.button(t("Apply Gauge")).clicked() {
@@ -4006,6 +4052,108 @@ mod gui_tests {
 
     use crate::app::App;
     use crate::i18n::t;
+
+    /// The Fabrication window's stacked flange and relief controls
+    /// (docs/05 §8.12, milestone 1.34).
+    #[test]
+    fn fabrication_buttons_stack_flanges_and_relieve_corners() {
+        use super::*;
+        let mut session = Session::new();
+        session
+            .execute(
+                "rectangle",
+                json!({ "corner_a": [0, 0, 0], "corner_b": [200, 100, 0] }),
+            )
+            .unwrap();
+        session
+            .execute(
+                "sheet-metal-base",
+                json!({ "profile": "face", "thickness": 2 }),
+            )
+            .unwrap();
+        for edge in [0, 1] {
+            session
+                .execute(
+                    "sheet-metal-flange",
+                    json!({ "part": "group", "edge": edge, "length": 30 }),
+                )
+                .unwrap();
+        }
+        session
+            .execute("select", json!({ "query": "group" }))
+            .unwrap();
+        let window = FabricationWindow {
+            open: true,
+            edge: 1,
+            angle_deg: -90.0,
+            length_mm: 15.0,
+            relief_round: true,
+            relief_mm: 4.0,
+            ..Default::default()
+        };
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1000.0, 800.0))
+            .with_max_steps(64)
+            .build_ui_state(
+                |ui, state: &mut (FabricationWindow, Session)| {
+                    state.0.window(ui.ctx(), &mut state.1)
+                },
+                (window, session),
+            );
+        h.run();
+        h.get_by_label(&t("Stack on Flange")).click();
+        h.run();
+        assert!(
+            h.state()
+                .0
+                .note
+                .as_deref()
+                .unwrap()
+                .starts_with("Solid made"),
+            "{:?}",
+            h.state().0.note
+        );
+        h.get_by_label(&t("Apply Reliefs")).click();
+        h.run();
+        assert!(
+            h.state()
+                .0
+                .note
+                .as_deref()
+                .unwrap()
+                .starts_with("Solid made"),
+            "{:?}",
+            h.state().0.note
+        );
+        let doc = h.state().1.doc();
+        let (_, group) = doc.model.groups().next().unwrap();
+        let def = doc.definition(group.definition).unwrap();
+        let sm: planyrith_core::geom::fabrication::SheetMetal =
+            match def.attrs.get("planyrith", "sheet-metal") {
+                Some(planyrith_core::document::Value::Str(s)) => serde_json::from_str(s).unwrap(),
+                other => panic!("{other:?}"),
+            };
+        assert_eq!(sm.flanges[1].more.len(), 1);
+        assert!(sm.flanges[1].more[0].angle_rad < 0.0);
+        let relief = sm.relief.unwrap();
+        assert_eq!(
+            relief.shape,
+            planyrith_core::geom::fabrication::ReliefShape::Round
+        );
+        assert!((relief.size_mm - 4.0).abs() < 1e-9);
+        h.get_by_label(&t("Remove Stacked")).click();
+        h.run();
+        assert!(
+            h.state()
+                .0
+                .note
+                .as_deref()
+                .unwrap()
+                .starts_with("Solid made"),
+            "{:?}",
+            h.state().0.note
+        );
+    }
 
     /// The Constraints window's arc and circle buttons (docs/03 §11.4).
     #[test]

@@ -2525,6 +2525,11 @@ line --points 100,0,0 --points 180,-300,0
 circle --center 600,0,0 --radius 50
 constraint-add --kind fixed --edges @13
 ";
+    const TRAY: &str = "rectangle --corner-a 0,0,0 --corner-b 200,100,0
+sheet-metal-base --profile face --thickness 2
+sheet-metal-flange --part group --edge 0 --length 30
+sheet-metal-flange --part group --edge 1 --length 30
+";
     check_parity(
         "completed",
         vec![
@@ -2539,6 +2544,28 @@ constraint-add --kind fixed --edges @13
                 name: "constraint-add",
                 params: json!({"kind":"radius","edges":["@14"],"length":80}),
                 args: vec!["--kind", "radius", "--edges", "@14", "--length", "8cm"],
+            },
+            ParityCase {
+                seed: TRAY,
+                name: "sheet-metal-flange",
+                params: json!({"part":"group","edge":1,"angle":-std::f64::consts::FRAC_PI_2,"length":15,"stack":true}),
+                args: vec![
+                    "--part", "group", "--edge", "1", "--angle", "-90deg", "--length", "15",
+                    "--stack",
+                ],
+            },
+            ParityCase {
+                seed: TRAY,
+                name: "sheet-metal-set",
+                params: json!({"part":"group","relief_shape":"round","relief_size":4}),
+                args: vec![
+                    "--part",
+                    "group",
+                    "--relief-shape",
+                    "round",
+                    "--relief-size",
+                    "4mm",
+                ],
             },
         ],
     );
