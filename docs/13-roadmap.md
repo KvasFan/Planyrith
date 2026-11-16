@@ -510,6 +510,9 @@ in both directions as components.
 Complete 1.17's STEP: dimensions and texts exported as graphical annotations (polylines and
 text placements) and read back.
 
+- **Done (2026-11-16):** draughting callouts per product, read back as dimensions and notes
+  attached to the imported geometry (docs/09 Decisions, 2026-11-16).
+
 ## 1.40.0 — Stepped mold partings and undercuts
 
 Complete 1.18: parting surfaces made of several planar steps, and draw-direction undercut

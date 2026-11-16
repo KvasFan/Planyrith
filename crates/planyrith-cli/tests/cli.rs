@@ -2708,3 +2708,71 @@ move --targets instance --delta 300,0,0 --copy
         serde_json::json!([400.0, 50.0, 30.0])
     );
 }
+
+/// docs/13 1.39: dimensions and notes leave as STEP annotations and come
+/// back attached to the imported geometry.
+#[test]
+fn step_annotations_round_trip() {
+    let dir = scratch("step-annotations");
+    let batch = dir.join("a.plyrb");
+    std::fs::write(
+        &batch,
+        "rectangle --corner-a 0,0,0 --corner-b 400,200,0
+push-pull --face '{face}' --distance 100
+dimension --kind linear --start 0,0,0 --end 400,200,0 --offset 0,-80,0 --direction 1,0,0
+text --at 400,200,100 --text Corner --layout '{\"world_offset\":[100,100,100],\"leader_visible\":true}'
+",
+    )
+    .unwrap();
+    let doc = dir.join("a.plyr");
+    let step = dir.join("a.step");
+    let back = dir.join("back.plyr");
+    planyrith()
+        .args([
+            "batch",
+            batch.to_str().unwrap(),
+            "-f",
+            doc.to_str().unwrap(),
+            "--deterministic",
+        ])
+        .assert()
+        .success();
+    planyrith()
+        .args([
+            "export",
+            "-f",
+            doc.to_str().unwrap(),
+            step.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+    let text = std::fs::read_to_string(&step).unwrap();
+    assert_eq!(text.matches("DRAUGHTING_CALLOUT(").count(), 2);
+    planyrith()
+        .args(["new", "-o", back.to_str().unwrap()])
+        .assert()
+        .success();
+    planyrith()
+        .args([
+            "import",
+            "-f",
+            back.to_str().unwrap(),
+            step.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+    let info = json_of(
+        &planyrith()
+            .args(["info", "-f", back.to_str().unwrap(), "--json"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout,
+    );
+    let totals = &info["output"]["counts"]["definitions_total"];
+    assert_eq!(
+        (totals["dimensions"].as_u64(), totals["texts"].as_u64()),
+        (Some(1), Some(1)),
+        "{info}"
+    );
+}

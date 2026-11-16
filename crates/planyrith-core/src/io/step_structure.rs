@@ -14,6 +14,10 @@
 //! The reader takes the same structure back, with planar faces bounded by
 //! lines and circular arcs (sampled); anything else is reported as
 //! unsupported so the caller can fall back to a curved-surface reader.
+//!
+//! Dimensions and anchored notes travel as graphical annotations: one
+//! draughting model per product with a callout of polylines and text per
+//! annotation (milestone 1.39, docs/09 Decisions 2026-11-16).
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -528,6 +532,64 @@ pub fn write(
         }
         written.insert(*c, (pd, sr, origin));
     }
+    // Dimensions and notes as graphical annotations (milestone 1.39).
+    let mut styles: Option<(usize, usize, usize)> = None;
+    for (c, (_, sr, _)) in &written {
+        let callouts = callouts_of(doc, *c);
+        if callouts.is_empty() {
+            continue;
+        }
+        let (curve, text, font) = *styles.get_or_insert_with(|| {
+            let colour = o.add("COLOUR_RGB('',0.,0.,0.)");
+            let line = o.add("DRAUGHTING_PRE_DEFINED_CURVE_FONT('continuous')");
+            let cs = o.add(format!(
+                "CURVE_STYLE('',#{line},POSITIVE_LENGTH_MEASURE(0.35),#{colour})"
+            ));
+            let curve = o.add(format!("PRESENTATION_STYLE_ASSIGNMENT((#{cs}))"));
+            let tsf = o.add(format!("TEXT_STYLE_FOR_DEFINED_FONT(#{colour})"));
+            let ts = o.add(format!("TEXT_STYLE('',#{tsf})"));
+            let text = o.add(format!("PRESENTATION_STYLE_ASSIGNMENT((#{ts}))"));
+            let font = o.add("DRAUGHTING_PRE_DEFINED_TEXT_FONT('ISO 3098')");
+            (curve, text, font)
+        });
+        let mut items = Vec::new();
+        for co in callouts {
+            let mut parts = Vec::new();
+            for line in &co.lines {
+                let pts: Vec<String> = line
+                    .iter()
+                    .map(|p| format!("#{}", point(&mut o, *p)))
+                    .collect();
+                let pl = o.add(format!("POLYLINE('',({}))", pts.join(",")));
+                parts.push(o.add(format!("ANNOTATION_CURVE_OCCURRENCE('',(#{curve}),#{pl})")));
+            }
+            if let Some((t, at)) = &co.text {
+                let place = placement(&mut o, *at, DVec3::Z, DVec3::X);
+                let tl = o.add(format!(
+                    "TEXT_LITERAL('',{},#{place},'baseline centre',#{font})",
+                    q(t)
+                ));
+                parts.push(o.add(format!("ANNOTATION_TEXT_OCCURRENCE('',(#{text}),#{tl})")));
+            }
+            let list = parts
+                .iter()
+                .map(|i| format!("#{i}"))
+                .collect::<Vec<_>>()
+                .join(",");
+            items.push(o.add(format!("DRAUGHTING_CALLOUT({},({list}))", q(co.kind))));
+        }
+        let origin = placement(&mut o, DVec3::ZERO, DVec3::Z, DVec3::X);
+        let list = items
+            .iter()
+            .chain(std::iter::once(&origin))
+            .map(|i| format!("#{i}"))
+            .collect::<Vec<_>>()
+            .join(",");
+        let dm = o.add(format!("DRAUGHTING_MODEL('annotations',({list}),#{ctx})"));
+        o.add(format!(
+            "REPRESENTATION_RELATIONSHIP('annotations','',#{dm},#{sr})"
+        ));
+    }
     for ((parent, step), (child, t, name)) in &usages {
         let (Some((ppd, psr, _)), Some((cpd, csr, corigin))) =
             (written.get(parent), written.get(child))
@@ -573,6 +635,78 @@ pub fn write(
     Ok((text, solids))
 }
 
+/// One graphical annotation: what it is, its polylines and its text with
+/// where the text stands (container coordinates, mm).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Callout {
+    /// `linear dimension`, `aligned dimension`, `radius dimension`,
+    /// `diameter dimension` or `note`.
+    pub kind: &'static str,
+    /// Polylines: a linear dimension's two extension lines then its
+    /// dimension line; a radial dimension's or note's leader.
+    pub lines: Vec<Vec<DVec3>>,
+    /// The text and where it stands.
+    pub text: Option<(String, DVec3)>,
+}
+
+/// The dimensions and anchored notes of container `c` as callouts
+/// (screen-only notes have no place in the model and are left out).
+pub fn callouts_of(doc: &Document, c: ContainerRef) -> Vec<Callout> {
+    use crate::document::annotations::{anchor_position, dimension_view};
+    use crate::document::{Dimension, RadialKind};
+    let Some(entities) = doc.container(c) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for (_, dim) in entities.dimensions() {
+        let v = dimension_view(doc, c, dim);
+        if v.detached {
+            continue;
+        }
+        let [a, b] = v.measured;
+        let [l0, l1] = v.line;
+        out.push(match dim {
+            Dimension::Linear { direction, .. } => Callout {
+                kind: if direction.is_some() {
+                    "linear dimension"
+                } else {
+                    "aligned dimension"
+                },
+                lines: vec![vec![a, l0], vec![b, l1], vec![l0, l1]],
+                text: Some((v.text.clone(), v.text_at)),
+            },
+            Dimension::Radial { kind, .. } => Callout {
+                kind: match kind {
+                    RadialKind::Radius => "radius dimension",
+                    RadialKind::Diameter => "diameter dimension",
+                },
+                lines: vec![vec![l0, l1]],
+                text: Some((v.text.clone(), v.text_at)),
+            },
+        });
+    }
+    for (_, t) in entities.texts() {
+        let Some(at) = t.anchor.as_ref().and_then(|a| anchor_position(doc, c, a)) else {
+            continue;
+        };
+        let label = at
+            + t.layout
+                .as_ref()
+                .and_then(|l| l.world_offset)
+                .unwrap_or(DVec3::ZERO);
+        out.push(Callout {
+            kind: "note",
+            lines: if label.distance(at) > 1e-9 {
+                vec![vec![at, label]]
+            } else {
+                Vec::new()
+            },
+            text: Some((t.text.clone(), label)),
+        });
+    }
+    out
+}
+
 // ----- reading --------------------------------------------------------------------------
 
 /// A product read back.
@@ -588,6 +722,19 @@ pub struct ReadProduct {
     pub properties: BTreeMap<String, String>,
     /// Its own faces: shells of faces (loops, outer first), in mm.
     pub shells: Vec<Vec<Vec<Vec<DVec3>>>>,
+    /// Graphical annotations: kind, polylines and text (milestone 1.39).
+    pub annotations: Vec<ReadCallout>,
+}
+
+/// A graphical annotation read back.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ReadCallout {
+    /// The callout's name (its kind when Planyrith wrote it).
+    pub kind: String,
+    /// Its polylines, mm.
+    pub lines: Vec<Vec<DVec3>>,
+    /// Its text and where it stands, mm.
+    pub text: Option<(String, DVec3)>,
 }
 
 /// A structure read back.
@@ -988,6 +1135,65 @@ pub fn read(text: &str) -> Result<ReadModel, IoError> {
             }
         }
     }
+    // Graphical annotations of the products' draughting models.
+    for (id, i) in &data {
+        if i.kind != "DRAUGHTING_MODEL" {
+            continue;
+        }
+        let Some(pd) = rep_owner.get(id).copied() else {
+            continue;
+        };
+        let mut found = Vec::new();
+        for item in i.args.get(1).and_then(Value::as_list).unwrap_or_default() {
+            let Ok(dc) = rd.get(item) else { continue };
+            if dc.kind != "DRAUGHTING_CALLOUT" {
+                continue;
+            }
+            let mut callout = ReadCallout {
+                kind: dc
+                    .args
+                    .first()
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+                ..Default::default()
+            };
+            for part in dc.args.get(1).and_then(Value::as_list).unwrap_or_default() {
+                let Ok(occ) = rd.get(part) else { continue };
+                let Ok(geom) = rd.get(occ.args.get(2).unwrap_or(&Value::Null)) else {
+                    continue;
+                };
+                match (occ.kind.as_str(), geom.kind.as_str()) {
+                    ("ANNOTATION_CURVE_OCCURRENCE", "POLYLINE") => {
+                        let pts: Vec<DVec3> = geom
+                            .args
+                            .get(1)
+                            .and_then(Value::as_list)
+                            .unwrap_or_default()
+                            .iter()
+                            .filter_map(|p| rd.point(p).ok())
+                            .collect();
+                        if pts.len() >= 2 {
+                            callout.lines.push(pts);
+                        }
+                    }
+                    ("ANNOTATION_TEXT_OCCURRENCE", "TEXT_LITERAL") => {
+                        let t = geom.args.get(1).and_then(Value::as_str).unwrap_or_default();
+                        if let Ok(at) = rd.placement(geom.args.get(2).unwrap_or(&Value::Null)) {
+                            callout.text = Some((t.to_string(), at.translation));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            if !callout.lines.is_empty() || callout.text.is_some() {
+                found.push(callout);
+            }
+        }
+        if let Some(p) = model.products.get_mut(&pd) {
+            p.annotations.extend(found);
+        }
+    }
     // Usages with their placements.
     for i in data.values() {
         if i.kind != "CONTEXT_DEPENDENT_SHAPE_REPRESENTATION" {
@@ -1053,6 +1259,87 @@ pub fn read(text: &str) -> Result<ReadModel, IoError> {
         return Err(unsupported("geometry"));
     }
     Ok(model)
+}
+
+/// The dimension or note a callout read back stands for, attached to the
+/// geometry of `c` where its points meet it (milestone 1.39). Linear and
+/// aligned dimensions come back as dimensions, radial ones as radial
+/// dimensions on a curve when one is there; anything else with a text as a
+/// note (with a leader from its first polyline's start).
+fn annotation_record(
+    doc: &Document,
+    c: ContainerRef,
+    callout: &ReadCallout,
+) -> Option<crate::document::EntityRecord> {
+    use crate::document::annotations::{curve_of, dimension_text, find_anchor};
+    use crate::document::{DimStyle, Dimension, EntityRecord, RadialKind, Text, TextLayout};
+    let style = DimStyle::default();
+    let text = callout.text.clone();
+    match callout.kind.as_str() {
+        "linear dimension" | "aligned dimension" if callout.lines.len() >= 3 => {
+            let (a, l0) = (callout.lines[0][0], callout.lines[0][1]);
+            let (b, l1) = (callout.lines[1][0], *callout.lines[1].last()?);
+            let direction = (callout.kind == "linear dimension")
+                .then(|| (l1 - l0).try_normalize())
+                .flatten();
+            let value = match direction {
+                Some(d) => (b - a).dot(d).abs(),
+                None => (b - a).length(),
+            };
+            let measured = dimension_text(doc, &style, value, "", None);
+            let text_override = text.map(|t| t.0).filter(|t| *t != measured);
+            return Some(EntityRecord::Dimension(Dimension::Linear {
+                start: find_anchor(doc, c, a),
+                end: find_anchor(doc, c, b),
+                offset: l0 - a,
+                direction,
+                style,
+                text_override,
+            }));
+        }
+        "radius dimension" | "diameter dimension" if !callout.lines.is_empty() => {
+            let (p, end) = (callout.lines[0][0], *callout.lines[0].last()?);
+            let anchor = find_anchor(doc, c, p);
+            if let Some((_, radius)) = curve_of(doc, c, &anchor) {
+                let kind = if callout.kind == "radius dimension" {
+                    RadialKind::Radius
+                } else {
+                    RadialKind::Diameter
+                };
+                let value = if kind == RadialKind::Radius {
+                    radius
+                } else {
+                    2.0 * radius
+                };
+                let prefix = if kind == RadialKind::Radius {
+                    "R"
+                } else {
+                    "Ø"
+                };
+                let measured = dimension_text(doc, &style, value, prefix, None);
+                return Some(EntityRecord::Dimension(Dimension::Radial {
+                    curve: anchor,
+                    kind,
+                    leader: end - p,
+                    style,
+                    text_override: text.map(|t| t.0).filter(|t| *t != measured),
+                }));
+            }
+        }
+        _ => {}
+    }
+    let (content, label) = text?;
+    let at = callout.lines.first().map_or(label, |l| l[0]);
+    Some(EntityRecord::Text(Text {
+        layout: Some(TextLayout {
+            world_offset: Some(label - at),
+            leader_visible: label.distance(at) > 1e-9,
+            ..Default::default()
+        }),
+        anchor: Some(find_anchor(doc, c, at)),
+        text: content,
+        screen_offset: glam::DVec2::ZERO,
+    }))
 }
 
 /// A shell's faces as a mesh.
@@ -1266,6 +1553,14 @@ fn build(
         }
         let d = tx.insert_definition(def).map_err(err)?;
         made.insert(p, d);
+        for callout in &product.annotations {
+            if let Some(record) =
+                annotation_record(tx.document(), ContainerRef::Definition(d), callout)
+            {
+                tx.insert_entity(ContainerRef::Definition(d), record)
+                    .map_err(err)?;
+            }
+        }
     }
     let axes = if opts.swap_yz == Some(true) {
         DMat3::from_cols(DVec3::X, -DVec3::Z, DVec3::Y)
@@ -1367,6 +1662,116 @@ pub(crate) mod tests {
             "{} differs (set PLANYRITH_UPDATE_GOLDEN=1 to accept)",
             path.display()
         );
+    }
+
+    #[test]
+    fn dimensions_and_notes_travel_as_annotations() {
+        use crate::document::annotations::dimension_view;
+        let mut e = Engine::new(Document::new(), Arc::new(CommandRegistry::with_builtins()));
+        for (name, params) in [
+            (
+                "rectangle",
+                json!({ "corner_a": [0, 0, 0], "corner_b": [400, 200, 0] }),
+            ),
+            (
+                "push-pull",
+                json!({ "face": { "Query": "face" }, "distance": 100 }),
+            ),
+            ("circle", json!({ "center": [600, 0, 0], "radius": 50 })),
+            (
+                "dimension",
+                json!({ "kind": "radius", "curve": { "Query": "edge & last" },
+                                 "offset": [80, 80, 0] }),
+            ),
+            (
+                "dimension",
+                json!({ "kind": "linear", "start": [0, 0, 0], "end": [400, 200, 0],
+                                 "offset": [0, -80, 0], "direction": [1, 0, 0] }),
+            ),
+            (
+                "dimension",
+                json!({ "start": [0, 0, 100], "end": [400, 200, 100],
+                                 "offset": [0, 0, 50], "text_override": "<> diagonal" }),
+            ),
+            (
+                "text",
+                json!({ "at": [400, 200, 100], "text": "Corner",
+                            "layout": { "world_offset": [100, 100, 100], "leader_visible": true } }),
+            ),
+        ] {
+            e.execute_erased(name, params).unwrap();
+        }
+        let doc = e.document();
+        let views: Vec<(f64, String)> = doc
+            .model
+            .dimensions()
+            .map(|(_, d)| {
+                let v = dimension_view(doc, ContainerRef::Model, d);
+                (v.value, v.text)
+            })
+            .collect();
+        assert_eq!(views.len(), 3);
+        let (text, _) = write(doc, &ExportScope::default(), "a.step").unwrap();
+        assert_eq!(text.matches("DRAUGHTING_CALLOUT(").count(), 4, "{text}");
+        assert!(text.contains(" diagonal'"), "overrides travel as shown");
+        let model = read(&text).unwrap();
+        let root = model
+            .products
+            .values()
+            .find(|p| !p.annotations.is_empty())
+            .unwrap();
+        let kinds: Vec<&str> = root.annotations.iter().map(|c| c.kind.as_str()).collect();
+        assert_eq!(
+            kinds,
+            [
+                "radius dimension",
+                "linear dimension",
+                "aligned dimension",
+                "note"
+            ]
+        );
+
+        // Imported, they are dimensions and a note again, measuring alike.
+        let mut back = Engine::new(Document::new(), Arc::new(CommandRegistry::with_builtins()));
+        let storage = Arc::new(crate::io::MemoryStorage::new());
+        back.set_storage(storage.clone());
+        crate::io::Storage::write(
+            storage.as_ref(),
+            &crate::io::StorageKey::new("a.step"),
+            text.as_bytes(),
+        )
+        .unwrap();
+        back.execute_erased("import", json!({ "path": "a.step" }))
+            .unwrap();
+        let doc = back.document();
+        let (d, def) = doc
+            .definitions
+            .iter()
+            .find(|(_, def)| def.entities.dimensions().next().is_some())
+            .unwrap();
+        let c = ContainerRef::Definition(d);
+        let got: Vec<(f64, String)> = def
+            .entities
+            .dimensions()
+            .map(|(_, dim)| {
+                let v = dimension_view(doc, c, dim);
+                assert!(!v.detached);
+                (v.value, v.text)
+            })
+            .collect();
+        // The circle's edges come back straight (STEP from Planyrith writes
+        // segments), so the radius returns as a note with its label.
+        assert_eq!(got.len(), 2);
+        for ((a, ta), (b, tb)) in views[1..].iter().zip(&got) {
+            assert!((a - b).abs() < 1e-6, "{a} vs {b}");
+            assert_eq!(ta, tb);
+        }
+        let notes: Vec<&crate::document::Text> = def.entities.texts().map(|(_, t)| t).collect();
+        assert_eq!(notes.len(), 2);
+        assert_eq!(notes[0].text, views[0].1);
+        assert_eq!(notes[1].text, "Corner");
+        let offset = notes[1].layout.as_ref().unwrap().world_offset.unwrap();
+        assert!(offset.distance(DVec3::splat(100.0)) < 1e-9, "{offset}");
     }
 
     #[test]
