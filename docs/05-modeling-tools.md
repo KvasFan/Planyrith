@@ -1040,12 +1040,18 @@ removed by `analysis-clear`. The body itself is not changed; hide it to see a re
 - **GUI:** Tools › Simulation… › Motion. **Tests:** a block slid from flush to 60 mm off in six
   steps moves 10 mm per step without collisions.
 
-### 8.18 `mold-split` (milestone 1.18)
+### 8.18 `mold-split`, `mold-undercuts` (milestones 1.18, 1.40)
 - **Purpose:** derive two mold halves, a parting line and a planar parting surface from one
   closed mesh group or component. The source remains editable and unchanged.
 - **Params:** `body: Sel`, `point: Point`, `normal: Vector` (from core toward cavity),
-  `margin: Length(10)`, `shrink_factor: number(1)`, `origin?: Point` (source bounds center).
-  Dimensions and coordinates are world-space millimeters, including inside an edit context.
+  `margin: Length(10)`, `shrink_factor: number(1)`, `origin?: Point` (source bounds center),
+  `steps: [{ at: Length, offset: Length }]` (none), `step_direction?: Vector` (world red
+  projected into the plane, else green). Dimensions and coordinates are world-space
+  millimeters, including inside an edit context.
+- **Stepped partings (1.40):** with steps, beyond each `at` along the step direction from
+  `point` the parting surface stands `offset` above the plane (docs/03 §4.23); the halves,
+  parting surface (terraces and risers) and parting line follow it. Steps at one place or
+  outside the blank are refused.
 - **Algorithm:** scale a world-space copy about `origin` by `shrink_factor`; enclose it in a
   box aligned with the division plane, enlarged by `margin` on every side; subtract the copy
   from each half-box. Negative side is the core; positive side is the cavity. Slice the copy
@@ -1058,10 +1064,21 @@ removed by `analysis-clear`. The body itself is not changed; hide it to see a re
   results. This is a planar division; undercuts require draft analysis (§8.15) and a different
   design. No automatic pullability, runners, gates or ejectors are inferred.
 - **Output:** `{ core, cavity, parting_line, parting_surface, core_volume_mm3,
-  cavity_volume_mm3, compensated_volume_mm3, parting_length_mm, fallback_used }`.
+  cavity_volume_mm3, compensated_volume_mm3, parting_length_mm, fallback_used, undercuts,
+  undercut_area_mm2 }`.
+- **`mold-undercuts { body, point, normal, steps, step_direction? }` (1.40):** reports, without
+  changing anything, the body's faces that cannot leave the half on their side of the parting
+  surface (docs/03 §4.23): `{ checked, undercuts: [{ face, side: core|cavity, kind:
+  facing|shadowed, area_mm2 }], area_mm2 }`, faces by pid in the body's definition.
 - **Undo:** all four groups in one step. **Tests:** block halves conserve blank volume minus
   compensated part volume; section perimeter, shrink scaling, oblique plane, unchanged source,
-  invalid input rollback, native round trip and undo/redo.
+  invalid input rollback, native round trip and undo/redo. A stepped surface gives the
+  analytic core and cavity volumes and a 340 mm parting line with risers; a T's cap undersides
+  are facing undercuts above the parting plane and free below it, a C's lower arm is
+  shadowed; steps at one place are refused; CLI/RPC parity; the Molds window's Add Step, Find
+  Undercuts and Create Mold.
+- **GUI:** Tools › Molds…: plane point and normal, margin, shrink factor, steps (position along
+  red, height; Add Step, ✕), Find Undercuts (count and area) and Create Mold.
 
 ### 8.19 `route` and `route-fitting` (milestone 1.18)
 - **Purpose:** hollow round pipes/tubes along open paths, plus separate union and reducer

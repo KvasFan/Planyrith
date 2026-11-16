@@ -12,6 +12,8 @@ drawings, sheet metal and frames, surfaces and analysis, simulation, product dat
 The version number marks builds from main; no packages are published for it.
 
 ### Added
+- 1.40: stepped mold parting surfaces and per-face undercut detection (`mold-undercuts`),
+  in the command line and the Molds window.
 - 1.39: dimensions and notes travel in STEP as graphical annotations and come back as
   dimensions and notes on the imported geometry.
 - 1.38: IGES curved surfaces (B-spline, revolution, tabulated, ruled) import as smooth

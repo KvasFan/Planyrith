@@ -518,6 +518,11 @@ text placements) and read back.
 Complete 1.18: parting surfaces made of several planar steps, and draw-direction undercut
 detection reported per face.
 
+- **Done (2026-11-16):** `mold-split --steps` (staircase halves, terraces and risers),
+  `mold-undercuts` (facing and shadowed faces) and undercut counts in `mold-split`; the Molds
+  window edits steps and finds undercuts (docs/03 §4.23, docs/05 §8.18). Freeform parting
+  surfaces and automatic side actions remain out of scope.
+
 ## 1.41.0 — Boundary-fitted simulation meshes
 
 Complete 1.16: boundary nodes of the tetrahedral mesh moved onto the body's faces, so curved

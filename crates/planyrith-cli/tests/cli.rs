@@ -2548,6 +2548,10 @@ rectangle --corner-a 300,20,20 --corner-b 400,80,20
 push-pull --face '{face & last}' --distance 60
 make-group --targets 'edge|face' --name B
 ";
+    const BLOCK_PART: &str = "rectangle --corner-a 0,0,0 --corner-b 100,60,0
+push-pull --face '{face & last}' --distance 40
+make-group --targets 'edge|face' --name Part
+";
     check_parity(
         "completed",
         vec![
@@ -2626,6 +2630,34 @@ make-group --targets 'edge|face' --name B
                     "--delta",
                     "500,0,0",
                     "--stop-at-contact",
+                ],
+            },
+            ParityCase {
+                seed: BLOCK_PART,
+                name: "mold-split",
+                params: json!({"body":"name:Part","point":[50,30,20],"normal":[0,0,1],"steps":[{"at":0,"offset":10}]}),
+                args: vec![
+                    "--body",
+                    "name:Part",
+                    "--point",
+                    "50,30,20",
+                    "--normal",
+                    "0,0,1",
+                    "--steps",
+                    r#"{"at":0,"offset":10}"#,
+                ],
+            },
+            ParityCase {
+                seed: BLOCK_PART,
+                name: "mold-undercuts",
+                params: json!({"body":"name:Part","point":[50,30,20],"normal":[0,0,1]}),
+                args: vec![
+                    "--body",
+                    "name:Part",
+                    "--point",
+                    "50,30,20",
+                    "--normal",
+                    "0,0,1",
                 ],
             },
         ],

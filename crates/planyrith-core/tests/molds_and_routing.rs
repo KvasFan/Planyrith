@@ -254,3 +254,86 @@ fn world_dimensions_inside_a_transformed_context() {
             < 1e-4
     );
 }
+
+/// docs/13 1.40: a stepped parting surface and undercut faces.
+#[test]
+fn stepped_partings_and_undercuts() {
+    let mut e = engine();
+    block(&mut e);
+    let groups = e.document().model.groups().count();
+    let out = run(
+        &mut e,
+        "mold-split",
+        json!({"body": "name:Part", "point": [50,30,20], "normal": [0,0,1],
+               "steps": [{"at": 0, "offset": 10}]}),
+    );
+    assert!(
+        (out["parting_length_mm"].as_f64().unwrap() - 340.0).abs() < 1e-6,
+        "{out}"
+    );
+    assert!((out["core_volume_mm3"].as_f64().unwrap() - 186_000.0).abs() < 1e-3);
+    assert_eq!(out["undercuts"], 0);
+    // The request (with its steps) is kept on the generated groups.
+    let stored = e
+        .document()
+        .definitions
+        .iter()
+        .filter_map(|(_, d)| d.attrs.get("planyrith", "mold").cloned())
+        .next()
+        .unwrap();
+    assert!(format!("{stored:?}").contains("steps"), "{stored:?}");
+    let saved = bytes(e.document());
+    let loaded = read_document(&saved, &NoProgress).unwrap();
+    assert_eq!(saved, bytes(&loaded.document));
+    // Undo removes all four generated groups in one step.
+    e.undo().unwrap();
+    assert_eq!(e.document().model.groups().count(), groups);
+
+    // A T drawn upright and pushed: its cap overhangs the parting plane.
+    let mut e = engine();
+    run(
+        &mut e,
+        "line",
+        json!({"points": [[0,0,0],[100,0,0],[100,0,20],[120,0,20],[120,0,30],[-20,0,30],[-20,0,20],[0,0,20]],
+               "close": true}),
+    );
+    run(
+        &mut e,
+        "push-pull",
+        json!({"face": {"Query": "face"}, "distance": 60}),
+    );
+    run(
+        &mut e,
+        "make-group",
+        json!({"targets": "edge|face", "name": "T"}),
+    );
+    let found = run(
+        &mut e,
+        "mold-undercuts",
+        json!({"body": "name:T", "point": [0,0,10], "normal": [0,0,1]}),
+    );
+    let list = found["undercuts"].as_array().unwrap();
+    assert_eq!(list.len(), 2, "{found}");
+    assert!(
+        list.iter()
+            .all(|u| u["side"] == "cavity" && u["kind"] == "facing")
+    );
+    assert!((found["area_mm2"].as_f64().unwrap() - 2400.0).abs() < 1e-6);
+    assert_eq!(found["checked"], 10);
+    // Parting at the cap's underside frees them.
+    let found = run(
+        &mut e,
+        "mold-undercuts",
+        json!({"body": "name:T", "point": [0,0,25], "normal": [0,0,1]}),
+    );
+    assert_eq!(found["undercuts"], json!([]));
+    // Steps at one place are refused.
+    assert!(
+        e.execute_erased(
+            "mold-undercuts",
+            json!({"body": "name:T", "point": [0,0,10], "normal": [0,0,1],
+                   "steps": [{"at": 5, "offset": 1}, {"at": 5, "offset": 2}]}),
+        )
+        .is_err()
+    );
+}

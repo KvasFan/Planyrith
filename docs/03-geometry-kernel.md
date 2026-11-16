@@ -376,6 +376,23 @@ meshes separate: the source, core, cavity, wire line and planar surface. Require
 crossing the part and a margin larger than the planarity tolerance. Boolean failures leave no
 result. This derives planar geometry, without automatically resolving undercuts.
 
+**Stepped partings (1.40).** A stepped surface is the base plane (point `o`, normal `n`)
+raised to `offsetₖ` beyond each `atₖ` along a unit in-plane `axis` (`u`; `v = n × u`): its
+height at `x` along `u` is the offset of the last step with `atₖ ≤ x` (0 before the first).
+The blank, bounded as before in the (u, v, n) frame plus the margin, is split into two prisms
+of the staircase profile in (u, n) extruded along `v` (below: from the bottom to the
+staircase; above: from the staircase to the top), and the compensated part is subtracted
+from each. Steps must increase in `at` and lie inside the blank; the surface must leave part
+of the compensated part on each side. The parting surface is the core's faces whose corners
+and center lie on the staircase (terraces and risers); the parting line is that surface's
+border edges not on the blank's sides.
+
+**Undercuts (1.40).** Each face of the part belongs to the half on the side of the (planar or
+stepped) parting surface where its area-weighted center lies: the cavity pulls along `n`,
+the core against it. A face whose normal turns against its half's pull (`n_f · pull < −10⁻⁹`)
+is a *facing* undercut. One turned with it is *shadowed* when a ray from just off its center
+along the pull meets another triangle of the part. Faces square to the pull are neither.
+
 ## 5. Tessellation (for rendering and export)
 
 `tessellate_face(f) -> Vec<[u32; 3]>`: project loops to the face's 2D frame, run ear clipping

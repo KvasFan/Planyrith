@@ -3515,6 +3515,8 @@ pub struct MoldWindow {
     normal: [f64; 3],
     margin_mm: f64,
     shrink_factor: f64,
+    /// Steps of the parting surface: position along red, height (mm).
+    steps: Vec<[f64; 2]>,
     note: Option<String>,
 }
 
@@ -3526,12 +3528,22 @@ impl Default for MoldWindow {
             normal: [0.0, 0.0, 1.0],
             margin_mm: 10.0,
             shrink_factor: 1.0,
+            steps: Vec::new(),
             note: None,
         }
     }
 }
 
 impl MoldWindow {
+    fn steps(&self) -> Value {
+        Value::Array(
+            self.steps
+                .iter()
+                .map(|[at, offset]| json!({ "at": at, "offset": offset }))
+                .collect(),
+        )
+    }
+
     fn create(&mut self, session: &mut Session) {
         self.note = Some(note(
             session.execute(
@@ -3539,9 +3551,36 @@ impl MoldWindow {
                 json!({
                     "body": "selection", "point": self.point, "normal": self.normal,
                     "margin": self.margin_mm, "shrink_factor": self.shrink_factor,
+                    "steps": self.steps(),
                 }),
             ),
             |_| t("Two mold halves, parting line and surface created."),
+        ));
+    }
+
+    /// Reports the faces that cannot leave their half (milestone 1.40).
+    fn undercuts(&mut self, session: &mut Session) {
+        self.note = Some(note(
+            session.execute(
+                "mold-undercuts",
+                json!({
+                    "body": "selection", "point": self.point, "normal": self.normal,
+                    "steps": self.steps(),
+                }),
+            ),
+            |out| match out["undercuts"].as_array().map_or(0, Vec::len) {
+                0 => t("No undercuts: every face leaves its half."),
+                n => t_args(
+                    "{ $count } undercut faces, { $area } mm² in all.",
+                    &[
+                        ("count", n.to_string().into()),
+                        (
+                            "area",
+                            format!("{:.0}", out["area_mm2"].as_f64().unwrap_or(0.0)).into(),
+                        ),
+                    ],
+                ),
+            },
         ));
     }
 
@@ -3556,7 +3595,7 @@ impl MoldWindow {
             .default_width(420.0)
             .show(ctx, |ui| {
                 ui.label(t(
-                    "Select one solid group or component. The division is planar.",
+                    "Select one solid group or component. The division is planar, with optional steps.",
                 ));
                 ui.label(t("Parting plane point (mm)"));
                 xyz(ui, &mut self.point);
@@ -3583,12 +3622,36 @@ impl MoldWindow {
                             .speed(0.001),
                     );
                 });
-                ui.label(t(
-                    "Check undercuts with Draft Analysis before choosing a division.",
-                ));
-                if ui.button(t("Create Mold")).clicked() {
-                    self.create(session);
+                ui.label(t("Steps: beyond each position along red, the surface stands at its height"));
+                let mut remove = None;
+                for (i, step) in self.steps.iter_mut().enumerate() {
+                    ui.horizontal(|ui| {
+                        ui.add(egui::DragValue::new(&mut step[0]).prefix("@ ").suffix(" mm"));
+                        ui.add(egui::DragValue::new(&mut step[1]).prefix("↑ ").suffix(" mm"));
+                        if ui.small_button("✕").on_hover_text(t("Delete")).clicked() {
+                            remove = Some(i);
+                        }
+                    });
                 }
+                if let Some(i) = remove {
+                    self.steps.remove(i);
+                }
+                if ui.button(t("Add Step")).clicked() {
+                    let at = self.steps.last().map_or(0.0, |s| s[0] + 50.0);
+                    self.steps.push([at, 10.0]);
+                }
+                ui.horizontal(|ui| {
+                    if ui
+                        .button(t("Find Undercuts"))
+                        .on_hover_text(t("Faces that cannot leave the half on their side of the parting surface"))
+                        .clicked()
+                    {
+                        self.undercuts(session);
+                    }
+                    if ui.button(t("Create Mold")).clicked() {
+                        self.create(session);
+                    }
+                });
                 if let Some(n) = &self.note {
                     ui.label(n);
                 }
@@ -4200,6 +4263,60 @@ mod gui_tests {
             "{:?}",
             w.note
         );
+    }
+
+    /// The Molds window's steps and undercut check (milestone 1.40).
+    #[test]
+    fn mold_steps_and_undercuts_from_the_window() {
+        use super::*;
+        let mut session = Session::new();
+        session
+            .execute(
+                "line",
+                json!({"points": [[0,0,0],[100,0,0],[100,0,20],[120,0,20],[120,0,30],[-20,0,30],[-20,0,20],[0,0,20]],
+                       "close": true}),
+            )
+            .unwrap();
+        session
+            .execute(
+                "push-pull",
+                json!({"face": {"Query": "face"}, "distance": 60}),
+            )
+            .unwrap();
+        session
+            .execute("make-group", json!({"targets": "edge|face", "name": "T"}))
+            .unwrap();
+        session
+            .execute("select", json!({"query": "group"}))
+            .unwrap();
+        let window = MoldWindow {
+            open: true,
+            point: [50.0, 30.0, 10.0],
+            ..Default::default()
+        };
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1000.0, 900.0))
+            .with_max_steps(64)
+            .build_ui_state(
+                |ui, state: &mut (MoldWindow, Session)| state.0.window(ui.ctx(), &mut state.1),
+                (window, session),
+            );
+        h.run();
+        h.get_by_label(&t("Find Undercuts")).click();
+        h.run();
+        let note = h.state().0.note.clone().unwrap_or_default();
+        assert!(note.starts_with("2 undercut faces, 2400"), "{note}");
+        h.get_by_label(&t("Add Step")).click();
+        h.run();
+        assert_eq!(h.state().0.steps, vec![[0.0, 10.0]]);
+        h.get_by_label(&t("Find Undercuts")).click();
+        h.run();
+        let note = h.state().0.note.clone().unwrap_or_default();
+        assert!(note.starts_with("1 undercut faces"), "{note}");
+        h.get_by_label(&t("Create Mold")).click();
+        h.run();
+        let groups = h.state().1.doc().model.groups().count();
+        assert_eq!(groups, 5, "{:?}", h.state().0.note);
     }
 
     /// Trim and split by a cutting surface from the windows' buttons

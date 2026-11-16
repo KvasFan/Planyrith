@@ -164,6 +164,16 @@ Branched fittings (1.19) use `route-fitting --kind tee|cross --length 50mm
 ports lie at ±half-length, and branch ports at the branch length. All bores communicate
 and all ports have the selected section (docs/05 §8.20).
 
+Stepped partings and undercuts (1.40): repeat `--steps '{"at":0,"offset":10}'` (position
+along `--step-direction`, height over the plane) to step the parting surface;
+`mold-undercuts` takes the same body, plane and steps and lists the faces that cannot leave
+their half, changing nothing (docs/05 §8.18):
+
+```sh
+planyrith tool mold-split -f part.plyr --body 'name:Part' --point 50,30,20 --normal z --steps '{"at":0,"offset":10}'
+planyrith tool mold-undercuts -f part.plyr --body 'name:Part' --point 50,30,10 --normal z --json
+```
+
 ### Thermal convection (1.20)
 `sim-thermal` conditions may use `convection` (W/(m²·K)) with `ambient` (°C), instead of
 temperature or total power. Convection can anchor a solution without held temperatures.

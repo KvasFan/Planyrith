@@ -1,0 +1,8 @@
+# A T whose cap overhangs a parting plane at half the stem's height: the
+# cap's two undersides face against the cavity's pull (the document is
+# unchanged by the check).
+line --points 0,0,0 --points 100,0,0 --points 100,0,20 --points 120,0,20 --points 120,0,30 --points -20,0,30 --points -20,0,20 --points 0,0,20 --close
+push-pull --face '{face}' --distance 60
+make-group --targets 'edge|face' --name T
+mold-undercuts --body name:T --point 0,0,10 --normal 0,0,1
+mold-undercuts --body name:T --point 0,0,10 --normal 0,0,1 --steps '{"at":50,"offset":15}'
