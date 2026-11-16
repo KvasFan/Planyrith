@@ -514,11 +514,20 @@ parameters, and whose sides, shelves and doors follow them.
 - **Undo:** one step each (positions and the stored list together).
 - **GUI:** Tools › Constraints…: constraints for the selected edges (fix, along an axis,
   parallel, equal, perpendicular, collinear, join the nearest ends, length, distance between the
-  nearest ends, angle), the list with its state, driving values to edit in place, delete,
-  solve again and remove missing.
+  nearest ends, angle; for arcs and circles Set Radius, Tangent, Concentric, Equal Radius and End
+  on Curve), the list with its state, driving values (lengths, radii, angles) to edit in place,
+  delete, solve again and remove missing.
+- **Arcs and circles (1.33):** `radius`, `equal-radius`, `concentric`, `on-curve` and
+  `tangent` name any edge of an arc or circle for the whole curve (docs/03 §11.4); the solver
+  moves its center and radius, re-spaces its segments and updates its descriptor. Naming a
+  straight edge where a curve is required is refused. `tangent` records whether two curves touch
+  inside or outside as drawn (`internal` in the listed constraint).
 - **Tests:** a skewed quad becomes a fixed 1200 × 500 rectangle with no freedom left; editing a
   length moves it and undo restores it; a conflicting length is refused; an angle of 60° turns
-  an edge.
+  an edge. A circle's radius drives its disk's area; equal radii and concentric circles; a line
+  and a circle become tangent; an arc meets a fixed slanted line tangentially at their shared
+  end; circles touch outside, and one inside another is solved but refused atomically by the
+  kernel; undo restores descriptors; CLI/RPC parity and the window's buttons.
 
 ### 5.16 Parametric parts: `part-create`, `feature-add`, `feature-edit`, `feature-delete`, `feature-move`, `feature-list`, `part-regenerate`, `part-configuration`
 A part is a component (or, with `component: false`, a group) whose contents are regenerated

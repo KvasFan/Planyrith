@@ -1186,3 +1186,9 @@ t-model-folder = Cartella dei modelli
 t-import-folder = Cartella di importazione
 t-export-folder = Cartella di esportazione
 t-reset-folders = Ripristina cartelle
+
+t-set-radius = Imposta raggio
+t-the-radius-of-the-selected-arc-or-circle-from-the-length-field = Il raggio dell’arco o del cerchio selezionato, dal campo della lunghezza
+t-equal-radius = Raggio uguale
+t-end-on-curve = Estremo sulla curva
+t-the-first-edge-s-end-nearest-the-second-edge-s-arc-or-circle-lies-on-it = L’estremo del primo spigolo più vicino all’arco o al cerchio del secondo giace su di esso

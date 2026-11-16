@@ -13,9 +13,11 @@ use crate::commands::{
     Command, CommandCategory, CommandError, CommandMeta, CommonParams, Transaction,
 };
 use crate::document::{ContainerRef, Document, Query};
-use crate::geom::TransformOptions;
-use crate::ids::{EntityId, Pid};
+use crate::geom::{GeometryError, HalfEdgeMesh, TransformOptions};
+use crate::ids::{EdgeId, EntityId, Pid};
+use crate::math::DVec3;
 use crate::sketch::{self, Constraint, ConstraintKind, PointRef, Solution, SolveError};
+use crate::tolerance::Tolerances;
 use crate::units::{Angle, Length};
 
 fn attr_target(c: ContainerRef) -> AttrTarget {
@@ -55,17 +57,39 @@ fn apply(
         sketch::solve(entities, &list, false).map_err(solve_error)?
     };
     if !solution.moves.is_empty() {
-        let moves = solution.moves.clone();
+        let first = (solution.moves.clone(), solution.curves.clone());
+        let second = solution.unturned.clone();
         tx.with_mesh(target.container, |m, tol, d| {
-            m.move_vertices(
-                &moves,
-                TransformOptions {
-                    auto_fold: true,
-                    check_intersections: false,
-                },
-                tol,
-                d,
-            )
+            let opts = TransformOptions {
+                auto_fold: true,
+                check_intersections: false,
+            };
+            let curves = match m.move_vertices(&first.0, opts, tol, d) {
+                Ok(_) => first.1,
+                Err(GeometryError::Invariant(_)) if second.is_some() => {
+                    let (moves, curves) = second.unwrap_or_default();
+                    m.move_vertices(&moves, opts, tol, d)?;
+                    curves
+                }
+                Err(e) => return Err(e),
+            };
+            // Moving drops the descriptors; reshaped arcs and circles get
+            // their new ones (docs/03 §11.4).
+            for r in curves {
+                let members = if r
+                    .members
+                    .iter()
+                    .all(|e| m.edge(*e).is_some_and(|x| x.curve.is_none()))
+                {
+                    Some(r.members)
+                } else {
+                    edges_through(m, &r.points, r.closed, tol)
+                };
+                if let Some(members) = members {
+                    m.add_curve(r.descriptor, &members, d)?;
+                }
+            }
+            Ok(())
         })?;
     }
     tx.set_attribute(
@@ -75,6 +99,33 @@ fn apply(
         sketch::value_of(&list),
     )?;
     Ok(solution)
+}
+
+/// The plain edges joining the vertices at `points` in order (closing the
+/// loop when `closed`), when there are such edges.
+fn edges_through(
+    m: &HalfEdgeMesh,
+    points: &[DVec3],
+    closed: bool,
+    tol: &Tolerances,
+) -> Option<Vec<EdgeId>> {
+    let mut verts = Vec::with_capacity(points.len());
+    for p in points {
+        let (v, _) = m.vertices().find(|(_, x)| tol.same_point(x.position, *p))?;
+        verts.push(v);
+    }
+    let pairs = verts.len() - usize::from(!closed);
+    let mut out = Vec::with_capacity(pairs);
+    for i in 0..pairs {
+        let (a, b) = (verts[i], verts[(i + 1) % verts.len()]);
+        let e = m.vertex_star(a).iter().find_map(|&h| {
+            let e = m.he(h).ok()?.edge;
+            let (x, y) = m.edge_endpoints(e).ok()?;
+            ((x == b || y == b) && m.edge(e)?.curve.is_none()).then_some(e)
+        })?;
+        out.push(e);
+    }
+    Some(out)
 }
 
 /// Pids of the edges each query names (exactly one per query).
@@ -175,6 +226,7 @@ impl Command for ConstraintAdd {
             length_mm: p.length.map(|l| l.as_mm()),
             angle_rad: p.angle.map(|a| a.as_radians()),
             at: Vec::new(),
+            internal: None,
         };
         probe
             .check()
@@ -198,7 +250,16 @@ impl Command for ConstraintAdd {
             length_mm: p.length.map(|l| l.as_mm()),
             angle_rad: p.angle.map(|a| a.as_radians()),
             at: Vec::new(),
+            internal: None,
         };
+        {
+            let entities = tx
+                .document()
+                .container(target.container)
+                .ok_or_else(|| CommandError::Internal("edit context vanished".into()))?;
+            sketch::prepare(entities, &mut c)
+                .map_err(|e| CommandError::invalid_param("edges", e))?;
+        }
         if c.kind == ConstraintKind::Fixed {
             let entities = tx
                 .document()
@@ -719,5 +780,323 @@ mod tests {
             .unwrap();
         assert_eq!(out["deleted"], 2);
         assert!(e.document().attrs.get("planyrith", "constraints").is_none());
+    }
+
+    /// The pid of an edge of the arc or circle centered at `center`, and its
+    /// descriptor's (center, radius).
+    fn curve_edge(e: &Engine, center: [f64; 3]) -> (u64, DVec3, f64) {
+        use crate::geom::CurveDescriptor;
+        let m = &e.document().model;
+        let mesh = m.mesh();
+        for (id, edge) in mesh.edges() {
+            let Some(c) = edge.curve else { continue };
+            let (cc, r) = match mesh.curve(c).unwrap() {
+                CurveDescriptor::Arc { center, radius, .. }
+                | CurveDescriptor::Circle { center, radius, .. } => (*center, *radius),
+                _ => continue,
+            };
+            if cc.distance(DVec3::from_array(center)) < 1e-6 {
+                return (m.pid_of(crate::ids::EntityId::Edge(id)).unwrap().0, cc, r);
+            }
+        }
+        panic!("no curve at {center:?}");
+    }
+
+    /// Every curve's vertices lie on its descriptor's circle, and an arc's
+    /// angles reproduce its end vertices.
+    fn curves_match_their_vertices(e: &Engine) -> usize {
+        use crate::geom::CurveDescriptor;
+        use crate::math::Plane;
+        let mesh = e.document().model.mesh();
+        let mut n = 0;
+        for (c, d) in mesh.curves() {
+            let edges = mesh.curve_edges(c).unwrap();
+            let mut pts = Vec::new();
+            for &ed in &edges {
+                let s = mesh.edge_segment(ed).unwrap();
+                pts.extend([s.a, s.b]);
+            }
+            match *d {
+                CurveDescriptor::Circle {
+                    center,
+                    radius,
+                    normal,
+                    ..
+                } => {
+                    for p in &pts {
+                        assert!(
+                            ((*p - center).length() - radius).abs() < 1e-6,
+                            "{p} off circle"
+                        );
+                        assert!(normal.dot(*p - center).abs() < 1e-6);
+                    }
+                }
+                CurveDescriptor::Arc {
+                    center,
+                    radius,
+                    normal,
+                    start_angle,
+                    end_angle,
+                    ..
+                } => {
+                    for p in &pts {
+                        assert!(
+                            ((*p - center).length() - radius).abs() < 1e-6,
+                            "{p} off arc"
+                        );
+                    }
+                    let f = Plane::from_point_normal(center, normal).frame_at(center);
+                    let at = |a: f64| {
+                        f.from_2d(
+                            f.to_2d(center) + glam::DVec2::new(libm::cos(a), libm::sin(a)) * radius,
+                        )
+                    };
+                    for a in [start_angle.as_radians(), end_angle.as_radians()] {
+                        let q = at(a);
+                        assert!(
+                            pts.iter().any(|p| p.distance(q) < 1e-6),
+                            "arc end {q} missing"
+                        );
+                    }
+                }
+                _ => continue,
+            }
+            n += 1;
+        }
+        n
+    }
+
+    #[test]
+    fn radius_and_equal_radius_and_concentric_reshape_circles() {
+        let mut e = engine();
+        e.execute_erased("circle", json!({ "center": [0, 0, 0], "radius": 100 }))
+            .unwrap();
+        e.execute_erased("circle", json!({ "center": [600, 40, 0], "radius": 50 }))
+            .unwrap();
+        let (a, _, _) = curve_edge(&e, [0.0, 0.0, 0.0]);
+        let (b, _, _) = curve_edge(&e, [600.0, 40.0, 0.0]);
+        let out = add(
+            &mut e,
+            json!({ "kind": "radius", "edges": [format!("@{a}")], "length": 250 }),
+        );
+        // A circle in its plane: center (2) and radius (1), less the radius.
+        assert_eq!(out["degrees_of_freedom"], 2, "{out}");
+        let (_, c, r) = curve_edge(&e, [0.0, 0.0, 0.0]);
+        assert!((r - 250.0).abs() < 1e-9 && c.length() < 1e-9);
+        assert_eq!(curves_match_their_vertices(&e), 2);
+        // The faces follow: the disk's area grows with the radius squared.
+        let mesh = e.document().model.mesh();
+        let area: f64 = mesh
+            .faces()
+            .map(|(f, _)| mesh.face_area(f).unwrap())
+            .fold(0.0, f64::max);
+        let polygon = 0.5 * 24.0 * 250.0f64.powi(2) * libm::sin(std::f64::consts::TAU / 24.0);
+        assert!((area - polygon).abs() < 1e-3, "{area} vs {polygon}");
+
+        // Concentric moves both centers to a common point (neither center is
+        // fixed, so the least change splits the way).
+        let out = add(
+            &mut e,
+            json!({ "kind": "concentric", "edges": [format!("@{a}"), format!("@{b}")] }),
+        );
+        let mesh = e.document().model.mesh();
+        let centers: Vec<DVec3> = mesh.curves().filter_map(|(_, d)| d.center()).collect();
+        assert_eq!(centers.len(), 2);
+        assert!(centers[0].distance(centers[1]) < 1e-6, "{centers:?} {out}");
+        assert_eq!(curves_match_their_vertices(&e), 2);
+
+        // Undo restores the second circle's descriptor and vertices.
+        e.undo().unwrap();
+        let (_, c, r) = curve_edge(&e, [600.0, 40.0, 0.0]);
+        assert!((r - 50.0).abs() < 1e-9 && c.distance(DVec3::new(600.0, 40.0, 0.0)) < 1e-9);
+        assert_eq!(curves_match_their_vertices(&e), 2);
+        add(
+            &mut e,
+            json!({ "kind": "equal-radius", "edges": [format!("@{a}"), format!("@{b}")] }),
+        );
+        let (_, _, rb) = curve_edge(&e, [600.0, 40.0, 0.0]);
+        assert!((rb - 250.0).abs() < 1e-6, "{rb}");
+        assert_eq!(curves_match_their_vertices(&e), 2);
+    }
+
+    #[test]
+    fn lines_and_circles_become_tangent() {
+        let mut e = engine();
+        e.execute_erased("line", json!({ "points": [[-500, 300, 0], [500, 300, 0]] }))
+            .unwrap();
+        e.execute_erased("circle", json!({ "center": [0, 0, 0], "radius": 100 }))
+            .unwrap();
+        let line = edge(&e, [-500.0, 300.0, 0.0], [500.0, 300.0, 0.0]);
+        let (circle, _, _) = curve_edge(&e, [0.0, 0.0, 0.0]);
+        add(
+            &mut e,
+            json!({ "kind": "fixed", "edges": [format!("@{line}")] }),
+        );
+        add(
+            &mut e,
+            json!({ "kind": "radius", "edges": [format!("@{circle}")], "length": 100 }),
+        );
+        add(
+            &mut e,
+            json!({ "kind": "tangent", "edges": [format!("@{line}"), format!("@{circle}")] }),
+        );
+        let mesh = e.document().model.mesh();
+        let (_, d) = mesh.curves().next().unwrap();
+        let c = d.center().unwrap();
+        assert!(((300.0 - c.y).abs() - 100.0).abs() < 1e-6, "{c}");
+        assert_eq!(curves_match_their_vertices(&e), 1);
+
+        // A straight edge is not a curve.
+        let err = e
+            .execute_erased(
+                "constraint-add",
+                json!({ "kind": "radius", "edges": [format!("@{line}")], "length": 5 }),
+            )
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("not part of an arc or circle"),
+            "{err}"
+        );
+        // A tangent needs at least one curve.
+        let err = e
+            .execute_erased(
+                "constraint-add",
+                json!({ "kind": "tangent", "edges": [format!("@{line}"), format!("@{line}")] }),
+            )
+            .unwrap_err();
+        assert!(err.to_string().contains("arc or circle"), "{err}");
+    }
+
+    #[test]
+    fn an_arc_meets_a_fixed_line_tangentially_at_their_shared_end() {
+        let mut e = engine();
+        // A quarter arc from (100, 0) counter-clockwise to (0, 100), then a
+        // line leaving its start at a slant.
+        e.execute_erased(
+            "arc-2point",
+            json!({ "center": [0, 0, 0], "start": [100, 0, 0], "end_angle": std::f64::consts::FRAC_PI_2 }),
+        )
+        .unwrap();
+        e.execute_erased("line", json!({ "points": [[100, 0, 0], [180, -300, 0]] }))
+            .unwrap();
+        let line = edge(&e, [100.0, 0.0, 0.0], [180.0, -300.0, 0.0]);
+        let (arc, _, _) = curve_edge(&e, [0.0, 0.0, 0.0]);
+        add(
+            &mut e,
+            json!({ "kind": "fixed", "edges": [format!("@{line}")] }),
+        );
+        let out = add(
+            &mut e,
+            json!({ "kind": "tangent", "edges": [format!("@{arc}"), format!("@{line}")] }),
+        );
+        assert!(out["moved"].as_u64().unwrap() > 0, "{out}");
+        let mesh = e.document().model.mesh();
+        let (_, d) = mesh.curves().next().unwrap();
+        let crate::geom::CurveDescriptor::Arc { center, .. } = *d else {
+            panic!("{d:?}")
+        };
+        // The center lies on the normal to the line at the shared end.
+        let dir = DVec3::new(80.0, -300.0, 0.0).normalize();
+        assert!(
+            (center - DVec3::new(100.0, 0.0, 0.0)).dot(dir).abs() < 1e-6,
+            "{center}"
+        );
+        assert_eq!(curves_match_their_vertices(&e), 1);
+        // The constraints persist and are met again by a plain solve.
+        let solved = e.execute_erased("constraint-solve", json!({})).unwrap();
+        assert_eq!(solved["moved"], 0, "{solved}");
+    }
+
+    #[test]
+    fn circles_touch_outside_or_inside_as_drawn() {
+        let mut e = engine();
+        e.execute_erased("circle", json!({ "center": [0, 0, 0], "radius": 100 }))
+            .unwrap();
+        e.execute_erased("circle", json!({ "center": [400, 0, 0], "radius": 50 }))
+            .unwrap();
+        e.execute_erased("circle", json!({ "center": [0, 2000, 0], "radius": 300 }))
+            .unwrap();
+        e.execute_erased("circle", json!({ "center": [60, 2000, 0], "radius": 100 }))
+            .unwrap();
+        let q = |c: [f64; 3], e: &Engine| format!("@{}", curve_edge(e, c).0);
+        let (a, b) = (q([0.0, 0.0, 0.0], &e), q([400.0, 0.0, 0.0], &e));
+        let (big, small) = (q([0.0, 2000.0, 0.0], &e), q([60.0, 2000.0, 0.0], &e));
+        for (x, r) in [(&a, 100), (&b, 50), (&big, 300), (&small, 100)] {
+            add(
+                &mut e,
+                json!({ "kind": "radius", "edges": [x], "length": r }),
+            );
+        }
+        let outside = add(&mut e, json!({ "kind": "tangent", "edges": [a, b] }));
+        let mesh = e.document().model.mesh();
+        let centers = |r: f64, high: bool| {
+            mesh.curves()
+                .find_map(|(_, d)| match *d {
+                    crate::geom::CurveDescriptor::Circle { center, radius, .. }
+                        if (radius - r).abs() < 1e-6 && (center.y > 1000.0) == high =>
+                    {
+                        Some(center)
+                    }
+                    _ => None,
+                })
+                .unwrap()
+        };
+        assert!(
+            (centers(100.0, false).distance(centers(50.0, false)) - 150.0).abs() < 1e-6,
+            "{outside}"
+        );
+        assert_eq!(curves_match_their_vertices(&e), 4);
+
+        // One filled circle inside another: the solver meets the internal
+        // contact, but the inscribed segments of the two would cross, so the
+        // command refuses and changes nothing (docs/03 §11.4).
+        let snapshot = |e: &Engine| {
+            let m = e.document().model.mesh();
+            let mut v: Vec<[f64; 3]> = m.vertices().map(|(_, x)| x.position.to_array()).collect();
+            v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            (v, m.curves().count(), m.edges().count())
+        };
+        let before = snapshot(&e);
+        let err = e
+            .execute_erased(
+                "constraint-add",
+                json!({ "kind": "tangent", "edges": [big.clone(), small.clone()] }),
+            )
+            .unwrap_err();
+        assert!(err.to_string().contains("edge"), "{err}");
+        assert_eq!(snapshot(&e), before);
+        let entities = &e.document().model;
+        let pid = |q: &str| crate::ids::Pid(q[1..].parse().unwrap());
+        let mut c = crate::sketch::Constraint {
+            id: 9,
+            kind: crate::sketch::ConstraintKind::Tangent,
+            edges: vec![pid(&big), pid(&small)],
+            points: Vec::new(),
+            length_mm: None,
+            angle_rad: None,
+            at: Vec::new(),
+            internal: None,
+        };
+        crate::sketch::prepare(entities, &mut c).unwrap();
+        assert_eq!(c.internal, Some(true));
+        let mut list = super::constraints_of(e.document(), crate::document::ContainerRef::Model);
+        list.push(c);
+        let solution = crate::sketch::solve(entities, &list, false).unwrap();
+        let inner: Vec<(DVec3, f64)> = solution
+            .curves
+            .iter()
+            .filter_map(|r| match r.descriptor {
+                crate::geom::CurveDescriptor::Circle { center, radius, .. } => {
+                    Some((center, radius))
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(inner.len(), 2);
+        assert!(
+            (inner[0].0.distance(inner[1].0) - 200.0).abs() < 1e-6,
+            "{inner:?}"
+        );
+        assert_eq!(curves_match_their_vertices(&e), 4);
     }
 }

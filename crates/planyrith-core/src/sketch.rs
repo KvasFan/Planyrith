@@ -14,6 +14,7 @@
 //! iteration with a weak pull toward the starting positions finds the
 //! nearest solution; Gauss–Newton steps then meet the constraints exactly.
 //! The rank of the constraint Jacobian gives the degrees of freedom left.
+//! Arcs and circles take part through their center and radius (§11.4).
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -24,8 +25,10 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::document::{AttributeDictionaries, Entities, Value};
-use crate::geom::HalfEdgeMesh;
-use crate::ids::{EntityId, Pid, VertexId};
+use crate::geom::{CurveDescriptor, HalfEdgeMesh};
+use crate::ids::{CurveId, EdgeId, EntityId, Pid, VertexId};
+use crate::math::Plane;
+use crate::units::Angle;
 
 /// The attribute dictionary holding a container's constraints.
 pub const DICT: &str = "planyrith";
@@ -131,6 +134,17 @@ pub enum ConstraintKind {
     Distance,
     /// The angle between two edges (a driving dimension).
     Angle,
+    /// The radius of an arc or circle (a driving dimension).
+    Radius,
+    /// Arcs and circles with the first one's radius.
+    EqualRadius,
+    /// Arcs and circles sharing the first one's center.
+    Concentric,
+    /// A point on an arc's or circle's circle.
+    OnCurve,
+    /// An edge's line touching an arc or circle, or two arcs or circles
+    /// touching (outside each other, or one inside the other).
+    Tangent,
 }
 
 impl ConstraintKind {
@@ -143,16 +157,31 @@ impl ConstraintKind {
             Fixed => (usize::MAX, 0, usize::MAX),
             AlongX | AlongY | AlongZ => (0, 1, usize::MAX),
             Parallel | Equal => (0, 2, usize::MAX),
-            Perpendicular | Collinear | Angle => (0, 2, 2),
-            Midpoint | OnLine => (1, 1, 1),
+            Perpendicular | Collinear | Angle | Tangent => (0, 2, 2),
+            Midpoint | OnLine | OnCurve => (1, 1, 1),
             Symmetric => (2, 1, 1),
-            Length => (0, 1, 1),
+            Length | Radius => (0, 1, 1),
+            EqualRadius | Concentric => (0, 2, usize::MAX),
         }
     }
 
     /// Whether it carries a length.
     pub fn takes_length(self) -> bool {
-        matches!(self, ConstraintKind::Length | ConstraintKind::Distance)
+        matches!(
+            self,
+            ConstraintKind::Length | ConstraintKind::Distance | ConstraintKind::Radius
+        )
+    }
+
+    /// Whether every edge it names stands for its arc or circle.
+    pub fn edges_are_curves(self) -> bool {
+        use ConstraintKind::*;
+        matches!(self, Radius | EqualRadius | Concentric | OnCurve)
+    }
+
+    /// Whether some edge it names may stand for its arc or circle.
+    pub fn uses_curves(self) -> bool {
+        self.edges_are_curves() || self == ConstraintKind::Tangent
     }
 
     /// Whether it carries an angle.
@@ -184,6 +213,10 @@ pub struct Constraint {
     /// ends).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub at: Vec<[f64; 3]>,
+    /// A tangency between two arcs or circles: one inside the other
+    /// (recorded from the drawing when the constraint is made).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub internal: Option<bool>,
 }
 
 impl Constraint {
@@ -219,7 +252,11 @@ impl Constraint {
         }
         if self.kind.takes_length() {
             match self.length_mm {
-                Some(l) if l.is_finite() && l >= 0.0 => {}
+                Some(l) if l.is_finite() && l > 0.0 && self.kind == ConstraintKind::Radius => {}
+                Some(l) if l.is_finite() && l >= 0.0 && self.kind != ConstraintKind::Radius => {}
+                _ if self.kind == ConstraintKind::Radius => {
+                    return Err("give a radius greater than zero".into());
+                }
                 _ => return Err("give a length of zero or more".into()),
             }
         }
@@ -260,6 +297,9 @@ pub enum SolveError {
         "the constraints conflict (or cannot be met while faces stay flat); largest error {0:.4} mm"
     )]
     Conflict(f64),
+    /// A constraint on arcs or circles names an edge of neither.
+    #[error("constraint {0}: edge {1} is not part of an arc or circle")]
+    NotCircular(u32, u64),
 }
 
 /// The solver's verdict on a set of constraints.
@@ -269,6 +309,17 @@ pub struct Solution {
     #[serde(skip)]
     #[schemars(skip)]
     pub moves: BTreeMap<VertexId, DVec3>,
+    /// Arcs and circles that changed.
+    #[serde(skip)]
+    #[schemars(skip)]
+    pub curves: Vec<Reshaped>,
+    /// When circles were turned half a segment to clear a contact: the
+    /// moves and curves without that turn, for contacts the turn makes
+    /// cross instead (one circle inside another).
+    #[serde(skip)]
+    #[schemars(skip)]
+    #[allow(clippy::type_complexity)]
+    pub unturned: Option<(BTreeMap<VertexId, DVec3>, Vec<Reshaped>)>,
     /// Vertices that moved.
     pub moved: usize,
     /// Degrees of freedom left among the named points.
@@ -279,24 +330,194 @@ pub struct Solution {
     pub error_mm: f64,
 }
 
-/// A constraint resolved to vertices.
-struct Resolved<'a> {
-    c: &'a Constraint,
-    /// Variable index of each point (points first, then both ends of each
-    /// edge).
-    points: Vec<usize>,
-    edges: Vec<(usize, usize)>,
+/// An arc or circle the solver reshaped.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Reshaped {
+    /// Its edges before the change, in curve order.
+    pub members: Vec<EdgeId>,
+    /// Its vertices after the change, in curve order (to find its edges
+    /// again when moving merged a vertex).
+    pub points: Vec<DVec3>,
+    /// The vertices close a circle.
+    pub closed: bool,
+    /// The new descriptor.
+    pub descriptor: CurveDescriptor,
 }
 
-/// The equations of one constraint at `x`, in millimeters.
-fn residuals(r: &Resolved<'_>, x: &[DVec3], out: &mut Vec<f64>) {
+/// Whether a vertex of `cv` at `xs` comes within the merge distance of an
+/// edge that is not one of its own.
+fn touches(
+    mesh: &HalfEdgeMesh,
+    index: &BTreeMap<VertexId, usize>,
+    xs: &[DVec3],
+    cv: &CurveVar,
+) -> bool {
+    let at = |v: VertexId| {
+        index
+            .get(&v)
+            .map_or_else(|| mesh.position(v).unwrap_or_default(), |&i| xs[i])
+    };
+    let own: std::collections::BTreeSet<EdgeId> = cv.members.iter().copied().collect();
+    let points: Vec<DVec3> = cv.chain.iter().map(|&i| xs[i]).collect();
+    let near = 2e-3;
+    for (e, _) in mesh.edges() {
+        if own.contains(&e) {
+            continue;
+        }
+        let Ok((a, b)) = mesh.edge_endpoints(e) else {
+            continue;
+        };
+        let (pa, pb) = (at(a), at(b));
+        let d = pb - pa;
+        let len2 = d.length_squared();
+        for p in &points {
+            let t = if len2 > 0.0 {
+                ((*p - pa).dot(d) / len2).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            if (pa + d * t).distance(*p) < near {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// A constraint resolved to unknowns.
+struct Resolved<'a> {
+    c: &'a Constraint,
+    /// Point index of each named point.
+    points: Vec<usize>,
+    /// Point indices of both ends of each named edge.
+    edges: Vec<(usize, usize)>,
+    /// For each named edge, the circular curve it stands for (curve kinds).
+    curves: Vec<Option<usize>>,
+    /// A tangency's vertex shared by its line and arc, or by its two arcs.
+    shared: Option<usize>,
+}
+
+/// An arc or circle the solver moves through its center and radius
+/// (docs/03 §11.4). A circle's vertices and an arc's interior vertices are
+/// derived from them; an arc's ends stay free on its circle.
+struct CurveVar {
+    id: CurveId,
+    members: Vec<EdgeId>,
+    normal: DVec3,
+    c0: DVec3,
+    r0: f64,
+    segments: u32,
+    /// Point indices along the curve.
+    chain: Vec<usize>,
+    closed: bool,
+    /// Circle: unit direction from the center to `chain[0]` at the start.
+    dir0: DVec3,
+    /// Circle: angle of each chain vertex from `chain[0]`; arc: its fraction
+    /// of the sweep.
+    phase: Vec<f64>,
+    /// Arc: signed sweep from `chain[0]` to the last vertex, about `normal`.
+    sweep0: f64,
+    /// Arc: `chain[0]` is the descriptor's start.
+    forward: bool,
+}
+
+/// The current state while solving.
+struct State<'s> {
+    pos: &'s [DVec3],
+    curves: &'s [(DVec3, f64)],
+    normals: &'s [DVec3],
+}
+
+/// `v` rotated by `angle` about the unit axis `n` (Rodrigues).
+fn rotate(v: DVec3, n: DVec3, angle: f64) -> DVec3 {
+    let (s, c) = (libm::sin(angle), libm::cos(angle));
+    v * c + n.cross(v) * s + n * n.dot(v) * (1.0 - c)
+}
+
+/// The unit in-plane direction of `v` (normal `n`).
+fn in_plane(v: DVec3, n: DVec3) -> DVec3 {
+    (v - n * n.dot(v)).normalize_or_zero()
+}
+
+/// The signed angle from unit `a` to unit `b` about `n`, on the branch
+/// nearest `near`.
+fn angle_near(a: DVec3, b: DVec3, n: DVec3, near: f64) -> f64 {
+    let raw = libm::atan2(n.dot(a.cross(b)), a.dot(b));
+    let turns = libm::round((near - raw) / std::f64::consts::TAU);
+    raw + turns * std::f64::consts::TAU
+}
+
+impl CurveVar {
+    /// Places the derived vertices for center `c` and radius `r`.
+    fn place(&self, c: DVec3, r: f64, pos: &mut [DVec3]) {
+        let n = self.normal;
+        if self.closed {
+            for (k, &i) in self.chain.iter().enumerate() {
+                pos[i] = c + rotate(self.dir0, n, self.phase[k]) * r;
+            }
+            return;
+        }
+        let last = self.chain.len() - 1;
+        let ua = in_plane(pos[self.chain[0]] - c, n);
+        let sweep = self.sweep(c, pos);
+        for k in 1..last {
+            pos[self.chain[k]] = c + rotate(ua, n, self.phase[k] * sweep) * r;
+        }
+    }
+
+    /// An arc's sweep from its first to its last vertex.
+    fn sweep(&self, c: DVec3, pos: &[DVec3]) -> f64 {
+        let n = self.normal;
+        let ua = in_plane(pos[self.chain[0]] - c, n);
+        let ub = in_plane(pos[self.chain[self.chain.len() - 1]] - c, n);
+        angle_near(ua, ub, n, self.sweep0)
+    }
+
+    /// The descriptor for center `c` and radius `r`.
+    fn descriptor(&self, c: DVec3, r: f64, pos: &[DVec3]) -> CurveDescriptor {
+        if self.closed {
+            return CurveDescriptor::Circle {
+                center: c,
+                normal: self.normal,
+                radius: r,
+                segments: self.segments,
+            };
+        }
+        let frame = Plane::from_point_normal(c, self.normal).frame_at(c);
+        let angle = |p: DVec3| {
+            let q = frame.to_2d(p) - frame.to_2d(c);
+            libm::atan2(q.y, q.x)
+        };
+        let sweep = self.sweep(c, pos);
+        let (start, end) = if self.forward {
+            let a = angle(pos[self.chain[0]]);
+            (a, a + sweep)
+        } else {
+            let a = angle(pos[self.chain[self.chain.len() - 1]]);
+            (a, a - sweep)
+        };
+        CurveDescriptor::Arc {
+            center: c,
+            normal: self.normal,
+            radius: r,
+            start_angle: Angle::radians(start),
+            end_angle: Angle::radians(end),
+            segments: self.segments,
+        }
+    }
+}
+
+/// The equations of one constraint, in millimeters.
+fn residuals(r: &Resolved<'_>, s: &State<'_>, out: &mut Vec<f64>) {
     use ConstraintKind::*;
+    let x = s.pos;
     let p = |i: usize| x[r.points[i]];
     let e = |i: usize| (x[r.edges[i].0], x[r.edges[i].1]);
     let dir = |i: usize| {
         let (a, b) = e(i);
         b - a
     };
+    let curve = |i: usize| r.curves.get(i).copied().flatten().map(|k| s.curves[k]);
     match r.c.kind {
         Coincident => {
             let d = p(1) - p(0);
@@ -378,6 +599,162 @@ fn residuals(r: &Resolved<'_>, x: &[DVec3], out: &mut Vec<f64>) {
             let got = libm::atan2(d0.cross(d1).length(), d0.dot(d1));
             out.push((got - r.c.angle_rad.unwrap_or(0.0)) * 0.5 * (l0 + l1));
         }
+        Radius => {
+            if let Some((_, radius)) = curve(0) {
+                out.push(radius - r.c.length_mm.unwrap_or(0.0));
+            }
+        }
+        EqualRadius => {
+            if let Some((_, r0)) = curve(0) {
+                for i in 1..r.edges.len() {
+                    if let Some((_, ri)) = curve(i) {
+                        out.push(ri - r0);
+                    }
+                }
+            }
+        }
+        Concentric => {
+            if let Some((c0, _)) = curve(0) {
+                for i in 1..r.edges.len() {
+                    if let Some((ci, _)) = curve(i) {
+                        let d = ci - c0;
+                        out.extend([d.x, d.y, d.z]);
+                    }
+                }
+            }
+        }
+        OnCurve => {
+            if let Some((c, radius)) = curve(0) {
+                out.push((p(0) - c).length() - radius);
+            }
+        }
+        Tangent => match (curve(0), curve(1)) {
+            (Some((c1, r1)), Some((c2, r2))) => {
+                if let (Some(v), Some(k)) = (r.shared, r.curves[0]) {
+                    // Joined at a vertex: the centers and the vertex in line.
+                    let u = (x[v] - c1).normalize_or_zero();
+                    out.push(s.normals[k].dot(u.cross(c2 - x[v])));
+                    return;
+                }
+                let d = (c2 - c1).length();
+                if r.c.internal.unwrap_or(false) {
+                    out.push(d - (r1 - r2).abs());
+                } else {
+                    out.push(d - (r1 + r2));
+                }
+            }
+            (Some((c, radius)), None) | (None, Some((c, radius))) => {
+                let line = if r.curves[0].is_some() { 1 } else { 0 };
+                let (a, b) = e(line);
+                let u = (b - a).normalize_or_zero();
+                if let Some(v) = r.shared {
+                    // Joined at a vertex: the center on the line's normal
+                    // there (the vertex is on the circle already).
+                    out.push((c - x[v]).dot(u));
+                } else {
+                    out.push((c - a).cross(u).length() - radius);
+                }
+            }
+            (None, None) => {}
+        },
+    }
+}
+
+/// The circular curve (arc or circle) the edge `pid` belongs to.
+fn circular_curve(entities: &Entities, pid: Pid) -> Option<(CurveId, &CurveDescriptor)> {
+    let EntityId::Edge(e) = entities.id_of(pid)? else {
+        return None;
+    };
+    let mesh = entities.mesh();
+    let c = mesh.edge(e)?.curve?;
+    let d = mesh.curve(c)?;
+    matches!(
+        d,
+        CurveDescriptor::Arc { .. } | CurveDescriptor::Circle { .. }
+    )
+    .then_some((c, d))
+}
+
+/// The vertices along curve `members`, and whether they close.
+fn curve_chain(mesh: &HalfEdgeMesh, members: &[EdgeId]) -> Option<(Vec<VertexId>, bool)> {
+    let (first, rest) = members.split_first()?;
+    let (a0, b0) = mesh.edge_endpoints(*first).ok()?;
+    let mut chain = match rest.first() {
+        Some(next) => {
+            let (a1, b1) = mesh.edge_endpoints(*next).ok()?;
+            if b0 == a1 || b0 == b1 {
+                vec![a0, b0]
+            } else {
+                vec![b0, a0]
+            }
+        }
+        None => vec![a0, b0],
+    };
+    for e in rest {
+        let (a, b) = mesh.edge_endpoints(*e).ok()?;
+        let last = *chain.last()?;
+        if a == last {
+            chain.push(b);
+        } else if b == last {
+            chain.push(a);
+        } else {
+            return None;
+        }
+    }
+    let closed = chain.len() > 2 && chain.first() == chain.last();
+    if closed {
+        chain.pop();
+    }
+    Some((chain, closed))
+}
+
+/// Checks that the edges a curve kind treats as arcs or circles are on one,
+/// and records which side a tangency between two curves touches on.
+pub fn prepare(entities: &Entities, c: &mut Constraint) -> Result<(), String> {
+    let curved: Vec<Option<(CurveId, &CurveDescriptor)>> = c
+        .edges
+        .iter()
+        .map(|&pid| circular_curve(entities, pid))
+        .collect();
+    match c.kind {
+        k if k.edges_are_curves() => {
+            if let Some(i) = curved.iter().position(Option::is_none) {
+                return Err(format!(
+                    "edge {} is not part of an arc or circle",
+                    c.edges[i].0
+                ));
+            }
+        }
+        ConstraintKind::Tangent => {
+            if curved.iter().all(Option::is_none) {
+                return Err("tangent needs an edge of an arc or circle".into());
+            }
+            if let [Some((i1, d1)), Some((i2, d2))] = curved.as_slice() {
+                if i1 == i2 {
+                    return Err("tangent needs two different curves".into());
+                }
+                if c.internal.is_none() {
+                    let (Some(c1), Some(c2)) = (d1.center(), d2.center()) else {
+                        return Err("tangent needs circular curves".into());
+                    };
+                    let d = (c2 - c1).length();
+                    c.internal = Some(d < radius_of(d1).max(radius_of(d2)));
+                }
+            } else {
+                c.internal = None;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn radius_of(d: &CurveDescriptor) -> f64 {
+    match d {
+        CurveDescriptor::Arc { radius, .. }
+        | CurveDescriptor::Circle { radius, .. }
+        | CurveDescriptor::Polygon { radius, .. } => *radius,
+        CurveDescriptor::Freehand { .. } => 0.0,
     }
 }
 
@@ -403,61 +780,258 @@ pub fn solve(
             _ => None,
         }
     };
-    let mut resolved = Vec::new();
+    // Pass 1: the circular curves that curve kinds name.
+    let mut curves: Vec<CurveVar> = Vec::new();
+    let mut curve_of: BTreeMap<CurveId, usize> = BTreeMap::new();
+    let mut usable: Vec<&Constraint> = Vec::new();
     for c in constraints {
-        let mut points = Vec::new();
-        let mut edges = Vec::new();
-        let mut ok = true;
-        for p in &c.points {
-            match ends(p.edge) {
-                Some((a, b)) => points.push(var(if p.second { b } else { a }, &mut index)),
-                None => ok = false,
-            }
-        }
-        for &e in &c.edges {
-            match ends(e) {
-                Some((a, b)) => {
-                    let (a, b) = (var(a, &mut index), var(b, &mut index));
-                    edges.push((a, b));
-                }
-                None => ok = false,
-            }
-        }
-        if !ok {
+        let missing = c.points.iter().any(|p| ends(p.edge).is_none())
+            || c.edges.iter().any(|&e| ends(e).is_none());
+        if missing {
             if skip_missing {
                 continue;
             }
             return Err(SolveError::Missing(c.id));
         }
-        resolved.push(Resolved { c, points, edges });
+        if c.kind.uses_curves() {
+            for &pid in &c.edges {
+                let Some((id, d)) = circular_curve(entities, pid) else {
+                    if c.kind.edges_are_curves() {
+                        return Err(SolveError::NotCircular(c.id, pid.0));
+                    }
+                    continue;
+                };
+                if curve_of.contains_key(&id) {
+                    continue;
+                }
+                let members = mesh
+                    .curve_edges(id)
+                    .map_err(|_| SolveError::Missing(c.id))?;
+                let (chain, closed) =
+                    curve_chain(mesh, &members).ok_or(SolveError::NotCircular(c.id, pid.0))?;
+                let chain: Vec<usize> = chain.into_iter().map(|v| var(v, &mut index)).collect();
+                let (center, normal, radius, segments, angles) = match *d {
+                    CurveDescriptor::Arc {
+                        center,
+                        normal,
+                        radius,
+                        start_angle,
+                        end_angle,
+                        segments,
+                    } => (
+                        center,
+                        normal,
+                        radius,
+                        segments,
+                        Some((start_angle.as_radians(), end_angle.as_radians())),
+                    ),
+                    CurveDescriptor::Circle {
+                        center,
+                        normal,
+                        radius,
+                        segments,
+                    } => (center, normal, radius, segments, None),
+                    _ => return Err(SolveError::NotCircular(c.id, pid.0)),
+                };
+                curve_of.insert(id, curves.len());
+                curves.push(CurveVar {
+                    id,
+                    members,
+                    normal: normal.normalize_or_zero(),
+                    c0: center,
+                    r0: radius,
+                    segments,
+                    chain,
+                    closed,
+                    dir0: DVec3::ZERO,
+                    phase: Vec::new(),
+                    sweep0: angles.map_or(0.0, |(s, e)| e - s),
+                    forward: true,
+                });
+            }
+        }
+        usable.push(c);
+    }
+    // Pass 2: points and edges.
+    let mut resolved = Vec::new();
+    for c in usable {
+        let mut points = Vec::new();
+        let mut edges = Vec::new();
+        let mut slots = Vec::new();
+        for p in &c.points {
+            if let Some((a, b)) = ends(p.edge) {
+                points.push(var(if p.second { b } else { a }, &mut index));
+            }
+        }
+        for &e in &c.edges {
+            if let Some((a, b)) = ends(e) {
+                edges.push((var(a, &mut index), var(b, &mut index)));
+            }
+            slots.push(if c.kind.uses_curves() {
+                circular_curve(entities, e).and_then(|(id, _)| curve_of.get(&id).copied())
+            } else {
+                None
+            });
+        }
+        // A tangency's shared vertex: an end of each side (an arc's ends,
+        // a line's ends).
+        let shared = if c.kind == ConstraintKind::Tangent && edges.len() == 2 {
+            let ends_of = |slot: usize| -> Vec<usize> {
+                match slots[slot].map(|k| &curves[k]) {
+                    Some(cv) if cv.closed => Vec::new(),
+                    Some(cv) => vec![cv.chain[0], cv.chain[cv.chain.len() - 1]],
+                    None => vec![edges[slot].0, edges[slot].1],
+                }
+            };
+            let (one, two) = (ends_of(0), ends_of(1));
+            one.into_iter().find(|v| two.contains(v))
+        } else {
+            None
+        };
+        resolved.push(Resolved {
+            c,
+            points,
+            edges,
+            curves: slots,
+            shared,
+        });
     }
     let x0: Vec<DVec3> = verts
         .iter()
         .map(|v| mesh.position(*v).unwrap_or_default())
         .collect();
-    // Faces keep their planes: one equation per named vertex and face.
-    let mut flat: Vec<(usize, DVec3, f64)> = Vec::new();
-    for (i, &v) in verts.iter().enumerate() {
-        for plane in face_planes(mesh, v) {
-            flat.push((i, plane.0, plane.1));
+    let scale = x0.iter().fold(1.0f64, |m, p| m.max(p.abs().max_element()));
+    // Curve phases from the drawing as it is.
+    let mut derived: Vec<Option<usize>> = vec![None; verts.len()];
+    for (k, cv) in curves.iter_mut().enumerate() {
+        let n = cv.normal;
+        let first = in_plane(x0[cv.chain[0]] - cv.c0, n);
+        if cv.closed {
+            cv.dir0 = first;
+            cv.phase = cv
+                .chain
+                .iter()
+                .map(|&i| angle_near(first, in_plane(x0[i] - cv.c0, n), n, 0.0))
+                .collect();
+            for &i in &cv.chain {
+                derived[i] = Some(k);
+            }
+        } else {
+            // Which end the descriptor starts at decides the sweep's sign.
+            let frame = Plane::from_point_normal(cv.c0, n).frame_at(cv.c0);
+            let a = cv.sweep0;
+            let start_angle = match mesh.curve(cv.id) {
+                Some(CurveDescriptor::Arc { start_angle, .. }) => start_angle.as_radians(),
+                _ => 0.0,
+            };
+            let start = frame.from_2d(
+                frame.to_2d(cv.c0)
+                    + glam::DVec2::new(libm::cos(start_angle), libm::sin(start_angle)) * cv.r0,
+            );
+            let last = cv.chain[cv.chain.len() - 1];
+            cv.forward = x0[cv.chain[0]].distance(start) <= x0[last].distance(start);
+            cv.sweep0 = if cv.forward { a } else { -a };
+            let sweep0 = cv.sweep0;
+            cv.phase = cv
+                .chain
+                .iter()
+                .map(|&i| {
+                    let mut t = angle_near(first, in_plane(x0[i] - cv.c0, n), n, 0.0);
+                    if sweep0 > 0.0 && t < -1e-12 {
+                        t += std::f64::consts::TAU;
+                    } else if sweep0 < 0.0 && t > 1e-12 {
+                        t -= std::f64::consts::TAU;
+                    }
+                    if sweep0.abs() > 1e-12 {
+                        t / sweep0
+                    } else {
+                        0.0
+                    }
+                })
+                .collect();
+            for &i in &cv.chain[1..cv.chain.len() - 1] {
+                derived[i] = Some(k);
+            }
         }
     }
-    let all = |x: &[DVec3]| -> Vec<f64> {
+    let free: Vec<usize> = (0..verts.len()).filter(|&i| derived[i].is_none()).collect();
+    let coplanar = |k: usize, (m, d): (DVec3, f64)| -> bool {
+        let cv = &curves[k];
+        (m.dot(cv.normal).abs() - 1.0).abs() < 1e-9 && (m.dot(cv.c0) - d).abs() < 1e-6 * scale
+    };
+    // Faces keep their planes: one equation per vertex and face, except
+    // derived curve vertices in their own curve's plane (the center's plane
+    // equation keeps those).
+    let mut flat: Vec<(usize, DVec3, f64)> = Vec::new();
+    let mut end_off_plane: Vec<(usize, usize)> = Vec::new();
+    for (i, &v) in verts.iter().enumerate() {
+        let planes = face_planes(mesh, v);
+        for plane in &planes {
+            if derived[i].is_some_and(|k| coplanar(k, *plane)) {
+                continue;
+            }
+            flat.push((i, plane.0, plane.1));
+        }
+        for (k, cv) in curves.iter().enumerate() {
+            let is_end = !cv.closed && (cv.chain[0] == i || cv.chain[cv.chain.len() - 1] == i);
+            if is_end && !planes.iter().any(|pl| coplanar(k, *pl)) {
+                end_off_plane.push((i, k));
+            }
+        }
+    }
+    let n = free.len() * 3 + curves.len() * 4;
+    let mut start = Vec::with_capacity(n);
+    for &i in &free {
+        start.extend(x0[i].to_array());
+    }
+    for cv in &curves {
+        start.extend([cv.c0.x, cv.c0.y, cv.c0.z, cv.r0]);
+    }
+    let base = free.len() * 3;
+    let normals: Vec<DVec3> = curves.iter().map(|cv| cv.normal).collect();
+    let eval = |u: &[f64]| -> (Vec<DVec3>, Vec<(DVec3, f64)>) {
+        let mut pos = x0.clone();
+        for (k, &i) in free.iter().enumerate() {
+            pos[i] = DVec3::new(u[3 * k], u[3 * k + 1], u[3 * k + 2]);
+        }
+        let cs: Vec<(DVec3, f64)> = (0..curves.len())
+            .map(|k| {
+                let o = base + 4 * k;
+                (DVec3::new(u[o], u[o + 1], u[o + 2]), u[o + 3])
+            })
+            .collect();
+        for (cv, &(c, r)) in curves.iter().zip(&cs) {
+            cv.place(c, r, &mut pos);
+        }
+        (pos, cs)
+    };
+    let all = |u: &[f64]| -> Vec<f64> {
+        let (pos, cs) = eval(u);
+        let s = State {
+            pos: &pos,
+            curves: &cs,
+            normals: &normals,
+        };
         let mut out = Vec::new();
         for r in &resolved {
-            residuals(r, x, &mut out);
+            residuals(r, &s, &mut out);
         }
-        for &(i, n, d) in &flat {
-            out.push(n.dot(x[i]) - d);
+        for &(i, m, d) in &flat {
+            out.push(m.dot(pos[i]) - d);
+        }
+        for (cv, &(c, r)) in curves.iter().zip(&cs) {
+            out.push(cv.normal.dot(c - cv.c0));
+            if !cv.closed {
+                for &i in [cv.chain[0], cv.chain[cv.chain.len() - 1]].iter() {
+                    out.push((pos[i] - c).length() - r);
+                }
+            }
+        }
+        for &(i, k) in &end_off_plane {
+            out.push(curves[k].normal.dot(pos[i] - cs[k].0));
         }
         out
     };
-    let n = verts.len() * 3;
-    let flatten = |x: &[DVec3]| -> Vec<f64> { x.iter().flat_map(|p| p.to_array()).collect() };
-    let unflatten =
-        |v: &[f64]| -> Vec<DVec3> { v.chunks(3).map(|c| DVec3::new(c[0], c[1], c[2])).collect() };
-    let start = flatten(&x0);
-    let scale = x0.iter().fold(1.0f64, |m, p| m.max(p.abs().max_element()));
     let jacobian = |v: &[f64], rows: usize| -> Vec<Vec<f64>> {
         let mut jac = vec![vec![0.0; n]; rows];
         let mut w = v.to_vec();
@@ -465,9 +1039,9 @@ pub fn solve(
             let h = 1e-7 * scale.max(1.0);
             let keep = w[k];
             w[k] = keep + h;
-            let plus = all(&unflatten(&w));
+            let plus = all(&w);
             w[k] = keep - h;
-            let minus = all(&unflatten(&w));
+            let minus = all(&w);
             w[k] = keep;
             for (row, (a, b)) in jac.iter_mut().zip(plus.iter().zip(&minus)) {
                 row[k] = (a - b) / (2.0 * h);
@@ -476,7 +1050,7 @@ pub fn solve(
         jac
     };
     let mut x = start.clone();
-    let mut r = all(&unflatten(&x));
+    let mut r = all(&x);
     let max_abs = |r: &[f64]| r.iter().fold(0.0f64, |m, v| m.max(v.abs()));
     // Phase 1: damped least squares, pulled weakly toward the start.
     let mu = 1e-6;
@@ -519,7 +1093,7 @@ pub fn solve(
                 continue;
             };
             let next: Vec<f64> = x.iter().zip(&step).map(|(a, b)| a + b).collect();
-            let rn = all(&unflatten(&next));
+            let rn = all(&next);
             if cost(&next, &rn) < before {
                 x = next;
                 r = rn;
@@ -555,7 +1129,7 @@ pub fn solve(
             .map(|k| (0..m).map(|i| jac[i][k] * y[i]).sum())
             .collect();
         let next: Vec<f64> = x.iter().zip(&step).map(|(a, b)| a + b).collect();
-        let rn = all(&unflatten(&next));
+        let rn = all(&next);
         if max_abs(&rn) >= max_abs(&r) {
             break;
         }
@@ -566,19 +1140,59 @@ pub fn solve(
     if error > 1e-6 * scale.max(1.0) {
         return Err(SolveError::Conflict(error));
     }
+    let (mut xs, cs) = eval(&x);
+    let unturned = xs.clone();
+    let mut turned = false;
+    // A curve must keep a positive radius larger than the merge distance.
+    if let Some(&(_, radius)) = cs.iter().find(|(_, r)| *r <= 1e-3) {
+        return Err(SolveError::Conflict(radius.abs()));
+    }
+    // A circle's segments are inscribed: where one of its vertices would
+    // touch another edge (a tangent line or circle at a vertex), its
+    // vertices turn half a segment so that the segments clear the contact.
+    for (k, cv) in curves.iter().enumerate() {
+        if !cv.closed || cv.segments == 0 {
+            continue;
+        }
+        let (c, radius) = cs[k];
+        if touches(mesh, &index, &xs, cv) {
+            let half = std::f64::consts::PI / f64::from(cv.segments);
+            for (j, &i) in cv.chain.iter().enumerate() {
+                xs[i] = c + rotate(cv.dir0, cv.normal, cv.phase[j] + half) * radius;
+            }
+            turned = true;
+        }
+    }
     let jac = jacobian(&x, r.len());
     let rank = rank(jac.clone());
     let rows = r.len();
-    let xs = unflatten(&x);
-    let mut moves = BTreeMap::new();
-    for (i, v) in verts.iter().enumerate() {
-        if xs[i].distance(x0[i]) > 1e-9 {
-            moves.insert(*v, xs[i]);
+    let outcome = |xs: &[DVec3]| {
+        let mut moves = BTreeMap::new();
+        for (i, v) in verts.iter().enumerate() {
+            if xs[i].distance(x0[i]) > 1e-9 {
+                moves.insert(*v, xs[i]);
+            }
         }
-    }
+        let mut reshaped = Vec::new();
+        for (cv, &(c, radius)) in curves.iter().zip(&cs) {
+            if cv.chain.iter().any(|&i| moves.contains_key(&verts[i])) {
+                reshaped.push(Reshaped {
+                    members: cv.members.clone(),
+                    points: cv.chain.iter().map(|&i| xs[i]).collect(),
+                    closed: cv.closed,
+                    descriptor: cv.descriptor(c, radius, xs),
+                });
+            }
+        }
+        (moves, reshaped)
+    };
+    let (moves, reshaped) = outcome(&xs);
+    let unturned = turned.then(|| outcome(&unturned));
     Ok(Solution {
         moved: moves.len(),
         moves,
+        curves: reshaped,
+        unturned,
         degrees_of_freedom: n - rank.min(n),
         redundant: rows - rank.min(rows),
         error_mm: error,

@@ -2443,3 +2443,103 @@ scene-activate --scene Base
         "a placed scene must not bypass read-only mode"
     );
 }
+
+/// One CLI/RPC parity case: a seed batch, then a command typed both ways.
+struct ParityCase {
+    seed: &'static str,
+    name: &'static str,
+    params: serde_json::Value,
+    args: Vec<&'static str>,
+}
+
+/// Runs each case through the typed CLI and JSON-RPC and compares the
+/// outputs and the saved native documents.
+fn check_parity(label: &str, cases: Vec<ParityCase>) {
+    use serde_json::json;
+    let dir = scratch(label);
+    for (index, case) in cases.into_iter().enumerate() {
+        let seed = dir.join(format!("seed-{index}.plyr"));
+        let batch = dir.join(format!("seed-{index}.plyrb"));
+        std::fs::write(&batch, case.seed).unwrap();
+        planyrith()
+            .args([
+                "batch",
+                batch.to_str().unwrap(),
+                "-f",
+                seed.to_str().unwrap(),
+                "--deterministic",
+            ])
+            .assert()
+            .success();
+        let name = case.name;
+        let cli = dir.join(format!("cli-{index}.plyr"));
+        let rpc_path = dir.join(format!("rpc-{index}.plyr"));
+        std::fs::copy(&seed, &cli).unwrap();
+        std::fs::copy(&seed, &rpc_path).unwrap();
+        let output = planyrith()
+            .args(["tool", name, "-f", cli.to_str().unwrap(), "--json"])
+            .args(&case.args)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{name}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let output = json_of(&output.stdout);
+        let (replies, _) = serve(
+            &[],
+            &[
+                rpc(1, "session.open", json!({"path":rpc_path})),
+                rpc(
+                    2,
+                    "command.execute",
+                    json!({"doc_id":"d1","name":name,"params":case.params}),
+                ),
+                rpc(3, "session.save", json!({"doc_id":"d1"})),
+            ],
+        );
+        for reply in replies.values() {
+            assert!(reply.get("error").is_none(), "{reply}");
+        }
+        assert_eq!(output["output"], replies[&2]["result"]["output"], "{name}");
+        let canonical = |path: &Path| {
+            let loaded = planyrith_core::io::native::read_document(
+                &std::fs::read(path).unwrap(),
+                &planyrith_core::io::NoProgress,
+            )
+            .unwrap();
+            planyrith_core::io::export::json::document_to_json(&loaded.document).unwrap()
+        };
+        assert_eq!(canonical(&cli), canonical(&rpc_path), "{name}: native data");
+    }
+}
+
+/// docs/13 1.33 onward: the completed features agree across typed CLI, RPC
+/// and native files.
+#[test]
+fn completed_features_match_cli_and_rpc() {
+    use serde_json::json;
+    const ARC_LINE_CIRCLE: &str = "arc-2point --center 0,0,0 --start 100,0,0 --end-angle 90deg
+line --points 100,0,0 --points 180,-300,0
+circle --center 600,0,0 --radius 50
+constraint-add --kind fixed --edges @13
+";
+    check_parity(
+        "completed",
+        vec![
+            ParityCase {
+                seed: ARC_LINE_CIRCLE,
+                name: "constraint-add",
+                params: json!({"kind":"tangent","edges":["@1","@13"]}),
+                args: vec!["--kind", "tangent", "--edges", "@1", "--edges", "@13"],
+            },
+            ParityCase {
+                seed: ARC_LINE_CIRCLE,
+                name: "constraint-add",
+                params: json!({"kind":"radius","edges":["@14"],"length":80}),
+                args: vec!["--kind", "radius", "--edges", "@14", "--length", "8cm"],
+            },
+        ],
+    );
+}

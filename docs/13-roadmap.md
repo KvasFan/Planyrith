@@ -446,11 +446,80 @@ and cover cancellation and GPU rendering.
   tests and GPU comparisons prove adjacent unchanged faces remain opaque and clearing
   restores normal rendering.
 
+## 1.33.0 — Arc and circle constraints
+
+Complete the sketch constraints reserved in 1.9: tangency and radius on arcs and circles, plus
+equal radii, concentric curves and points on curves. Curves move by center and radius and keep
+their descriptors. Acceptance: analytic tangency/radius, conflicts, undo, CLI/RPC and the
+Constraints window.
+
+- **Done (2026-11-16):** `radius`, `equal-radius`, `concentric`, `on-curve`, `tangent`
+  (docs/03 §11.4, docs/05 §5.15), with Constraints-window buttons. Internal tangency between
+  filled circles in one plane is solved but refused by the kernel (inscribed segments cross).
+
+## 1.34.0 — Flanges on flanges and corner reliefs
+
+Complete sheet metal from 1.14: edge flanges on the outer edges of earlier flanges, and corner
+reliefs where two flanges meet at a base corner, in the 3D part and the flat pattern.
+
+## 1.35.0 — Trimming and splitting by surfaces
+
+Complete 1.11/1.15: trim a surface by another surface and split a solid by a surface (open
+surface groups), keeping both sides as separate groups.
+
+## 1.36.0 — Persistent references across regeneration
+
+Complete 1.10: feature references to faces and edges survive regeneration by matching
+regenerated geometry to earlier geometry (plane, position, area), with the match reported.
+
+## 1.37.0 — Moving to contact
+
+Complete the deferred continuous collision of 1.12/1.22: an optional Move mode that stops a
+moving occurrence at first contact along its straight path, CLI/RPC first.
+
+## 1.38.0 — Curved and assembled IGES
+
+Complete 1.17's IGES: curved surfaces on import (B-spline, surfaces of revolution, tabulated
+cylinders, ruled surfaces), tessellated within tolerance; assemblies (subfigures 308/408)
+in both directions as components.
+
+## 1.39.0 — STEP annotations
+
+Complete 1.17's STEP: dimensions and texts exported as graphical annotations (polylines and
+text placements) and read back.
+
+## 1.40.0 — Stepped mold partings and undercuts
+
+Complete 1.18: parting surfaces made of several planar steps, and draw-direction undercut
+detection reported per face.
+
+## 1.41.0 — Boundary-fitted simulation meshes
+
+Complete 1.16: boundary nodes of the tetrahedral mesh moved onto the body's faces, so curved
+bodies are no longer stepped at the cell size.
+
+## 1.42.0 — Interactive mirror, revolve and pattern
+
+Complete 1.8: viewport tools that collect the mirror plane, revolve axis and pattern direction
+by clicking, dispatching the same commands.
+
+## 1.43.0 — USD import
+
+Complete docs/09's USD row: import of text USD (`.usda`) and USDZ packages holding text layers:
+meshes, transforms, references as components, display colors and preview materials.
+
 ## Post-1.0 candidates
 Other limits remain listed against their original milestones; no unrelated feature scope is
 added by the continuation milestones 1.19–1.32.
 
 ## Decisions
+
+- 2026-11-16 — **Completing reserved gaps.** Asked to resume and to implement and test every
+  missing feature, the gaps recorded against earlier milestones become 1.33–1.43, in order of
+  how often a modeling session meets them. Items needing the user (2023/2024 SKP fixtures,
+  opening regenerated files in the target application, macOS packaging) and the formats docs/09
+  keeps out of scope (DWG, 3DS) are not among them. Each milestone keeps defaults, the native
+  format version and the frozen API (additions only).
 
 - 2026-11-14 — **Ten uninterrupted milestones.** At the user’s request, 1.23–1.32 complete
   remaining modeling, scene, annotation, camera, preference and preview work. Existing UV

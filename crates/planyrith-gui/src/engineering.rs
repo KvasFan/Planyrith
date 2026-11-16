@@ -829,6 +829,51 @@ impl ConstraintsWindow {
                         );
                     }
                 });
+                // Arcs and circles (docs/03 §11.4): an edge of one stands
+                // for the whole curve.
+                ui.horizontal_wrapped(|ui| {
+                    if ui
+                        .add_enabled(edges.len() == 1, egui::Button::new(t("Set Radius")))
+                        .on_hover_text(t("The radius of the selected arc or circle, from the length field"))
+                        .clicked()
+                    {
+                        self.run(
+                            session,
+                            "constraint-add",
+                            json!({ "kind": "radius", "edges": q, "length": self.length_mm }),
+                        );
+                    }
+                    if ui
+                        .add_enabled(edges.len() == 2, egui::Button::new(t("Tangent")))
+                        .clicked()
+                    {
+                        self.run(session, "constraint-add", json!({ "kind": "tangent", "edges": q }));
+                    }
+                    if ui
+                        .add_enabled(edges.len() >= 2, egui::Button::new(t("Concentric")))
+                        .clicked()
+                    {
+                        self.run(session, "constraint-add", json!({ "kind": "concentric", "edges": q }));
+                    }
+                    if ui
+                        .add_enabled(edges.len() >= 2, egui::Button::new(t("Equal Radius")))
+                        .clicked()
+                    {
+                        self.run(session, "constraint-add", json!({ "kind": "equal-radius", "edges": q }));
+                    }
+                    if ui
+                        .add_enabled(edges.len() == 2, egui::Button::new(t("End on Curve")))
+                        .on_hover_text(t("The first edge's end nearest the second edge's arc or circle lies on it"))
+                        .clicked()
+                        && let Some(points) = nearest_ends(session, edges[0], edges[1])
+                    {
+                        self.run(
+                            session,
+                            "constraint-add",
+                            json!({ "kind": "on-curve", "points": [points[0].clone()], "edges": [q[1].clone()] }),
+                        );
+                    }
+                });
                 ui.separator();
                 let Some(list) = self.list.clone() else {
                     return;
@@ -3961,6 +4006,78 @@ mod gui_tests {
 
     use crate::app::App;
     use crate::i18n::t;
+
+    /// The Constraints window's arc and circle buttons (docs/03 §11.4).
+    #[test]
+    fn constraint_buttons_shape_arcs_and_circles() {
+        use super::*;
+        let mut session = Session::new();
+        for (name, params) in [
+            (
+                "arc-2point",
+                json!({"center":[0,0,0],"start":[100,0,0],"end_angle":std::f64::consts::FRAC_PI_2}),
+            ),
+            ("line", json!({"points":[[100,0,0],[180,-300,0]]})),
+            ("circle", json!({"center":[600,0,0],"radius":50})),
+        ] {
+            session.execute(name, params).unwrap();
+        }
+        let window = ConstraintsWindow {
+            open: true,
+            length_mm: 80.0,
+            ..Default::default()
+        };
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1000.0, 800.0))
+            .with_max_steps(64)
+            .build_ui_state(
+                |ui, state: &mut (ConstraintsWindow, Session)| {
+                    state.0.window(ui.ctx(), &mut state.1)
+                },
+                (window, session),
+            );
+        let press =
+            |h: &mut Harness<'_, (ConstraintsWindow, Session)>, query: &str, label: &str| {
+                h.state_mut()
+                    .1
+                    .execute("select", json!({ "query": query }))
+                    .unwrap();
+                h.run();
+                h.get_by_label(&t(label)).click();
+                h.run();
+                let note = h.state().0.note.clone().unwrap_or_default();
+                assert!(!note.contains("rror"), "{label}: {note}");
+            };
+        press(&mut h, "@1|@13", "Tangent");
+        press(&mut h, "@14", "Set Radius");
+        press(&mut h, "@1|@14", "Equal Radius");
+        press(&mut h, "@13|@14", "End on Curve");
+        let list = h.state().0.list.clone().unwrap();
+        let kinds: Vec<&str> = list["constraints"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c["kind"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            kinds,
+            ["tangent", "radius", "equal-radius", "on-curve"],
+            "{list}"
+        );
+        let doc = h.state().1.doc();
+        let radii: Vec<f64> = doc
+            .model
+            .mesh()
+            .curves()
+            .filter_map(|(_, d)| match d {
+                planyrith_core::geom::CurveDescriptor::Arc { radius, .. }
+                | planyrith_core::geom::CurveDescriptor::Circle { radius, .. } => Some(*radius),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(radii.len(), 2);
+        assert!(radii.iter().all(|r| (r - 80.0).abs() < 1e-6), "{radii:?}");
+    }
 
     /// The actual Tangent button dispatches the same mate used by CLI/RPC.
     #[test]

@@ -12,6 +12,8 @@ drawings, sheet metal and frames, surfaces and analysis, simulation, product dat
 The version number marks builds from main; no packages are published for it.
 
 ### Added
+- 1.33: arc and circle constraints — radius, equal radii, concentric, point on curve and
+  tangency (lines and curves, inside or outside), with descriptors kept and window buttons.
 - 1.23: optional destination interference reports for Rotate and Scale, with Tool Options,
   copied occurrences and reflected/nonuniform placements.
 - 1.24: optional assembly placements in scenes, restored with undo, recovery, collaboration

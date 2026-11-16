@@ -462,6 +462,14 @@ edges involved, so angles weigh like lengths.
 | `length` | edge, length | `|b − a| − L = 0` |
 | `distance` | 2 points, length | `|q − p| − L = 0` |
 | `angle` | 2 edges, angle | `atan2(|d₀ × d₁|, d₀ · d₁) − θ = 0` |
+| `radius` | 1 curve edge, length | `r − R = 0` |
+| `equal-radius` | 2+ curve edges | each `rᵢ − r₀ = 0` |
+| `concentric` | 2+ curve edges | each `cᵢ − c₀ = 0` |
+| `on-curve` | point, curve edge | `|p − c| − r = 0` |
+| `tangent` | edge and curve edge, or 2 curve edges | §11.4 |
+
+A *curve edge* is any edge of an arc or circle (docs/03 §3.3); it stands for the whole curve,
+with center `c` and radius `r`. Polygons and freehand curves are not circular.
 
 ### 11.2 Solving
 Unknowns are the positions of the vertices the constraints name; nothing else moves. Each such
@@ -487,6 +495,32 @@ The constraints refer to infinite cylinders and planes, independent of tessellat
 A centered numeric Jacobian is singular at coaxial centers or an axis normal to its plane:
 initialize the free occurrence along the deterministic plane-frame direction, or rotate it
 by a quarter turn, before iterating. Fixed occurrences never move; conflicts remain atomic.
+
+### 11.4 Arcs and circles (milestone 1.33)
+A curve named by `radius`, `equal-radius`, `concentric`, `on-curve` or `tangent` adds four
+unknowns, its center and radius; its plane (normal from the descriptor) stays fixed through
+`n·(c − c₀) = 0`. A circle's vertices are derived: each keeps its angle from the first vertex
+at the start, `c + r·R(n, φₖ)·u₀`. An arc's two end vertices stay free with
+`|e − c| − r = 0` (and `n·(e − c) = 0` when no face holds them in the plane); its interior
+vertices are spread at their original fractions of the sweep between the ends, on the branch
+nearest the original sweep. Derived vertices skip the flat-face equations of faces in their
+own curve's plane, so a free circle has three freedoms and a free arc five.
+
+Tangency: a line edge and a curve that share an end vertex `v` require `(c − v)·u = 0`
+(`u` the line's unit direction); otherwise the line's distance to `c` equals `r`. Two curves
+sharing an end vertex require their centers and `v` in line, `n·(û × (c₂ − v)) = 0` with
+`û = unit(v − c₁)`; otherwise `|c₂ − c₁| = r₁ + r₂`, or `|r₁ − r₂|` when one was inside the
+other as drawn (`internal`, recorded when the constraint is made). The shared-vertex forms are
+used because distance-equals-radius is ill-conditioned at a contact point.
+
+After solving, each reshaped curve gets its new descriptor (center, radius, arc angles in the
+plane frame, with the start at the end the old descriptor started at). Segments are inscribed:
+when a circle's vertex would come within the merge distance of another edge (a tangent line or
+circle exactly at a vertex), the circle turns half a segment so its segments clear the contact;
+if the turned circle's edges would cross instead (one circle inside another), the unturned
+positions are used and touching vertices merge as in any move. A change the kernel still
+refuses (one filled circle tangent inside another, whose segments cross) changes nothing. Radii
+must stay above the merge distance.
 
 ## 12. Simulation (`sim`, milestone 1.16)
 
