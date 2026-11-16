@@ -280,8 +280,8 @@ natural frequencies, steady heat conduction, and motion of assemblies over time.
 - **Done (2026-11-10):** `sim-static`, `sim-frequency` and `sim-thermal` on a mesh of quadratic
   tetrahedra over a grid fitted to the body (docs/03 §12, docs/05 §8.16) with a library of
   materials, results shown as colored copies; `motion-study` drives a mate in steps with
-  collision checks (§8.17). Curved surfaces are approximated in steps of the cell size (no
-  boundary-fitted mesh yet), and conduction has no convection to air.
+  collision checks (§8.17). Curved surfaces were approximated in steps of the cell size until
+  1.41 fitted the boundary; convection to air followed in 1.20.
 
 ## 1.17.0 — Product data and exchange
 Custom properties and part numbers; revisions recorded in the document; a library of standard
@@ -527,6 +527,10 @@ detection reported per face.
 
 Complete 1.16: boundary nodes of the tetrahedral mesh moved onto the body's faces, so curved
 bodies are no longer stepped at the cell size.
+
+- **Done (2026-11-16):** `fit_boundary` on `sim-static`, `sim-frequency` and `sim-thermal`
+  (faces, sharp edges, curved edge middles, fold protection), on by default in the Simulation
+  window (docs/03 §12, docs/05 §8.16).
 
 ## 1.42.0 — Interactive mirror, revolve and pattern
 

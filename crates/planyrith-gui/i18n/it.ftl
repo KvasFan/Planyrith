@@ -1220,3 +1220,5 @@ t-find-undercuts = Trova sottosquadri
 t-faces-that-cannot-leave-the-half-on-their-side-of-the-parting-surface = Facce che non possono uscire dal semistampo dal loro lato della superficie di divisione
 t-no-undercuts-every-face-leaves-its-half = Nessun sottosquadro: ogni faccia esce dal suo semistampo.
 t-count-undercut-faces-area-mm-in-all = { $count } facce in sottosquadro, { $area } mm² in tutto.
+t-fit-the-mesh-to-curved-faces = Adatta la mesh alle facce curve
+t-boundary-nodes-move-onto-the-body-s-faces-instead-of-following-the-cells = I nodi di contorno si spostano sulle facce del corpo invece di seguire le celle

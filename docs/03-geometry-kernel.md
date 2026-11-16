@@ -572,6 +572,15 @@ W and K.
   met exactly; other surfaces are approximated in steps of the cell size. Each boundary triangle
   belongs to the nearest face of the solid facing its way (within ¾ of a cell), so conditions
   named by faces reach the right nodes. A mesh is refused beyond 60 000 nodes.
+- **Fitting the boundary (1.41).** On request, each boundary corner moves to the nearest
+  point of the solid within ¾ of a cell; where the boundary turns by more than 60° around it
+  (normals of its boundary triangles), to the nearest point of a sharp edge of the solid
+  (faces turning by more than 30°) when one is that near, so ends and rims stay crisp. Moves
+  that would leave an element below a tenth of its volume are halved (at most six times),
+  then dropped. Edge middles are recomputed as centers; those on the boundary move onto the
+  faces when that bends the edge by less than a tenth of its length, making curved quadratic
+  elements. Boundary triangles are then assigned to faces again. Faces on grid lines do not
+  move, so box-like bodies mesh as before.
 - **Statics.** Isotropic linear elasticity; four-point integration; the sparse stiffness is
   solved for the free unknowns by conjugate gradients with a diagonal preconditioner to a
   relative residual of 10⁻⁹. Fixtures hold every node of their faces. A force is spread by area

@@ -305,8 +305,22 @@ pub fn tet_mesh(
         boundary.push([a, b, c, mid(a, b), mid(b, c), mid(c, a)]);
         boundary_tet.push(*ti);
     }
-    // Each boundary triangle belongs to the nearest face looking its way.
-    let reach = cell.max_element() * 0.75 + tol.length;
+    let mut mesh = TetMesh {
+        nodes,
+        tets,
+        boundary,
+        boundary_tet,
+        boundary_face: Vec::new(),
+        cell,
+    };
+    mesh.boundary_face = assign_faces(&mesh, solid, tol);
+    Ok(mesh)
+}
+
+/// The solid's face nearest each boundary triangle that looks its way
+/// (within ¾ of a cell).
+fn assign_faces(mesh: &TetMesh, solid: &HalfEdgeMesh, tol: &Tolerances) -> Vec<Option<FaceId>> {
+    let reach = mesh.cell.max_element() * 0.75 + tol.length;
     let solid_faces: Vec<(FaceId, DVec3, DVec3, DVec3)> = solid
         .faces()
         .filter_map(|(f, face)| {
@@ -320,10 +334,10 @@ pub fn tet_mesh(
             Some((f, face.plane.normal, l, h))
         })
         .collect();
-    let boundary_face = boundary
+    mesh.boundary
         .iter()
         .map(|tri| {
-            let [a, b, c] = [tri[0], tri[1], tri[2]].map(|i| nodes[i as usize]);
+            let [a, b, c] = [tri[0], tri[1], tri[2]].map(|i| mesh.nodes[i as usize]);
             let centre = (a + b + c) / 3.0;
             let normal = (b - a).cross(c - a).normalize_or_zero();
             let mut best: Option<(f64, FaceId)> = None;
@@ -343,15 +357,235 @@ pub fn tet_mesh(
             }
             best.map(|(_, f)| f)
         })
+        .collect()
+}
+
+/// The point of triangle `t` nearest `p`.
+fn nearest_on_triangle(p: DVec3, t: &[DVec3; 3]) -> DVec3 {
+    let (a, b, c) = (t[0], t[1], t[2]);
+    let (ab, ac, ap) = (b - a, c - a, p - a);
+    let (d1, d2) = (ab.dot(ap), ac.dot(ap));
+    if d1 <= 0.0 && d2 <= 0.0 {
+        return a;
+    }
+    let bp = p - b;
+    let (d3, d4) = (ab.dot(bp), ac.dot(bp));
+    if d3 >= 0.0 && d4 <= d3 {
+        return b;
+    }
+    let vc = d1 * d4 - d3 * d2;
+    if vc <= 0.0 && d1 >= 0.0 && d3 <= 0.0 {
+        return a + ab * (d1 / (d1 - d3));
+    }
+    let cp = p - c;
+    let (d5, d6) = (ab.dot(cp), ac.dot(cp));
+    if d6 >= 0.0 && d5 <= d6 {
+        return c;
+    }
+    let vb = d5 * d2 - d1 * d6;
+    if vb <= 0.0 && d2 >= 0.0 && d6 <= 0.0 {
+        return a + ac * (d2 / (d2 - d6));
+    }
+    let va = d3 * d6 - d5 * d4;
+    if va <= 0.0 && (d4 - d3) >= 0.0 && (d5 - d6) >= 0.0 {
+        return b + (c - b) * ((d4 - d3) / ((d4 - d3) + (d5 - d6)));
+    }
+    let denom = 1.0 / (va + vb + vc);
+    a + ab * (vb * denom) + ac * (vc * denom)
+}
+
+/// How a mesh was fitted to its solid's faces.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct FitReport {
+    /// Boundary corners moved onto the faces.
+    pub moved: usize,
+    /// Boundary corners left where they were (the move would have folded
+    /// an element).
+    pub kept: usize,
+    /// The largest move, mm.
+    pub largest_mm: f64,
+}
+
+/// Moves the mesh's boundary onto the solid's faces (docs/03 §12,
+/// milestone 1.41): each boundary corner goes to the nearest point of the
+/// solid within ¾ of a cell — where the boundary turns by more than 60°
+/// around it, to the nearest sharp edge of the solid when one is that
+/// near — backing off (halving, at most six times, then
+/// staying) wherever an element would fold or shrink below a tenth of its
+/// volume; edge middles are recomputed, those on the boundary placed on the
+/// faces when that bends the edge by less than a tenth of its length.
+pub fn fit_boundary(
+    mesh: &mut TetMesh,
+    solid: &HalfEdgeMesh,
+    tol: &Tolerances,
+) -> Result<FitReport, GeometryError> {
+    use crate::geom::tessellate::tessellate_face;
+    let mut triangles: Vec<[DVec3; 3]> = Vec::new();
+    for (f, _) in solid.faces() {
+        let t = tessellate_face(solid, f, tol)?;
+        for tri in &t.triangles {
+            triangles.push(tri.map(|i| t.positions[i as usize]));
+        }
+    }
+    let nearest = |p: DVec3| {
+        let mut best = (f64::MAX, p);
+        for t in &triangles {
+            let q = nearest_on_triangle(p, t);
+            let d = q.distance(p);
+            if d < best.0 {
+                best = (d, q);
+            }
+        }
+        best
+    };
+    // The solid's sharp edges (faces turning by more than 30°): corners
+    // where the mesh's boundary turns go onto them.
+    let mut sharp: Vec<(DVec3, DVec3)> = Vec::new();
+    for (e, _) in solid.edges() {
+        let [Some(a), Some(b)] = solid.edge_faces(e)? else {
+            continue;
+        };
+        let (Some(fa), Some(fb)) = (solid.face(a), solid.face(b)) else {
+            continue;
+        };
+        if fa.plane.normal.dot(fb.plane.normal) < libm::cos(30f64.to_radians()) {
+            let seg = solid.edge_segment(e)?;
+            sharp.push((seg.a, seg.b));
+        }
+    }
+    let nearest_edge = |p: DVec3| {
+        let mut best = (f64::MAX, p);
+        for (a, b) in &sharp {
+            let ab = *b - *a;
+            let t = ((p - *a).dot(ab) / ab.length_squared().max(1e-30)).clamp(0.0, 1.0);
+            let q = *a + ab * t;
+            let d = q.distance(p);
+            if d < best.0 {
+                best = (d, q);
+            }
+        }
+        best
+    };
+    let reach = mesh.cell.max_element() * 0.75;
+    // The boundary's normals around each corner.
+    let mut normals: BTreeMap<u32, Vec<DVec3>> = BTreeMap::new();
+    for b in &mesh.boundary {
+        let [pa, pb, pc] = [b[0], b[1], b[2]].map(|i| mesh.nodes[i as usize]);
+        let n = (pb - pa).cross(pc - pa).normalize_or_zero();
+        for v in [b[0], b[1], b[2]] {
+            normals.entry(v).or_default().push(n);
+        }
+    }
+    let turning = |v: u32| {
+        normals
+            .get(&v)
+            .is_some_and(|ns| ns.iter().any(|a| ns.iter().any(|b| a.dot(*b) < 0.5)))
+    };
+    let mut corners: Vec<u32> = mesh
+        .boundary
+        .iter()
+        .flat_map(|b| [b[0], b[1], b[2]])
         .collect();
-    Ok(TetMesh {
-        nodes,
-        tets,
-        boundary,
-        boundary_tet,
-        boundary_face,
-        cell,
-    })
+    corners.sort_unstable();
+    corners.dedup();
+    let start: Vec<DVec3> = mesh.nodes.clone();
+    let volume = |nodes: &[DVec3], t: &[u32; 10]| {
+        let [a, b, c, d] = [t[0], t[1], t[2], t[3]].map(|i| nodes[i as usize]);
+        (b - a).cross(c - a).dot(d - a) / 6.0
+    };
+    let before: Vec<f64> = mesh.tets.iter().map(|t| volume(&start, t)).collect();
+    let mut target: BTreeMap<u32, DVec3> = BTreeMap::new();
+    let mut report = FitReport::default();
+    for &v in &corners {
+        let p = start[v as usize];
+        let on_edge = if turning(v) {
+            Some(nearest_edge(p)).filter(|(d, _)| *d <= reach)
+        } else {
+            None
+        };
+        let (d, q) = on_edge.unwrap_or_else(|| nearest(p));
+        if d > tol.length && d <= reach {
+            target.insert(v, q);
+        }
+    }
+    let mut share: BTreeMap<u32, f64> = target.keys().map(|v| (*v, 1.0)).collect();
+    for _ in 0..7 {
+        for (v, q) in &target {
+            let p = start[*v as usize];
+            mesh.nodes[*v as usize] = p + (*q - p) * share[v];
+        }
+        let mut bad: Vec<u32> = Vec::new();
+        for (k, t) in mesh.tets.iter().enumerate() {
+            if volume(&mesh.nodes, t) < 0.1 * before[k] {
+                bad.extend(t[..4].iter().filter(|v| target.contains_key(v)).copied());
+            }
+        }
+        if bad.is_empty() {
+            break;
+        }
+        bad.sort_unstable();
+        bad.dedup();
+        for v in bad {
+            if let Some(s) = share.get_mut(&v) {
+                *s = if *s > 0.02 { *s * 0.5 } else { 0.0 };
+            }
+        }
+    }
+    // Whatever still folds goes back.
+    loop {
+        let mut reverted = false;
+        for (k, t) in mesh.tets.iter().enumerate() {
+            if volume(&mesh.nodes, t) < 0.1 * before[k] {
+                for v in &t[..4] {
+                    if share.get(v).is_some_and(|s| *s > 0.0) {
+                        share.insert(*v, 0.0);
+                        reverted = true;
+                    }
+                }
+            }
+        }
+        if !reverted {
+            break;
+        }
+        for (v, s) in &share {
+            if *s == 0.0 {
+                mesh.nodes[*v as usize] = start[*v as usize];
+            }
+        }
+    }
+    for (v, s) in &share {
+        let d = mesh.nodes[*v as usize].distance(start[*v as usize]);
+        if *s > 0.0 && d > 0.0 {
+            report.moved += 1;
+            report.largest_mm = report.largest_mm.max(d);
+        } else {
+            report.kept += 1;
+        }
+    }
+    // Edge middles: straight, then on the faces along the boundary.
+    const EDGES: [(usize, usize); 6] = [(0, 1), (1, 2), (0, 2), (0, 3), (1, 3), (2, 3)];
+    for t in &mesh.tets {
+        for (slot, (a, b)) in EDGES.into_iter().enumerate() {
+            let (pa, pb) = (mesh.nodes[t[a] as usize], mesh.nodes[t[b] as usize]);
+            mesh.nodes[t[4 + slot] as usize] = (pa + pb) * 0.5;
+        }
+    }
+    for tri in mesh.boundary.clone() {
+        for (a, b, m) in [
+            (tri[0], tri[1], tri[3]),
+            (tri[1], tri[2], tri[4]),
+            (tri[2], tri[0], tri[5]),
+        ] {
+            let (pa, pb) = (mesh.nodes[a as usize], mesh.nodes[b as usize]);
+            let straight = (pa + pb) * 0.5;
+            let (d, q) = nearest(straight);
+            if d > tol.length && d < 0.1 * pa.distance(pb) {
+                mesh.nodes[m as usize] = q;
+            }
+        }
+    }
+    mesh.boundary_face = assign_faces(mesh, solid, tol);
+    Ok(report)
 }
 
 // ----- element matrices -----------------------------------------------------------------
@@ -1558,5 +1792,102 @@ mod tests {
     fn eigenvalues_of_a_small_matrix() {
         let (v, _) = jacobi_eigen(vec![vec![2.0, 1.0], vec![1.0, 2.0]]);
         assert!((v[0] - 1.0).abs() < 1e-12 && (v[1] - 3.0).abs() < 1e-12);
+    }
+
+    /// A bar of 48-gon section, radius 10, 100 long along Z.
+    fn round_bar() -> HalfEdgeMesh {
+        use crate::geom::fabrication::{ProfileFrame, prism};
+        let ring: Vec<glam::DVec2> = (0..48)
+            .map(|k| {
+                let a = std::f64::consts::TAU * f64::from(k) / 48.0;
+                glam::DVec2::new(10.0 * libm::cos(a), 10.0 * libm::sin(a))
+            })
+            .collect();
+        prism(
+            ProfileFrame {
+                origin: DVec3::ZERO,
+                u: DVec3::X,
+                v: DVec3::Y,
+            },
+            &[ring],
+            DVec3::Z,
+            (DVec3::ZERO, DVec3::Z),
+            (DVec3::new(0.0, 0.0, 100.0), DVec3::Z),
+            &Tolerances::default(),
+        )
+        .unwrap()
+    }
+
+    fn mesh_volume(mesh: &TetMesh) -> f64 {
+        mesh.tets
+            .iter()
+            .map(|t| {
+                let [a, b, c, d] = [t[0], t[1], t[2], t[3]].map(|i| mesh.nodes[i as usize]);
+                (b - a).cross(c - a).dot(d - a) / 6.0
+            })
+            .sum()
+    }
+
+    #[test]
+    fn fitted_meshes_follow_curved_faces() {
+        let tol = Tolerances::default();
+        let bar = round_bar();
+        let exact = bar.volume().unwrap();
+        let stepped = tet_mesh(&bar, 4.0, 100_000, &tol).unwrap();
+        let mut fitted = stepped.clone();
+        let report = fit_boundary(&mut fitted, &bar, &tol).unwrap();
+        assert!(report.moved > 100, "{report:?}");
+        assert!(report.largest_mm <= 0.75 * stepped.cell.max_element() + 1e-9);
+        let (before, after) = (mesh_volume(&stepped), mesh_volume(&fitted));
+        // Corners alone make a polygon of about twenty sides per section at
+        // this size (1.6% short); the curved edge middles make up the rest.
+        assert!((after - exact).abs() < 0.025 * exact, "{after} vs {exact}");
+        assert!(
+            (after - exact).abs() < (before - exact).abs() / 3.0,
+            "{before} {after} {exact}"
+        );
+        // Every element keeps a positive volume.
+        for t in &fitted.tets {
+            let [a, b, c, d] = [t[0], t[1], t[2], t[3]].map(|i| fitted.nodes[i as usize]);
+            assert!((b - a).cross(c - a).dot(d - a) > 0.0);
+        }
+        // Conduction along the bar: T = P L / k A.
+        let steel = material("steel").unwrap();
+        let cold = face_at(&bar, -DVec3::Z, 0.0);
+        let hot = face_at(&bar, DVec3::Z, 100.0);
+        let area = exact / 100.0;
+        let want = 10.0 * 100.0 / (steel.conductivity_w_mk * 1e-3 * area);
+        let heat = |m: &TetMesh| {
+            solve_thermal(
+                m,
+                &steel,
+                &[
+                    HeatCondition::Temperature {
+                        faces: vec![cold],
+                        celsius: 0.0,
+                    },
+                    HeatCondition::Power {
+                        faces: vec![hot],
+                        watts: 10.0,
+                    },
+                ],
+            )
+            .unwrap()
+            .range
+            .1
+        };
+        let (rough, close) = (heat(&stepped), heat(&fitted));
+        assert!((close - want).abs() < 0.02 * want, "{close} vs {want}");
+        assert!(
+            (close - want).abs() < (rough - want).abs(),
+            "{rough} {close} {want}"
+        );
+        // A box on grid lines does not move at all.
+        let beam = block(DVec3::ZERO, DVec3::new(200.0, 20.0, 20.0));
+        let mut boxed = tet_mesh(&beam, 10.0, 100_000, &tol).unwrap();
+        let nodes = boxed.nodes.clone();
+        let report = fit_boundary(&mut boxed, &beam, &tol).unwrap();
+        assert_eq!(report.moved, 0);
+        assert_eq!(boxed.nodes, nodes);
     }
 }

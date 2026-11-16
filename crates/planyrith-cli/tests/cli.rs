@@ -2552,6 +2552,10 @@ make-group --targets 'edge|face' --name B
 push-pull --face '{face & last}' --distance 40
 make-group --targets 'edge|face' --name Part
 ";
+    const ROUND_BAR: &str = "circle --center 0,0,0 --radius 10 --segments 48
+push-pull --face '{face & last}' --distance 100
+make-group --targets 'edge|face' --name Bar
+";
     check_parity(
         "completed",
         vec![
@@ -2658,6 +2662,16 @@ make-group --targets 'edge|face' --name Part
                     "50,30,20",
                     "--normal",
                     "0,0,1",
+                ],
+            },
+            ParityCase {
+                seed: ROUND_BAR,
+                name: "sim-thermal",
+                params: json!({"body":"name:Bar","material":"aluminum","mesh_size":5,"fit_boundary":true,
+                    "conditions":[{"faces":"face & plane:xy@0","temperature":0},{"faces":"face & plane:xy@100","power":10}]}),
+                args: vec![
+                    "--params-json",
+                    r#"{"body":"name:Bar","material":"aluminum","mesh_size":5,"fit_boundary":true,"conditions":[{"faces":"face & plane:xy@0","temperature":0},{"faces":"face & plane:xy@100","power":10}]}"#,
                 ],
             },
         ],

@@ -994,7 +994,11 @@ removed by `analysis-clear`. The body itself is not changed; hide it to see a re
   `nylon`, `oak`, `concrete`, `glass`; typical room-temperature values), each value overridable:
   `youngs_modulus` (MPa), `poisson_ratio`, `density` (kg/m³), `conductivity` (W/(m·K)),
   `yield_strength` (MPa). `mesh_size` is the cell size (by default about 2500 cells, 600 for
-  frequencies).
+  frequencies). `fit_boundary` (false; the Simulation window turns it on with Fit the mesh to
+  curved faces) moves the mesh's boundary onto the body's faces and sharp edges, so curved
+  bodies are followed instead of stepped at the cell size (docs/03 §12, milestone 1.41). A
+  48-sided round bar conducts heat within 3% of `P L / k A` with it (the stepped mesh is off
+  by about 7%); boxes on grid lines are meshed exactly as without it.
 - `sim-static { body, material…, mesh_size?, fixed: Sel, loads: [{ faces, force: [N] |
   pressure: MPa }], gravity, deformation_scale (0) }`: linear static stress. **Output:**
   `{ group, nodes, elements, max_von_mises_mpa, max_displacement_mm, safety_factor? (yield over

@@ -343,6 +343,7 @@ fn mesh_of(
     b: &Body,
     size: Option<Length>,
     cells: f64,
+    fit: bool,
 ) -> Result<TetMesh, CommandError> {
     let size = match size {
         Some(s) => s.as_mm(),
@@ -351,7 +352,11 @@ fn mesh_of(
             libm::cbrt(v / cells).max(0.1)
         }
     };
-    Ok(tet_mesh(&b.mesh, size, MAX_NODES, tx.tolerances())?)
+    let mut mesh = tet_mesh(&b.mesh, size, MAX_NODES, tx.tolerances())?;
+    if fit {
+        crate::sim::fit_boundary(&mut mesh, &b.mesh, tx.tolerances())?;
+    }
+    Ok(mesh)
 }
 
 /// Shows `values` (one per node) on the mesh's boundary, each boundary
@@ -435,6 +440,10 @@ pub struct SimStaticParams {
     /// The mesh's cell size (about 2500 cells by default).
     #[serde(default)]
     pub mesh_size: Option<Length>,
+    /// Move the mesh's boundary onto the body's faces, so curved faces are
+    /// followed instead of stepped (milestone 1.41).
+    #[serde(default)]
+    pub fit_boundary: bool,
     /// Faces of the body held fixed.
     pub fixed: Query,
     /// Loads.
@@ -528,7 +537,7 @@ impl Command for SimStatic {
                 _ => continue,
             });
         }
-        let mesh = mesh_of(tx, &b, p.mesh_size, 2500.0)?;
+        let mesh = mesh_of(tx, &b, p.mesh_size, 2500.0, p.fit_boundary)?;
         let r = solve_static(&mesh, &m, &fixed, &loads, p.gravity)?;
         let scale = p.deformation_scale;
         let disp = &r.displacement;
@@ -589,6 +598,10 @@ pub struct SimFrequencyParams {
     /// The mesh's cell size (about 600 cells by default).
     #[serde(default)]
     pub mesh_size: Option<Length>,
+    /// Move the mesh's boundary onto the body's faces, so curved faces are
+    /// followed instead of stepped (milestone 1.41).
+    #[serde(default)]
+    pub fit_boundary: bool,
     /// Faces of the body held fixed.
     pub fixed: Query,
     /// How many of the lowest frequencies (4, at most 12).
@@ -649,7 +662,7 @@ impl Command for SimFrequency {
         let b = body(tx, &target, &p.body)?;
         let m = p.material.for_body(tx.document(), &b)?;
         let fixed = faces_of(tx, &b, "fixed", &p.fixed)?;
-        let mesh = mesh_of(tx, &b, p.mesh_size, 600.0)?;
+        let mesh = mesh_of(tx, &b, p.mesh_size, 600.0, p.fit_boundary)?;
         let r = solve_modes(&mesh, &m, &fixed, p.modes as usize)?;
         let shape = &r.shapes[p.show_mode as usize - 1];
         let (mut lo, mut hi) = (DVec3::splat(f64::MAX), DVec3::splat(f64::MIN));
@@ -717,6 +730,10 @@ pub struct SimThermalParams {
     /// The mesh's cell size (about 2500 cells by default).
     #[serde(default)]
     pub mesh_size: Option<Length>,
+    /// Move the mesh's boundary onto the body's faces, so curved faces are
+    /// followed instead of stepped (milestone 1.41).
+    #[serde(default)]
+    pub fit_boundary: bool,
     /// Temperatures, power or convection; each mesh component needs a
     /// held temperature or convection boundary.
     pub conditions: Vec<HeatParams>,
@@ -813,7 +830,7 @@ impl Command for SimThermal {
                 _ => continue,
             });
         }
-        let mesh = mesh_of(tx, &b, p.mesh_size, 2500.0)?;
+        let mesh = mesh_of(tx, &b, p.mesh_size, 2500.0, p.fit_boundary)?;
         let r = solve_thermal(&mesh, &m, &conditions)?;
         let (group, classes, _, _) = present(
             tx,
@@ -1288,5 +1305,54 @@ mod tests {
         // Analysis copies intentionally expand slightly to avoid depth fighting.
         assert!((bounds.center().x - 200.0).abs() < 1e-6, "{bounds:?}");
         assert!((bounds.max.x - 400.0).abs() < 0.1, "{bounds:?}");
+    }
+
+    /// docs/13 1.41: a fitted mesh follows a round bar's curved side.
+    #[test]
+    fn a_fitted_mesh_conducts_like_the_round_bar() {
+        let mut e = crate::commands::Engine::new(
+            crate::document::Document::new(),
+            std::sync::Arc::new(crate::commands::CommandRegistry::with_builtins()),
+        );
+        for (name, params) in [
+            (
+                "circle",
+                serde_json::json!({ "center": [0, 0, 0], "radius": 10, "segments": 48 }),
+            ),
+            (
+                "push-pull",
+                serde_json::json!({ "face": { "Query": "face & last" }, "distance": 100 }),
+            ),
+            (
+                "make-group",
+                serde_json::json!({ "targets": "edge|face", "name": "Bar" }),
+            ),
+        ] {
+            e.execute_erased(name, params).unwrap();
+        }
+        let run = |e: &mut crate::commands::Engine, fit: bool| {
+            let out = e
+                .execute_erased(
+                    "sim-thermal",
+                    serde_json::json!({ "body": "name:Bar", "material": "aluminum", "mesh_size": 4,
+                        "fit_boundary": fit,
+                        "conditions": [
+                            { "faces": "face & plane:xy@0", "temperature": 0 },
+                            { "faces": "face & plane:xy@100", "power": 10 }
+                        ] }),
+                )
+                .unwrap();
+            e.undo().unwrap();
+            out["max_c"].as_f64().unwrap()
+        };
+        let area = 0.5 * 48.0 * 100.0 * libm::sin(std::f64::consts::TAU / 48.0);
+        let k = crate::sim::material("aluminum").unwrap().conductivity_w_mk * 1e-3;
+        let want = 10.0 * 100.0 / (k * area);
+        let (rough, fitted) = (run(&mut e, false), run(&mut e, true));
+        assert!((fitted - want).abs() < 0.03 * want, "{fitted} vs {want}");
+        assert!(
+            (fitted - want).abs() < (rough - want).abs(),
+            "{rough} {fitted} {want}"
+        );
     }
 }

@@ -2566,6 +2566,8 @@ pub struct SimulationWindow {
     select_request: bool,
     pick_restore: Option<planyrith_core::document::EditContext>,
     mesh_mm: f64,
+    /// Move the mesh onto curved faces (milestone 1.41).
+    fit_mesh: bool,
     fixed: String,
     load_faces: String,
     pressure: bool,
@@ -2603,6 +2605,7 @@ impl Default for SimulationWindow {
             select_request: false,
             pick_restore: None,
             mesh_mm: 0.0,
+            fit_mesh: true,
             fixed: String::new(),
             load_faces: String::new(),
             pressure: false,
@@ -2784,6 +2787,9 @@ impl SimulationWindow {
         }
         if self.mesh_mm > 0.0 {
             m.insert("mesh_size".into(), json!(self.mesh_mm));
+        }
+        if self.fit_mesh {
+            m.insert("fit_boundary".into(), json!(true));
         }
         m
     }
@@ -3162,6 +3168,10 @@ impl SimulationWindow {
                         }
                         ui.label(t("Mesh size"));
                         ui.add(egui::DragValue::new(&mut self.mesh_mm).range(0.0..=10_000.0).suffix(" mm"));
+                        ui.end_row();
+                        ui.label("");
+                        ui.checkbox(&mut self.fit_mesh, t("Fit the mesh to curved faces"))
+                            .on_hover_text(t("Boundary nodes move onto the body's faces instead of following the cells"));
                         ui.end_row();
                         match self.page {
                             SimPage::Stress => {
@@ -4263,6 +4273,32 @@ mod gui_tests {
             "{:?}",
             w.note
         );
+    }
+
+    /// Simulation › Fit the mesh to curved faces reaches every analysis
+    /// (milestone 1.41).
+    #[test]
+    fn simulation_fits_meshes_by_default() {
+        use super::*;
+        let window = SimulationWindow {
+            open: true,
+            body: "group".into(),
+            ..Default::default()
+        };
+        assert_eq!(window.command().1["fit_boundary"], true);
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1000.0, 1200.0))
+            .with_max_steps(64)
+            .build_ui_state(
+                |ui, state: &mut (SimulationWindow, Session)| {
+                    state.0.window(ui.ctx(), &mut state.1)
+                },
+                (window, Session::new()),
+            );
+        h.run();
+        h.get_by_label(&t("Fit the mesh to curved faces")).click();
+        h.run();
+        assert!(h.state().0.command().1.get("fit_boundary").is_none());
     }
 
     /// The Molds window's steps and undercut check (milestone 1.40).
