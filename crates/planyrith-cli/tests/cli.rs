@@ -2538,6 +2538,9 @@ rectangle --corner-a 0,0,0 --corner-b 100,100,0
 push-pull --face '{face & plane:xy@0}' --distance 100
 rectangle --corner-a 0,120,60 --corner-b 100,140,60
 ";
+    const PART: &str = "part-create --name P --no-component
+feature-add --part group --command rectangle --params '{\"corner_a\":[0,0,0],\"corner_b\":[100,50,0]}'
+";
     check_parity(
         "completed",
         vec![
@@ -2591,6 +2594,19 @@ rectangle --corner-a 0,120,60 --corner-b 100,140,60
                     "--by",
                     "group & name:Ridge",
                     "--flip",
+                ],
+            },
+            ParityCase {
+                seed: PART,
+                name: "feature-add",
+                params: json!({"part":"group","command":"push-pull","params":{"face":{"Pid":6},"distance":20}}),
+                args: vec![
+                    "--part",
+                    "group",
+                    "--command",
+                    "push-pull",
+                    "--params",
+                    r#"{"face":{"Pid":6},"distance":20}"#,
                 ],
             },
         ],

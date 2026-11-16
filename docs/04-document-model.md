@@ -217,8 +217,11 @@ the explicit command `parametric-update` (docs/05 §5.14), never a side effect o
 
 ### 9.3 Part histories
 A parametric part's history (docs/05 §5.16) is the attribute `planyrith` / `part` of its
-definition: a JSON string with `features` (`id`, `command`, `params`, `label`, `suppressed`),
-`rollback_before`, `configurations` (name → parameter formulas) and `active`. Its parameters are
+definition: a JSON string with `features` (`id`, `command`, `params`, `label`, `suppressed`,
+`refs`), `rollback_before`, `configurations` (name → parameter formulas) and `active`. `refs`
+(milestone 1.36, omitted when empty) maps each pid the parameters name to its shape: a face's
+`normal`, `offset`, `center` and `area`, an edge's ends `a` and `b`, or an object's kind and
+`center`. Its parameters are
 the definition's `parameters` dictionary (§9.1).
 
 ### 9.2 Constraints

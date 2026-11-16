@@ -481,6 +481,10 @@ surface groups), keeping both sides as separate groups.
 Complete 1.10: feature references to faces and edges survive regeneration by matching
 regenerated geometry to earlier geometry (plane, position, area), with the match reported.
 
+- **Done (2026-11-16):** recorded shapes (`refs`) matched before each feature replays,
+  parameters rewritten to current pids, `references` in the output and a Features-window note
+  (docs/05 §5.16, docs/04 §9.3). This also makes Push/Pull drags recorded in a part replay.
+
 ## 1.37.0 — Moving to contact
 
 Complete the deferred continuous collision of 1.12/1.22: an optional Move mode that stops a

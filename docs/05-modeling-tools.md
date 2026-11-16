@@ -555,7 +555,20 @@ run inside the part. Direct modeling stays the base: a document without parts be
   (§5.14, docs/04 §9.1), evaluated at each regeneration. A feature that fails stops the
   regeneration with its number and label, and the whole edit changes nothing. A component part
   regenerates for all its instances.
-- **Output:** `{ part, feature?, features, ran }`; `feature-list`: `{ part, history, parameters }`.
+- **Persistent references (1.36):** pids a feature's parameters name — `{"Pid": n}`, `@n` in
+  queries and paths, `n.a`/`n.b` edge ends — that exist in the part when the feature is added
+  are recorded with their shapes (docs/04 §9.3); editing keeps recorded shapes and records new
+  pids. Before the feature runs again, each shape is matched to the part's entity of the same
+  kind that fits it best: a face facing the same way (normals within 2.6°) with the least sum of
+  center distance, plane offset change and change of √area; an edge parallel to it with the
+  least midpoint distance and length change; a group or component of the same kind nearest its
+  place (ties by lower pid). The parameters are rewritten to the matched pids and the shapes
+  refreshed, so the history names the current pids. A reference with no candidate stops the
+  regeneration (`reference @n found no match`) and the edit changes nothing. Strings starting
+  with `=` and text keys (`text`, `name`, `label`, `description`, `formula`, `value`) are not
+  scanned. Recording in the GUI therefore keeps faces picked by Push/Pull and other tools.
+- **Output:** `{ part, feature?, features, ran, references? }` (`references`: each match as
+  `{ feature, from, to, moved_mm }`); `feature-list`: `{ part, history, parameters }`.
 - **Undo:** one step each (the history and the regenerated contents together).
 - **GUI:** Tools › Features…: New Part makes a part, opens it and records what is drawn in it as
   features (Record changes as features); the history with checkboxes to suppress, ↑ ↓ to
@@ -565,7 +578,10 @@ run inside the part. Direct modeling stays the base: a document without parts be
 - **Tests:** a plate extruded by `=height` regenerates with a new height; editing the outline
   and undo; suppressing, rolling back and forward; a configuration; a failing edit changes
   nothing; features recorded inside the open part; in the GUI, unchecking the extrusion flattens
-  the part.
+  the part. Faces picked by pid (base, top, side) are found again after the base widens, the
+  history then names the new pids, undo restores; suppressing the feature a picked side face
+  needs is refused; a pid-picked Push/Pull recorded in the GUI follows an edited rectangle with
+  the window's note; CLI/RPC parity.
 
 ### 5.17 Assemblies: `mate-add`, `mate-edit`, `mate-delete`, `mate-list`, `mate-solve`, `explode-view`, `bill-of-materials`
 Mates place the groups and components of the edit context against each other (milestone 1.12).

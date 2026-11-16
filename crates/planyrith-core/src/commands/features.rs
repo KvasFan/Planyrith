@@ -21,6 +21,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value as Json;
 
 use crate::commands::common::{definition_uuid, targets_of};
+use crate::commands::feature_refs::{RefMatch, RefShape, capture, resolve, rewrite};
 use crate::commands::organize::parametric::PARAMETERS;
 use crate::commands::params::{Target, target_container};
 use crate::commands::transaction::AttrTarget;
@@ -66,6 +67,10 @@ pub struct Feature {
     /// Skipped when regenerating.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub suppressed: bool,
+    /// The shapes of the entities its parameters name by pid, matched again
+    /// at each regeneration (milestone 1.36).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub refs: BTreeMap<u64, RefShape>,
 }
 
 /// A part's history.
@@ -241,8 +246,14 @@ fn check_command(name: &str) -> Result<(), CommandError> {
     Ok(())
 }
 
-/// Empties the part and replays its features; returns how many ran.
-fn regenerate(tx: &mut Transaction<'_>, part: &Part, h: &History) -> Result<usize, CommandError> {
+/// Empties the part and replays its features; returns how many ran and
+/// the references matched again. Matched references rewrite the features'
+/// parameters to the pids of this regeneration (milestone 1.36).
+fn regenerate(
+    tx: &mut Transaction<'_>,
+    part: &Part,
+    h: &mut History,
+) -> Result<(usize, Vec<RefMatch>), CommandError> {
     let registry = CommandRegistry::with_builtins();
     let context =
         serde_json::to_value(&part.path).map_err(|e| CommandError::Internal(e.to_string()))?;
@@ -268,12 +279,37 @@ fn regenerate(tx: &mut Transaction<'_>, part: &Part, h: &History) -> Result<usiz
     let formulas = formulas(tx.document(), part.definition);
     let mut values = Parameters::new(&formulas);
     let mut ran = 0;
-    for f in &h.features {
-        if h.rollback_before == Some(f.id) {
+    let mut matches = Vec::new();
+    let rollback = h.rollback_before;
+    for f in &mut h.features {
+        if rollback == Some(f.id) {
             break;
         }
         if f.suppressed {
             continue;
+        }
+        if !f.refs.is_empty() {
+            let entities = tx
+                .document()
+                .container(container)
+                .ok_or_else(|| CommandError::Internal("the part vanished".into()))?;
+            let matched = resolve(entities, &f.refs).map_err(|e| {
+                CommandError::NotApplicable(format!("feature {} ({}): {e}", f.id, f.label))
+            })?;
+            let map: BTreeMap<u64, u64> = matched.iter().map(|(o, (n, _, _))| (*o, *n)).collect();
+            f.params = rewrite(&f.params, &map);
+            f.refs = matched
+                .iter()
+                .map(|(_, (n, shape, _))| (*n, shape.clone()))
+                .collect();
+            for (from, (to, _, moved)) in matched {
+                matches.push(RefMatch {
+                    feature: f.id,
+                    from,
+                    to,
+                    moved_mm: moved,
+                });
+            }
         }
         let mut params = substitute(&f.params, &mut values).map_err(|e| {
             CommandError::NotApplicable(format!("feature {} ({}): {e}", f.id, f.label))
@@ -292,7 +328,21 @@ fn regenerate(tx: &mut Transaction<'_>, part: &Part, h: &History) -> Result<usiz
             })?;
         ran += 1;
     }
-    Ok(ran)
+    Ok((ran, matches))
+}
+
+/// The shapes of what `params` names in the part as it is now, keeping the
+/// shapes already recorded for `known`.
+fn references(
+    tx: &Transaction<'_>,
+    part: &Part,
+    params: &Json,
+    known: &BTreeMap<u64, RefShape>,
+) -> BTreeMap<u64, RefShape> {
+    tx.document()
+        .container(ContainerRef::Definition(part.definition))
+        .map(|entities| capture(entities, params, known))
+        .unwrap_or_default()
 }
 
 /// What editing a part's history gave.
@@ -306,6 +356,9 @@ pub struct PartOutput {
     pub features: usize,
     /// Features that ran.
     pub ran: usize,
+    /// References matched again while regenerating (milestone 1.36).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub references: Vec<RefMatch>,
 }
 
 fn rerun(
@@ -314,13 +367,15 @@ fn rerun(
     h: &History,
     feature: Option<u32>,
 ) -> Result<PartOutput, CommandError> {
-    store(tx, part.definition, h)?;
-    let ran = regenerate(tx, part, h)?;
+    let mut h = h.clone();
+    let (ran, references) = regenerate(tx, part, &mut h)?;
+    store(tx, part.definition, &h)?;
     Ok(PartOutput {
         part: part.pid,
         feature,
         features: h.features.len(),
         ran,
+        references,
     })
 }
 
@@ -409,6 +464,7 @@ impl Command for PartCreate {
             feature: None,
             features: 0,
             ran: 0,
+            references: Vec::new(),
         })
     }
 
@@ -491,12 +547,14 @@ impl Command for FeatureAdd {
         if let Json::Object(map) = &mut params {
             map.remove("context");
         }
+        let refs = references(tx, &part, &params, &BTreeMap::new());
         let feature = Feature {
             id,
             command: p.command,
             params,
             label,
             suppressed: false,
+            refs,
         };
         let at = match p.before.or(h.rollback_before) {
             Some(before) => h
@@ -591,6 +649,13 @@ impl Command for FeatureEdit {
         }
         if let Some(s) = p.suppressed {
             f.suppressed = s;
+        }
+        // References already recorded keep their shapes (taken before the
+        // feature ran); new ones are taken from the part as it is.
+        let (params, known) = (f.params.clone(), f.refs.clone());
+        let refs = references(tx, &part, &params, &known);
+        if let Some(f) = h.features.iter_mut().find(|f| f.id == p.id) {
+            f.refs = refs;
         }
         rerun(tx, &part, &h, Some(p.id))
     }
@@ -949,6 +1014,7 @@ impl Command for PartConfiguration {
                 feature: None,
                 features: h.features.len(),
                 ran: 0,
+                references: Vec::new(),
             });
         }
         if let Some(values) = p.values {
@@ -972,6 +1038,7 @@ impl Command for PartConfiguration {
                 feature: None,
                 features: h.features.len(),
                 ran: 0,
+                references: Vec::new(),
             });
         }
         let values = h.configurations.get(&p.name).cloned().ok_or_else(|| {
@@ -1020,6 +1087,7 @@ pub fn register(registry: &mut CommandRegistry) {
 mod tests {
     use crate::commands::{CommandRegistry, Engine};
     use crate::document::Document;
+    use crate::ids::EntityId;
     use serde_json::json;
     use std::sync::Arc;
 
@@ -1176,5 +1244,181 @@ mod tests {
         e.set_context(crate::document::EditContext::model())
             .unwrap();
         assert!(e.execute_erased("feature-list", json!({})).is_err());
+    }
+
+    /// The pid of the part's face whose normal is `n` (and, when several,
+    /// whose plane passes nearest `at`).
+    fn face_pid(e: &Engine, n: [f64; 3], at: [f64; 3]) -> u64 {
+        let doc = e.document();
+        let (_, def) = doc
+            .definitions
+            .iter()
+            .find(|(d, _)| super::is_part(doc, *d))
+            .unwrap();
+        let ents = &def.entities;
+        let mesh = ents.mesh();
+        let n = glam::DVec3::from_array(n);
+        let at = glam::DVec3::from_array(at);
+        mesh.faces()
+            .filter(|(_, f)| f.plane.normal.dot(n) > 0.999)
+            .min_by(|(_, a), (_, b)| {
+                a.plane
+                    .signed_distance(at)
+                    .abs()
+                    .total_cmp(&b.plane.signed_distance(at).abs())
+            })
+            .map(|(f, _)| ents.pid_of(EntityId::Face(f)).unwrap().0)
+            .unwrap()
+    }
+
+    #[test]
+    fn picked_faces_survive_regeneration() {
+        let mut e = engine();
+        e.execute_erased(
+            "part-create",
+            json!({ "name": "Block", "component": false }),
+        )
+        .unwrap();
+        e.execute_erased(
+            "feature-add",
+            json!({ "part": "group", "command": "rectangle",
+                    "params": { "corner_a": [0, 0, 0], "corner_b": [100, 50, 0] } }),
+        )
+        .unwrap();
+        // The face picked by pid, as the Push/Pull tool records it.
+        let base = {
+            let doc = e.document();
+            let (_, def) = doc
+                .definitions
+                .iter()
+                .find(|(d, _)| super::is_part(doc, *d))
+                .unwrap();
+            let (f, _) = def.entities.mesh().faces().next().unwrap();
+            def.entities.pid_of(EntityId::Face(f)).unwrap().0
+        };
+        let out = e
+            .execute_erased(
+                "feature-add",
+                json!({ "part": "group", "command": "push-pull",
+                        "params": { "face": { "Pid": base }, "distance": 20 } }),
+            )
+            .unwrap();
+        assert_eq!(out["ran"], 2, "{out}");
+        assert!((volume(&mut e) - 100_000.0).abs() < 1e-6);
+        // Then the top face, and the side face at x = 100, by pid.
+        let up = {
+            let doc = e.document();
+            let (_, def) = doc
+                .definitions
+                .iter()
+                .find(|(d, _)| super::is_part(doc, *d))
+                .unwrap();
+            let mesh = def.entities.mesh();
+            // The extrusion's far face (the one not at z = 0).
+            let (f, face) = mesh
+                .faces()
+                .find(|(_, f)| {
+                    f.plane.normal.z.abs() > 0.999
+                        && f.plane.signed_distance(glam::DVec3::ZERO).abs() > 1.0
+                })
+                .unwrap();
+            assert!(face.plane.normal.z > 0.999);
+            def.entities.pid_of(EntityId::Face(f)).unwrap().0
+        };
+        e.execute_erased(
+            "feature-add",
+            json!({ "part": "group", "command": "push-pull",
+                    "params": { "face": { "Pid": up }, "distance": 10 } }),
+        )
+        .unwrap();
+        assert!((volume(&mut e) - 150_000.0).abs() < 1e-6);
+        let side = face_pid(&e, [1.0, 0.0, 0.0], [100.0, 0.0, 0.0]);
+        let out = e
+            .execute_erased(
+                "feature-add",
+                json!({ "part": "group", "command": "push-pull",
+                        "params": { "face": { "Pid": side }, "distance": 5 } }),
+            )
+            .unwrap();
+        assert!(
+            (volume(&mut e) - 150_000.0 - 5.0 * 50.0 * 30.0).abs() < 1e-6,
+            "{out}"
+        );
+        // Every regeneration matched the references again.
+        let refs = out["references"].as_array().unwrap();
+        assert_eq!(refs.len(), 3, "{out}");
+        assert!(refs.iter().all(|r| r["moved_mm"].as_f64().unwrap() < 1e-6));
+
+        // A wider base: the picked faces are found again, moved.
+        let out = e
+            .execute_erased(
+                "feature-edit",
+                json!({ "part": "group", "id": 1, "params": { "corner_b": [200, 50, 0] } }),
+            )
+            .unwrap();
+        let expect = 200.0 * 50.0 * 30.0 + 5.0 * 50.0 * 30.0;
+        assert!((volume(&mut e) - expect).abs() < 1e-6, "{out}");
+        let moved: Vec<f64> = out["references"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r["moved_mm"].as_f64().unwrap())
+            .collect();
+        assert!(moved.iter().any(|m| (m - 100.0).abs() < 1e-6), "{moved:?}");
+        // The history now names this regeneration's pids.
+        let list = e
+            .execute_erased("feature-list", json!({ "part": "group" }))
+            .unwrap();
+        let named = list["history"]["features"][3]["params"]["face"]["Pid"]
+            .as_u64()
+            .unwrap();
+        assert_eq!(
+            named,
+            face_pid(&e, [1.0, 0.0, 0.0], [205.0, 0.0, 0.0]),
+            "{list}"
+        );
+        // Undo restores the narrow block and its references.
+        e.undo().unwrap();
+        assert!((volume(&mut e) - 150_000.0 - 5.0 * 50.0 * 30.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_reference_without_a_match_stops_regeneration() {
+        let mut e = engine();
+        e.execute_erased(
+            "part-create",
+            json!({ "name": "Plate", "component": false }),
+        )
+        .unwrap();
+        e.execute_erased(
+            "feature-add",
+            json!({ "part": "group", "command": "rectangle",
+                    "params": { "corner_a": [0, 0, 0], "corner_b": [100, 50, 0] } }),
+        )
+        .unwrap();
+        e.execute_erased(
+            "feature-add",
+            json!({ "part": "group", "command": "push-pull",
+                    "params": { "face": { "Query": "face & last" }, "distance": 20 } }),
+        )
+        .unwrap();
+        let side = face_pid(&e, [1.0, 0.0, 0.0], [100.0, 0.0, 0.0]);
+        e.execute_erased(
+            "feature-add",
+            json!({ "part": "group", "command": "push-pull",
+                    "params": { "face": { "Pid": side }, "distance": 5 } }),
+        )
+        .unwrap();
+        // Without the extrusion there is no side face: the edit is refused
+        // and nothing changes.
+        let before = volume(&mut e);
+        let err = e
+            .execute_erased(
+                "feature-edit",
+                json!({ "part": "group", "id": 2, "suppressed": true }),
+            )
+            .unwrap_err();
+        assert!(err.to_string().contains("found no match"), "{err}");
+        assert!((volume(&mut e) - before).abs() < 1e-9);
     }
 }

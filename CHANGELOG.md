@@ -12,6 +12,8 @@ drawings, sheet metal and frames, surfaces and analysis, simulation, product dat
 The version number marks builds from main; no packages are published for it.
 
 ### Added
+- 1.36: faces, edges and objects picked by a part's features are matched again after each
+  regeneration, so recorded Push/Pull and other picks survive edits to earlier features.
 - 1.35: trimming a surface by another surface and splitting a solid by a surface, from the
   command line and the Surfaces and Solid Features windows.
 - 1.34: flanges stacked on flanges (returns, hems and Z-bends) and square or round corner

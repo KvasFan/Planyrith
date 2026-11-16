@@ -22,6 +22,7 @@ pub mod draw;
 pub mod drawings;
 pub mod edit;
 pub mod fabrication;
+pub mod feature_refs;
 pub mod features;
 pub mod file;
 mod footprint;

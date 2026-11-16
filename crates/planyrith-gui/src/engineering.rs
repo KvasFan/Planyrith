@@ -1015,7 +1015,10 @@ impl FeaturesWindow {
     }
 
     fn run(&mut self, session: &mut Session, name: &str, params: Value) {
-        self.note = session.execute(name, params).err();
+        self.note = match session.execute(name, params) {
+            Ok(out) => references_note(&out),
+            Err(e) => Some(e),
+        };
         self.refresh(session);
     }
 
@@ -2359,6 +2362,23 @@ impl AnalysisWindow {
             });
         self.open = open;
     }
+}
+
+/// How many picked faces or edges a regeneration found again elsewhere
+/// (milestone 1.36).
+fn references_note(out: &Value) -> Option<String> {
+    let moved = out["references"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|r| r["moved_mm"].as_f64().unwrap_or(0.0) > 1e-6)
+        .count();
+    (moved > 0).then(|| {
+        t_args(
+            "{ $count } picked faces or edges were found again where the change moved them.",
+            &[("count", moved.to_string().into())],
+        )
+    })
 }
 
 /// Records the selected groups as a cutting surface (milestone 1.35).
@@ -4111,6 +4131,76 @@ mod gui_tests {
 
     use crate::app::App;
     use crate::i18n::t;
+
+    /// A face picked by pid while recording a part (as Push/Pull records
+    /// it) is found again when an earlier feature changes (milestone 1.36).
+    #[test]
+    fn recorded_picks_follow_regeneration() {
+        use super::*;
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1000.0, 900.0))
+            .with_max_steps(64)
+            .build_ui_state(
+                |ui, state: &mut (FeaturesWindow, Session)| state.0.window(ui.ctx(), &mut state.1),
+                (
+                    FeaturesWindow {
+                        open: true,
+                        ..Default::default()
+                    },
+                    Session::new(),
+                ),
+            );
+        h.run();
+        h.get_by_label(&t("New Part")).click();
+        h.run();
+        let session = &mut h.state_mut().1;
+        assert!(session.record_features);
+        session
+            .execute(
+                "rectangle",
+                json!({ "corner_a": [0, 0, 0], "corner_b": [100, 50, 0] }),
+            )
+            .unwrap();
+        let part = session.open_part().unwrap();
+        let face = {
+            let def = session.doc().definition(part).unwrap();
+            let (f, _) = def.entities.mesh().faces().next().unwrap();
+            def.entities.pid_of(f.into()).unwrap().0
+        };
+        session
+            .execute(
+                "push-pull",
+                json!({ "face": { "Pid": face }, "distance": 20 }),
+            )
+            .unwrap();
+        let volume = |s: &Session| {
+            s.doc()
+                .definition(part)
+                .unwrap()
+                .entities
+                .mesh()
+                .volume()
+                .unwrap()
+                .abs()
+        };
+        assert!((volume(session) - 100_000.0).abs() < 1e-6);
+        let state = h.state_mut();
+        let (w, session) = (&mut state.0, &mut state.1);
+        w.run(
+            session,
+            "feature-edit",
+            json!({ "id": 1, "params": { "corner_b": [100, 80, 0] } }),
+        );
+        assert!((volume(session) - 160_000.0).abs() < 1e-6, "{:?}", w.note);
+        assert!(
+            w.note
+                .as_deref()
+                .unwrap_or_default()
+                .contains("found again"),
+            "{:?}",
+            w.note
+        );
+    }
 
     /// Trim and split by a cutting surface from the windows' buttons
     /// (milestone 1.35).
