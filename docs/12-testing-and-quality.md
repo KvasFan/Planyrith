@@ -338,3 +338,17 @@ humans or GUI automation before releases, with expected screenshots.
   the test of concurrent replacement of one file stays with GitHub, as do the GUI's tests (no
   WARP renderer here), the MSVC toolchain, macOS and packaging. The step needs wine and the
   MinGW-w64 toolchain.
+- 2026-11-17 — **Fixed base address for the Windows tests under wine.** The wine step failed
+  about one run in five: a `planyrith` started by a test died before printing anything, with
+  an access violation or an illegal instruction, on a different command each time. A small
+  Windows program that only starts `planyrith --version` reproduced it outside the tests
+  (one start in 3,000 to 9,000; never in 10,000 starts from the Linux side). Wine's module
+  trace showed the cause: when one Windows program starts another, the new process's first
+  thread begins at the entry point of the randomized base address wine picked for the image;
+  if that range is already taken in the new process, the image is relocated elsewhere but the
+  thread still jumps to the old entry point. In 9,000 traced starts, the one image placed
+  elsewhere was the one crash. The larger the image (`planyrith` is over 80 MB of code and
+  data in a test build), the likelier the clash. This is wine's defect, not Planyrith's, and
+  Windows starts programs differently. `tools/ci-local.sh` now links the wine step's programs
+  without a randomized base (`--disable-dynamicbase`); 27,000 starts of such a build gave no
+  crash. Release builds keep the randomized base.

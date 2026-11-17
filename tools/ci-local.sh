@@ -103,10 +103,16 @@ done
 # line's tests as Windows programs (the GNU target, which wine runs without a
 # Windows toolchain). Wine replaces files without the POSIX semantics Windows
 # offers, so the test of concurrent replacement of one file is left to GitHub.
+# The programs are linked at a fixed base address: wine starts a program that
+# another one launches at the entry point of the randomized base it chose, even
+# when that range is taken in the new process and the image lands elsewhere, so
+# about one launch in several thousand crashed on its first instruction (docs/12
+# Decisions, 2026-11-17).
 echo "::: test x86_64-pc-windows-gnu under wine"
 rustup target add x86_64-pc-windows-gnu >/dev/null 2>&1
 WINEDEBUG=-all WINEDLLOVERRIDES="winedbg.exe=d" WINEPREFIX="$state/wine" \
   CARGO_TARGET_DIR="$state/windows" \
+  CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS="-C link-arg=-Wl,--disable-dynamicbase" \
   CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUNNER="$tree/tools/wine-runner.sh" \
   cargo test --locked -p planyrith-core -p planyrith-cli --features planyrith-cli/render \
   --target x86_64-pc-windows-gnu -- --skip native_fs_concurrent_writes_of_one_file_succeed
