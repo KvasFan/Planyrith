@@ -4,12 +4,12 @@ All notable changes to Planyrith are recorded here. Versions follow
 [Semantic Versioning](https://semver.org/); before 1.0, minor versions are milestones of
 [`docs/13-roadmap.md`](docs/13-roadmap.md).
 
-## 0.12.0-alpha.1 — engineering milestones 1.7–1.32 (not published)
+## 0.12.0-alpha.1 — engineering milestones 1.7–1.43 (tagged 2026-11-17, no packages)
 
 Per-person undo and joining from the browser (1.7), then the engineering milestones: measuring
 and making, constrained sketches, feature history, solid features, assemblies, engineering
 drawings, sheet metal and frames, surfaces and analysis, simulation, product data and exchange.
-The version number marks builds from main; no packages are published for it.
+Tagged `v0.12.0-alpha.1`; no packages are published for it.
 
 ### Added
 - 1.43: USD import of text stages and USDZ packages: meshes, transforms, units, preview

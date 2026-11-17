@@ -5,7 +5,7 @@ implementation stands, what is done, what remains, and how to resume. Update it 
 every working session. Ground truth for *what to build* stays in `docs/00`–`docs/15`; this file
 is only *progress state*. Release packaging is specified in `docs/16`.
 
-_Last updated: 2026-11-16 (0.11.0-alpha.4 published; main is 0.12.0-alpha.1, unpublished, with milestones 1.7–1.43)._
+_Last updated: 2026-11-17 (0.11.0-alpha.4 published; 0.12.0-alpha.1, milestones 1.7–1.43, tagged `v0.12.0-alpha.1` without packages)._
 
 **Completing reserved gaps (2026-11-16):** asked to resume and implement and test every
 missing feature, the limits recorded against earlier milestones became 1.33–1.43 (docs/13,
@@ -28,6 +28,11 @@ DWG/3DS; the 0.11 SKP items needing 2023/2024 fixtures or the target application
 packaging. A gate failure on 2026-11-16 was a test-isolation bug (wine reuses process ids and
 keeps its temp folder, so a scratch file survived): every scratch directory now starts empty.
 Gate passes recorded for `e0152f0` and `c574250` (both pushed); the last commits follow.
+The wine step then failed about one run in five: wine starts a program launched by another
+at the entry point of the randomized base it chose even when the image had to be placed
+elsewhere (docs/12 Decisions, 2026-11-17); the wine step now links at a fixed base. On
+2026-11-17 the user asked to commit and tag: `v0.12.0-alpha.1` marks the batch, with no
+packages or GitHub release.
 
 **Continuous development (2026-11-12):** the user requested proceeding through the next
 milestones without stopping at each. Docs/13 plans 1.19 branch fittings, 1.20 thermal convection,
