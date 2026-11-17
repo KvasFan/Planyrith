@@ -20,7 +20,7 @@
   <img alt="Written in Rust" src="https://img.shields.io/badge/written%20in-Rust-2f3a45?style=flat-square&amp;logo=rust">
   <img alt="Windows and Linux downloads" src="https://img.shields.io/badge/downloads-Windows%20%C2%B7%20Linux-2f3a45?style=flat-square">
   <a href="#license-and-credits"><img alt="Applications: MIT or Apache-2.0" src="https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-2f3a45?style=flat-square"></a>
-  <a href="https://github.com/KvasFan/Planyrith/releases/tag/v0.11.0-alpha.4"><img alt="Preview 0.11.0-alpha.4" src="https://img.shields.io/badge/preview-0.11.0--alpha.4-e0a458?style=flat-square"></a>
+  <a href="https://github.com/KvasFan/Planyrith/releases/tag/v0.12.0-alpha.1"><img alt="Preview 0.12.0-alpha.1" src="https://img.shields.io/badge/preview-0.12.0--alpha.1-e0a458?style=flat-square"></a>
 </p>
 
 <p align="center">
@@ -45,21 +45,23 @@
 
 ## Downloads
 
-**[0.11.0-alpha.4 — desktop preview](https://github.com/KvasFan/Planyrith/releases/tag/v0.11.0-alpha.4)**
+**[0.12.0-alpha.1 — engineering preview](https://github.com/KvasFan/Planyrith/releases/tag/v0.12.0-alpha.1)**
 
 | Platform | Download | Start |
 |---|---|---|
-| Windows 10/11, x64 | [Installer `.exe`](https://github.com/KvasFan/Planyrith/releases/download/v0.11.0-alpha.4/Planyrith-0.11.0-alpha.4-windows-x86_64-setup.exe) | Per-user installation with shortcuts and native file association. |
-| Windows, portable x64 | [Portable `.zip`](https://github.com/KvasFan/Planyrith/releases/download/v0.11.0-alpha.4/planyrith-0.11.0-alpha.4-windows-x86_64-portable.zip) | Extract and run `planyrith-gui.exe`. |
-| Linux, x86_64 | [AppImage](https://github.com/KvasFan/Planyrith/releases/download/v0.11.0-alpha.4/Planyrith-0.11.0-alpha.4-x86_64.AppImage) | Make executable and run. |
-| Debian 12 / Ubuntu 22.04+, amd64 | [Debian package `.deb`](https://github.com/KvasFan/Planyrith/releases/download/v0.11.0-alpha.4/planyrith_0.11.0-alpha.4_amd64.deb) | `sudo apt install ./planyrith_*.deb` |
-| Arch Linux, x86_64 | [Arch package `.pkg.tar.zst`](https://github.com/KvasFan/Planyrith/releases/download/v0.11.0-alpha.4/planyrith-0.11.0alpha4-1-x86_64.pkg.tar.zst) | `sudo pacman -U ./planyrith-*.pkg.tar.zst` |
-| Arch / Linux, portable x86_64 | [Executable bundle `.tar.gz`](https://github.com/KvasFan/Planyrith/releases/download/v0.11.0-alpha.4/planyrith-0.11.0-alpha.4-linux-x86_64.tar.gz) | Extract and run `./Planyrith`. |
+| Windows 10/11, x64 | [Installer `.exe`](https://github.com/KvasFan/Planyrith/releases/download/v0.12.0-alpha.1/Planyrith-0.12.0-alpha.1-windows-x86_64-setup.exe) | Per-user installation with shortcuts and native file association. |
+| Windows 10/11, x64, managed installs | [Windows Installer `.msi`](https://github.com/KvasFan/Planyrith/releases/download/v0.12.0-alpha.1/Planyrith-0.12.0-alpha.1-windows-x86_64.msi) | `msiexec /i Planyrith-*.msi` |
+| Windows, portable x64 | [Portable `.zip`](https://github.com/KvasFan/Planyrith/releases/download/v0.12.0-alpha.1/planyrith-0.12.0-alpha.1-windows-x86_64-portable.zip) | Extract and run `planyrith-gui.exe`. |
+| Linux, x86_64 | [AppImage](https://github.com/KvasFan/Planyrith/releases/download/v0.12.0-alpha.1/Planyrith-0.12.0-alpha.1-x86_64.AppImage) | Make executable and run. |
+| Linux with Flatpak, x86_64 | [Flatpak bundle](https://github.com/KvasFan/Planyrith/releases/download/v0.12.0-alpha.1/Planyrith-0.12.0-alpha.1-x86_64.flatpak) | `flatpak install --user Planyrith-*.flatpak` |
+| Debian 12 / Ubuntu 22.04+, amd64 | [Debian package `.deb`](https://github.com/KvasFan/Planyrith/releases/download/v0.12.0-alpha.1/planyrith_0.12.0-alpha.1_amd64.deb) | `sudo apt install ./planyrith_*.deb` |
+| Arch Linux, x86_64 | [Arch package `.pkg.tar.zst`](https://github.com/KvasFan/Planyrith/releases/download/v0.12.0-alpha.1/planyrith-0.12.0alpha1-1-x86_64.pkg.tar.zst) | `sudo pacman -U ./planyrith-*.pkg.tar.zst` |
+| Arch / Linux, portable x86_64 | [Executable bundle `.tar.gz`](https://github.com/KvasFan/Planyrith/releases/download/v0.12.0-alpha.1/planyrith-0.12.0-alpha.1-linux-x86_64.tar.gz) | Extract and run `./Planyrith`. |
 
 Packages include the GUI, CLI and separate SKP/SKB module, with license notices.
 Windows setup lets you deselect the GPL format module. The installer is unsigned.
 Linux binaries require glibc 2.35+ and a working Vulkan driver. Wayland and X11 are supported.
-See [installation details](packaging/INSTALL.md), [checksums and complete sources](https://github.com/KvasFan/Planyrith/releases/tag/v0.11.0-alpha.4).
+See [installation details](packaging/INSTALL.md), [checksums and complete sources](https://github.com/KvasFan/Planyrith/releases/tag/v0.12.0-alpha.1).
 macOS and the browser edition can be built from source.
 
 ## Screenshots
@@ -85,11 +87,17 @@ macOS and the browser edition can be built from source.
 - **3D printing.** A solid check that finds holes, stray edges and inside-out
   parts, one-click repair, and 3MF or STL export with the parts resting on the
   build plate, one file per part if wanted.
+- **Engineering.** Constrained sketches, parametric parts with a feature
+  history, holes, shells and drafts, assemblies with mates and exploded views,
+  engineering drawings with section and detail views, sheet metal and frames,
+  molds, pipe routing, surfaces and curvature analysis.
+- **Simulation.** Static stress, natural frequencies and heat conduction with
+  convection, on tetrahedral meshes that follow curved faces.
 - **Presentation.** A realistic style with sky light, highlights after each
   material's roughness and metalness, ambient occlusion and soft shadows.
-- **Interchange.** SKP/SKB on desktop, OBJ, STL, 3MF, PLY, glTF/GLB, DXF, STEP,
-  images and CSV, plus the native `.plyr` container; USD/USDZ and IFC4 export.
-  Conversion limits are reported.
+- **Interchange.** SKP/SKB on desktop, OBJ, STL, 3MF, PLY, glTF/GLB, COLLADA,
+  FBX, DXF, STEP (with product structure and annotations), IGES, IFC, USD/USDZ,
+  images and CSV, plus the native `.plyr` container. Conversion limits are reported.
 - **Automation.** Every modeling tool is a typed core command. The GUI,
   CLI, JSON-RPC server, Rhai scripts and declarative extensions share those commands.
 - **Recovery.** Autosaves, crash recovery and native working copies preserve the
@@ -162,10 +170,10 @@ test suite. [Packaging instructions](docs/16-release-and-packaging.md) describe
 ## Roadmap
 
 The modeling kernel, desktop/browser interfaces, organization, interchange,
-automation, solids and Sheets milestones are implemented. The current preview
-focuses on historical-model compatibility and native working copies; full SKP
-fidelity and independent reader certification remain open. Stabilization and
-broader installation testing follow. See [the roadmap](docs/13-roadmap.md),
+automation, solids and Sheets milestones are implemented, followed by the
+engineering milestones (1.7–1.43) in this preview. Open work: full SKP fidelity
+and reader certification, a macOS build, testing the Windows packages on Windows
+itself, and the 1.0 stabilization criteria. See [the roadmap](docs/13-roadmap.md),
 [changes](CHANGELOG.md) and [project specification](docs/00-overview.md).
 
 ## License and credits

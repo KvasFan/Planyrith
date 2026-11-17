@@ -117,6 +117,18 @@ taken by running the workflow, never a side effect of a push.
 
 ## Decisions
 
+- 2026-11-17 — **The local release recipe is a script.** `v0.11.0-alpha.4` was built by hand
+  (entry below). `tools/release-local.sh <tag>` now repeats those steps for any tag: it
+  refuses a tag whose commit has not passed `tools/ci-local.sh` or whose version differs,
+  builds from a fresh clone at the tag, makes the Linux packages and the source archives in
+  Ubuntu 22.04 with the stable compiler the local check used, the Flatpak on the host (installed,
+  run and removed), and the Windows programs with mingw-w64, NSIS from a container and wixl
+  (checked for MinGW runtime DLLs and run under Wine), then gathers the downloads with
+  `SHA256SUMS` in `target/release-local/<tag>/publish`. `--publish` creates the GitHub
+  prerelease from `docs/releases/<tag>.md`, like the `publish` job of the `Release` workflow,
+  which stays the recipe once hosted runners work again. `v0.12.0-alpha.1` is the first
+  release made this way; macOS remains missing for the reason below.
+
 - 2026-11-09 — **Releasing without the hosted runners.** GitHub Actions jobs do not start for
   this account (billing lock since 2026-11-08), so `v0.11.0-alpha.4` is built on the maintainer's
   Linux machine. Linux packages are built in an Ubuntu 22.04 container (the glibc 2.35 baseline

@@ -5,7 +5,7 @@ implementation stands, what is done, what remains, and how to resume. Update it 
 every working session. Ground truth for *what to build* stays in `docs/00`–`docs/15`; this file
 is only *progress state*. Release packaging is specified in `docs/16`.
 
-_Last updated: 2026-11-17 (0.11.0-alpha.4 published; 0.12.0-alpha.1, milestones 1.7–1.43, tagged `v0.12.0-alpha.1` without packages)._
+_Last updated: 2026-11-17 (0.12.0-alpha.1 published: milestones 1.7–1.43, Windows and Linux packages, no macOS)._
 
 **Completing reserved gaps (2026-11-16):** asked to resume and implement and test every
 missing feature, the limits recorded against earlier milestones became 1.33–1.43 (docs/13,
@@ -31,8 +31,13 @@ Gate passes recorded for `e0152f0` and `c574250` (both pushed); the last commits
 The wine step then failed about one run in five: wine starts a program launched by another
 at the entry point of the randomized base it chose even when the image had to be placed
 elsewhere (docs/12 Decisions, 2026-11-17); the wine step now links at a fixed base. On
-2026-11-17 the user asked to commit and tag: `v0.12.0-alpha.1` marks the batch, with no
-packages or GitHub release.
+2026-11-17 the user asked to commit and tag, then to release the current version with every
+possible binary without GitHub's runners: `tools/release-local.sh v0.12.0-alpha.1` built the
+Windows (setup, MSI, portable) and Linux (AppImage, Flatpak, deb, Arch, tar.gz) packages and
+the source archives from the tag, and the prerelease was published with them (docs/16
+Decisions, 2026-11-17). The README's downloads point to it. Next release: bump the version,
+write `docs/releases/<tag>.md`, pass `tools/ci-local.sh`, tag, then
+`tools/release-local.sh <tag> --publish`.
 
 **Continuous development (2026-11-12):** the user requested proceeding through the next
 milestones without stopping at each. Docs/13 plans 1.19 branch fittings, 1.20 thermal convection,
