@@ -25,6 +25,7 @@ pub mod render_mesh;
 pub mod step;
 pub mod step_structure;
 pub mod storage;
+pub mod three_ds;
 
 pub use storage::{MemoryStorage, Storage, StorageCaps, StorageEntry, StorageKey};
 

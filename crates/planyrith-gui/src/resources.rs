@@ -90,7 +90,7 @@ impl FileRequest {
                 &[
                     "glb", "gltf", "obj", "stl", "3mf", "ply", "dae", "ifc", "fbx", "dxf", "skp",
                     "skb", "plyr", "plyrc", "png", "jpg", "jpeg", "webp", "csv", "step", "stp",
-                    "igs", "iges", "usda", "usdz", "usd",
+                    "igs", "iges", "usda", "usdz", "usd", "3ds",
                 ],
                 false,
             ),
@@ -99,7 +99,7 @@ impl FileRequest {
                 en("3D models"),
                 &[
                     "glb", "gltf", "obj", "stl", "3mf", "ply", "dae", "fbx", "usdz", "usda", "ifc",
-                    "dxf", "skp", "skb", "plyr", "step", "stp", "igs", "iges",
+                    "dxf", "skp", "skb", "plyr", "step", "stp", "igs", "iges", "3ds",
                 ],
                 true,
             ),

@@ -228,21 +228,23 @@ fn export_writes_mesh_formats_and_2d_views() {
 }
 
 #[test]
-fn step_and_iges_go_out_and_come_back() {
+fn step_iges_and_3ds_go_out_and_come_back() {
     let dir = scratch("exchange");
     let doc = build_table(&dir, "t.plyr");
     let d = doc.to_str().unwrap();
-    for file in ["t.step", "t.igs"] {
+    for file in ["t.step", "t.igs", "t.3ds"] {
         let out = dir.join(file);
         planyrith()
             .args(["export", "-f", d, out.to_str().unwrap()])
             .assert()
             .success();
-        let text = std::fs::read_to_string(&out).unwrap();
-        assert!(text.starts_with(if file.ends_with(".step") {
-            "ISO-10303-21;"
+        let bytes = std::fs::read(&out).unwrap();
+        assert!(bytes.starts_with(if file.ends_with(".step") {
+            b"ISO-10303-21;".as_slice()
+        } else if file.ends_with(".igs") {
+            b"Planyrith model".as_slice()
         } else {
-            "Planyrith model"
+            [0x4d, 0x4d].as_slice()
         }));
         let back = dir.join(format!("{file}.plyr"));
         planyrith()

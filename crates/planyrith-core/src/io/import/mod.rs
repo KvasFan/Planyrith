@@ -75,11 +75,14 @@ pub enum ImportFormat {
     Iges,
     /// USD text layers (`.usda`) and USDZ packages of them (milestone 1.43).
     Usd,
+    /// 3DS chunked mesh files (milestone 1.49).
+    #[serde(rename = "3ds")]
+    ThreeDs,
 }
 
 impl ImportFormat {
     /// Every import format.
-    pub const ALL: [ImportFormat; 16] = [
+    pub const ALL: [ImportFormat; 17] = [
         ImportFormat::Obj,
         ImportFormat::Stl,
         ImportFormat::Gltf,
@@ -96,6 +99,7 @@ impl ImportFormat {
         ImportFormat::Fbx,
         ImportFormat::Iges,
         ImportFormat::Usd,
+        ImportFormat::ThreeDs,
     ];
 
     /// Registered formats; SKP additionally requires a converter-capable backend.
@@ -125,6 +129,7 @@ impl ImportFormat {
             "fbx" => ImportFormat::Fbx,
             "igs" | "iges" => ImportFormat::Iges,
             "usda" | "usdz" | "usd" => ImportFormat::Usd,
+            "3ds" => ImportFormat::ThreeDs,
             _ => return None,
         })
     }
@@ -280,6 +285,7 @@ pub fn importer(format: ImportFormat) -> Option<Box<dyn Importer>> {
         ImportFormat::Fbx => Some(Box::new(fbx::FbxImporter)),
         ImportFormat::Iges => Some(Box::new(crate::io::iges::IgesImporter)),
         ImportFormat::Usd => Some(Box::new(usd::UsdImporter)),
+        ImportFormat::ThreeDs => Some(Box::new(crate::io::three_ds::ThreeDsImporter)),
     }
 }
 

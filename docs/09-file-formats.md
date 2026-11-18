@@ -94,6 +94,7 @@ control via `planyrith export --format json`. It is **not** required to load the
 | 3MF | ✔ | ✔ | the 3D printing package: mesh objects with base materials or color groups, components and build items on import; one welded object per visible occurrence with faces, base-material colors and the file unit on export (`W2007` for objects that are not closed solids). |
 | PLY (ASCII/binary) | ✔ | ✔ | polygon meshes, e.g. from 3D scanning: vertex and face colors become materials on import; export writes triangles with the front color on each vertex (binary little-endian unless `--ascii`). |
 | USD (`.usda`, `.usdz`) | ✔ (text layers, milestone 1.43) | ✔ | export: a text stage, or packed (stored, 64-byte aligned) for augmented-reality viewers: one mesh per occurrence and material, Z up, `metersPerUnit` from `--file-units`, preview-surface materials with their textures. Import: text layers and USDZ packages of them — meshes placed by their transform operations, `upAxis` and `metersPerUnit`, preview-surface materials (color, opacity, roughness, metalness, texture) and display colors, texture coordinates, references (inside the layer, or to another text layer beside it or in the package) as components; invisible and `class` prims are not drawn; binary (crate) layers are refused. |
+| 3DS | ✔ (milestone 1.49) | ✔ | the chunked mesh format of older modelers: triangle objects with world-placed vertices, face material groups, texture coordinates and smoothing groups (faces sharing one meet along soft edges) on import, materials with diffuse (else ambient) color, transparency and a diffuse texture beside the file; export writes one object per occurrence (split at 65 535 vertices or faces), each face's corners with its texture coordinates, material groups and materials with color, transparency and texture (`<name>_textures/`), names cut to ten characters, Z up in `--units`. The keyframer (animation, hierarchy) is not read. |
 | IFC (IFC2X3, IFC4) | ✔ | ✔ (IFC4) | a building model for BIM tools: one storey holding an element per top-level group or component and the loose faces, triangulated face sets per material with surface colors, millimeters. |
 | COLLADA (`.dae`, 1.4/1.5) | ✔ | ✔ | geometry (triangles, polylists, polygons with holes), materials with colors, textures and transparency, the node tree with instanced nodes, unit and up axis; export shares a component's geometry among its instances. |
 | FBX (binary 7.x; ASCII 7.x import) | ✔ | ✔ (binary 7.4) | meshes (polygons of any size, texture coordinates, normals as soft edges, per-polygon materials), materials with colors, opacity and diffuse textures (embedded or beside the file), the model hierarchy with its full transform chain, unit and axes; export shares a component's geometry among its instances, embeds textures and writes Y up unless `--z-up`. Animation, skinning, cameras and lights are not read. |
@@ -109,7 +110,7 @@ control via `planyrith export --format json`. It is **not** required to load the
 | SVG / PDF | — | ✔ | 2D export of a view (`--2d`) and of sheets (`docs/15`). Hidden-line removal in software; vector output. |
 | `.plyr/.plyrc` | ✔ | ✔ | merge another document as a group/component. |
 
-Out of scope (documented as future work): 3DS, DWG; binary USD layers; FBX 6 and earlier.
+Out of scope (documented as future work): DWG; binary USD layers; FBX 6 and earlier.
 Import of any unsupported entity yields `W2004` with counts, never a failure.
 
 ## 6. Importer/exporter contracts
@@ -759,3 +760,11 @@ save unless `--no-thumbnail`. `manifest.json` carries `title`, `author`, `descri
   anchored where their shape aspect points: a point, a vertex, an edge's middle or a face's
   outer-loop center; one naming nothing is counted in a `W2004` notice. Geometric tolerances
   that have a presentation are shown by it alone.
+- 2026-11-18 — **3DS (milestone 1.49).** The format is little-endian chunks (id, length,
+  body), read with every length checked against its parent so a broken file is refused rather
+  than misread. Vertices of a triangle object are already in world coordinates (its local frame
+  only serves the keyframer), so the keyframer is skipped. Smoothing groups become soft edges
+  through the shared importer's normals: corners of faces that share a group share a vertex and
+  its averaged normal, corners of faces without one stay apart. Export repeats each face's
+  corners (one texture coordinate per vertex is all the format holds), keeps names to the
+  original ten characters, uniquely numbered, and writes the master scale 1 in the chosen unit.

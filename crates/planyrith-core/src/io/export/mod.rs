@@ -78,11 +78,14 @@ pub enum ExportFormat {
     Fbx,
     /// IGES 5.3.
     Iges,
+    /// 3DS chunked mesh file (milestone 1.49).
+    #[serde(rename = "3ds")]
+    ThreeDs,
 }
 
 impl ExportFormat {
     /// Every export format.
-    pub const ALL: [ExportFormat; 20] = [
+    pub const ALL: [ExportFormat; 21] = [
         ExportFormat::Obj,
         ExportFormat::Stl,
         ExportFormat::Gltf,
@@ -103,6 +106,7 @@ impl ExportFormat {
         ExportFormat::Dae,
         ExportFormat::Fbx,
         ExportFormat::Iges,
+        ExportFormat::ThreeDs,
     ];
 
     /// Registered formats; SKP additionally requires a converter-capable backend.
@@ -136,6 +140,7 @@ impl ExportFormat {
             "dae" => ExportFormat::Dae,
             "fbx" => ExportFormat::Fbx,
             "igs" | "iges" => ExportFormat::Iges,
+            "3ds" => ExportFormat::ThreeDs,
             _ => return None,
         })
     }
@@ -284,6 +289,7 @@ pub fn exporter(format: ExportFormat) -> Option<Box<dyn Exporter>> {
         ExportFormat::Dae => Some(Box::new(collada::ColladaExporter)),
         ExportFormat::Fbx => Some(Box::new(fbx::FbxExporter)),
         ExportFormat::Iges => Some(Box::new(crate::io::iges::IgesExporter)),
+        ExportFormat::ThreeDs => Some(Box::new(crate::io::three_ds::ThreeDsExporter)),
         ExportFormat::Svg => Some(Box::new(view2d::SvgExporter)),
         ExportFormat::Pdf => Some(Box::new(view2d::PdfExporter)),
     }

@@ -592,6 +592,14 @@ the undercuts a sideways pull frees.
   `mold-split --side-actions` (side action groups with their directions, undercuts left); the
   Molds window's surface group and side actions (docs/03 §4.23, docs/05 §8.18).
 
+## 1.49.0 — 3DS
+
+Exchange with older modelers and renderers through 3DS.
+
+- **Done (2026-11-18):** import of triangle objects, materials, texture coordinates, smoothing
+  groups and textures; export with materials, textures and the format's limits (docs/09 §5 and
+  Decisions); File › Import and Export offer it.
+
 ## Post-1.0 candidates
 Other limits remain listed against their original milestones; no unrelated feature scope is
 added by the continuation milestones 1.19–1.32.

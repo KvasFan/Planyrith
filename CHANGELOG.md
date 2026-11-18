@@ -7,6 +7,8 @@ All notable changes to Planyrith are recorded here. Versions follow
 ## Unreleased
 
 ### Added
+- 1.49: 3DS import and export: objects, materials, texture coordinates and textures,
+  smoothing groups as soft edges.
 - 1.48: molds divided by a freeform surface (`mold-split --surface`), and side actions cut for
   undercuts a sideways pull frees (`--side-actions`), also in the Molds window.
 - 1.47: a filled circle can be made tangent inside another in one plane (the inner one with
