@@ -4,7 +4,7 @@ All notable changes to Planyrith are recorded here. Versions follow
 [Semantic Versioning](https://semver.org/); before 1.0, minor versions are milestones of
 [`docs/13-roadmap.md`](docs/13-roadmap.md).
 
-## Unreleased
+## 0.13.0-alpha.2 — fixes from a sweep of every command (2026-11-18)
 
 A functional sweep of every command (each command's batch, 5 345 runs with broken or extreme
 parameters, every export format imported back) found these.
@@ -21,6 +21,11 @@ parameters, every export format imported back) found these.
   not be imported back; the overlapping faces now come in as separate groups with a warning.
 - Simulations (`sim-static`, `sim-thermal`, `sim-frequency`) crashed on a mesh size of zero;
   a mesh size must now be a positive length.
+
+### Changed
+- `sim-frequency` factors the stiffness once and solves directly: the default mesh of a
+  200 mm beam takes about a second instead of a minute, a 100 mm cube 4 s instead of 35 s,
+  with the same frequencies. Very fine meshes use the previous solver.
 
 ## 0.13.0-alpha.1 — milestones 1.44–1.52 (2026-11-18)
 

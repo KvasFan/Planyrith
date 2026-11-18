@@ -5,8 +5,22 @@ implementation stands, what is done, what remains, and how to resume. Update it 
 every working session. Ground truth for *what to build* stays in `docs/00`–`docs/15`; this file
 is only *progress state*. Release packaging is specified in `docs/16`.
 
-_Last updated: 2026-11-18 (milestones 1.44–1.52 on `main`, tagged 0.13.0-alpha.1; the published
-downloads are still 0.12.0-alpha.1)._
+_Last updated: 2026-11-18 (0.13.0-alpha.2 on `main`: 1.44–1.52 plus the fixes of a sweep of
+every command; the published downloads are still 0.12.0-alpha.1)._
+
+**Sweeping every command (2026-11-18):** asked to test every tool, each registered command ran
+its `tests/commands` batch with the built binary (document validated and summarised), then
+5 345 variants of those lines with zero, negative, huge, NaN, inf or dropped options and
+whole-model queries (flagging panics, timeouts, and runs that succeed but leave a document
+failing validation); the four acceptance models went out in every export format and back in;
+`tools/validate-exports.sh` ran with all its validators. Found and fixed (CHANGELOG
+0.13.0-alpha.2, Decisions in docs/03, 05, 09): `text-3d` on glyphs with overlapping contours,
+`freehand` curves that made a file unloadable, push/pull caps lost over some holes (present
+since before 0.12), IGES subfigures with overlapping faces, a zero simulation mesh size, and a
+minute-long default `sim-frequency` (now a direct envelope solver). Known and left: details
+under the planarity tolerance (0.01 mm) can leave push/pull shells open, as `solid_after`
+reports; very fine modal meshes still use conjugate gradients. The sweep scripts were not kept;
+rebuilding them from this description takes minutes.
 
 **Completing every remaining feature (2026-11-18):** asked to complete all features, push and
 tag, the limits left after 1.43 and the formats docs/09 listed as future work became 1.44–1.52
