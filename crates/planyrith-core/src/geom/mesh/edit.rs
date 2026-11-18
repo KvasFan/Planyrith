@@ -650,10 +650,17 @@ impl HalfEdgeMesh {
                 let ring = frame.project_all(&self.cycle_positions(&outer_h)?);
                 let mut kept_holes = Vec::with_capacity(holes_h.len());
                 for hole in holes_h {
-                    let inside = self.cycle_positions(&hole)?.iter().all(|&p| {
-                        polygon::point_in_ring(frame.to_2d(p), &ring, tol)
-                            == polygon::PointInPolygon::Inside
-                    });
+                    // A hole may touch the outer loop at a vertex (a circle
+                    // touching another from inside, milestone 1.47).
+                    let places: Vec<polygon::PointInPolygon> = self
+                        .cycle_positions(&hole)?
+                        .iter()
+                        .map(|&p| polygon::point_in_ring(frame.to_2d(p), &ring, tol))
+                        .collect();
+                    let inside = places
+                        .iter()
+                        .all(|w| *w != polygon::PointInPolygon::Outside)
+                        && places.contains(&polygon::PointInPolygon::Inside);
                     if inside {
                         kept_holes.push(hole);
                     }

@@ -455,7 +455,7 @@ Constraints window.
 
 - **Done (2026-11-16):** `radius`, `equal-radius`, `concentric`, `on-curve`, `tangent`
   (docs/03 §11.4, docs/05 §5.15), with Constraints-window buttons. Internal tangency between
-  filled circles in one plane is solved but refused by the kernel (inscribed segments cross).
+  filled circles in one plane followed in 1.47.
 
 ## 1.34.0 — Flanges on flanges and corner reliefs
 
@@ -574,6 +574,14 @@ Complete sheet metal: tabs bent from the side edges of a flange's legs.
 - **Done (2026-11-18):** `sheet-metal-flange --side start|end [--leg n]`, `sheet-metal-set
   --remove-sides`, folded part and blank, the Fabrication window's side buttons (docs/03
   §4.20, docs/05 §8.12).
+
+## 1.47.0 — Circles tangent inside circles
+
+Complete 1.33's tangency: a filled circle tangent inside another in one plane.
+
+- **Done (2026-11-18):** both circles turn so a vertex of each lies at the contact; the outer
+  face keeps the inner circle as a hole touching its outline there; an inner circle with as
+  many segments or more is refused with that reason (docs/03 §11.4 and Decisions).
 
 ## Post-1.0 candidates
 Other limits remain listed against their original milestones; no unrelated feature scope is

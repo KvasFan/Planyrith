@@ -7,6 +7,8 @@ All notable changes to Planyrith are recorded here. Versions follow
 ## Unreleased
 
 ### Added
+- 1.47: a filled circle can be made tangent inside another in one plane (the inner one with
+  fewer segments); both turn so they meet at a vertex.
 - 1.46: side flanges: tabs bent from the sides of a flange's legs (`sheet-metal-flange
   --side`), folded and unfolded, with Fabrication window buttons.
 - 1.45: STEP dimensions also travel as data (nominal value, plus/minus tolerance) tied to

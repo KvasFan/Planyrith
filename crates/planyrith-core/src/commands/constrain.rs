@@ -1016,8 +1016,11 @@ mod tests {
             .unwrap();
         e.execute_erased("circle", json!({ "center": [0, 2000, 0], "radius": 300 }))
             .unwrap();
-        e.execute_erased("circle", json!({ "center": [60, 2000, 0], "radius": 100 }))
-            .unwrap();
+        e.execute_erased(
+            "circle",
+            json!({ "center": [60, 2000, 0], "radius": 100, "segments": 12 }),
+        )
+        .unwrap();
         let q = |c: [f64; 3], e: &Engine| format!("@{}", curve_edge(e, c).0);
         let (a, b) = (q([0.0, 0.0, 0.0], &e), q([400.0, 0.0, 0.0], &e));
         let (big, small) = (q([0.0, 2000.0, 0.0], &e), q([60.0, 2000.0, 0.0], &e));
@@ -1047,56 +1050,74 @@ mod tests {
         );
         assert_eq!(curves_match_their_vertices(&e), 4);
 
-        // One filled circle inside another: the solver meets the internal
-        // contact, but the inscribed segments of the two would cross, so the
-        // command refuses and changes nothing (docs/03 §11.4).
-        let snapshot = |e: &Engine| {
-            let m = e.document().model.mesh();
-            let mut v: Vec<[f64; 3]> = m.vertices().map(|(_, x)| x.position.to_array()).collect();
-            v.sort_by(|a, b| a.partial_cmp(b).unwrap());
-            (v, m.curves().count(), m.edges().count())
+        // One filled circle inside another, with coarser segments
+        // (milestone 1.47): both turn so a vertex of each lies at the
+        // contact; the big face keeps the small one as a hole touching its
+        // outline there, and the mesh stays valid.
+        let out = add(
+            &mut e,
+            json!({ "kind": "tangent", "edges": [big.clone(), small.clone()] }),
+        );
+        let circle = |e: &Engine, r: f64| {
+            e.document()
+                .model
+                .mesh()
+                .curves()
+                .find_map(|(_, d)| match *d {
+                    crate::geom::CurveDescriptor::Circle { center, radius, .. }
+                        if (radius - r).abs() < 1e-6 && center.y > 1000.0 =>
+                    {
+                        Some(center)
+                    }
+                    _ => None,
+                })
+                .unwrap()
         };
-        let before = snapshot(&e);
-        let err = e
+        let inner = (circle(&e, 300.0), circle(&e, 100.0));
+        assert!(
+            (inner.0.distance(inner.1) - 200.0).abs() < 1e-6,
+            "{out} {inner:?}"
+        );
+        let contact = inner.0 + (inner.1 - inner.0).normalize() * 300.0;
+        let mesh = e.document().model.mesh();
+        assert!(
+            mesh.vertices()
+                .any(|(_, v)| v.position.distance(contact) < 1e-6),
+            "a vertex at the contact {contact}"
+        );
+        assert!(
+            mesh.validate(&crate::tolerance::Tolerances::default())
+                .is_empty()
+        );
+        assert_eq!(curves_match_their_vertices(&e), 4);
+        // The faces: the big disk less the small one, and the small one.
+        let disk = |r: f64, n: f64| 0.5 * n * r * r * libm::sin(std::f64::consts::TAU / n);
+        let areas: Vec<f64> = mesh
+            .faces()
+            .map(|(id, _)| mesh.face_area(id).unwrap())
+            .collect();
+        for want in [disk(300.0, 24.0) - disk(100.0, 12.0), disk(100.0, 12.0)] {
+            assert!(
+                areas.iter().any(|a| (a - want).abs() < 1e-3),
+                "{want} in {areas:?}"
+            );
+        }
+        // With as many segments as the outer one, the inner circle's
+        // segments at the contact would run along the outer one's: refused,
+        // naming the remedy.
+        let mut f = engine();
+        f.execute_erased("circle", json!({ "center": [0, 0, 0], "radius": 300 }))
+            .unwrap();
+        f.execute_erased("circle", json!({ "center": [60, 0, 0], "radius": 100 }))
+            .unwrap();
+        let (big, small) = (q([0.0, 0.0, 0.0], &f), q([60.0, 0.0, 0.0], &f));
+        let err = f
             .execute_erased(
                 "constraint-add",
-                json!({ "kind": "tangent", "edges": [big.clone(), small.clone()] }),
+                json!({ "kind": "tangent", "edges": [big, small] }),
             )
             .unwrap_err();
-        assert!(err.to_string().contains("edge"), "{err}");
-        assert_eq!(snapshot(&e), before);
-        let entities = &e.document().model;
-        let pid = |q: &str| crate::ids::Pid(q[1..].parse().unwrap());
-        let mut c = crate::sketch::Constraint {
-            id: 9,
-            kind: crate::sketch::ConstraintKind::Tangent,
-            edges: vec![pid(&big), pid(&small)],
-            points: Vec::new(),
-            length_mm: None,
-            angle_rad: None,
-            at: Vec::new(),
-            internal: None,
-        };
-        crate::sketch::prepare(entities, &mut c).unwrap();
-        assert_eq!(c.internal, Some(true));
-        let mut list = super::constraints_of(e.document(), crate::document::ContainerRef::Model);
-        list.push(c);
-        let solution = crate::sketch::solve(entities, &list, false).unwrap();
-        let inner: Vec<(DVec3, f64)> = solution
-            .curves
-            .iter()
-            .filter_map(|r| match r.descriptor {
-                crate::geom::CurveDescriptor::Circle { center, radius, .. } => {
-                    Some((center, radius))
-                }
-                _ => None,
-            })
-            .collect();
-        assert_eq!(inner.len(), 2);
-        assert!(
-            (inner[0].0.distance(inner[1].0) - 200.0).abs() < 1e-6,
-            "{inner:?}"
-        );
+        assert!(err.to_string().contains("fewer segments"), "{err}");
         assert_eq!(curves_match_their_vertices(&e), 4);
     }
 }

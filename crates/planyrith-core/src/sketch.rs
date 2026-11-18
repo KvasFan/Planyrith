@@ -297,6 +297,13 @@ pub enum SolveError {
         "the constraints conflict (or cannot be met while faces stay flat); largest error {0:.4} mm"
     )]
     Conflict(f64),
+    /// Two circles touching inside each other: the inner one's segments are
+    /// not coarser than the outer one's, so at the contact its inscribed
+    /// polygon would run along or cross the outer one's.
+    #[error(
+        "constraint {0}: a circle touching another from inside needs fewer segments than the outer one ({1}, outer {2})"
+    )]
+    InnerFiner(u32, u32, u32),
     /// A constraint on arcs or circles names an edge of neither.
     #[error("constraint {0}: edge {1} is not part of an arc or circle")]
     NotCircular(u32, u64),
@@ -1147,11 +1154,60 @@ pub fn solve(
     if let Some(&(_, radius)) = cs.iter().find(|(_, r)| *r <= 1e-3) {
         return Err(SolveError::Conflict(radius.abs()));
     }
+    // Two circles touching inside each other (milestone 1.47): both turn
+    // so a vertex of each lies at the contact point. With fewer segments
+    // the inner polygon's sides there turn inward more steeply than the
+    // outer one's, so the polygons meet only at that vertex; with as many
+    // they would run along each other, and with more cross, which is
+    // refused.
+    let mut aligned = vec![false; curves.len()];
+    for r in &resolved {
+        if r.c.kind != ConstraintKind::Tangent || !r.c.internal.unwrap_or(false) {
+            continue;
+        }
+        let (Some(&Some(k1)), Some(&Some(k2))) = (r.curves.first(), r.curves.get(1)) else {
+            continue;
+        };
+        if k1 == k2 || !(curves[k1].closed && curves[k2].closed) {
+            continue;
+        }
+        let (outer, inner) = if cs[k1].1 >= cs[k2].1 {
+            (k1, k2)
+        } else {
+            (k2, k1)
+        };
+        let (co, ro) = cs[outer];
+        let toward = in_plane(cs[inner].0 - co, curves[outer].normal);
+        if toward == DVec3::ZERO {
+            continue;
+        }
+        let (si, so) = (curves[inner].segments, curves[outer].segments);
+        if si >= so {
+            return Err(SolveError::InnerFiner(r.c.id, si, so));
+        }
+        let contact = co + toward * ro;
+        for k in [outer, inner] {
+            let cv = &curves[k];
+            let (c, radius) = cs[k];
+            let n = cv.normal;
+            let want = in_plane(contact - c, n);
+            let delta = cv
+                .phase
+                .iter()
+                .map(|&ph| angle_near(rotate(cv.dir0, n, ph), want, n, 0.0))
+                .min_by(|a, b| a.abs().total_cmp(&b.abs()))
+                .unwrap_or(0.0);
+            for (j, &i) in cv.chain.iter().enumerate() {
+                xs[i] = c + rotate(cv.dir0, n, cv.phase[j] + delta) * radius;
+            }
+            aligned[k] = true;
+        }
+    }
     // A circle's segments are inscribed: where one of its vertices would
     // touch another edge (a tangent line or circle at a vertex), its
     // vertices turn half a segment so that the segments clear the contact.
     for (k, cv) in curves.iter().enumerate() {
-        if !cv.closed || cv.segments == 0 {
+        if !cv.closed || cv.segments == 0 || aligned[k] {
             continue;
         }
         let (c, radius) = cs[k];

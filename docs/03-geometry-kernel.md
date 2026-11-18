@@ -560,9 +560,13 @@ plane frame, with the start at the end the old descriptor started at). Segments 
 when a circle's vertex would come within the merge distance of another edge (a tangent line or
 circle exactly at a vertex), the circle turns half a segment so its segments clear the contact;
 if the turned circle's edges would cross instead (one circle inside another), the unturned
-positions are used and touching vertices merge as in any move. A change the kernel still
-refuses (one filled circle tangent inside another, whose segments cross) changes nothing. Radii
-must stay above the merge distance.
+positions are used and touching vertices merge as in any move. Two circles tangent inside one
+another (1.47) both turn so a vertex of each lies at the contact point: with fewer segments the
+inner polygon's sides leave that vertex more steeply than the outer one's, so the polygons meet
+only there, and a face whose hole touches its outline at a vertex keeps the hole. With as many
+segments or more the inner sides would run along or cross the outer ones, so the constraint is
+refused with that reason. A change the kernel still refuses changes nothing. Radii must stay
+above the merge distance.
 
 ## 12. Simulation (`sim`, milestone 1.16)
 
@@ -611,6 +615,16 @@ W and K.
 - Everything runs sequentially in a fixed order: results are deterministic.
 
 ## Decisions
+
+- 2026-11-18 — **Circles tangent inside circles (milestone 1.47).** Inscribed polygons of two
+  circles tangent inside each other can only meet without crossing when each has a vertex at
+  the contact point and the inner one has fewer segments: its sides there turn inward by half
+  its segment angle, more than the outer sides. With equal segments the first sides of both
+  lie on one line and would have to be welded, but a welded edge would belong to two curves,
+  whose vertices could no longer all lie on their circles; with more segments the inner sides
+  cross the outer ones. So both circles turn to put a vertex at the contact, the inner one must
+  be coarser (the refusal says so), and a moved face keeps a hole that touches its outline at a
+  vertex but otherwise lies inside it, where it used to close over it.
 
 - 2026-11-14 — **Hollow lofts and reflected mesh planes.** `loft_with_holes` (1.27)
   pairs profile loops by stored order, lofts the outer boundary and subtracts each lofted
