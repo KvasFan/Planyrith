@@ -807,6 +807,7 @@ save unless `--no-thumbnail`. `manifest.json` carries `title`, `author`, `descri
   from `--units` (millimeters otherwise). During development, the decoder read sample drawings
   of each supported release from a public test collection with their DXF twins: every fixed
   entity type matched in number, line ends matched to four decimals, and no object failed to
-  decode except, from 2010 on, one system layer for lights per drawing (it holds no geometry);
-  the samples are not kept,
+  decode; the whole drawings came in with the same faces, layers and extents as their DXF
+  twins. Table entries lose their xref index field from 2010 on (seen in those samples: the
+  block and layer records are two bits shorter). The samples are not kept,
   and the repository holds a release 2000 drawing written by a test writer.

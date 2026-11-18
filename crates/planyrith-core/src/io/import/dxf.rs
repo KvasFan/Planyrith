@@ -736,14 +736,25 @@ impl Builder<'_, '_> {
                 pieces.push(HalfEdgeMesh::new());
             }
             let target = &mut pieces[0];
+            let mut segments = Vec::new();
             for (pts, closed) in &content.chains {
                 let n = pts.len();
-                let segments = if *closed { n } else { n.saturating_sub(1) };
-                for k in 0..segments {
+                let count = if *closed { n } else { n.saturating_sub(1) };
+                for k in 0..count {
                     let (a, b) = (pts[k] * f, pts[(k + 1) % n] * f);
                     if self.tol.same_point(a, b) || !self.tol.in_range(a) || !self.tol.in_range(b) {
                         continue;
                     }
+                    segments.push((a, b));
+                }
+            }
+            // All at once (one operation, faces found once); one by one
+            // when that is refused, so a bad segment costs only itself.
+            if target
+                .add_edges(&segments, &self.tol, &mut NoDeltas)
+                .is_err()
+            {
+                for &(a, b) in &segments {
                     if target.add_edge(a, b, &self.tol, &mut NoDeltas).is_err() {
                         self.bad_segments += 1;
                     }

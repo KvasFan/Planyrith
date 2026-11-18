@@ -27,6 +27,8 @@ All notable changes to Planyrith are recorded here. Versions follow
 ### Fixed
 - Curved IGES faces along finely sampled boundaries no longer leave gaps against their
   neighbors.
+- DXF (and DWG) drawings with long curved outlines import in seconds instead of minutes: an
+  outline's segments are added in one operation.
 
 ## 0.12.0-alpha.1 — engineering milestones 1.7–1.43 (2026-11-17)
 

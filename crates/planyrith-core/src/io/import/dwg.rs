@@ -813,9 +813,7 @@ fn object(data: &[u8], offset: usize, r: Release) -> Result<Object, IoError> {
             51 => {
                 o.dxf = "LAYER";
                 o.name = text(&mut b, &mut strings)?;
-                b.b()?;
-                b.bs()?;
-                b.b()?;
+                table_flags(&mut b, r)?;
                 b.bs()?;
                 o.color = b.cmc(r)?;
             }
@@ -823,9 +821,7 @@ fn object(data: &[u8], offset: usize, r: Release) -> Result<Object, IoError> {
             49 => {
                 o.dxf = "BLOCK_RECORD";
                 o.name = text(&mut b, &mut strings)?;
-                b.b()?;
-                b.bs()?;
-                b.b()?;
+                table_flags(&mut b, r)?;
                 b.b()?; // anonymous
                 b.b()?; // has attributes
                 let xref = b.b()?;
@@ -841,6 +837,60 @@ fn object(data: &[u8], offset: usize, r: Release) -> Result<Object, IoError> {
         let _ = (reactors, xdic);
     }
     Ok(o)
+}
+
+/// Points along a smooth curve through `fits`: a centripetal Catmull-Rom
+/// curve, eight pieces per span, ends extended by reflection.
+fn through(fits: &[DVec3]) -> Vec<DVec3> {
+    let n = fits.len();
+    if n < 3 {
+        return fits.to_vec();
+    }
+    let at = |k: isize| -> DVec3 {
+        if k < 0 {
+            fits[0] * 2.0 - fits[1]
+        } else if k as usize >= n {
+            fits[n - 1] * 2.0 - fits[n - 2]
+        } else {
+            fits[k as usize]
+        }
+    };
+    let mut out = vec![fits[0]];
+    for i in 0..n - 1 {
+        let (p0, p1, p2, p3) = (
+            at(i as isize - 1),
+            at(i as isize),
+            at(i as isize + 1),
+            at(i as isize + 2),
+        );
+        let knot = |a: DVec3, b: DVec3| a.distance(b).sqrt().max(1e-12);
+        let t1 = knot(p0, p1);
+        let t2 = t1 + knot(p1, p2);
+        let t3 = t2 + knot(p2, p3);
+        for k in 1..=8 {
+            let t = t1 + (t2 - t1) * f64::from(k) / 8.0;
+            let lerp =
+                |a: DVec3, b: DVec3, ta: f64, tb: f64| (a * (tb - t) + b * (t - ta)) / (tb - ta);
+            let a1 = lerp(p0, p1, 0.0, t1);
+            let a2 = lerp(p1, p2, t1, t2);
+            let a3 = lerp(p2, p3, t2, t3);
+            let b1 = lerp(a1, a2, 0.0, t2);
+            let b2 = lerp(a2, a3, t1, t3);
+            out.push(lerp(b1, b2, t1, t2));
+        }
+    }
+    out
+}
+
+/// A table entry's flags after its name: the referenced flag, the xref
+/// index (before 2007 only) and the dependent flag.
+fn table_flags(b: &mut Bits<'_>, r: Release) -> Result<(), IoError> {
+    b.b()?;
+    if r < Release::R2010 {
+        b.bs()?;
+    }
+    b.b()?;
+    Ok(())
 }
 
 /// An entity's own data as DXF group codes.
@@ -1165,8 +1215,10 @@ fn entity_data(
             for p in &controls {
                 point(&mut c, 10, *p);
             }
-            for p in &fits {
-                point(&mut c, 11, *p);
+            // A spline given by points it passes through: a smooth curve
+            // through them (the DXF importer draws fit points as given).
+            for p in through(&fits) {
+                point(&mut c, 11, p);
             }
             "SPLINE"
         }
@@ -1692,6 +1744,22 @@ mod tests {
         assert_eq!(out["faces"], 1, "{out}");
         assert_eq!(out["edges"], 5, "{out}");
         assert!(e.document().tags.iter().any(|(_, t)| t.name == "Walls"));
+    }
+
+    #[test]
+    fn splines_pass_through_their_fit_points() {
+        let fits = [
+            DVec3::ZERO,
+            DVec3::new(10.0, 5.0, 0.0),
+            DVec3::new(20.0, 0.0, 0.0),
+            DVec3::new(30.0, 5.0, 0.0),
+        ];
+        let pts = through(&fits);
+        assert_eq!(pts.len(), 1 + 3 * 8);
+        for (k, f) in fits.iter().enumerate() {
+            assert!(pts[k * 8].distance(*f) < 1e-9, "{k}");
+        }
+        assert_eq!(through(&fits[..2]), fits[..2].to_vec());
     }
 
     #[test]

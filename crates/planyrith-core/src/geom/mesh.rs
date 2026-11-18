@@ -816,6 +816,21 @@ impl HalfEdgeMesh {
         self.transact(tol, sink, |m, d| m.add_edge_inner(a, b, tol, d))
     }
 
+    /// Adds many segments as one operation (docs/03 §4.2 for each, then
+    /// face finding once over all of them): what importers drawing long
+    /// outlines need, since adding them one by one copies the mesh for
+    /// every segment (milestone 1.52). Segments the kernel refuses
+    /// (degenerate, out of range) are skipped and counted; the result's
+    /// `edges` are the chain edges that remain.
+    pub fn add_edges(
+        &mut self,
+        segments: &[(DVec3, DVec3)],
+        tol: &Tolerances,
+        sink: &mut dyn DeltaSink,
+    ) -> Result<(AddEdgeResult, usize), GeometryError> {
+        self.transact(tol, sink, |m, d| m.add_edges_inner(segments, tol, d))
+    }
+
     /// Erases an edge with the face merge/delete rules of docs/03 §4.6 and
     /// removes vertices that became isolated. When two coplanar faces merge,
     /// the larger one keeps its id and appearance (`faces_merged` is

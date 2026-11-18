@@ -635,6 +635,15 @@ W and K.
 
 ## Decisions
 
+- 2026-11-18 — **Adding many edges at once.** `add_edge` runs as one transaction, which copies
+  the mesh so a failure leaves it unchanged; an importer adding an outline of tens of thousands
+  of segments one by one copied the growing mesh each time (a 3 635-vertex polyline of arcs
+  took over five minutes). `add_edges` inserts all segments (§4.2 steps 1–2 each) in one
+  transaction and finds faces once, seeded by every resulting edge, including the parts of edges
+  later segments split; the same polyline takes seconds. Segments the kernel refuses are
+  skipped and counted; the DXF importer falls back to adding segments one by one when the batch
+  is refused, so one bad segment still costs only itself.
+
 - 2026-11-18 — **Circles tangent inside circles (milestone 1.47).** Inscribed polygons of two
   circles tangent inside each other can only meet without crossing when each has a vertex at
   the contact point and the inner one has fewer segments: its sides there turn inward by half

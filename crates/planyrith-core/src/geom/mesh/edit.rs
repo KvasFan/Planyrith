@@ -50,6 +50,51 @@ impl HalfEdgeMesh {
         Ok(result)
     }
 
+    pub(crate) fn add_edges_inner(
+        &mut self,
+        segments: &[(DVec3, DVec3)],
+        tol: &Tolerances,
+        d: &mut dyn DeltaSink,
+    ) -> Result<(AddEdgeResult, usize), GeometryError> {
+        let mut result = AddEdgeResult::default();
+        let mut touched: BTreeSet<VertexId> = BTreeSet::new();
+        let mut skipped = 0;
+        for &(a, b) in segments {
+            if !tol.in_range(a) || !tol.in_range(b) || tol.same_point(a, b) {
+                skipped += 1;
+                continue;
+            }
+            match self.insert_edge_chain(a, b, tol, d) {
+                Ok((r, t)) => {
+                    result.edges.extend(r.edges);
+                    result.split_edges.extend(r.split_edges);
+                    touched.extend(t);
+                }
+                // The ends snapped together: nothing was changed.
+                Err(GeometryError::Degenerate(_)) => skipped += 1,
+                Err(e) => return Err(e),
+            }
+        }
+        // Edges split by later segments are replaced by their parts.
+        let mut seeds: BTreeSet<EdgeId> = result.edges.iter().copied().collect();
+        for (_, parts) in &result.split_edges {
+            seeds.extend(parts.iter().copied());
+        }
+        result.edges.retain(|e| self.edge(*e).is_some());
+        let seeds: Vec<EdgeId> = seeds
+            .into_iter()
+            .filter(|e| self.edge(*e).is_some())
+            .collect();
+        let touched: Vec<VertexId> = touched
+            .into_iter()
+            .filter(|v| self.vertex(*v).is_some())
+            .collect();
+        let found = self.find_faces_seeded(&touched, &seeds, tol, d)?;
+        result.new_faces = found.new_faces;
+        result.split_faces = found.split_faces;
+        Ok((result, skipped))
+    }
+
     /// Steps 1–2 of `add_edge` (docs/03 §4.2): snaps the ends, splits the
     /// edges the segment meets and adds the chain of edges along it, without
     /// face finding. Returns the chain (in `edges`) and the touched vertices.

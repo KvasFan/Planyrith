@@ -66,7 +66,7 @@ pub struct MoldParams {
     pub surface: Option<Query>,
     /// Cut side actions out of the halves for undercuts that a sideways
     /// pull frees (milestone 1.48).
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub side_actions: bool,
 }
 
