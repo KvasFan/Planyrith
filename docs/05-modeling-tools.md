@@ -1218,7 +1218,7 @@ and its renders sit in the photo.
   edit context (docs/09 §5–§6, Decisions). Output: `{ format, created, faces, edges, skipped,
   warnings }`. Undo removes everything the import made (definitions, materials, images).
 - `export { path, format?, targets?, include_hidden, file_units?, ascii, z_up, two_d, scene?,
-  scale?, paper_width? }` writes the visible model, or the occurrences `targets` touches, in a
+  scale?, paper_width?, solids }` writes the visible model, or the occurrences `targets` touches, in a
   mesh format, or — SVG, PDF, DXF with `two_d` — a drawing of the view (of `scene` when given)
   with hidden lines removed, at `scale` (`1:50`, parallel views) or fitted to `paper_width`
   (297 mm). It changes nothing and is not undoable. Output: `{ format, bytes_written, entities,
@@ -1228,6 +1228,8 @@ and its renders sit in the photo.
   `<file>-<name>.<ext>` (names reduced to letters, digits, `-` and `_`, numbered when repeated;
   not with `targets`), listed in the output's `files`; `on_plate` lifts what each file holds so
   its lowest point is at Z = 0. The other output fields sum over the files.
+  `solids` writes each closed shell as a solid where the format has one (IGES: a manifold solid
+  B-rep object, milestone 1.44).
 
 ## 11. Tool metadata (for frontends)
 

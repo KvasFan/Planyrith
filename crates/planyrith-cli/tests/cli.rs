@@ -2755,6 +2755,89 @@ move --targets instance --delta 300,0,0 --copy
     );
 }
 
+/// docs/13 1.44: with `--solids`, a closed shell leaves as an IGES
+/// manifold solid B-rep object and comes back closed.
+#[test]
+fn iges_solids_round_trip() {
+    let dir = scratch("iges-solids");
+    let batch = dir.join("box.plyrb");
+    std::fs::write(
+        &batch,
+        "rectangle --corner-a 0,0,0 --corner-b 100,50,0
+push-pull --face '{face}' --distance 30
+",
+    )
+    .unwrap();
+    let doc = dir.join("box.plyr");
+    let igs = dir.join("box.igs");
+    let back = dir.join("back.plyr");
+    planyrith()
+        .args([
+            "batch",
+            batch.to_str().unwrap(),
+            "-f",
+            doc.to_str().unwrap(),
+            "--deterministic",
+        ])
+        .assert()
+        .success();
+    let out = json_of(
+        &planyrith()
+            .args([
+                "export",
+                "-f",
+                doc.to_str().unwrap(),
+                igs.to_str().unwrap(),
+                "--solids",
+                "--json",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout,
+    );
+    assert_eq!(out["output"]["entities"], 6, "{out}");
+    let text = std::fs::read_to_string(&igs).unwrap();
+    let entries = |kind: &str| {
+        text.lines()
+            .filter(|l| l.starts_with(&format!("{kind:>8}")) && l.get(72..73) == Some("D"))
+            .count()
+            / 2
+    };
+    assert_eq!((entries("186"), entries("510"), entries("144")), (1, 6, 0));
+    planyrith()
+        .args(["new", "-o", back.to_str().unwrap()])
+        .assert()
+        .success();
+    let out = json_of(
+        &planyrith()
+            .args([
+                "import",
+                "-f",
+                back.to_str().unwrap(),
+                igs.to_str().unwrap(),
+                "--json",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout,
+    );
+    assert_eq!(out["output"]["faces"], 6, "{out}");
+    let info = json_of(
+        &planyrith()
+            .args(["info", "-f", back.to_str().unwrap(), "--json"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout,
+    );
+    assert_eq!(
+        info["output"]["bounds"]["max"],
+        serde_json::json!([100.0, 50.0, 30.0])
+    );
+}
+
 /// docs/13 1.39: dimensions and notes leave as STEP annotations and come
 /// back attached to the imported geometry.
 #[test]

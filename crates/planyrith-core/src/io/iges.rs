@@ -7,7 +7,9 @@
 //! of composite curves (102) of lines (110), in millimeters; loose geometry
 //! and groups are placed in world coordinates, and each component
 //! definition is a subfigure (308) placed by instances (408) with their
-//! transformation matrices (124, milestone 1.38). Import reads trimmed
+//! transformation matrices (124, milestone 1.38); with `solids`, closed
+//! shells are manifold solid B-rep objects (186, milestone 1.44). Import
+//! reads B-rep solids (186) and trimmed
 //! (144) and bounded (143) surfaces on planar (108, 128, 190) and curved
 //! (128, 120, 122, 118) surfaces with boundaries of lines, arcs (100),
 //! composite curves, copious data (106) and B-spline curves (126,
@@ -221,6 +223,158 @@ impl Writer {
         Some(self.add(144, 0, p, dependent))
     }
 
+    /// A closed shell of planar faces as a manifold solid B-rep object
+    /// (186, milestone 1.44): one vertex list (502) and edge list (504) of
+    /// lines, each face (510) on a plane (190) with its loops (508), in one
+    /// shell (514) whose faces point out of the material.
+    fn solid(&mut self, faces: &[&FaceLoops], dependent: bool) -> Option<usize> {
+        let key = |p: DVec3| {
+            let q = |v: f64| (v * 1e9).round() as i64;
+            (q(p.x), q(p.y), q(p.z))
+        };
+        let mut vertices: Vec<DVec3> = Vec::new();
+        let mut vertex_at: BTreeMap<(i64, i64, i64), usize> = BTreeMap::new();
+        let mut edges: Vec<(usize, usize)> = Vec::new();
+        let mut edge_at: BTreeMap<(usize, usize), usize> = BTreeMap::new();
+        // Per face, per loop: (edge index, forward).
+        let mut loops: Vec<Vec<Vec<(usize, bool)>>> = Vec::new();
+        let mut volume = 0.0;
+        for face in faces {
+            let mut face_loops = Vec::new();
+            for ring in face.iter() {
+                let ids: Vec<usize> = ring
+                    .iter()
+                    .map(|p| {
+                        *vertex_at.entry(key(*p)).or_insert_with(|| {
+                            vertices.push(*p);
+                            vertices.len() - 1
+                        })
+                    })
+                    .collect();
+                let mut used = Vec::new();
+                for (k, &a) in ids.iter().enumerate() {
+                    let b = ids[(k + 1) % ids.len()];
+                    if a == b {
+                        continue;
+                    }
+                    volume += vertices[a].dot(vertices[b].cross(vertices[ids[0]]));
+                    let (lo, hi) = (a.min(b), a.max(b));
+                    let e = *edge_at.entry((lo, hi)).or_insert_with(|| {
+                        edges.push((a, b));
+                        edges.len() - 1
+                    });
+                    used.push((e, edges[e] == (a, b)));
+                }
+                if used.len() < 3 {
+                    return None;
+                }
+                face_loops.push(used);
+            }
+            loops.push(face_loops);
+        }
+        let mut p = vec![vertices.len().to_string()];
+        for v in &vertices {
+            p.extend([v.x, v.y, v.z].map(real));
+        }
+        let vertex_list = self.add(502, 1, p, true);
+        let curves: Vec<usize> = edges
+            .iter()
+            .map(|&(a, b)| self.line(vertices[a], vertices[b]))
+            .collect();
+        let mut p = vec![edges.len().to_string()];
+        for (k, &(a, b)) in edges.iter().enumerate() {
+            p.extend([
+                curves[k].to_string(),
+                vertex_list.to_string(),
+                (a + 1).to_string(),
+                vertex_list.to_string(),
+                (b + 1).to_string(),
+            ]);
+        }
+        let edge_list = self.add(504, 1, p, true);
+        // Faces point the way of their outer loop; an inside-out shell's
+        // faces are used against their surfaces.
+        let outward = volume >= 0.0;
+        let mut members = Vec::new();
+        for (face, face_loops) in faces.iter().zip(&loops) {
+            let outer = face.first()?;
+            let mut n = DVec3::ZERO;
+            for (a, b) in outer.iter().zip(outer.iter().cycle().skip(1)) {
+                n += a.cross(*b);
+            }
+            let n = n.normalize_or_zero();
+            if n == DVec3::ZERO {
+                return None;
+            }
+            let o = outer[0];
+            let point = self.add(
+                116,
+                0,
+                [o.x, o.y, o.z]
+                    .map(real)
+                    .into_iter()
+                    .chain(["0".to_string()])
+                    .collect(),
+                true,
+            );
+            let normal = self.add(123, 0, [n.x, n.y, n.z].map(real).to_vec(), true);
+            let plane = self.add(190, 0, vec![point.to_string(), normal.to_string()], true);
+            let mut refs = Vec::new();
+            for used in face_loops {
+                let mut p = vec![used.len().to_string()];
+                for &(e, forward) in used {
+                    p.extend([
+                        "0".to_string(),
+                        edge_list.to_string(),
+                        (e + 1).to_string(),
+                        if forward { "1" } else { "0" }.to_string(),
+                        "0".to_string(),
+                    ]);
+                }
+                refs.push(self.add(508, 1, p, true));
+            }
+            let mut p = vec![plane.to_string(), refs.len().to_string(), "1".to_string()];
+            p.extend(refs.iter().map(|r| r.to_string()));
+            members.push(self.add(510, 1, p, true));
+        }
+        let mut p = vec![members.len().to_string()];
+        for m in &members {
+            p.extend([m.to_string(), if outward { "1" } else { "0" }.to_string()]);
+        }
+        let shell = self.add(514, 1, p, true);
+        Some(self.add(
+            186,
+            0,
+            vec![shell.to_string(), "1".into(), "0".into()],
+            dependent,
+        ))
+    }
+
+    /// Trimmed surfaces of `faces`, or with `solids` a B-rep solid (186)
+    /// per closed shell and trimmed surfaces for the rest; one pointer per
+    /// face written (repeated for a solid's faces).
+    fn faces(&mut self, faces: &[FaceLoops], solids: bool, dependent: bool) -> Vec<usize> {
+        let mut out = Vec::new();
+        let rest = if solids {
+            let (closed, rest) = closed_shells(faces);
+            for shell in closed {
+                let members: Vec<&FaceLoops> = shell.iter().map(|&i| &faces[i]).collect();
+                match self.solid(&members, dependent) {
+                    Some(s) => out.extend(std::iter::repeat_n(s, members.len())),
+                    None => out.extend(members.into_iter().filter_map(|f| self.face(f, dependent))),
+                }
+            }
+            rest
+        } else {
+            (0..faces.len()).collect()
+        };
+        out.extend(
+            rest.into_iter()
+                .filter_map(|i| self.face(&faces[i], dependent)),
+        );
+        out
+    }
+
     fn text(&self, file_name: &str) -> String {
         let mut out = String::new();
         let put = |out: &mut String, body: &str, section: char, seq: usize| {
@@ -327,11 +481,13 @@ impl Writer {
     }
 }
 
-/// The IGES text of the document's visible faces, in world coordinates.
+/// The IGES text of the document's visible faces, in world coordinates;
+/// with `solids`, closed shells become B-rep solids (186, milestone 1.44).
 pub fn write(
     doc: &Document,
     scope: &ExportScope,
     file_name: &str,
+    solids: bool,
 ) -> Result<(String, usize), IoError> {
     let sc = scene::collect(doc, scope);
     let mut w = Writer {
@@ -345,6 +501,7 @@ pub fn write(
     let mut subfigures: Vec<(DefinitionId, String, Vec<FaceLoops>)> = Vec::new();
     let mut placements: Vec<(DefinitionId, DAffine3)> = Vec::new();
     let mut placed: std::collections::BTreeSet<InstancePath> = Default::default();
+    let mut loose: Vec<FaceLoops> = Vec::new();
     for occ in &sc.occurrences {
         let Some(entities) = doc.container(occ.container) else {
             continue;
@@ -391,17 +548,15 @@ pub fn write(
                         list.push(rings);
                     }
                 }
-                None => {
-                    if w.face(&rings, false).is_some() {
-                        faces += 1;
-                    }
-                }
+                None => loose.push(rings),
             }
         }
     }
+    faces += w.faces(&loose, solids, false).len();
     let mut defined: BTreeMap<DefinitionId, usize> = BTreeMap::new();
     for (d, name, list) in &subfigures {
-        let members: Vec<usize> = list.iter().filter_map(|r| w.face(r, true)).collect();
+        let mut members = w.faces(list, solids, true);
+        members.dedup();
         if members.is_empty() {
             continue;
         }
@@ -928,6 +1083,252 @@ impl Model {
     }
 }
 
+// ----- B-rep solids (milestone 1.44) -----------------------------------------------------
+
+/// The faces of a manifold solid B-rep object (186): the outer shell and
+/// its voids, each face pointing out of the material.
+struct SolidRead {
+    faces: Vec<FaceLoops>,
+    /// Faces among them that are triangles of curved surfaces.
+    curved: usize,
+    /// Faces of the solid that could not be read.
+    skipped: usize,
+}
+
+impl Model {
+    /// A manifold solid B-rep object (186) as faces.
+    fn solid(&self, e: &Dir) -> Option<SolidRead> {
+        let mut shells = vec![(int(e.params.first()?), int(e.params.get(1)?) != 0)];
+        let voids = e.params.get(2).map_or(0, |s| int(s));
+        for k in 0..voids {
+            shells.push((
+                int(e.params.get(3 + 2 * k)?),
+                e.params.get(4 + 2 * k).is_none_or(|s| int(s) != 0),
+            ));
+        }
+        let mut out = SolidRead {
+            faces: Vec::new(),
+            curved: 0,
+            skipped: 0,
+        };
+        for (ptr, agrees) in shells {
+            let shell = self.get(ptr).filter(|s| s.kind == 514)?;
+            let n = int(shell.params.first()?);
+            for k in 0..n {
+                let (Some(face), Some(flag)) =
+                    (shell.params.get(1 + 2 * k), shell.params.get(2 + 2 * k))
+                else {
+                    out.skipped += 1;
+                    continue;
+                };
+                // Outward along the surface's normal when both agree.
+                let along = (int(flag) != 0) == agrees;
+                match self.get(int(face)).and_then(|f| self.brep_face(f, along)) {
+                    Some((faces, curved)) => {
+                        if curved {
+                            out.curved += faces.len();
+                        }
+                        out.faces.extend(faces);
+                    }
+                    None => out.skipped += 1,
+                }
+            }
+        }
+        Some(out)
+    }
+
+    /// The model-space points of one loop (508) of a B-rep face.
+    fn brep_loop(&self, ptr: usize) -> Option<Vec<DVec3>> {
+        let l = self.get(ptr).filter(|l| l.kind == 508)?;
+        let n = int(l.params.first()?);
+        let mut ring: Vec<DVec3> = Vec::new();
+        let mut at = 1;
+        for _ in 0..n {
+            let kind = int(l.params.get(at)?);
+            let list = int(l.params.get(at + 1)?);
+            let index = int(l.params.get(at + 2)?);
+            let forward = int(l.params.get(at + 3)?) != 0;
+            let k = int(l.params.get(at + 4)?);
+            at += 5 + 2 * k;
+            let list = self.get(list)?;
+            let mut pts = if kind == 1 {
+                // A loop that is one vertex (502).
+                self.brep_vertex(list, index).into_iter().collect()
+            } else {
+                // Edge list (504): CURV, SVP, SV, TVP, TV per edge.
+                let base = 1 + 5 * index.checked_sub(1)?;
+                let curve = int(list.params.get(base)?);
+                let mut pts = self.curve(curve, 0)?;
+                let start = self
+                    .get(int(list.params.get(base + 1)?))
+                    .and_then(|v| self.brep_vertex(v, int(list.params.get(base + 2)?)));
+                let end = self
+                    .get(int(list.params.get(base + 3)?))
+                    .and_then(|v| self.brep_vertex(v, int(list.params.get(base + 4)?)));
+                // The curve may run either way between the vertices.
+                if let (Some(s), Some(t), Some(first), Some(last)) =
+                    (start, end, pts.first().copied(), pts.last().copied())
+                    && s.distance(t) > 1e-9
+                    && first.distance(t) + last.distance(s) < first.distance(s) + last.distance(t)
+                {
+                    pts.reverse();
+                }
+                // Snap the ends to the vertices, which neighbors share.
+                if let (Some(s), Some(p)) = (start, pts.first_mut()) {
+                    *p = s;
+                }
+                if let (Some(t), Some(p)) = (end, pts.last_mut()) {
+                    *p = t;
+                }
+                if !forward {
+                    pts.reverse();
+                }
+                pts
+            };
+            if ring
+                .last()
+                .is_some_and(|l| pts.first().is_some_and(|f| l.distance(*f) < 1e-9))
+            {
+                pts.remove(0);
+            }
+            ring.extend(pts);
+        }
+        while ring.len() > 1 && ring[0].distance(ring[ring.len() - 1]) < 1e-9 {
+            ring.pop();
+        }
+        (ring.len() >= 3).then_some(ring)
+    }
+
+    /// Vertex `index` (1-based) of a vertex list (502), in mm.
+    fn brep_vertex(&self, list: &Dir, index: usize) -> Option<DVec3> {
+        if list.kind != 502 || index == 0 || index > int(list.params.first()?) {
+            return None;
+        }
+        let p = self.pts(list, 1 + 3 * (index - 1), 1)[0];
+        let t = DAffine3::from_scale(DVec3::splat(self.scale)) * self.transform(list, 0);
+        Some(t.transform_point3(p))
+    }
+
+    /// A B-rep face (510) as pieces pointing outward (`along` its surface's
+    /// normal or against it); `true` for triangles of a curved surface.
+    fn brep_face(&self, f: &Dir, along: bool) -> Option<(Vec<FaceLoops>, bool)> {
+        if f.kind != 510 {
+            return None;
+        }
+        let surface = int(f.params.first()?);
+        let n = int(f.params.get(1)?);
+        let outer_first = f.params.get(2).is_some_and(|s| int(s) != 0);
+        let mut rings: Vec<Vec<DVec3>> = (0..n)
+            .map(|k| self.brep_loop(int(f.params.get(3 + k)?)))
+            .collect::<Option<_>>()?;
+        if rings.is_empty() {
+            return None;
+        }
+        if let Some((normal, _)) = self.plane(surface) {
+            let out = if along { normal } else { -normal };
+            let area = |r: &[DVec3]| {
+                let mut a = DVec3::ZERO;
+                for (p, q) in r.iter().zip(r.iter().cycle().skip(1)) {
+                    a += p.cross(*q);
+                }
+                a.dot(out)
+            };
+            if !outer_first {
+                // No designated outer loop: the largest one bounds the face.
+                let big = (0..rings.len())
+                    .max_by(|&a, &b| area(&rings[a]).abs().total_cmp(&area(&rings[b]).abs()))?;
+                rings.swap(0, big);
+            }
+            for (k, ring) in rings.iter_mut().enumerate() {
+                if (area(ring) > 0.0) != (k == 0) {
+                    ring.reverse();
+                }
+            }
+            return Some((vec![rings], false));
+        }
+        let surf = self.surf(surface)?;
+        let loops = if outer_first {
+            rings
+        } else {
+            let mut whole = self.natural_loop(&surf);
+            whole.extend(rings);
+            whole
+        };
+        let mut tris = self.tessellate(&surf, Some(loops))?;
+        if !along {
+            for t in &mut tris {
+                for r in t.iter_mut() {
+                    r.reverse();
+                }
+            }
+        }
+        Some((tris, true))
+    }
+}
+
+/// Faces grouped into closed shells (every edge used once each way by the
+/// shell's faces) and the rest, by index; vertices match within 1e-9 mm.
+fn closed_shells(faces: &[FaceLoops]) -> (Vec<Vec<usize>>, Vec<usize>) {
+    type Point = (i64, i64, i64);
+    let key = |p: DVec3| -> Point {
+        let q = |v: f64| (v * 1e9).round() as i64;
+        (q(p.x), q(p.y), q(p.z))
+    };
+    // Directed edge uses: (from, to) → faces.
+    let mut uses: BTreeMap<(Point, Point), Vec<usize>> = BTreeMap::new();
+    for (i, face) in faces.iter().enumerate() {
+        for ring in face {
+            for (a, b) in ring.iter().zip(ring.iter().cycle().skip(1)) {
+                let (a, b) = (key(*a), key(*b));
+                if a != b {
+                    uses.entry((a, b)).or_default().push(i);
+                }
+            }
+        }
+    }
+    let mut parent: Vec<usize> = (0..faces.len()).collect();
+    fn root(parent: &mut [usize], mut i: usize) -> usize {
+        while parent[i] != i {
+            parent[i] = parent[parent[i]];
+            i = parent[i];
+        }
+        i
+    }
+    let mut open = vec![false; faces.len()];
+    for (&(a, b), here) in &uses {
+        let back = uses.get(&(b, a));
+        let paired = here.len() == 1 && back.is_some_and(|f| f.len() == 1);
+        if !paired {
+            for &f in here.iter().chain(back.into_iter().flatten()) {
+                open[f] = true;
+            }
+            continue;
+        }
+        if let Some(&g) = back.and_then(|f| f.first()) {
+            let (x, y) = (root(&mut parent, here[0]), root(&mut parent, g));
+            if x != y {
+                parent[x.max(y)] = x.min(y);
+            }
+        }
+    }
+    let mut groups: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+    for i in 0..faces.len() {
+        let r = root(&mut parent, i);
+        groups.entry(r).or_default().push(i);
+    }
+    let mut closed = Vec::new();
+    let mut rest = Vec::new();
+    for (_, members) in groups {
+        if members.iter().any(|&f| open[f]) || members.len() < 4 {
+            rest.extend(members);
+        } else {
+            closed.push(members);
+        }
+    }
+    rest.sort_unstable();
+    (closed, rest)
+}
+
 // ----- curved surfaces (milestone 1.38) --------------------------------------------------
 
 /// A surface evaluated in millimeters over its parameter rectangle.
@@ -1302,21 +1703,14 @@ impl Model {
         let flat = earcutr::earcut(&data, &holes, 2).ok()?;
         // Collinear boundary samples give triangles without area in the
         // parameters; on a curved surface they would be slivers over
-        // others, so they go.
-        let uv_area = |t: &[usize; 3]| {
-            let (a, b, c) = (
-                data_at(&data, t[0]),
-                data_at(&data, t[1]),
-                data_at(&data, t[2]),
-            );
-            ((b.0 - a.0) * (c.1 - a.1) - (b.1 - a.1) * (c.0 - a.0)).abs() * 0.5
-        };
+        // others, so they go, and the triangle across their long side is
+        // split at their middle corner so the boundary keeps every sample.
         let mut tris: Vec<[usize; 3]> = flat
             .chunks(3)
             .filter(|c| c.len() == 3)
             .map(|c| [c[0], c[1], c[2]])
-            .filter(|t| uv_area(t) > 1e-12)
             .collect();
+        mend_slivers(&mut tris, |i| data_at(&data, i), 1e-12);
         let point = |uv: &[(f64, f64)], xyz: &[Option<DVec3>], i: usize| {
             xyz[i].unwrap_or_else(|| surface.at(uv[i].0, uv[i].1))
         };
@@ -1409,10 +1803,7 @@ impl Model {
                 tris.push([t[2], t[0], m]);
             }
         }
-        tris.retain(|t| {
-            let (a, b, c) = (scaled(uv[t[0]]), scaled(uv[t[1]]), scaled(uv[t[2]]));
-            ((b.0 - a.0) * (c.1 - a.1) - (b.1 - a.1) * (c.0 - a.0)).abs() > 1e-9 * spacing * spacing
-        });
+        mend_slivers(&mut tris, |i| scaled(uv[i]), 0.5e-9 * spacing * spacing);
         delaunay_flips(&mut tris, &uv, (su, sv));
         let mut out = Vec::with_capacity(tris.len());
         for t in tris {
@@ -1435,6 +1826,42 @@ impl Model {
             out.push(vec![p.to_vec()]);
         }
         (!out.is_empty()).then_some(out)
+    }
+}
+
+/// Removes triangles of `tris` without area (`at` gives a corner's plane
+/// position, `eps` the smallest area kept). The triangle sharing a sliver's
+/// long side is split at the sliver's middle corner, so no edge of the
+/// remaining triangles has a corner lying inside it (milestone 1.44).
+fn mend_slivers(tris: &mut Vec<[usize; 3]>, at: impl Fn(usize) -> (f64, f64), eps: f64) {
+    let area = |t: &[usize; 3]| {
+        let (a, b, c) = (at(t[0]), at(t[1]), at(t[2]));
+        ((b.0 - a.0) * (c.1 - a.1) - (b.1 - a.1) * (c.0 - a.0)).abs() * 0.5
+    };
+    let d2 = |i: usize, j: usize| {
+        let (p, q) = (at(i), at(j));
+        (p.0 - q.0).powi(2) + (p.1 - q.1).powi(2)
+    };
+    for _ in 0..=tris.len() * 2 {
+        let Some(k) = tris.iter().position(|t| area(t) <= eps) else {
+            return;
+        };
+        let t = tris.swap_remove(k);
+        // The middle corner is opposite the longest side.
+        let m = (0..3)
+            .max_by(|&x, &y| {
+                d2(t[(x + 1) % 3], t[(x + 2) % 3]).total_cmp(&d2(t[(y + 1) % 3], t[(y + 2) % 3]))
+            })
+            .unwrap_or(0);
+        let (mid, a, c) = (t[m], t[(m + 1) % 3], t[(m + 2) % 3]);
+        if mid == a || mid == c || d2(a, c) <= 0.0 {
+            continue;
+        }
+        if let Some(n) = tris.iter().position(|u| u.contains(&a) && u.contains(&c)) {
+            let u = tris[n];
+            tris[n] = u.map(|v| if v == c { mid } else { v });
+            tris.push(u.map(|v| if v == a { mid } else { v }));
+        }
     }
 }
 
@@ -1620,6 +2047,8 @@ pub struct IgesRead {
     pub instances: Vec<IgesInstance>,
     /// Faces that could not be read.
     pub skipped: usize,
+    /// Manifold solid B-rep objects (186) read (milestone 1.44).
+    pub solids: usize,
 }
 
 /// Reads an IGES file's faces — planar ones with their loops, curved ones
@@ -1653,8 +2082,9 @@ pub fn read_structure(text: &str) -> Result<IgesRead, IoError> {
                 let k = if e.kind == 143 { 1 } else { 2 };
                 used.extend(e.params.get(k).map(|s| int(s)));
             }
-            142 => {
-                used.extend(e.params.get(1).map(|s| int(s)));
+            142 | 510 => {
+                let k = if e.kind == 142 { 1 } else { 0 };
+                used.extend(e.params.get(k).map(|s| int(s)));
             }
             _ => {}
         }
@@ -1666,16 +2096,34 @@ pub fn read_structure(text: &str) -> Result<IgesRead, IoError> {
         if into.is_none() && e.dependent && e.kind != 408 {
             continue;
         }
-        let (faces, curved): (Option<Vec<FaceLoops>>, bool) = match e.kind {
+        let (faces, n): (Option<Vec<FaceLoops>>, usize) = match e.kind {
             144 | 143 => match model.face(e) {
-                Some((f, c)) => (Some(f), c),
+                Some((f, c)) => {
+                    let n = if c { f.len() } else { 0 };
+                    (Some(f), n)
+                }
+                None => {
+                    out.skipped += 1;
+                    continue;
+                }
+            },
+            186 => match model.solid(e) {
+                Some(s) => {
+                    out.skipped += s.skipped;
+                    out.solids += 1;
+                    (Some(s.faces), s.curved)
+                }
                 None => {
                     out.skipped += 1;
                     continue;
                 }
             },
             128 | 120 | 122 | 118 if !used.contains(&ptr) => match model.surf(ptr) {
-                Some(surf) => (model.tessellate(&surf, None), true),
+                Some(surf) => {
+                    let f = model.tessellate(&surf, None);
+                    let n = f.as_ref().map_or(0, Vec::len);
+                    (f, n)
+                }
                 None => continue,
             },
             408 => {
@@ -1703,7 +2151,6 @@ pub fn read_structure(text: &str) -> Result<IgesRead, IoError> {
             out.skipped += 1;
             continue;
         };
-        let n = if curved { faces.len() } else { 0 };
         match into {
             Some(d) => {
                 out.definitions[d].faces.extend(faces);
@@ -1717,7 +2164,7 @@ pub fn read_structure(text: &str) -> Result<IgesRead, IoError> {
     }
     if out.faces.is_empty() && out.instances.is_empty() {
         return Err(IoError::UnsupportedFormat(format!(
-            "no readable trimmed, bounded or freestanding surfaces ({} other faces)",
+            "no readable solids, trimmed, bounded or freestanding surfaces ({} other faces)",
             out.skipped
         )));
     }
@@ -1803,12 +2250,12 @@ impl Exporter for IgesExporter {
         &self,
         doc: &Document,
         scope: &ExportScope,
-        _opts: &ExportOptions,
+        opts: &ExportOptions,
         dst: &mut dyn Write,
         progress: &dyn Progress,
     ) -> Result<ExportReport, IoError> {
         progress.check_cancelled()?;
-        let (text, faces) = write(doc, scope, "model.igs")?;
+        let (text, faces) = write(doc, scope, "model.igs", opts.solids)?;
         dst.write_all(text.as_bytes())
             .map_err(|e| IoError::storage("iges", e.to_string()))?;
         Ok(ExportReport {
@@ -2035,7 +2482,7 @@ mod tests {
         let mut e = Engine::new(Document::new(), Arc::new(CommandRegistry::with_builtins()));
         e.execute_erased("standard-part", json!({"kind": "washer", "size": "M8"}))
             .unwrap();
-        let (text, faces) = write(e.document(), &ExportScope::default(), "w.igs").unwrap();
+        let (text, faces) = write(e.document(), &ExportScope::default(), "w.igs", false).unwrap();
         assert!(faces > 24);
         assert!(text.lines().all(|l| l.len() == 80), "fixed 80-column lines");
         let (read_faces, skipped) = read(&text).unwrap();
@@ -2054,12 +2501,185 @@ mod tests {
             crate::parts::standard_part(crate::parts::PartKind::Washer, "M8", None, &tol).unwrap();
         assert!((mesh.volume().unwrap() - washer.mesh.volume().unwrap()).abs() < 1e-3);
         assert_eq!(
-            write(e.document(), &ExportScope::default(), "w.igs")
+            write(e.document(), &ExportScope::default(), "w.igs", false)
                 .unwrap()
                 .0,
             text
         );
         crate::io::step_structure::tests::golden("iges/washer-m8.igs", &text);
+    }
+
+    #[test]
+    fn closed_shells_go_out_as_brep_solids_and_come_back() {
+        let mut e = Engine::new(Document::new(), Arc::new(CommandRegistry::with_builtins()));
+        e.execute_erased("standard-part", json!({"kind": "washer", "size": "M8"}))
+            .unwrap();
+        // A loose open face beside the solid stays a trimmed surface.
+        e.execute_erased(
+            "rectangle",
+            json!({"corner_a": [100.0, 0.0, 0.0], "corner_b": [110.0, 5.0, 0.0]}),
+        )
+        .unwrap();
+        let (text, faces) = write(e.document(), &ExportScope::default(), "w.igs", true).unwrap();
+        assert!(text.lines().all(|l| l.len() == 80), "fixed 80-column lines");
+        let model = parse(&text).unwrap();
+        let count = |k: u32| model.entries.values().filter(|d| d.kind == k).count();
+        assert_eq!(
+            (count(186), count(514), count(502), count(504)),
+            (1, 1, 1, 1)
+        );
+        assert_eq!(count(144), 1, "the rectangle");
+        assert_eq!(count(510) + 1, faces);
+        // The washer is a component: its solid is a subfigure's member.
+        let r = read_structure(&text).unwrap();
+        assert_eq!((r.solids, r.skipped, r.faces.len()), (1, 0, 1));
+        let (all, skipped) = read(&text).unwrap();
+        assert_eq!((all.len(), skipped), (faces, 0));
+        let tol = Tolerances::default();
+        let solid: Vec<Piece> = all[1..]
+            .iter()
+            .map(|loops| Piece {
+                loops: loops.clone(),
+                sides: FaceSides::default(),
+            })
+            .collect();
+        let mesh = stitch(&solid, &tol).unwrap();
+        assert!(mesh.is_solid());
+        let washer =
+            crate::parts::standard_part(crate::parts::PartKind::Washer, "M8", None, &tol).unwrap();
+        assert!((mesh.volume().unwrap() - washer.mesh.volume().unwrap()).abs() < 1e-3);
+        assert!(
+            mesh.volume().unwrap() > 0.0,
+            "faces point out of the material"
+        );
+        // Without the option nothing changes.
+        let (plain, _) = write(e.document(), &ExportScope::default(), "w.igs", false).unwrap();
+        let plain = parse(&plain).unwrap();
+        assert!(
+            plain
+                .entries
+                .values()
+                .all(|d| d.kind != 186 && d.kind != 510)
+        );
+    }
+
+    /// A cylinder of radius 10 and height 20 as a B-rep solid: planar caps
+    /// bounded by full circles and a surface of revolution whose normal
+    /// points inward (used against it), closed by a seam edge.
+    fn brep_cylinder(inside_out: bool) -> String {
+        let mut w = Writer {
+            entities: Vec::new(),
+        };
+        let s = |v: &[f64]| v.iter().map(|x| real(*x)).collect::<Vec<_>>();
+        let vertices = w.add(
+            502,
+            1,
+            [vec!["2".into()], s(&[10., 0., 0., 10., 0., 20.])].concat(),
+            true,
+        );
+        let bottom = w.add(100, 0, s(&[0., 0., 0., 10., 0., 10., 0.]), true);
+        let top = w.add(100, 0, s(&[20., 0., 0., 10., 0., 10., 0.]), true);
+        let seam = w.add(110, 0, s(&[10., 0., 0., 10., 0., 20.]), true);
+        let v = vertices.to_string();
+        let edge = |c: usize, a: &str, b: &str| {
+            vec![c.to_string(), v.clone(), a.into(), v.clone(), b.into()]
+        };
+        let edges = w.add(
+            504,
+            1,
+            [
+                vec!["3".into()],
+                edge(bottom, "1", "1"),
+                edge(top, "2", "2"),
+                edge(seam, "1", "2"),
+            ]
+            .concat(),
+            true,
+        );
+        let l = edges.to_string();
+        let use_ =
+            |k: &str, f: &str| vec!["0".to_string(), l.clone(), k.into(), f.into(), "0".into()];
+        let bottom_loop = w.add(508, 1, [vec!["1".into()], use_("1", "0")].concat(), true);
+        let top_loop = w.add(508, 1, [vec!["1".into()], use_("2", "1")].concat(), true);
+        let side_loop = w.add(
+            508,
+            1,
+            [
+                vec!["4".into()],
+                use_("1", "1"),
+                use_("3", "1"),
+                use_("2", "0"),
+                use_("3", "0"),
+            ]
+            .concat(),
+            true,
+        );
+        let down = w.add(108, 0, s(&[0., 0., -1., 0., 0., 0., 0., 0., 0.]), true);
+        let up = w.add(108, 0, s(&[0., 0., 1., 20., 0., 0., 0., 0., 0.]), true);
+        let axis = w.add(110, 0, s(&[0., 0., 0., 0., 0., 1.]), true);
+        let line = w.add(110, 0, s(&[10., 0., 0., 10., 0., 20.]), true);
+        let side = w.add(
+            120,
+            0,
+            vec![
+                axis.to_string(),
+                line.to_string(),
+                real(0.0),
+                real(std::f64::consts::TAU),
+            ],
+            true,
+        );
+        let face = |w: &mut Writer, surface: usize, lp: usize| {
+            w.add(
+                510,
+                1,
+                vec![surface.to_string(), "1".into(), "1".into(), lp.to_string()],
+                true,
+            )
+        };
+        let faces = [
+            face(&mut w, down, bottom_loop),
+            face(&mut w, up, top_loop),
+            face(&mut w, side, side_loop),
+        ];
+        let flags = ["1", "1", "0"].map(|f| {
+            if inside_out {
+                if f == "1" { "0" } else { "1" }
+            } else {
+                f
+            }
+        });
+        let mut p = vec!["3".to_string()];
+        for (f, o) in faces.iter().zip(flags) {
+            p.extend([f.to_string(), o.to_string()]);
+        }
+        let shell = w.add(514, 1, p, true);
+        let sof = if inside_out { "0" } else { "1" };
+        w.add(
+            186,
+            0,
+            vec![shell.to_string(), sof.into(), "0".into()],
+            false,
+        );
+        w.text("cylinder.igs")
+    }
+
+    #[test]
+    fn a_brep_cylinder_with_a_curved_side_is_a_solid() {
+        let tol = Tolerances::default();
+        for inside_out in [false, true] {
+            let r = read_structure(&brep_cylinder(inside_out)).unwrap();
+            assert_eq!((r.solids, r.skipped), (1, 0));
+            assert!(r.curved > 20, "the side became triangles");
+            assert_eq!(r.faces.len(), r.curved + 2);
+            let mesh = mesh_of(&r.faces, r.curved, &tol).unwrap();
+            assert!(mesh.is_solid());
+            // 24 boundary segments per turn: between the polygon's prism
+            // and the true cylinder.
+            let v = mesh.volume().unwrap();
+            let true_volume = std::f64::consts::PI * 100.0 * 20.0;
+            assert!(v > 0.98 * true_volume && v < true_volume + 1.0, "{v}");
+        }
     }
 
     #[test]
@@ -2249,7 +2869,7 @@ mod tests {
         ] {
             e.execute_erased(name, params).unwrap();
         }
-        let (text, faces) = write(e.document(), &ExportScope::default(), "a.igs").unwrap();
+        let (text, faces) = write(e.document(), &ExportScope::default(), "a.igs", false).unwrap();
         assert_eq!(faces, 13);
         let r = read_structure(&text).unwrap();
         assert_eq!(

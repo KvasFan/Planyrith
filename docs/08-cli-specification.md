@@ -99,7 +99,8 @@ Exports 3D formats (`obj`, `stl`, `3mf`, `ply`, `dae`, `fbx`, `usda`, `usdz`, `i
 the `export` command (`planyrith tool export --help`): `--ascii` (STL), `--z-up`, `--units` (the
 file's unit), `--targets <query>`, `--include-hidden`, and for drawings `--2d` (DXF; SVG and PDF
 always are), `--scene <name>`, `--scale 1:50`, `--paper-width <length>`, and for 3D printing
-`--per-object` and `--on-plate` (docs/05 §10); the document is not saved.
+`--per-object` and `--on-plate` (docs/05 §10), and `--solids` (closed shells as IGES B-rep
+solids); the document is not saved.
 
 ### `planyrith render -f model.plyr <out.png> [--width 1920 --height 1080] [--scene <name> | --camera 'eye=…;target=…;fov=35'] [--style <name>] [--shadows] [--transparent] [--msaa 4] [--show-hidden] [--deterministic] [--path-traced [--samples 64] [--bounces 4] [--gpu]]`
 Headless rendering (`docs/06 §11`). `--gpu` traces a path-traced image on the graphics card

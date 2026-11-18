@@ -193,6 +193,10 @@ pub struct ExportOptions {
     /// build-plate placement of docs/05 §10).
     #[serde(default)]
     pub offset_mm: [f64; 3],
+    /// Closed shells as solids where the format distinguishes them (IGES
+    /// manifold solid B-rep objects, milestone 1.44).
+    #[serde(default)]
+    pub solids: bool,
 }
 
 impl Default for ExportOptions {
@@ -212,6 +216,7 @@ impl Default for ExportOptions {
             scale: None,
             paper_width_mm: None,
             offset_mm: [0.0; 3],
+            solids: false,
         }
     }
 }

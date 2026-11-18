@@ -81,6 +81,10 @@ pub struct ExportParams {
     /// build plate (STL, OBJ, glTF, GLB, 3MF).
     #[serde(default)]
     pub on_plate: bool,
+    /// Write closed shells as solids: IGES manifold solid B-rep objects
+    /// (186) instead of separate trimmed surfaces.
+    #[serde(default)]
+    pub solids: bool,
 }
 
 /// `export` output.
@@ -341,6 +345,7 @@ impl Command for Export {
             units: units(&p)?,
             ascii: p.ascii,
             z_up: p.z_up,
+            solids: p.solids,
             destination: p.path.clone(),
             two_d: p.two_d,
             scale: paper_scale(&p)?,

@@ -4,6 +4,16 @@ All notable changes to Planyrith are recorded here. Versions follow
 [Semantic Versioning](https://semver.org/); before 1.0, minor versions are milestones of
 [`docs/13-roadmap.md`](docs/13-roadmap.md).
 
+## Unreleased
+
+### Added
+- 1.44: IGES manifold solid B-rep objects (186) import, voids and curved faces included;
+  `export --solids` writes closed shells as solids (the GUI's IGES export does).
+
+### Fixed
+- Curved IGES faces along finely sampled boundaries no longer leave gaps against their
+  neighbors.
+
 ## 0.12.0-alpha.1 — engineering milestones 1.7–1.43 (2026-11-17)
 
 Per-person undo and joining from the browser (1.7), then the engineering milestones: measuring

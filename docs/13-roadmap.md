@@ -549,11 +549,27 @@ meshes, transforms, references as components, display colors and preview materia
   materials and textures, references as components; File › Import offers it (docs/09 §5 and
   Decisions). Binary layers remain out of scope.
 
+## 1.44.0 — IGES solids
+
+Read and write IGES manifold solid B-rep objects (186), the form other modelers use for bodies.
+
+- **Done (2026-11-18):** import of 186 solids with voids, planar and curved faces and any
+  supported edge curve; `export --solids` (and the GUI's IGES export) writes closed shells as
+  solids; curved faces along sampled boundaries now close against their neighbors (docs/09
+  Decisions).
+
 ## Post-1.0 candidates
 Other limits remain listed against their original milestones; no unrelated feature scope is
 added by the continuation milestones 1.19–1.32.
 
 ## Decisions
+
+- 2026-11-18 — **Completing every remaining feature.** Asked to complete all features, the
+  limits left after 1.43 and the formats docs/09 listed as future work become milestones from
+  1.44: IGES solids, STEP semantic annotations, flanges on flange sides, internal tangency of
+  filled circles, freeform parting surfaces with side actions, 3DS, binary USD layers, FBX 6,
+  DWG, and the open SKP presentation items. Items that need the user remain: 2023/2024 SKP
+  files, opening regenerated files in the target application, macOS packaging.
 
 - 2026-11-16 — **Completing reserved gaps.** Asked to resume and to implement and test every
   missing feature, the gaps recorded against earlier milestones become 1.33–1.43, in order of

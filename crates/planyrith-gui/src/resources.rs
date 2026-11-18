@@ -146,7 +146,17 @@ impl FileRequest {
             FileRequest::StyleLibrarySave => ("style-library-save", json!({ "path": path })),
             FileRequest::Image => ("image-insert", json!({ "path": path })),
             FileRequest::Import => ("import", json!({ "path": path })),
-            FileRequest::Export | FileRequest::Report => ("export", json!({ "path": path })),
+            FileRequest::Export => {
+                // IGES models leave as solids where shells are closed
+                // (milestone 1.44): other modelers read them as bodies.
+                let lower = path.to_ascii_lowercase();
+                if lower.ends_with(".igs") || lower.ends_with(".iges") {
+                    ("export", json!({ "path": path, "solids": true }))
+                } else {
+                    ("export", json!({ "path": path }))
+                }
+            }
+            FileRequest::Report => ("export", json!({ "path": path })),
             FileRequest::Export2d => ("export", json!({ "path": path, "two_d": true })),
             FileRequest::ExportPrint { per_object } => (
                 "export",
@@ -1402,6 +1412,15 @@ mod tests {
         for ext in ["usda", "usdz"] {
             assert!(extensions.contains(&ext));
         }
+    }
+
+    /// File › Export › 3D Model writes IGES solids (milestone 1.44).
+    #[test]
+    fn iges_exports_write_solids() {
+        let (_, p) = FileRequest::Export.command("/w/Part.IGS");
+        assert_eq!(p["solids"], true);
+        let (_, p) = FileRequest::Export.command("/w/part.stl");
+        assert!(p.get("solids").is_none());
     }
 
     #[test]
