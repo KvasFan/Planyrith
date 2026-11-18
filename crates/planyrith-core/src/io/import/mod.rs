@@ -25,6 +25,7 @@ pub mod step21;
 pub mod stl;
 pub mod three_mf;
 pub mod usd;
+pub mod usdc;
 
 use std::io::Read;
 
@@ -73,7 +74,8 @@ pub enum ImportFormat {
     Fbx,
     /// IGES 5.x (planar trimmed and bounded surfaces).
     Iges,
-    /// USD text layers (`.usda`) and USDZ packages of them (milestone 1.43).
+    /// USD text (`.usda`) and binary (`.usdc`, milestone 1.50) layers and
+    /// USDZ packages of them (milestone 1.43).
     Usd,
     /// 3DS chunked mesh files (milestone 1.49).
     #[serde(rename = "3ds")]
@@ -128,7 +130,7 @@ impl ImportFormat {
             "ifc" => ImportFormat::Ifc,
             "fbx" => ImportFormat::Fbx,
             "igs" | "iges" => ImportFormat::Iges,
-            "usda" | "usdz" | "usd" => ImportFormat::Usd,
+            "usda" | "usdz" | "usd" | "usdc" => ImportFormat::Usd,
             "3ds" => ImportFormat::ThreeDs,
             _ => return None,
         })

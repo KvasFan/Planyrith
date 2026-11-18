@@ -10,9 +10,9 @@
 //! materials bound by `material:binding` give colors, opacity, roughness,
 //! metalness and textures. A prim referencing another (in the same layer,
 //! or another text layer beside it or in the package) places the same
-//! meshes again, so they come back as components. Binary layers are
-//! refused with a clear message; invisible prims and `class` prims are not
-//! drawn.
+//! meshes again, so they come back as components. Binary (crate) layers
+//! are decoded into the same prims (milestone 1.50, `usdc`); invisible
+//! prims and `class` prims are not drawn.
 
 use std::collections::BTreeMap;
 use std::io::Read;
@@ -509,6 +509,188 @@ fn parse(text: &str) -> Result<Layer, IoError> {
     .layer()
 }
 
+/// A layer from its bytes: binary (crate, milestone 1.50) or text.
+fn parse_layer(bytes: &[u8]) -> Result<Layer, IoError> {
+    if bytes.starts_with(b"PXR-USDC") {
+        return Ok(layer_of_crate(crate::io::import::usdc::read(bytes)?));
+    }
+    let text = std::str::from_utf8(bytes).map_err(|_| corrupt("the layer is not UTF-8 text"))?;
+    parse(text)
+}
+
+/// A crate value as a text-syntax value.
+fn val_of(v: &crate::io::import::usdc::CrateValue) -> Val {
+    use crate::io::import::usdc::CrateValue as C;
+    let nums = |v: &[f64]| Val::Tuple(v.iter().map(|x| Val::Num(*x)).collect());
+    match v {
+        C::Num(n) => Val::Num(*n),
+        C::Text(s) => Val::Str(s.clone()),
+        C::Asset(s) => Val::Asset(s.clone()),
+        C::Tuple(t) => nums(t),
+        C::Matrix(n, m) => Val::Tuple(m.chunks((*n).max(1)).map(nums).collect()),
+        C::Array(a) => Val::List(a.iter().map(val_of).collect()),
+        C::Paths(p) => Val::List(p.iter().map(|s| Val::Path(s.clone())).collect()),
+        C::Sampled(b) => val_of(b),
+        C::References(_) | C::Specifier(_) | C::Other => Val::None,
+    }
+}
+
+/// The prims of a crate layer's specs (milestone 1.50): prims by their
+/// paths with their attributes (default value, else the first time
+/// sample), connections, relationship targets, references and children in
+/// the layer's order; the layer's own fields are its metadata.
+fn layer_of_crate(specs: Vec<crate::io::import::usdc::Spec>) -> Layer {
+    use crate::io::import::usdc::CrateValue as C;
+    let mut layer = Layer::default();
+    let mut prims: BTreeMap<String, Prim> = BTreeMap::new();
+    let mut seen: Vec<String> = Vec::new();
+    let mut order: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let name_of = |path: &str| path.rsplit('/').next().unwrap_or_default().to_string();
+    let prim_at = |path: &str, prims: &mut BTreeMap<String, Prim>, seen: &mut Vec<String>| {
+        if !prims.contains_key(path) {
+            seen.push(path.to_string());
+            prims.insert(
+                path.to_string(),
+                Prim {
+                    specifier: "def".into(),
+                    name: name_of(path),
+                    ..Default::default()
+                },
+            );
+        }
+    };
+    for spec in specs {
+        match spec.kind {
+            7 => {
+                for (k, v) in &spec.fields {
+                    if k == "primChildren" {
+                        if let C::Array(a) = v {
+                            order.insert("/".into(), names(a));
+                        }
+                    } else {
+                        layer.meta.insert(k.clone(), val_of(v));
+                    }
+                }
+            }
+            6 => {
+                if spec.path.contains('{') {
+                    continue;
+                }
+                prim_at(&spec.path, &mut prims, &mut seen);
+                let Some(prim) = prims.get_mut(&spec.path) else {
+                    continue;
+                };
+                for (k, v) in &spec.fields {
+                    match (k.as_str(), v) {
+                        ("specifier", C::Specifier(n)) => {
+                            prim.specifier = ["def", "over", "class"]
+                                .get(*n as usize)
+                                .unwrap_or(&"def")
+                                .to_string();
+                        }
+                        ("typeName", C::Text(t)) => prim.kind = t.clone(),
+                        ("references", C::References(list)) => {
+                            for (asset, path) in list {
+                                prim.references.push((
+                                    (!asset.is_empty()).then(|| asset.clone()),
+                                    (!path.is_empty()).then(|| path.clone()),
+                                ));
+                            }
+                        }
+                        ("primChildren", C::Array(a)) => {
+                            order.insert(spec.path.clone(), names(a));
+                        }
+                        _ => {
+                            prim.meta.insert(k.clone(), val_of(v));
+                        }
+                    }
+                }
+            }
+            1 | 8 => {
+                let Some((owner, name)) = spec.path.rsplit_once('.') else {
+                    continue;
+                };
+                if owner.contains('{') {
+                    continue;
+                }
+                prim_at(owner, &mut prims, &mut seen);
+                let Some(prim) = prims.get_mut(owner) else {
+                    continue;
+                };
+                let field = |n: &str| spec.fields.iter().find(|(k, _)| k == n).map(|(_, v)| v);
+                if spec.kind == 8 {
+                    if let Some(C::Paths(p)) = field("targetPaths") {
+                        prim.rels.insert(name.to_string(), p.clone());
+                    }
+                    continue;
+                }
+                if let Some(C::Paths(p)) = field("connectionPaths")
+                    && let Some(first) = p.first()
+                {
+                    prim.connections.insert(name.to_string(), first.clone());
+                }
+                if let Some(v) = field("default").or_else(|| field("timeSamples")) {
+                    let v = val_of(v);
+                    if v != Val::None {
+                        prim.attrs.insert(name.to_string(), v);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    // The tree, children in the layer's order (else as the specs came).
+    fn build(
+        path: &str,
+        prims: &mut BTreeMap<String, Prim>,
+        seen: &[String],
+        order: &BTreeMap<String, Vec<String>>,
+        depth: usize,
+    ) -> Option<Prim> {
+        let mut prim = prims.remove(path)?;
+        if depth > 128 {
+            return Some(prim);
+        }
+        let child = |n: &str| {
+            if path == "/" {
+                format!("/{n}")
+            } else {
+                format!("{path}/{n}")
+            }
+        };
+        let mut names: Vec<String> = order.get(path).cloned().unwrap_or_default();
+        for p in seen {
+            if let Some((parent, n)) = p.rsplit_once('/') {
+                let parent = if parent.is_empty() { "/" } else { parent };
+                if parent == path && !names.iter().any(|x| x == n) {
+                    names.push(n.to_string());
+                }
+            }
+        }
+        for n in names {
+            if let Some(c) = build(&child(&n), prims, seen, order, depth + 1) {
+                prim.children.push(c);
+            }
+        }
+        Some(prim)
+    }
+    prims.insert("/".into(), Prim::default());
+    if let Some(root) = build("/", &mut prims, &seen, &order, 0) {
+        layer.prims = root.children;
+    }
+    layer
+}
+
+/// The names in a token array.
+fn names(a: &[crate::io::import::usdc::CrateValue]) -> Vec<String> {
+    a.iter()
+        .filter_map(|v| match v {
+            crate::io::import::usdc::CrateValue::Text(t) => Some(t.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
 // ----- composition ------------------------------------------------------------------------
 
 /// The prim at `path` (`/A/B`) of a layer.
@@ -670,8 +852,7 @@ impl Gather<'_> {
             return Some(l.clone());
         }
         let bytes = self.files.read(name)?;
-        let text = String::from_utf8(bytes).ok()?;
-        match parse(&text) {
+        match parse_layer(&bytes) {
             Ok(l) => {
                 self.layers.insert(name.to_string(), l.clone());
                 Some(l)
@@ -1013,13 +1194,12 @@ fn units(meters: f64) -> (Option<LengthUnit>, f64) {
     (Some(LengthUnit::Millimeter), meters * 1000.0)
 }
 
-/// Reads a text layer (and what it references) into a scene.
+/// Reads a layer (and what it references) into a scene.
 fn read_stage(
-    text: &str,
+    root: Layer,
     files: &Files<'_>,
     name: String,
 ) -> Result<(ImportedScene, Vec<String>), IoError> {
-    let root = parse(text)?;
     let mut g = Gather {
         files,
         scene: ImportedScene {
@@ -1090,9 +1270,12 @@ impl Importer for UsdImporter {
 
     fn probe(&self, bytes: &[u8], name: &str) -> Confidence {
         let lower = name.to_ascii_lowercase();
-        if bytes.starts_with(b"#usda") {
+        if bytes.starts_with(b"#usda") || bytes.starts_with(b"PXR-USDC") {
             Confidence::CERTAIN
-        } else if lower.ends_with(".usda") || lower.ends_with(".usdz") || lower.ends_with(".usd") {
+        } else if [".usda", ".usdz", ".usd", ".usdc"]
+            .iter()
+            .any(|e| lower.ends_with(e))
+        {
             Confidence::EXTENSION
         } else {
             Confidence::NONE
@@ -1119,9 +1302,8 @@ impl Importer for UsdImporter {
                 "USD imports as a group or component".into(),
             ));
         }
-        let binary = |b: &[u8]| b.starts_with(b"PXR-USDC");
         let storage = tx.storage();
-        let (text, package) = if bytes.starts_with(b"PK") {
+        let (root, package) = if bytes.starts_with(b"PK") {
             let entries = unpack(&bytes)?;
             let Some((_, first)) = entries
                 .iter()
@@ -1129,23 +1311,10 @@ impl Importer for UsdImporter {
             else {
                 return Err(corrupt("the package holds no USD layer"));
             };
-            if binary(first) {
-                return Err(IoError::UnsupportedFormat(
-                    "the package's layer is binary USD (crate); export it as text (.usda)".into(),
-                ));
-            }
-            let text = String::from_utf8(first.clone())
-                .map_err(|_| corrupt("the layer is not UTF-8 text"))?;
-            (text, entries.into_iter().collect::<BTreeMap<_, _>>())
-        } else if binary(&bytes) {
-            return Err(IoError::UnsupportedFormat(
-                "binary USD (crate) is not supported; export the stage as text (.usda)".into(),
-            ));
+            let root = parse_layer(first)?;
+            (root, entries.into_iter().collect::<BTreeMap<_, _>>())
         } else {
-            (
-                String::from_utf8(bytes).map_err(|_| corrupt("the layer is not UTF-8 text"))?,
-                BTreeMap::new(),
-            )
+            (parse_layer(&bytes)?, BTreeMap::new())
         };
         progress.check_cancelled()?;
         let files = Files {
@@ -1154,7 +1323,7 @@ impl Importer for UsdImporter {
             source: opts.source.clone(),
         };
         let name = crate::io::import::source_stem(&opts.source, "USD");
-        let (scene, warnings) = read_stage(&text, &files, name)?;
+        let (scene, warnings) = read_stage(root, &files, name)?;
         let mut report = build_scene(tx, target, scene, opts)?;
         for w in warnings {
             report.warnings.push(Warning::new(WarningCode::W2004, w));
@@ -1167,6 +1336,89 @@ impl Importer for UsdImporter {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    /// Milestone 1.50: a binary layer imports like a text one, alone and
+    /// inside a package.
+    #[test]
+    fn binary_layers_import() {
+        let bytes = crate::io::import::usdc::test_cube();
+        crate::io::step_structure::tests::golden_bytes("usd/box.usdc", &bytes);
+        for (name, data) in [
+            ("box.usdc", bytes.clone()),
+            ("box.usdz", {
+                let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+                zip.start_file(
+                    "box.usdc",
+                    zip::write::SimpleFileOptions::default()
+                        .compression_method(zip::CompressionMethod::Stored),
+                )
+                .unwrap();
+                std::io::Write::write_all(&mut zip, &bytes).unwrap();
+                zip.finish().unwrap().into_inner()
+            }),
+        ] {
+            let mut e = Engine::new(Document::new(), Arc::new(CommandRegistry::with_builtins()));
+            let storage = Arc::new(MemoryStorage::new());
+            e.set_storage(storage.clone());
+            Storage::write(storage.as_ref(), &StorageKey::new(name), &data).unwrap();
+            let out = e.execute_erased("import", json!({ "path": name })).unwrap();
+            assert_eq!(out["faces"], 6, "{name}: {out}");
+            let doc = e.document();
+            let (_, def) = doc
+                .definitions
+                .iter()
+                .find(|(_, d)| d.entities.mesh().face_count() == 6)
+                .unwrap();
+            let mesh = def.entities.mesh();
+            assert!(mesh.is_solid(), "{name}");
+            assert!((mesh.volume().unwrap() - 1000.0).abs() < 1e-6, "{name}");
+        }
+    }
+
+    /// Reads every binary layer in `PLANYRITH_USDC_DIR` (files from other
+    /// writers, not kept in the repository) and reports what each holds.
+    #[test]
+    fn binary_layers_from_a_folder() {
+        let Some(dir) = std::env::var_os("PLANYRITH_USDC_DIR") else {
+            return;
+        };
+        let mut entries: Vec<_> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .collect();
+        entries.sort();
+        for path in entries {
+            let bytes = std::fs::read(&path).unwrap();
+            let specs = crate::io::import::usdc::read(&bytes);
+            let summary = match &specs {
+                Ok(s) => format!("{} specs", s.len()),
+                Err(e) => format!("error {e}"),
+            };
+            let files = Files {
+                package: BTreeMap::new(),
+                storage: None,
+                source: path.display().to_string(),
+            };
+            let scene = parse_layer(&bytes).and_then(|l| read_stage(l, &files, "t".into()));
+            match scene {
+                Ok((s, w)) => eprintln!(
+                    "{}: {summary}; {} meshes, {} nodes, {} triangles, {} materials, up {}, units {:?}, bounds {:?}; {w:?}",
+                    path.display(),
+                    s.meshes.len(),
+                    s.nodes.len(),
+                    s.meshes.iter().map(|m| m.triangles.len()).sum::<usize>(),
+                    s.materials.len(),
+                    if s.y_up { "Y" } else { "Z" },
+                    s.units,
+                    s.meshes.iter().flat_map(|m| m.positions.iter()).fold(
+                        (DVec3::splat(f64::MAX), DVec3::splat(f64::MIN)),
+                        |(lo, hi), p| (lo.min(*p), hi.max(*p))
+                    )
+                ),
+                Err(e) => eprintln!("{}: {summary}; scene error {e}", path.display()),
+            }
+        }
+    }
     use crate::commands::{CommandRegistry, Engine};
     use crate::document::Document;
     use crate::io::MemoryStorage;
@@ -1327,7 +1579,7 @@ def Xform "World"
             .iter()
             .any(|(_, m)| m.name == "Red" && m.texture.is_some());
         assert!(textured);
-        // A binary layer is refused with a reason.
+        // A truncated binary layer is refused with a reason.
         let (mut e, storage) = engine();
         storage
             .write(&StorageKey::new("b.usd"), b"PXR-USDC\0\0\0\0")

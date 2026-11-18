@@ -93,7 +93,7 @@ control via `planyrith export --format json`. It is **not** required to load the
 | OBJ (+MTL) | ✔ | ✔ | groups → groups or components (`o`/`g`), materials, UVs, normals (as soft edges). |
 | 3MF | ✔ | ✔ | the 3D printing package: mesh objects with base materials or color groups, components and build items on import; one welded object per visible occurrence with faces, base-material colors and the file unit on export (`W2007` for objects that are not closed solids). |
 | PLY (ASCII/binary) | ✔ | ✔ | polygon meshes, e.g. from 3D scanning: vertex and face colors become materials on import; export writes triangles with the front color on each vertex (binary little-endian unless `--ascii`). |
-| USD (`.usda`, `.usdz`) | ✔ (text layers, milestone 1.43) | ✔ | export: a text stage, or packed (stored, 64-byte aligned) for augmented-reality viewers: one mesh per occurrence and material, Z up, `metersPerUnit` from `--file-units`, preview-surface materials with their textures. Import: text layers and USDZ packages of them — meshes placed by their transform operations, `upAxis` and `metersPerUnit`, preview-surface materials (color, opacity, roughness, metalness, texture) and display colors, texture coordinates, references (inside the layer, or to another text layer beside it or in the package) as components; invisible and `class` prims are not drawn; binary (crate) layers are refused. |
+| USD (`.usda`, `.usdc`, `.usdz`) | ✔ (text layers, milestone 1.43; binary layers, milestone 1.50) | ✔ | export: a text stage, or packed (stored, 64-byte aligned) for augmented-reality viewers: one mesh per occurrence and material, Z up, `metersPerUnit` from `--file-units`, preview-surface materials with their textures. Import: text layers and USDZ packages of them — meshes placed by their transform operations, `upAxis` and `metersPerUnit`, preview-surface materials (color, opacity, roughness, metalness, texture) and display colors, texture coordinates, references (inside the layer, or to another text layer beside it or in the package) as components; invisible and `class` prims are not drawn; binary (crate) layers from version 0.4 on are decoded into the same prims, alone, in a package or referenced. |
 | 3DS | ✔ (milestone 1.49) | ✔ | the chunked mesh format of older modelers: triangle objects with world-placed vertices, face material groups, texture coordinates and smoothing groups (faces sharing one meet along soft edges) on import, materials with diffuse (else ambient) color, transparency and a diffuse texture beside the file; export writes one object per occurrence (split at 65 535 vertices or faces), each face's corners with its texture coordinates, material groups and materials with color, transparency and texture (`<name>_textures/`), names cut to ten characters, Z up in `--units`. The keyframer (animation, hierarchy) is not read. |
 | IFC (IFC2X3, IFC4) | ✔ | ✔ (IFC4) | a building model for BIM tools: one storey holding an element per top-level group or component and the loose faces, triangulated face sets per material with surface colors, millimeters. |
 | COLLADA (`.dae`, 1.4/1.5) | ✔ | ✔ | geometry (triangles, polylists, polygons with holes), materials with colors, textures and transparency, the node tree with instanced nodes, unit and up axis; export shares a component's geometry among its instances. |
@@ -110,7 +110,7 @@ control via `planyrith export --format json`. It is **not** required to load the
 | SVG / PDF | — | ✔ | 2D export of a view (`--2d`) and of sheets (`docs/15`). Hidden-line removal in software; vector output. |
 | `.plyr/.plyrc` | ✔ | ✔ | merge another document as a group/component. |
 
-Out of scope (documented as future work): DWG; binary USD layers; FBX 6 and earlier.
+Out of scope (documented as future work): DWG; FBX 6 and earlier.
 Import of any unsupported entity yields `W2004` with counts, never a failure.
 
 ## 6. Importer/exporter contracts
@@ -768,3 +768,16 @@ save unless `--no-thumbnail`. `manifest.json` carries `title`, `author`, `descri
   its averaged normal, corners of faces without one stay apart. Export repeats each face's
   corners (one texture coordinate per vertex is all the format holds), keeps names to the
   original ten characters, uniquely numbered, and writes the master scale 1 in the chosen unit.
+- 2026-11-18 — **Binary USD layers (milestone 1.50).** The crate file is decoded without a
+  library, like the text syntax: its sections (tokens, strings, fields, field sets, paths,
+  specs) become specs with named fields, and those become the same prims a text layer gives,
+  so composition, references, materials and transforms are shared. The block compression is
+  LZ4, decoded by a small reader that checks every offset and length; compressed integers are
+  deltas from the previous value with a 2-bit width code each; float arrays may be stored as
+  integers or through a lookup table; small values (tokens, numbers, vectors and matrix
+  diagonals of small integers) are held inline. Attributes take their default value, else
+  their first time sample; deleted and reordered list items, variants and payloads are not
+  read. Versions before 0.4 (a different section layout) are refused. Six layers from three
+  independent public sources (versions 0.7 and 0.8: cubes, a torus, a mug, a scanned jug, a
+  scene with render and proxy meshes) were read during development; they are not kept in the
+  repository, which holds a cube written by a test writer instead.

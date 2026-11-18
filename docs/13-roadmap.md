@@ -547,7 +547,7 @@ meshes, transforms, references as components, display colors and preview materia
 
 - **Done (2026-11-16):** `import` of `.usda`/`.usdz` (text layers) with transforms, units,
   materials and textures, references as components; File › Import offers it (docs/09 §5 and
-  Decisions). Binary layers remain out of scope.
+  Decisions). Binary layers followed in 1.50.
 
 ## 1.44.0 — IGES solids
 
@@ -599,6 +599,13 @@ Exchange with older modelers and renderers through 3DS.
 - **Done (2026-11-18):** import of triangle objects, materials, texture coordinates, smoothing
   groups and textures; export with materials, textures and the format's limits (docs/09 §5 and
   Decisions); File › Import and Export offer it.
+
+## 1.50.0 — Binary USD layers
+
+Complete 1.43: binary (crate) USD layers, alone, in packages and referenced.
+
+- **Done (2026-11-18):** a crate decoder (`io::import::usdc`) feeding the USD importer;
+  `.usdc` in File › Import (docs/09 §5 and Decisions).
 
 ## Post-1.0 candidates
 Other limits remain listed against their original milestones; no unrelated feature scope is

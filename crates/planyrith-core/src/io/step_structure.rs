@@ -2078,6 +2078,22 @@ pub(crate) mod tests {
 
     /// Compares `text` with the fixture `name` (written when missing or
     /// with `PLANYRITH_UPDATE_GOLDEN`).
+    /// [`golden`] for bytes.
+    pub(crate) fn golden_bytes(name: &str, bytes: &[u8]) {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures")
+            .join(name);
+        if std::env::var_os("PLANYRITH_UPDATE_GOLDEN").is_some() || !path.exists() {
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, bytes).unwrap();
+        }
+        assert!(
+            std::fs::read(&path).unwrap() == bytes,
+            "{} differs (set PLANYRITH_UPDATE_GOLDEN=1 to accept)",
+            path.display()
+        );
+    }
+
     pub(crate) fn golden(name: &str, text: &str) {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("tests/fixtures")

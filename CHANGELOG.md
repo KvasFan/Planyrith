@@ -7,6 +7,7 @@ All notable changes to Planyrith are recorded here. Versions follow
 ## Unreleased
 
 ### Added
+- 1.50: binary USD layers (`.usdc`, and inside `.usdz` packages) import like text ones.
 - 1.49: 3DS import and export: objects, materials, texture coordinates and textures,
   smoothing groups as soft edges.
 - 1.48: molds divided by a freeform surface (`mold-split --surface`), and side actions cut for
