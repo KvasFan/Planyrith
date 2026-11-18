@@ -909,8 +909,9 @@ fn ray_hits(
 /// Cuts side actions out of the halves of `mold` for the undercuts of
 /// `part` (milestone 1.48). The part is scaled as for the mold (`origin`,
 /// `shrink_factor`). Undercut faces are grouped by half and shared edges;
-/// a group slides along the first of `±u`, `±v` across the pull (`u` as in
-/// [`pull_frame`]) in which none of its faces turns against the motion or
+/// a group slides along the first of `±u`, `±v` across the pull (`u`
+/// world red across it, else green) in which none of its faces turns
+/// against the motion or
 /// is shadowed by the part, the nearest way out of the blank first. Its
 /// piece is the half's material in a box over the group's extent across
 /// the motion, from the group to the blank's side along it, and from the
