@@ -465,7 +465,7 @@ reliefs where two flanges meet at a base corner, in the 3D part and the flat pat
 - **Done (2026-11-16):** stacked flanges with signed angles (`stack`), square and round corner
   reliefs (`relief_shape`, `relief_size`), stacked removal; folded part, blank and the
   Fabrication window agree (docs/03 §4.20, docs/05 §8.12). Flanges on a flange's side edges
-  remain out of scope.
+  followed in 1.46.
 
 ## 1.35.0 — Trimming and splitting by surfaces
 
@@ -566,6 +566,14 @@ Exchange dimensions and tolerances as data, beyond their graphical presentation.
   callout, with its nominal value and plus/minus tolerance; import adds a data-only tolerance
   to the dimension's text and turns data-only dimensions and geometric tolerances into notes
   where they apply (docs/09 Decisions).
+
+## 1.46.0 — Flanges on a flange's sides
+
+Complete sheet metal: tabs bent from the side edges of a flange's legs.
+
+- **Done (2026-11-18):** `sheet-metal-flange --side start|end [--leg n]`, `sheet-metal-set
+  --remove-sides`, folded part and blank, the Fabrication window's side buttons (docs/03
+  §4.20, docs/05 §8.12).
 
 ## Post-1.0 candidates
 Other limits remain listed against their original milestones; no unrelated feature scope is

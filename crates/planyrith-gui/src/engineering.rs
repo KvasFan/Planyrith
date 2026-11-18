@@ -1797,6 +1797,8 @@ pub struct FabricationWindow {
     miter: bool,
     relief_round: bool,
     relief_mm: f64,
+    /// The leg whose sides side flanges bend (milestone 1.46).
+    leg: usize,
     note: Option<String>,
 }
 
@@ -1815,6 +1817,7 @@ impl Default for FabricationWindow {
             miter: true,
             relief_round: false,
             relief_mm: 5.0,
+            leg: 0,
             note: None,
         }
     }
@@ -1968,6 +1971,33 @@ impl FabricationWindow {
                                 session,
                                 "sheet-metal-set",
                                 json!({ "part": "selection", "remove_stacked": self.edge }),
+                            );
+                        }
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label(t("Leg"));
+                        ui.add(egui::DragValue::new(&mut self.leg).range(0..=7))
+                            .on_hover_text(t("0 is the flange's own leg, then the stacked ones"));
+                        for (label, side) in [(t("Bend Start Side"), "start"), (t("Bend End Side"), "end")] {
+                            if ui
+                                .button(label)
+                                .on_hover_text(t("A tab bent from the side of the leg of the flange on this outline edge"))
+                                .clicked()
+                            {
+                                self.run(
+                                    session,
+                                    "sheet-metal-flange",
+                                    json!({ "part": "selection", "edge": self.edge, "side": side,
+                                            "leg": self.leg, "angle": self.angle_deg.to_radians(),
+                                            "length": self.length_mm }),
+                                );
+                            }
+                        }
+                        if ui.button(t("Remove Sides")).clicked() {
+                            self.run(
+                                session,
+                                "sheet-metal-set",
+                                json!({ "part": "selection", "remove_sides": self.edge }),
                             );
                         }
                     });
@@ -4581,6 +4611,26 @@ mod gui_tests {
             "{:?}",
             h.state().0.note
         );
+        // A tab bent outward from the end side of edge 1's flange (its
+        // neighbor, edge 2, has none), then removed (milestone 1.46).
+        h.state_mut().0.angle_deg = 90.0;
+        h.get_by_label(&t("Bend End Side")).click();
+        h.run();
+        let note = h.state().0.note.clone().unwrap_or_default();
+        assert!(note.starts_with("Solid made"), "{note}");
+        let doc = h.state().1.doc();
+        let (_, group) = doc.model.groups().next().unwrap();
+        let def = doc.definition(group.definition).unwrap();
+        let sm: planyrith_core::geom::fabrication::SheetMetal =
+            match def.attrs.get("planyrith", "sheet-metal") {
+                Some(planyrith_core::document::Value::Str(s)) => serde_json::from_str(s).unwrap(),
+                other => panic!("{other:?}"),
+            };
+        assert_eq!(sm.flanges[1].sides.len(), 1);
+        h.get_by_label(&t("Remove Sides")).click();
+        h.run();
+        let note = h.state().0.note.clone().unwrap_or_default();
+        assert!(note.starts_with("Solid made"), "{note}");
     }
 
     /// The Constraints window's arc and circle buttons (docs/03 §11.4).

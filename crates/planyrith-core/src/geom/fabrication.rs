@@ -278,6 +278,50 @@ pub struct Flange {
     /// Flanges standing on its free end, in order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub more: Vec<Bend>,
+    /// Flanges on the side edges of its legs (milestone 1.46).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sides: Vec<SideFlange>,
+}
+
+/// Which side of a flange's leg a side flange stands on: the one at the
+/// start of the flange's outline edge, or the one at its end.
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    serde::Serialize,
+    serde::Deserialize,
+    schemars::JsonSchema,
+)]
+#[serde(rename_all = "kebab-case")]
+pub enum FlangeSide {
+    /// The side over the outline edge's first point.
+    Start,
+    /// The side over its second point.
+    End,
+}
+
+/// A flange on a side edge of a flange's leg: a tab bent from the leg's
+/// side, along the leg (milestone 1.46).
+#[derive(
+    Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, schemars::JsonSchema,
+)]
+pub struct SideFlange {
+    /// The side it stands on.
+    pub side: FlangeSide,
+    /// The leg whose side it is: 0 the flange's own, then the stacked ones.
+    #[serde(default)]
+    pub leg: usize,
+    /// How far it bends, radians: positive toward the leg's inside (the
+    /// part's inside for the first leg), negative the other way; at most π
+    /// either way.
+    pub angle_rad: f64,
+    /// Its straight length beyond the bend, mm.
+    pub length_mm: f64,
 }
 
 impl Flange {
@@ -356,6 +400,39 @@ struct Step {
     leg: DVec3,
     /// The leg's length.
     length: f64,
+    /// The leg's start: its bottom edge where the bend ends.
+    start: [DVec3; 2],
+    /// The leg's inside direction.
+    up: DVec3,
+}
+
+/// The bend and leg turning the end face over `a`–`b` (bottom edge, the
+/// inside along `up`) by `angle` (sign as in [`Bend`]), with inside radius
+/// `r` and thickness `t`.
+fn turn(a: DVec3, b: DVec3, up: DVec3, t: f64, r: f64, angle: f64, length: f64) -> Step {
+    let out = (b - a).normalize_or_zero().cross(up).normalize_or_zero();
+    let face = vec![a, b, b + up * t, a + up * t];
+    let toward = out.cross(up);
+    let (pivot, axis) = if angle >= 0.0 {
+        (a + up * (t + r), toward)
+    } else {
+        (a - up * r, -toward)
+    };
+    let rot = crate::math::transform::rotation_about(
+        pivot,
+        axis,
+        crate::units::Angle::radians(angle.abs()),
+    );
+    Step {
+        face,
+        pivot,
+        axis,
+        angle: angle.abs(),
+        leg: rot.transform_vector3(out),
+        length,
+        start: [rot.transform_point3(a), rot.transform_point3(b)],
+        up: rot.transform_vector3(up),
+    }
 }
 
 impl SheetMetal {
@@ -471,40 +548,42 @@ impl SheetMetal {
         let (mut a, mut b) = (at(a2), at(b2));
         let t = self.thickness_mm;
         let r = self.bend_radius_mm;
-        let along = (b - a).normalize_or_zero();
-        // Outward in the plate's plane, and the side the first bend turns to.
-        let mut out = along.cross(w).normalize_or_zero();
+        // The first bend turns toward the sheet's top.
         let mut up = w;
         let mut steps = Vec::new();
         for bend in f.bends() {
-            let face = vec![a, b, b + up * t, a + up * t];
-            let toward = out.cross(up);
-            let (pivot, axis) = if bend.angle_rad >= 0.0 {
-                (a + up * (t + r), toward)
-            } else {
-                (a - up * r, -toward)
-            };
-            let angle = bend.angle_rad.abs();
-            let rot = crate::math::transform::rotation_about(
-                pivot,
-                axis,
-                crate::units::Angle::radians(angle),
-            );
-            let leg = rot.transform_vector3(out);
-            steps.push(Step {
-                face,
-                pivot,
-                axis,
-                angle,
-                leg,
-                length: bend.length_mm,
-            });
-            a = rot.transform_point3(a) + leg * bend.length_mm;
-            b = rot.transform_point3(b) + leg * bend.length_mm;
-            up = rot.transform_vector3(up);
-            out = leg;
+            let step = turn(a, b, up, t, r, bend.angle_rad, bend.length_mm);
+            a = step.start[0] + step.leg * step.length;
+            b = step.start[1] + step.leg * step.length;
+            up = step.up;
+            steps.push(step);
         }
         (steps, [a, b])
+    }
+
+    /// The side flanges of flange `f` over its legs `steps` (milestone
+    /// 1.46): each turns the leg's side face about the side edge.
+    fn side_steps(&self, f: &Flange, steps: &[Step]) -> Vec<Step> {
+        f.sides
+            .iter()
+            .filter_map(|s| {
+                let leg = steps.get(s.leg)?;
+                let [a0, b0] = leg.start;
+                let (a, b) = match s.side {
+                    FlangeSide::Start => (a0, a0 + leg.leg * leg.length),
+                    FlangeSide::End => (b0 + leg.leg * leg.length, b0),
+                };
+                Some(turn(
+                    a,
+                    b,
+                    leg.up,
+                    self.thickness_mm,
+                    self.bend_radius_mm,
+                    s.angle_rad,
+                    s.length_mm,
+                ))
+            })
+            .collect()
     }
 
     /// Each flange's outline edge and the bottom edge of its free end.
@@ -555,6 +634,34 @@ impl SheetMetal {
                 }
             }
         }
+        for f in &self.flanges {
+            let mut seen = std::collections::BTreeSet::new();
+            for s in &f.sides {
+                if s.leg > f.more.len() {
+                    return bad("a side flange stands on one of the flange's legs");
+                }
+                if !seen.insert((s.leg, s.side)) {
+                    return bad("one side flange per side of a leg");
+                }
+                if !(s.angle_rad != 0.0 && s.angle_rad.abs() <= std::f64::consts::PI) {
+                    return bad("a side flange bends more than 0° and at most 180° either way");
+                }
+                if !(s.length_mm > 0.0 && s.length_mm.is_finite()) {
+                    return bad("a side flange's length must be positive");
+                }
+                // Bent inward from the first leg, it would lie on the
+                // neighboring edge's flange.
+                let neighbor = match s.side {
+                    FlangeSide::Start => (f.edge + n - 1) % n,
+                    FlangeSide::End => (f.edge + 1) % n,
+                };
+                if s.leg == 0 && s.angle_rad > 0.0 && self.flange_on(neighbor).is_some() {
+                    return Err(GeometryError::NotApplicable(format!(
+                        "a side flange bent inward would overlap the flange on edge {neighbor}"
+                    )));
+                }
+            }
+        }
         if let Some(r) = self.relief
             && !(r.size_mm > 0.0 && r.size_mm.is_finite())
         {
@@ -591,7 +698,9 @@ impl SheetMetal {
         )?;
         let r = self.bend_radius_mm;
         for f in &self.flanges {
-            let (steps, _) = self.steps(f, &pts, &relieved);
+            let (mut steps, _) = self.steps(f, &pts, &relieved);
+            let sides = self.side_steps(f, &steps);
+            steps.extend(sides);
             let mut parts = Vec::new();
             for step in steps {
                 if r + t > tol.length {
@@ -611,6 +720,7 @@ impl SheetMetal {
                     step.axis,
                     crate::units::Angle::radians(step.angle),
                 );
+                debug_assert!(step.start[0].distance(rot.transform_point3(step.face[0])) < 1e-9);
                 let start: Vec<DVec3> =
                     step.face.iter().map(|p| rot.transform_point3(*p)).collect();
                 let end: Vec<DVec3> = start.iter().map(|p| *p + step.leg * step.length).collect();
@@ -649,14 +759,52 @@ impl SheetMetal {
                 let along = (b - a).normalize();
                 let out = DVec2::new(along.y, -along.x);
                 let mut d = 0.0;
+                // Each leg's span outward: from its start to its end.
+                let mut legs = Vec::new();
                 for bend in f.bends() {
                     let ba = self.allowance(bend.angle_rad);
                     bends.push([a + out * d, b + out * d]);
                     bends.push([a + out * (d + ba), b + out * (d + ba)]);
+                    legs.push((d + ba, d + ba + bend.length_mm));
                     d += ba + bend.length_mm;
+                }
+                // Side flanges unfold beside their legs (milestone 1.46):
+                // those at the start before the strip's far end, those at
+                // the end after it, going back toward the plate.
+                let mut sides = f.sides.clone();
+                sides.sort_by_key(|s| s.leg);
+                for s in sides.iter().filter(|s| s.side == FlangeSide::Start) {
+                    let Some(&(ds, de)) = legs.get(s.leg) else {
+                        continue;
+                    };
+                    let ba = self.allowance(s.angle_rad);
+                    let reach = along * (ba + s.length_mm);
+                    outline.extend([
+                        a + out * ds,
+                        a + out * ds - reach,
+                        a + out * de - reach,
+                        a + out * de,
+                    ]);
+                    bends.push([a + out * ds, a + out * de]);
+                    bends.push([a + out * ds - along * ba, a + out * de - along * ba]);
                 }
                 outline.push(a + out * d);
                 outline.push(b + out * d);
+                for s in sides.iter().rev().filter(|s| s.side == FlangeSide::End) {
+                    let Some(&(ds, de)) = legs.get(s.leg) else {
+                        continue;
+                    };
+                    let ba = self.allowance(s.angle_rad);
+                    let reach = along * (ba + s.length_mm);
+                    outline.extend([
+                        b + out * de,
+                        b + out * de + reach,
+                        b + out * ds + reach,
+                        b + out * ds,
+                    ]);
+                    bends.push([b + out * ds, b + out * de]);
+                    bends.push([b + out * ds + along * ba, b + out * de + along * ba]);
+                }
             }
         }
         (outline, bends)
@@ -738,6 +886,7 @@ mod tests {
             angle_rad: half,
             length_mm: 30.0,
             more: Vec::new(),
+            sides: Vec::new(),
         }]);
         let folded = s.folded(&tol()).unwrap();
         assert!(folded.is_solid());
@@ -759,6 +908,7 @@ mod tests {
             angle_rad: half,
             length_mm: 30.0,
             more: Vec::new(),
+            sides: Vec::new(),
         }]);
         assert!(bad.check().is_err());
         bad.flanges.clear();
@@ -772,6 +922,7 @@ mod tests {
             angle_rad,
             length_mm,
             more,
+            sides: Vec::new(),
         }
     }
 
@@ -836,6 +987,73 @@ mod tests {
             MAX_BENDS
         ];
         assert!(bad.check().is_err());
+    }
+
+    /// Milestone 1.46: tabs bent from both sides of a flange's leg.
+    #[test]
+    fn flanges_stand_on_a_flanges_sides() {
+        let half = std::f64::consts::FRAC_PI_2;
+        let ring_area = half / 2.0 * ((2.0f64 + 2.0).powi(2) - 2.0f64.powi(2));
+        let tab = |side, angle_rad| SideFlange {
+            side,
+            leg: 0,
+            angle_rad,
+            length_mm: 20.0,
+        };
+        let mut f = flange(0, half, 30.0, vec![]);
+        f.sides = vec![tab(FlangeSide::Start, half), tab(FlangeSide::End, half)];
+        let s = tray(vec![f]);
+        let folded = s.folded(&tol()).unwrap();
+        assert!(folded.is_solid());
+        // Plate, the flange's bend and leg along 200 mm, and per tab a bend
+        // and a leg along the 30 mm side.
+        let expect = 200.0 * 100.0 * 2.0
+            + (ring_area + 30.0 * 2.0) * 200.0
+            + 2.0 * (ring_area + 20.0 * 2.0) * 30.0;
+        let got = folded.volume().unwrap();
+        assert!((got - expect).abs() < 0.01 * expect, "{got} vs {expect}");
+        // The start tab wraps the corner inward: x from -4 to -2, running
+        // 20 mm along +y; the end one mirrors it beyond x = 200.
+        let points: Vec<DVec3> = folded.vertices().map(|(_, v)| v.position).collect();
+        assert!(
+            points
+                .iter()
+                .any(|p| (p.x + 4.0).abs() < 1e-6 && (p.y - 20.0).abs() < 1e-6)
+        );
+        assert!(
+            points
+                .iter()
+                .any(|p| (p.x - 204.0).abs() < 1e-6 && (p.y - 20.0).abs() < 1e-6)
+        );
+        // Flat: each tab beside its leg, with two bend lines.
+        let (outline, bends) = s.flat();
+        let ba = half * (2.0 + 0.44 * 2.0);
+        assert_eq!(bends.len(), 6);
+        for q in [
+            DVec2::new(-(ba + 20.0), -ba),
+            DVec2::new(-(ba + 20.0), -(ba + 30.0)),
+            DVec2::new(200.0 + ba + 20.0, -(ba + 30.0)),
+            DVec2::new(200.0 + ba + 20.0, -ba),
+        ] {
+            assert!(outline.iter().any(|p| p.distance(q) < 1e-9), "{q} missing");
+        }
+        let blank = signed_area(&outline);
+        let strip = (ba + 30.0) * 200.0 + 2.0 * (ba + 20.0) * 30.0;
+        assert!((blank - (200.0 * 100.0 + strip)).abs() < 1e-6, "{blank}");
+        // Inward next to a flanged edge, the tab would lie on its flange;
+        // outward it may.
+        let mut f = flange(0, half, 30.0, vec![]);
+        f.sides = vec![tab(FlangeSide::Start, half)];
+        let mut s = tray(vec![f, flange(3, half, 30.0, vec![])]);
+        assert!(s.check().is_err());
+        s.flanges[0].sides[0].angle_rad = -half;
+        assert!(s.check().is_ok());
+        assert!(s.folded(&tol()).unwrap().is_solid());
+        // A leg that does not exist, a repeated side.
+        s.flanges[0].sides[0].leg = 1;
+        assert!(s.check().is_err());
+        s.flanges[0].sides = vec![tab(FlangeSide::End, half); 2];
+        assert!(s.check().is_err());
     }
 
     #[test]

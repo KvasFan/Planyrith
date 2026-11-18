@@ -326,6 +326,11 @@ sign of the volume, and neighboring side pieces closer than 20° are softened an
   with a relief cuts the plate: a square (a rhombus at other angles) with sides `size` along
   both edges, or a circle of radius `size` about the corner (eight chords). The flanges on those
   edges start `size` from the corner, so the folded part and the blank agree.
+- **Side flanges (1.46):** a leg's side face (over the edge's first point: bottom edge from the
+  leg's start to its end; over the second: from its end back to its start, so the outward
+  direction is `along × up` either way) is turned like a free end, with the leg's inside
+  direction as `up`. Unfolded, the tab lies beside its leg's strip, from the leg's start to its
+  end, its allowance and length outward along the edge, with two bend lines.
 
 ### 4.21 Surfaces (`geom::surface`)
 - **Coons patch:** the boundary (a closed loop of points) is split at its four sharpest corners

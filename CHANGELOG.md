@@ -7,6 +7,8 @@ All notable changes to Planyrith are recorded here. Versions follow
 ## Unreleased
 
 ### Added
+- 1.46: side flanges: tabs bent from the sides of a flange's legs (`sheet-metal-flange
+  --side`), folded and unfolded, with Fabrication window buttons.
 - 1.45: STEP dimensions also travel as data (nominal value, plus/minus tolerance) tied to
   their presentation; dimensions and geometric tolerances given only as data come in as notes.
 - 1.44: IGES manifold solid B-rep objects (186) import, voids and curved faces included;

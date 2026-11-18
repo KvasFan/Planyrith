@@ -2582,6 +2582,15 @@ make-group --targets 'edge|face' --name Bar
             },
             ParityCase {
                 seed: TRAY,
+                name: "sheet-metal-flange",
+                params: json!({"part":"group","edge":1,"side":"end","leg":0,"length":20}),
+                args: vec![
+                    "--part", "group", "--edge", "1", "--side", "end", "--leg", "0", "--length",
+                    "20",
+                ],
+            },
+            ParityCase {
+                seed: TRAY,
                 name: "sheet-metal-set",
                 params: json!({"part":"group","relief_shape":"round","relief_size":4}),
                 args: vec![
