@@ -2525,6 +2525,10 @@ line --points 100,0,0 --points 180,-300,0
 circle --center 600,0,0 --radius 50
 constraint-add --kind fixed --edges @13
 ";
+    const TEE: &str = "line --points 0,0,0 --points 100,0,0 --points 100,0,20 --points 120,0,20 --points 120,0,30 --points -20,0,30 --points -20,0,20 --points 0,0,20 --close
+push-pull --face '{face}' --distance 60
+make-group --targets 'edge|face' --name T
+";
     const TRAY: &str = "rectangle --corner-a 0,0,0 --corner-b 200,100,0
 sheet-metal-base --profile face --thickness 2
 sheet-metal-flange --part group --edge 0 --length 30
@@ -2578,6 +2582,20 @@ make-group --targets 'edge|face' --name Bar
                 args: vec![
                     "--part", "group", "--edge", "1", "--angle", "-90deg", "--length", "15",
                     "--stack",
+                ],
+            },
+            ParityCase {
+                seed: TEE,
+                name: "mold-split",
+                params: json!({"body":"name:T","point":[0,0,10],"normal":[0,0,1],"side_actions":true}),
+                args: vec![
+                    "--body",
+                    "name:T",
+                    "--point",
+                    "0,0,10",
+                    "--normal",
+                    "0,0,1",
+                    "--side-actions",
                 ],
             },
             ParityCase {

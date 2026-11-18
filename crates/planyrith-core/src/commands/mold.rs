@@ -59,6 +59,15 @@ pub struct MoldParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(with = "Option<VectorSchema>")]
     pub step_direction: Option<DVec3>,
+    /// A freeform parting surface instead of the plane (milestone 1.48):
+    /// faces, or groups holding faces, seen from one side along their mean
+    /// normal (turned to agree with `normal`), spanning the blank.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub surface: Option<Query>,
+    /// Cut side actions out of the halves for undercuts that a sideways
+    /// pull frees (milestone 1.48).
+    #[serde(default)]
+    pub side_actions: bool,
 }
 
 /// One step of a stepped parting surface.
@@ -107,6 +116,30 @@ fn surface_of(
         axis,
         steps,
     })
+}
+
+/// The freeform parting surface `q` names, in world coordinates, facing
+/// along `normal` (milestone 1.48).
+fn freeform_of(
+    tx: &Transaction<'_>,
+    target: &crate::commands::params::Target,
+    q: &Query,
+    normal: DVec3,
+) -> Result<mold::Freeform, CommandError> {
+    let faces = crate::commands::surfaces::cutter_faces(tx, target, "surface", q)?;
+    let world: Vec<Vec<Vec<DVec3>>> = faces
+        .into_iter()
+        .map(|f| {
+            f.into_iter()
+                .map(|r| {
+                    r.into_iter()
+                        .map(|p| target.world.transform_point3(p))
+                        .collect()
+                })
+                .collect()
+        })
+        .collect();
+    Ok(mold::Freeform::new(world, normal, tx.tolerances())?)
 }
 
 /// The body's definition and world placement.
@@ -189,6 +222,15 @@ pub struct MoldOutput {
     /// Their area, mm².
     #[serde(default)]
     pub undercut_area_mm2: f64,
+    /// Side action groups, when asked for (milestone 1.48).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub side_actions: Vec<Pid>,
+    /// The direction each side action slides out, world.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub side_directions: Vec<[f64; 3]>,
+    /// Undercut faces no side action frees (the undercuts without them).
+    #[serde(default)]
+    pub undercuts_left: usize,
 }
 
 /// Makes a planar mold without modifying its source part.
@@ -226,6 +268,12 @@ impl Command for MoldSplit {
                 "must be positive and finite",
             ));
         }
+        if p.surface.is_some() && !p.steps.is_empty() {
+            return Err(CommandError::invalid_param(
+                "surface",
+                "give a surface or steps, not both",
+            ));
+        }
         Ok(())
     }
 
@@ -240,8 +288,14 @@ impl Command for MoldSplit {
         let (source, _) = source_mesh.to_indexed();
         let part = HalfEdgeMesh::from_indexed(&transform_indexed(&source, &world), &tol)?;
         let surface = surface_of(p.point, p.normal, &p.steps, p.step_direction)?;
+        let freeform = match &p.surface {
+            Some(q) => Some(freeform_of(tx, &target, q, p.normal)?),
+            None => None,
+        };
         let origin = p.origin.unwrap_or_else(|| part.aabb().center());
-        let result = if p.steps.is_empty() {
+        let mut result = if let Some(f) = &freeform {
+            mold::split_freeform(&part, f, p.margin.as_mm(), p.shrink_factor, origin, &tol)?
+        } else if p.steps.is_empty() {
             mold::split(
                 &part,
                 Plane::from_point_normal(p.point, p.normal),
@@ -260,7 +314,16 @@ impl Command for MoldSplit {
                 &tol,
             )?
         };
-        let found = mold::undercuts(&source_mesh, &world, &surface, &tol)?;
+        let parting: &dyn mold::Parting = match &freeform {
+            Some(f) => f,
+            None => &surface,
+        };
+        let found = mold::undercuts_of(&source_mesh, &world, parting, &tol)?;
+        let (actions, undercuts_left) = if p.side_actions {
+            mold::side_actions(&part, &mut result, parting, p.shrink_factor, origin, &tol)?
+        } else {
+            (Vec::new(), found.len())
+        };
         let core_volume_mm3 = result.core.volume()?;
         let cavity_volume_mm3 = result.cavity.volume()?;
         let mut groups = Vec::new();
@@ -275,6 +338,15 @@ impl Command for MoldSplit {
             store(tx, d, "mold", &p)?;
             groups.push(pid);
         }
+        let mut side_actions = Vec::new();
+        let mut side_directions = Vec::new();
+        for (k, action) in actions.iter().enumerate() {
+            let mesh = local_mesh(&action.mesh, &target.local, &tol)?;
+            let (pid, d) = new_group(tx, &target, &format!("Side Action {}", k + 1), mesh)?;
+            store(tx, d, "mold", &p)?;
+            side_actions.push(pid);
+            side_directions.push(action.direction.to_array());
+        }
         Ok(MoldOutput {
             core: groups[0],
             cavity: groups[1],
@@ -287,6 +359,9 @@ impl Command for MoldSplit {
             fallback_used: result.fallback_used,
             undercuts: found.len(),
             undercut_area_mm2: found.iter().map(|u| u.area_mm2).sum(),
+            side_actions,
+            side_directions,
+            undercuts_left,
         })
     }
 
@@ -324,6 +399,9 @@ pub struct MoldUndercutsParams {
     #[serde(default)]
     #[schemars(with = "Option<VectorSchema>")]
     pub step_direction: Option<DVec3>,
+    /// A freeform parting surface, as for `mold-split` (milestone 1.48).
+    #[serde(default)]
+    pub surface: Option<Query>,
 }
 
 /// One face that cannot be released.
@@ -373,15 +451,23 @@ impl Command for MoldUndercuts {
         tx: &mut Transaction<'_>,
         p: MoldUndercutsParams,
     ) -> Result<MoldUndercutsOutput, CommandError> {
-        let (d, world, _) = body_of(tx, &p.common, &p.body)?;
+        let (d, world, target) = body_of(tx, &p.common, &p.body)?;
         let tol = *tx.tolerances();
         let surface = surface_of(p.point, p.normal, &p.steps, p.step_direction)?;
+        let freeform = match &p.surface {
+            Some(q) => Some(freeform_of(tx, &target, q, p.normal)?),
+            None => None,
+        };
+        let parting: &dyn mold::Parting = match &freeform {
+            Some(f) => f,
+            None => &surface,
+        };
         let def = tx
             .document()
             .definition(d)
             .ok_or_else(|| CommandError::Internal("body definition vanished".into()))?;
         let mesh = def.entities.mesh();
-        let found = mold::undercuts(mesh, &world, &surface, &tol)?;
+        let found = mold::undercuts_of(mesh, &world, parting, &tol)?;
         let undercuts: Vec<UndercutFace> = found
             .iter()
             .filter_map(|u| {

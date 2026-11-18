@@ -521,7 +521,7 @@ detection reported per face.
 - **Done (2026-11-16):** `mold-split --steps` (staircase halves, terraces and risers),
   `mold-undercuts` (facing and shadowed faces) and undercut counts in `mold-split`; the Molds
   window edits steps and finds undercuts (docs/03 §4.23, docs/05 §8.18). Freeform parting
-  surfaces and automatic side actions remain out of scope.
+  surfaces and side actions followed in 1.48.
 
 ## 1.41.0 — Boundary-fitted simulation meshes
 
@@ -582,6 +582,15 @@ Complete 1.33's tangency: a filled circle tangent inside another in one plane.
 - **Done (2026-11-18):** both circles turn so a vertex of each lies at the contact; the outer
   face keeps the inner circle as a hole touching its outline there; an inner circle with as
   many segments or more is refused with that reason (docs/03 §11.4 and Decisions).
+
+## 1.48.0 — Freeform partings and side actions
+
+Complete molds: a parting surface of any faces seen from one side, and side actions cut for
+the undercuts a sideways pull frees.
+
+- **Done (2026-11-18):** `mold-split --surface` and `mold-undercuts --surface`,
+  `mold-split --side-actions` (side action groups with their directions, undercuts left); the
+  Molds window's surface group and side actions (docs/03 §4.23, docs/05 §8.18).
 
 ## Post-1.0 candidates
 Other limits remain listed against their original milestones; no unrelated feature scope is

@@ -3557,6 +3557,10 @@ pub struct MoldWindow {
     shrink_factor: f64,
     /// Steps of the parting surface: position along red, height (mm).
     steps: Vec<[f64; 2]>,
+    /// A group whose faces are the parting surface (milestone 1.48).
+    surface: String,
+    /// Cut side actions for undercuts (milestone 1.48).
+    side_actions: bool,
     note: Option<String>,
 }
 
@@ -3569,12 +3573,25 @@ impl Default for MoldWindow {
             margin_mm: 10.0,
             shrink_factor: 1.0,
             steps: Vec::new(),
+            surface: String::new(),
+            side_actions: false,
             note: None,
         }
     }
 }
 
 impl MoldWindow {
+    /// The parting surface fields of a request: the named group's faces,
+    /// else the steps.
+    fn parting(&self, p: &mut Value) {
+        let name = self.surface.trim();
+        if name.is_empty() {
+            p["steps"] = self.steps();
+        } else {
+            p["surface"] = json!(format!("name:{name}"));
+        }
+    }
+
     fn steps(&self) -> Value {
         Value::Array(
             self.steps
@@ -3585,29 +3602,40 @@ impl MoldWindow {
     }
 
     fn create(&mut self, session: &mut Session) {
+        let mut p = json!({
+            "body": "selection", "point": self.point, "normal": self.normal,
+            "margin": self.margin_mm, "shrink_factor": self.shrink_factor,
+            "side_actions": self.side_actions,
+        });
+        self.parting(&mut p);
         self.note = Some(note(
-            session.execute(
-                "mold-split",
-                json!({
-                    "body": "selection", "point": self.point, "normal": self.normal,
-                    "margin": self.margin_mm, "shrink_factor": self.shrink_factor,
-                    "steps": self.steps(),
-                }),
-            ),
-            |_| t("Two mold halves, parting line and surface created."),
+            session.execute("mold-split", p),
+            |out| match out["side_actions"].as_array().map_or(0, Vec::len) {
+                0 => t("Two mold halves, parting line and surface created."),
+                n => t_args(
+                    "Mold created with { $count } side actions; { $left } undercut faces left.",
+                    &[
+                        ("count", n.to_string().into()),
+                        (
+                            "left",
+                            out["undercuts_left"]
+                                .as_u64()
+                                .unwrap_or(0)
+                                .to_string()
+                                .into(),
+                        ),
+                    ],
+                ),
+            },
         ));
     }
 
     /// Reports the faces that cannot leave their half (milestone 1.40).
     fn undercuts(&mut self, session: &mut Session) {
+        let mut p = json!({ "body": "selection", "point": self.point, "normal": self.normal });
+        self.parting(&mut p);
         self.note = Some(note(
-            session.execute(
-                "mold-undercuts",
-                json!({
-                    "body": "selection", "point": self.point, "normal": self.normal,
-                    "steps": self.steps(),
-                }),
-            ),
+            session.execute("mold-undercuts", p),
             |out| match out["undercuts"].as_array().map_or(0, Vec::len) {
                 0 => t("No undercuts: every face leaves its half."),
                 n => t_args(
@@ -3635,7 +3663,7 @@ impl MoldWindow {
             .default_width(420.0)
             .show(ctx, |ui| {
                 ui.label(t(
-                    "Select one solid group or component. The division is planar, with optional steps.",
+                    "Select one solid group or component. The division is planar, with optional steps, or follows a surface group.",
                 ));
                 ui.label(t("Parting plane point (mm)"));
                 xyz(ui, &mut self.point);
@@ -3680,6 +3708,12 @@ impl MoldWindow {
                     let at = self.steps.last().map_or(0.0, |s| s[0] + 50.0);
                     self.steps.push([at, 10.0]);
                 }
+                ui.horizontal(|ui| {
+                    ui.label(t("Parting surface group"));
+                    ui.add(egui::TextEdit::singleline(&mut self.surface).desired_width(160.0))
+                        .on_hover_text(t("The name of a group whose faces divide the mold; empty for the plane and steps"));
+                });
+                ui.checkbox(&mut self.side_actions, t("Side actions for undercuts"));
                 ui.horizontal(|ui| {
                     if ui
                         .button(t("Find Undercuts"))
@@ -4383,6 +4417,20 @@ mod gui_tests {
         h.run();
         let groups = h.state().1.doc().model.groups().count();
         assert_eq!(groups, 5, "{:?}", h.state().0.note);
+        // Without steps, with side actions (milestone 1.48): two more
+        // groups slide out sideways.
+        h.state_mut().1.undo().unwrap();
+        h.state_mut().0.steps.clear();
+        h.state_mut().0.side_actions = true;
+        h.run();
+        h.get_by_label(&t("Create Mold")).click();
+        h.run();
+        let note = h.state().0.note.clone().unwrap_or_default();
+        assert!(
+            note.starts_with("Mold created with 2 side actions"),
+            "{note}"
+        );
+        assert_eq!(h.state().1.doc().model.groups().count(), 7);
     }
 
     /// Trim and split by a cutting surface from the windows' buttons

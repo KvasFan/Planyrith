@@ -1071,8 +1071,15 @@ removed by `analysis-clear`. The body itself is not changed; hide it to see a re
 - **Params:** `body: Sel`, `point: Point`, `normal: Vector` (from core toward cavity),
   `margin: Length(10)`, `shrink_factor: number(1)`, `origin?: Point` (source bounds center),
   `steps: [{ at: Length, offset: Length }]` (none), `step_direction?: Vector` (world red
-  projected into the plane, else green). Dimensions and coordinates are world-space
-  millimeters, including inside an edit context.
+  projected into the plane, else green), `surface?: Sel` (1.48), `side_actions: bool` (1.48).
+  Dimensions and coordinates are world-space millimeters, including inside an edit context.
+- **Freeform partings (1.48):** with `surface` (faces, or groups holding faces), the division
+  follows those faces instead of the plane: they must face one way (their mean normal, turned
+  to agree with `normal`, is the cavity's pull), span the blank across the pull and cross the
+  part (docs/03 §4.23); `point` is then unused and steps are refused.
+- **Side actions (1.48):** with `side_actions`, each group of undercut faces that a sideways
+  pull frees gets a side action: the half's material between those faces and the blank's side,
+  cut from the half into its own group "Side Action n" (docs/03 §4.23).
 - **Stepped partings (1.40):** with steps, beyond each `at` along the step direction from
   `point` the parting surface stands `offset` above the plane (docs/03 §4.23); the halves,
   parting surface (terraces and risers) and parting line follow it. Steps at one place or
@@ -1086,12 +1093,14 @@ removed by `analysis-clear`. The body itself is not changed; hide it to see a re
   set margin and shrink compensation, create. No inference beyond the selection's bounds.
 - **Edge cases:** reject nested contents, open meshes, non-finite values, nonpositive margin
   or factor, a plane that does not cross the part, and boolean failures before keeping any
-  results. This is a planar division; undercuts require draft analysis (§8.15) and a different
-  design. No automatic pullability, runners, gates or ejectors are inferred.
+  results. Undercuts are found per face (`mold-undercuts`) and, on request, freed by side
+  actions; runners, gates and ejectors are not inferred.
 - **Output:** `{ core, cavity, parting_line, parting_surface, core_volume_mm3,
   cavity_volume_mm3, compensated_volume_mm3, parting_length_mm, fallback_used, undercuts,
-  undercut_area_mm2 }`.
-- **`mold-undercuts { body, point, normal, steps, step_direction? }` (1.40):** reports, without
+  undercut_area_mm2, side_actions, side_directions, undercuts_left }` (side actions as group
+  pids with the world direction each slides out; `undercuts_left` counts the undercut faces no
+  side action frees).
+- **`mold-undercuts { body, point, normal, steps, step_direction?, surface? }` (1.40):** reports, without
   changing anything, the body's faces that cannot leave the half on their side of the parting
   surface (docs/03 §4.23): `{ checked, undercuts: [{ face, side: core|cavity, kind:
   facing|shadowed, area_mm2 }], area_mm2 }`, faces by pid in the body's definition.
@@ -1100,10 +1109,13 @@ removed by `analysis-clear`. The body itself is not changed; hide it to see a re
   invalid input rollback, native round trip and undo/redo. A stepped surface gives the
   analytic core and cavity volumes and a 340 mm parting line with risers; a T's cap undersides
   are facing undercuts above the parting plane and free below it, a C's lower arm is
-  shadowed; steps at one place are refused; CLI/RPC parity; the Molds window's Add Step, Find
-  Undercuts and Create Mold.
+  shadowed; steps at one place are refused; a ridge surface gives the analytic halves and a
+  line over the ridge, and turning the normal swaps them; the T's overhangs get two side
+  actions sliding out along ±red, 30 × 60 × 10 each, leaving no undercut; CLI/RPC parity; the
+  Molds window's Add Step, Find Undercuts and Create Mold, with side actions.
 - **GUI:** Tools › Molds…: plane point and normal, margin, shrink factor, steps (position along
-  red, height; Add Step, ✕), Find Undercuts (count and area) and Create Mold.
+  red, height; Add Step, ✕), Parting surface group (a group's name), Side actions for
+  undercuts, Find Undercuts (count and area) and Create Mold.
 
 ### 8.19 `route` and `route-fitting` (milestone 1.18)
 - **Purpose:** hollow round pipes/tubes along open paths, plus separate union and reducer

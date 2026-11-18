@@ -398,6 +398,25 @@ the core against it. A face whose normal turns against its half's pull (`n_f · 
 is a *facing* undercut. One turned with it is *shadowed* when a ray from just off its center
 along the pull meets another triangle of the part. Faces square to the pull are neither.
 
+**Freeform partings (1.48).** A parting surface may be any set of faces seen from one side along
+their area-weighted normal (§4.21), turned to agree with the requested normal, which becomes the
+cavity's pull `n`. A point's height over it is its signed distance along `n` from the surface
+triangle over or under it. The blank is bounded in a frame `(u, v, n)` (`u` world red across
+`n`, else green) plus the margin; over a 9 × 9 grid of the blank's footprint the surface must
+lie inside the blank's height, and the compensated part must have vertices above and below it.
+The cavity's blank is the blank intersected with the surface's slab (§4.21) reaching past the
+blank's top, the core's the blank less it; the compensated part is subtracted from each. The
+parting surface is the core's faces turned toward `n` whose corners and center lie on the
+surface; the parting line is its border inside the blank, as for steps.
+
+**Side actions (1.48).** The compensated part's undercut faces are grouped by half and shared
+edges. Each group tries to slide along `±u`, `±v`, shortest way out of the blank first; a
+direction serves when no face of the group turns against it and no ray from a face's center
+along it meets the part. The side action is the half's material in a box spanning the group
+across the motion, from the group to beyond the blank's side along it, and along the pull from
+beyond the blank on the parting side to the group's far end; it is cut from the half. Groups no
+direction frees stay undercuts.
+
 ## 5. Tessellation (for rendering and export)
 
 `tessellate_face(f) -> Vec<[u32; 3]>`: project loops to the face's 2D frame, run ear clipping

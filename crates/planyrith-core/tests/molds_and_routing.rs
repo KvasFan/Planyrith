@@ -337,3 +337,119 @@ fn stepped_partings_and_undercuts() {
         .is_err()
     );
 }
+
+/// docs/13 1.48: a freeform parting surface from a group, and side actions
+/// freeing a T's overhangs.
+#[test]
+fn freeform_partings_and_side_actions() {
+    let mut e = engine();
+    block(&mut e);
+    // A ridge along x = 50 at height 20, falling 0.2 per mm either side.
+    for quad in [
+        json!([
+            [-100, -200, -10],
+            [50, -200, 20],
+            [50, 300, 20],
+            [-100, 300, -10]
+        ]),
+        json!([
+            [50, -200, 20],
+            [200, -200, -10],
+            [200, 300, -10],
+            [50, 300, 20]
+        ]),
+    ] {
+        run(&mut e, "line", json!({"points": quad, "close": true}));
+    }
+    run(
+        &mut e,
+        "make-group",
+        json!({"targets": "edge|face", "name": "Ridge"}),
+    );
+    let groups = e.document().model.groups().count();
+    let out = run(
+        &mut e,
+        "mold-split",
+        json!({"body": "name:Part", "point": [0,0,0], "normal": [0,0,1],
+               "surface": "name:Ridge"}),
+    );
+    assert!(
+        (out["core_volume_mm3"].as_f64().unwrap() - 140_400.0).abs() < 1e-3,
+        "{out}"
+    );
+    assert!((out["cavity_volume_mm3"].as_f64().unwrap() - 195_600.0).abs() < 1e-3);
+    // Pointing the normal the other way turns the surface: the halves swap.
+    e.undo().unwrap();
+    assert_eq!(e.document().model.groups().count(), groups);
+    let out = run(
+        &mut e,
+        "mold-split",
+        json!({"body": "name:Part", "point": [0,0,0], "normal": [0,0,-1],
+               "surface": "name:Ridge"}),
+    );
+    assert!((out["cavity_volume_mm3"].as_f64().unwrap() - 140_400.0).abs() < 1e-3);
+    // A surface with steps is refused.
+    assert!(
+        e.execute_erased(
+            "mold-split",
+            json!({"body": "name:Part", "point": [0,0,0], "normal": [0,0,1],
+                   "surface": "name:Ridge", "steps": [{"at": 0, "offset": 5}]}),
+        )
+        .is_err()
+    );
+
+    // The T: two overhangs, each freed by a side action sliding outward.
+    let mut e = engine();
+    run(
+        &mut e,
+        "line",
+        json!({"points": [[0,0,0],[100,0,0],[100,0,20],[120,0,20],[120,0,30],[-20,0,30],[-20,0,20],[0,0,20]],
+               "close": true}),
+    );
+    run(
+        &mut e,
+        "push-pull",
+        json!({"face": {"Query": "face"}, "distance": 60}),
+    );
+    run(
+        &mut e,
+        "make-group",
+        json!({"targets": "edge|face", "name": "T"}),
+    );
+    let groups = e.document().model.groups().count();
+    let out = run(
+        &mut e,
+        "mold-split",
+        json!({"body": "name:T", "point": [0,0,10], "normal": [0,0,1], "side_actions": true}),
+    );
+    assert_eq!(out["undercuts"], 2, "{out}");
+    assert_eq!(out["undercuts_left"], 0, "{out}");
+    assert_eq!(out["side_actions"].as_array().unwrap().len(), 2);
+    let mut xs: Vec<f64> = out["side_directions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|d| d[0].as_f64().unwrap())
+        .collect();
+    xs.sort_by(f64::total_cmp);
+    assert_eq!(xs, [-1.0, 1.0]);
+    assert_eq!(e.document().model.groups().count(), groups + 6);
+    let saved = bytes(e.document());
+    assert_eq!(
+        saved,
+        bytes(&read_document(&saved, &NoProgress).unwrap().document)
+    );
+    e.undo().unwrap();
+    assert_eq!(e.document().model.groups().count(), groups);
+    // Without the option the undercuts stay.
+    let out = run(
+        &mut e,
+        "mold-split",
+        json!({"body": "name:T", "point": [0,0,10], "normal": [0,0,1]}),
+    );
+    assert_eq!(
+        (out["undercuts"].as_u64(), out["undercuts_left"].as_u64()),
+        (Some(2), Some(2))
+    );
+    assert!(out.get("side_actions").is_none());
+}
