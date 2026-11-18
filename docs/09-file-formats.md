@@ -793,6 +793,14 @@ save unless `--no-thumbnail`. `manifest.json` carries `title`, `author`, `descri
   cubes, cones, pivots, Unicode and quoted names) were read during development and are not
   kept; the repository holds a hand-written 6.1 file. Files before 6.0 are refused naming
   their version.
+- 2026-11-18 — **IGES faces that overlap.** The IGES writer flattens nested components into
+  their outermost component's subfigure, so two components that touch inside another (a
+  cabinet's sides and shelves) give a subfigure whose faces overlap where they meet; the
+  importer stitched each subfigure into one mesh and refused the file. Now faces that cannot
+  share one mesh go into consecutive runs that can, each a group in that component, with a
+  `W2008` warning; a face that stitches with nothing is skipped and counted. The acceptance
+  models (cabinet, kitchen, furnished room, house section) round-trip with unchanged extents.
+
 - 2026-11-18 — **DWG import (milestone 1.52).** The drawing is decoded without a library and
   turned into DXF group codes in memory, which the DXF importer brings in: one path for both
   formats, so a drawing saved either way gives the same model. The decoder follows the format's

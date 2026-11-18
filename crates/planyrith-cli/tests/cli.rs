@@ -2784,6 +2784,76 @@ move --targets instance --delta 300,0,0 --copy
     );
 }
 
+/// Two touching components inside a third flatten into one IGES subfigure
+/// whose faces overlap; the import keeps them in separate groups with a
+/// warning instead of failing (docs/09 Decisions, 2026-11-18).
+#[test]
+fn iges_overlapping_subfigure_faces_import_as_groups() {
+    let dir = scratch("iges-overlap");
+    let batch = dir.join("touch.plyrb");
+    std::fs::write(
+        &batch,
+        "rectangle --corner-a 0,0,0 --corner-b 18,560,0
+push-pull --face '{face & last}' --distance 720
+make-component --targets 'face | edge' --name A
+rectangle --corner-a 18,0,0 --corner-b 40,560,0
+push-pull --face '{face & last}' --distance 720
+make-component --targets all --name Pair
+",
+    )
+    .unwrap();
+    let doc = dir.join("touch.plyr");
+    let igs = dir.join("touch.igs");
+    let back = dir.join("back.plyr");
+    planyrith()
+        .args([
+            "batch",
+            batch.to_str().unwrap(),
+            "-f",
+            doc.to_str().unwrap(),
+            "--deterministic",
+        ])
+        .assert()
+        .success();
+    planyrith()
+        .args(["export", "-f", doc.to_str().unwrap(), igs.to_str().unwrap()])
+        .assert()
+        .success();
+    let out = json_of(
+        &planyrith()
+            .args([
+                "import",
+                igs.to_str().unwrap(),
+                "-f",
+                back.to_str().unwrap(),
+                "--json",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout,
+    );
+    let warnings = out["output"]["warnings"].to_string();
+    assert!(warnings.contains("separate groups"), "{out}");
+    planyrith()
+        .args(["validate", "-f", back.to_str().unwrap()])
+        .assert()
+        .success();
+    let info = json_of(
+        &planyrith()
+            .args(["info", "-f", back.to_str().unwrap(), "--json"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout,
+    );
+    assert_eq!(
+        info["output"]["bounds"]["max"],
+        serde_json::json!([40.0, 560.0, 720.0]),
+        "{info}"
+    );
+}
+
 /// docs/13 1.44: with `--solids`, a closed shell leaves as an IGES
 /// manifold solid B-rep object and comes back closed.
 #[test]

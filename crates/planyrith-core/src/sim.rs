@@ -183,11 +183,19 @@ pub fn tet_mesh(
     if lo.x > hi.x {
         return Err(GeometryError::NotApplicable("the solid is empty".into()));
     }
+    if !(size.is_finite() && size > 0.0) {
+        return Err(GeometryError::NotApplicable(
+            "the mesh size must be a positive length".into(),
+        ));
+    }
     let ext = hi - lo;
     let count = |e: f64| ((e / size).round() as usize).max(1);
     let n = [count(ext.x), count(ext.y), count(ext.z)];
-    let estimate = (n[0] + 1) * (n[1] + 1) * (n[2] + 1) * 8;
-    if estimate > max_nodes.saturating_mul(4) || n.iter().product::<usize>() > max_nodes {
+    let estimate = n
+        .iter()
+        .fold(8usize, |acc, &k| acc.saturating_mul(k.saturating_add(1)));
+    let cells = n.iter().fold(1usize, |acc, &k| acc.saturating_mul(k));
+    if estimate > max_nodes.saturating_mul(4) || cells > max_nodes {
         return Err(GeometryError::NotApplicable(format!(
             "a mesh of {size} mm would be too fine for this solid; give a larger size"
         )));

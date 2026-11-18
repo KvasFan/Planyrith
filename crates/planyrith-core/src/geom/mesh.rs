@@ -986,6 +986,13 @@ impl HalfEdgeMesh {
         self.add_curve_inner(descriptor, members, true, sink)
     }
 
+    /// `true` when `members` can be attached as one curve that survives a
+    /// save and reload: they form a chain, or a trail walking each member
+    /// once (docs/03 Decisions, 2026-11-18).
+    pub(crate) fn curve_restorable(&self, members: &[EdgeId]) -> bool {
+        indexed::chain_order(self, members).is_ok_and(|order| order.is_some())
+    }
+
     /// Drops a descriptor; member edges become plain (docs/03 §3.3).
     pub fn drop_curve(
         &mut self,

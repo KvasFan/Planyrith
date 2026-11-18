@@ -807,6 +807,40 @@ fn from_indexed_rejects_broken_input() {
     assert!(HalfEdgeMesh::from_indexed(&indexed, &tol()).is_err());
 }
 
+/// Curve members in no order of consecutive edges (two apart) keep their
+/// edges and lose only the descriptor; a branching stroke keeps its curve
+/// as a trail (docs/03 Decisions, 2026-11-18).
+#[test]
+fn from_indexed_restores_branching_curves_and_drops_unorderable_ones() {
+    let edge = |a, b| IndexedEdge {
+        a,
+        b,
+        flags: EdgeFlags::NONE,
+        curve: Some(0),
+    };
+    let curve = CurveDescriptor::Freehand {
+        points: vec![DVec3::ZERO, DVec3::X],
+    };
+    let apart = IndexedMesh {
+        vertices: vec![DVec3::ZERO, DVec3::X, p(5.0, 0.0, 0.0), p(6.0, 0.0, 0.0)],
+        edges: vec![edge(0, 1), edge(2, 3)],
+        faces: vec![],
+        curves: vec![curve.clone()],
+    };
+    let back = HalfEdgeMesh::from_indexed(&apart, &tol()).unwrap();
+    assert_eq!((back.edge_count(), back.curve_count()), (2, 0));
+
+    // A "6" shape: a tail into a loop, its join of degree three.
+    let six = IndexedMesh {
+        vertices: vec![p(0.0, 5.0, 0.0), DVec3::ZERO, DVec3::X, p(1.0, 1.0, 0.0)],
+        edges: vec![edge(1, 2), edge(0, 1), edge(2, 3), edge(3, 1)],
+        faces: vec![],
+        curves: vec![curve],
+    };
+    let back = HalfEdgeMesh::from_indexed(&six, &tol()).unwrap();
+    assert_eq!((back.edge_count(), back.curve_count()), (4, 1));
+}
+
 #[test]
 fn triangle_soup_cube_merges_into_six_faces() {
     let s = 10.0;

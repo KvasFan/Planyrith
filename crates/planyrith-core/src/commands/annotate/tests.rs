@@ -491,6 +491,58 @@ fn text_3d_makes_letters_with_holes_and_solids() {
     );
 }
 
+/// Glyphs whose contours cross ("A": its crossbar over the stems) fill by
+/// the nonzero rule; every printable glyph gives a valid face set and,
+/// extruded, a closed solid. At 1 mm some glyph details are below the
+/// planarity tolerance, so only validity is asked there (docs/05
+/// Decisions, 2026-11-18).
+#[test]
+fn text_3d_fills_overlapping_contours_and_every_glyph_is_valid() {
+    let mut e = engine();
+    let a = run(&mut e, "text-3d", json!({ "text": "A", "height": 100.0 }));
+    assert_eq!(a["faces"], 1, "the crossbar joins the stems: {a}");
+    let def = e.document().definitions.iter().last().unwrap().0;
+    let mesh = e
+        .document()
+        .container(ContainerRef::Definition(def))
+        .unwrap()
+        .mesh();
+    let (f, _) = mesh.faces().next().unwrap();
+    assert_eq!(
+        mesh.face_cycles(f).unwrap().len(),
+        2,
+        "the counter is a hole"
+    );
+    assert!(mesh.face_normal(f).unwrap().z > 0.0, "faces up");
+
+    let glyphs: String = (33u8..127).map(char::from).collect();
+    for (height, extrude) in [(100.0, 0.0), (100.0, 20.0), (10.0, 5.0), (1.0, 20.0)] {
+        for ch in glyphs.chars() {
+            let mut e = engine();
+            run(
+                &mut e,
+                "text-3d",
+                json!({ "text": ch.to_string(), "height": height, "extrude": extrude }),
+            );
+            let report = crate::diagnostics::validate(e.document());
+            assert!(
+                report.is_clean(),
+                "{ch:?} at {height}/{extrude}: {report:#?}"
+            );
+            if extrude > 0.0 && height >= 10.0 {
+                let def = e.document().definitions.iter().last().unwrap().0;
+                let mesh = e
+                    .document()
+                    .container(ContainerRef::Definition(def))
+                    .unwrap()
+                    .mesh();
+                assert!(mesh.is_solid(), "{ch:?} at {height}: not closed");
+                assert!(mesh.volume().unwrap() > 0.0, "{ch:?}: outward faces");
+            }
+        }
+    }
+}
+
 #[test]
 fn section_planes_activate_one_at_a_time_and_slice() {
     let mut e = engine();

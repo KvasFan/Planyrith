@@ -4,6 +4,24 @@ All notable changes to Planyrith are recorded here. Versions follow
 [Semantic Versioning](https://semver.org/); before 1.0, minor versions are milestones of
 [`docs/13-roadmap.md`](docs/13-roadmap.md).
 
+## Unreleased
+
+A functional sweep of every command (each command's batch, 5 345 runs with broken or extreme
+parameters, every export format imported back) found these.
+
+### Fixed
+- `text-3d` filled letters whose glyph contours overlap ("A", "P", "Q", "R", "a", "e", "4",
+  "&", …) made an invalid document; outlines of those letters drew the overlapping inner
+  lines. Letters are now filled by the font's nonzero rule and extruded into closed solids.
+- `freehand` strokes that ran back over themselves could save a file that would not open;
+  such files now open (the curve is restored, or only the curve grouping is dropped).
+- `push-pull` of a face with a hole lost its top for some hole positions (a triangle at whole
+  millimeters), leaving an open shell.
+- IGES files exported from models with components touching inside another component could
+  not be imported back; the overlapping faces now come in as separate groups with a warning.
+- Simulations (`sim-static`, `sim-thermal`, `sim-frequency`) crashed on a mesh size of zero;
+  a mesh size must now be a positive length.
+
 ## 0.13.0-alpha.1 — milestones 1.44–1.52 (2026-11-18)
 
 The remaining limits of the engineering milestones and the formats listed as future work:

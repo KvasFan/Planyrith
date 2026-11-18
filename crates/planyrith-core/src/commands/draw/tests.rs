@@ -273,3 +273,32 @@ fn a_chord_keeps_split_edge_pids_and_last_names_the_drawn_entities() {
     assert_eq!(edge_pids(&e), after);
     assert_valid(&e);
 }
+
+/// A stroke that runs back over itself and an earlier stroke branches; its
+/// curve still survives a save and reload (docs/03 Decisions, 2026-11-18).
+#[test]
+fn a_self_retracing_stroke_saves_and_reopens() {
+    let mut e = engine();
+    run(
+        &mut e,
+        "freehand",
+        json!({"points": [[0, 0, 0], [500, 0.1, 0], [1000, 0, 0], [1000, 1000, 0]], "simplify_tolerance": 0.5}),
+    );
+    run(
+        &mut e,
+        "freehand",
+        json!({"points": [[2000, 0, 0], [3000, 0, 0], [0, 0, 0], [2000, 1000, 0], [2000, 0, 0]]}),
+    );
+    assert_valid(&e);
+    let curves = e.document().model.mesh().curves().count();
+    assert!(curves > 0);
+    let opts = crate::io::native::WriteOptions {
+        deterministic: true,
+        include_history: false,
+        ..Default::default()
+    };
+    let file = crate::io::native::write_document(e.document(), &[], &opts, &crate::io::NoProgress)
+        .unwrap();
+    let loaded = crate::io::native::read_document(&file, &crate::io::NoProgress).unwrap();
+    assert_eq!(loaded.document.model.mesh().curves().count(), curves);
+}

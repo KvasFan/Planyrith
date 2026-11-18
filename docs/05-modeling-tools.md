@@ -135,7 +135,10 @@ perpendicular to hovered edge); `Esc` = cancel current step (second `Esc` = canc
   `extrude: Length` (0 = flat faces), `filled: bool` (true), `align: Left|Center|Right`,
   `placement: Transform` (where to put the resulting group).
 - **Behavior:** glyph outlines via `ttf-parser`, quadratic/cubic curves flattened to the curve
-  tolerance, holes handled by orientation; result is a **group** (`Text3D` is not an entity).
+  tolerance; the outlines bound faces as drawn edges would, and a face is kept where the
+  outlines fill it by the nonzero winding rule (counters become holes, a crossbar drawn over its
+  stems joins them); `extrude` pulls the faces up into closed solids. Result is a **group**
+  (`Text3D` is not an entity).
 - **Output:** `{ group: Pid }`.
 
 ### 3.9 `bezier`
@@ -1326,6 +1329,20 @@ Acceptance for each: typed CLI/RPC, tests of measured geometry or view behavior,
 rollback, compatible native persistence and an actual GUI control test before completion.
 
 ## Decisions
+
+- 2026-11-18 — **Text outlines filled as a font fills them.** The bundled font draws some
+  glyphs from overlapping contours ("A", "P", "Q", "R", "4", "&": a crossbar or a bowl over a
+  stem). Filling each contour on its own left coplanar faces overlapping, so the document
+  failed validation for those letters at any size; the tests had only tried "Ob" filled and "A"
+  as outlines. Now the kernel bounds faces by the outlines, as drawing them would, and keeps
+  the faces the font's contours fill by the nonzero winding rule; where contours cross, only
+  the boundary of the union is drawn (also for outlines), and faces that touch become one so
+  each side wall is built once. Extrusion uses the kernel's push/pull of each face. Flattened
+  curve points within four length tolerances of their neighbors' chord, or within two
+  planarity tolerances of the point before, are dropped: below that the kernel cannot tell
+  the side faces apart. Every printable ASCII glyph is tested flat and extruded (closed solids
+  at 10 mm and 100 mm; at 1 mm some details are below the planarity tolerance, and the document
+  stays valid).
 
 - 2026-11-14 — **Continuation command details (1.23–1.28).** Transform checks use actual
   transform/mesh deltas and new persistent paths, avoiding missed motion on large parts after

@@ -635,6 +635,24 @@ W and K.
 
 ## Decisions
 
+- 2026-11-18 — **Curves that survive a reload.** The native file stores which curve each edge
+  belongs to, not the order of a curve's members; loading orders them into a chain. A stroke
+  that runs back over itself or an earlier stroke branches (three members meet at a vertex),
+  no chain exists, and the loader refused the whole document: `freehand` could save a file
+  that would not open. Loading now also orders members into a trail that walks each once
+  (when at most two vertices have an odd number of members), and when no order of
+  consecutive edges exists it drops only the descriptor, keeping the edges. A drawn chain
+  whose edges no order can restore is left as plain edges.
+
+- 2026-11-18 — **Push/pull caps over holes.** The cap and a face closing a hole ring's top
+  compete for the same half-edges, and which one face finding reached first depended on vertex
+  positions: a face with a triangular hole at whole-millimeter corners lost its cap, leaving
+  an open shell (`solid_after: false`), while other holes worked. Hole tops never become faces
+  (§4.9 step 5 removes them), so the cap pass no longer accepts a face whose outer boundary is
+  a hole top. Separately, details smaller than the planarity tolerance (a vertex within
+  0.01 mm of another face's plane) stay below the kernel's resolution: the swept side faces
+  near them may not form, as `solid_after` then reports.
+
 - 2026-11-18 — **Adding many edges at once.** `add_edge` runs as one transaction, which copies
   the mesh so a failure leaves it unchanged; an importer adding an outline of tens of thousands
   of segments one by one copied the growing mesh each time (a 3 635-vertex polyline of arcs

@@ -2214,25 +2214,96 @@ pub fn read(text: &str) -> Result<(Vec<FaceLoops>, usize), IoError> {
     Ok((faces, r.skipped))
 }
 
-/// One container's mesh from faces: stitched, curved parts softened.
-fn mesh_of(faces: &[FaceLoops], curved: usize, tol: &Tolerances) -> Result<HalfEdgeMesh, IoError> {
+/// One container's meshes from faces: stitched, curved parts softened.
+/// Faces that cannot share one mesh (the faces of components that touch,
+/// flattened into one subfigure, overlap) go into consecutive runs that
+/// can, each its own mesh; a face that stitches with nothing is skipped
+/// and counted (docs/09 Decisions, 2026-11-18).
+fn meshes_of(
+    faces: &[FaceLoops],
+    curved: usize,
+    tol: &Tolerances,
+) -> Result<(Vec<HalfEdgeMesh>, usize), IoError> {
     if faces.is_empty() {
-        return Ok(HalfEdgeMesh::new());
+        return Ok((Vec::new(), 0));
     }
-    let pieces: Vec<Piece> = faces
-        .iter()
-        .map(|loops| Piece {
-            loops: loops.clone(),
-            sides: FaceSides::default(),
-        })
-        .collect();
-    let mesh = stitch(&pieces, tol).map_err(|e| corrupt(e.to_string()))?;
-    if curved == 0 {
-        return Ok(mesh);
+    let piece = |loops: &FaceLoops| Piece {
+        loops: loops.clone(),
+        sides: FaceSides::default(),
+    };
+    let build = |run: &[FaceLoops]| -> Option<HalfEdgeMesh> {
+        let pieces: Vec<Piece> = run.iter().map(piece).collect();
+        let mesh = stitch(&pieces, tol).ok()?;
+        if curved == 0 {
+            return Some(mesh);
+        }
+        let (mut indexed, _) = mesh.to_indexed();
+        crate::geom::surface::soften(&mut indexed, 30f64.to_radians());
+        HalfEdgeMesh::from_indexed(&indexed, tol).ok()
+    };
+    if let Some(whole) = build(faces) {
+        return Ok((vec![whole], 0));
     }
-    let (mut indexed, _) = mesh.to_indexed();
-    crate::geom::surface::soften(&mut indexed, 30f64.to_radians());
-    HalfEdgeMesh::from_indexed(&indexed, tol).map_err(|e| corrupt(e.to_string()))
+    // The longest run from `start` that builds, found by halving.
+    let mut meshes = Vec::new();
+    let mut skipped = 0;
+    let mut start = 0;
+    while start < faces.len() {
+        let (mut good, mut bad) = (start, faces.len() + 1);
+        let mut best = None;
+        while bad - good > 1 {
+            let mid = (good + bad) / 2;
+            match build(&faces[start..mid]) {
+                Some(mesh) => {
+                    good = mid;
+                    best = Some(mesh);
+                }
+                None => bad = mid,
+            }
+        }
+        match best {
+            Some(mesh) => {
+                meshes.push(mesh);
+                start = good;
+            }
+            None => {
+                skipped += 1;
+                start += 1;
+            }
+        }
+    }
+    Ok((meshes, skipped))
+}
+
+/// The entities of a container holding `meshes`: the one mesh itself, or
+/// one group per mesh.
+fn entities_of(
+    tx: &mut Transaction<'_>,
+    meshes: Vec<HalfEdgeMesh>,
+    name: &str,
+) -> Result<Entities, IoError> {
+    if meshes.len() <= 1 {
+        let mesh = meshes.into_iter().next().unwrap_or_default();
+        return Ok(Entities::from_mesh(mesh, || tx.allocate_pid()));
+    }
+    crate::io::import::build::entities_of_pieces(tx, meshes, &[name.as_bytes()], name)
+}
+
+/// `W2008` when faces had to be kept apart or were skipped.
+fn report_runs(report: &mut ImportReport, name: &str, meshes: usize, skipped: usize) {
+    if meshes > 1 {
+        report.warnings.push(Warning::new(
+            WarningCode::W2008,
+            format!("`{name}`: overlapping IGES faces were kept in {meshes} separate groups"),
+        ));
+    }
+    if skipped > 0 {
+        report.skipped += skipped;
+        report.warnings.push(Warning::new(
+            WarningCode::W2008,
+            format!("`{name}`: {skipped} IGES faces that overlap others were skipped"),
+        ));
+    }
 }
 
 // ----- exporter and importer -----------------------------------------------------------
@@ -2313,10 +2384,10 @@ impl Importer for IgesImporter {
         progress.check_cancelled()?;
         let structure = read_structure(&source)?;
         let tol: Tolerances = *tx.tolerances();
-        let mesh = mesh_of(&structure.faces, structure.curved, &tol)?;
+        let (meshes, overlapping) = meshes_of(&structure.faces, structure.curved, &tol)?;
         let mut report = ImportReport {
-            faces: mesh.face_count(),
-            edges: mesh.edge_count(),
+            faces: meshes.iter().map(HalfEdgeMesh::face_count).sum(),
+            edges: meshes.iter().map(HalfEdgeMesh::edge_count).sum(),
             skipped: structure.skipped,
             ..Default::default()
         };
@@ -2342,13 +2413,14 @@ impl Importer for IgesImporter {
         let mut made: Vec<Option<crate::ids::DefinitionId>> =
             vec![None; structure.definitions.len()];
         for i in 0..structure.definitions.len() {
-            define(tx, &structure, i, &mut made, &tol, 0)?;
+            define(tx, &structure, i, &mut made, &tol, 0, &mut report)?;
         }
         let name = match &opts.import_as {
             ImportAs::Component(n) => n.clone(),
             _ => crate::io::import::source_stem(&opts.source, "IGES"),
         };
-        let entities = Entities::from_mesh(mesh, || tx.allocate_pid());
+        report_runs(&mut report, &name, meshes.len(), overlapping);
+        let entities = entities_of(tx, meshes, &name)?;
         let uuid = crate::commands::common::definition_uuid(tx.document(), &name, &entities);
         let mut def = ComponentDefinition::new(uuid, name.clone());
         def.is_internal_group = matches!(opts.import_as, ImportAs::Group);
@@ -2431,6 +2503,7 @@ fn define(
     made: &mut [Option<crate::ids::DefinitionId>],
     tol: &Tolerances,
     depth: usize,
+    report: &mut ImportReport,
 ) -> Result<Option<crate::ids::DefinitionId>, IoError> {
     if let Some(Some(d)) = made.get(i) {
         return Ok(Some(*d));
@@ -2443,17 +2516,18 @@ fn define(
     }
     let mut nested = Vec::new();
     for inst in &source.instances {
-        if let Some(d) = define(tx, structure, inst.definition, made, tol, depth + 1)? {
+        if let Some(d) = define(tx, structure, inst.definition, made, tol, depth + 1, report)? {
             nested.push((d, inst.transform));
         }
     }
-    let mesh = mesh_of(&source.faces, source.curved, tol)?;
+    let (meshes, overlapping) = meshes_of(&source.faces, source.curved, tol)?;
     let name = if source.name.trim().is_empty() {
         format!("Subfigure {}", i + 1)
     } else {
         source.name.trim().to_string()
     };
-    let entities = Entities::from_mesh(mesh, || tx.allocate_pid());
+    report_runs(report, &name, meshes.len(), overlapping);
+    let entities = entities_of(tx, meshes, &name)?;
     let uuid = crate::commands::common::definition_uuid(tx.document(), &name, &entities);
     let mut def = ComponentDefinition::new(uuid, name);
     def.entities = entities;
@@ -2672,7 +2746,9 @@ mod tests {
             assert_eq!((r.solids, r.skipped), (1, 0));
             assert!(r.curved > 20, "the side became triangles");
             assert_eq!(r.faces.len(), r.curved + 2);
-            let mesh = mesh_of(&r.faces, r.curved, &tol).unwrap();
+            let (meshes, skipped) = meshes_of(&r.faces, r.curved, &tol).unwrap();
+            assert_eq!((meshes.len(), skipped), (1, 0));
+            let mesh = &meshes[0];
             assert!(mesh.is_solid());
             // 24 boundary segments per turn: between the polygon's prism
             // and the true cylinder.

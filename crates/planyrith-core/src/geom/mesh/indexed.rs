@@ -90,13 +90,19 @@ pub(super) fn append_indexed(
             .filter(|(edge, _)| edge.curve == Some(i as u32))
             .map(|(_, &e)| e)
             .collect();
-        let members = chain_order(mesh, &members)?;
+        let members = chain_order(mesh, &members)?.unwrap_or(members);
         if members.is_empty() {
             // A descriptor without edges carries no geometry; drop it.
             continue;
         }
-        let c = mesh.add_curve_inner(descriptor.clone(), &members, false, d)?;
-        curves.push(c);
+        match mesh.add_curve_inner(descriptor.clone(), &members, false, d) {
+            Ok(c) => curves.push(c),
+            // Members in no order of consecutive edges (a file written
+            // before curves were kept restorable, docs/03 Decisions
+            // 2026-11-18): the edges stay, as plain edges.
+            Err(GeometryError::NotApplicable(_)) => {}
+            Err(e) => return Err(e),
+        }
     }
     for edge in &indexed.edges {
         if let Some(c) = edge.curve
@@ -140,20 +146,26 @@ pub(super) fn append_indexed(
 }
 
 /// Orders curve members into a chain (from an end for open chains, from the
-/// lowest edge id for closed ones). Members that do not form one chain keep
-/// their input order.
-fn chain_order(mesh: &HalfEdgeMesh, members: &[EdgeId]) -> Result<Vec<EdgeId>, GeometryError> {
+/// lowest edge id for closed ones), or — when the members branch, as a
+/// stroke that crosses or retraces itself does — into a trail walking every
+/// member once. `None` when neither exists.
+pub(crate) fn chain_order(
+    mesh: &HalfEdgeMesh,
+    members: &[EdgeId],
+) -> Result<Option<Vec<EdgeId>>, GeometryError> {
     if members.len() < 2 {
-        return Ok(members.to_vec());
+        return Ok(Some(members.to_vec()));
     }
     let mut at: BTreeMap<VertexId, Vec<EdgeId>> = BTreeMap::new();
     for &e in members {
         let (a, b) = mesh.edge_endpoints(e)?;
         at.entry(a).or_default().push(e);
-        at.entry(b).or_default().push(e);
+        if b != a {
+            at.entry(b).or_default().push(e);
+        }
     }
     if at.values().any(|es| es.len() > 2) {
-        return Ok(members.to_vec());
+        return trail_order(mesh, members, &at);
     }
     // Start at an end vertex (degree 1) of the first member in input order, if any.
     let mut start_vertex = None;
@@ -191,11 +203,63 @@ fn chain_order(mesh: &HalfEdgeMesh, members: &[EdgeId]) -> Result<Vec<EdgeId>, G
             None => break,
         }
     }
-    if out.len() == members.len() {
-        Ok(out)
-    } else {
-        Ok(members.to_vec())
+    Ok((out.len() == members.len()).then_some(out))
+}
+
+/// A trail through every member once (Hierholzer's walk), starting at an
+/// odd vertex of the earliest member that has one; `None` when the members
+/// are disconnected or more than two vertices have odd degree.
+fn trail_order(
+    mesh: &HalfEdgeMesh,
+    members: &[EdgeId],
+    at: &BTreeMap<VertexId, Vec<EdgeId>>,
+) -> Result<Option<Vec<EdgeId>>, GeometryError> {
+    let odd: BTreeSet<VertexId> = at
+        .iter()
+        .filter(|(_, es)| es.len() % 2 == 1)
+        .map(|(v, _)| *v)
+        .collect();
+    if odd.len() > 2 {
+        return Ok(None);
     }
+    let mut start = None;
+    for &e in members {
+        let (a, b) = mesh.edge_endpoints(e)?;
+        if let Some(v) = [a, b]
+            .into_iter()
+            .find(|v| odd.is_empty() || odd.contains(v))
+        {
+            start = Some(v);
+            break;
+        }
+    }
+    let Some(start) = start else {
+        return Ok(None);
+    };
+    let mut used = BTreeSet::new();
+    // Stack of (vertex, edge taken to reach it).
+    let mut stack: Vec<(VertexId, Option<EdgeId>)> = vec![(start, None)];
+    let mut out = Vec::with_capacity(members.len());
+    while let Some(&(v, via)) = stack.last() {
+        let next = at
+            .get(&v)
+            .and_then(|es| es.iter().copied().find(|x| !used.contains(x)));
+        match next {
+            Some(e) => {
+                used.insert(e);
+                let (a, b) = mesh.edge_endpoints(e)?;
+                stack.push((if a == v { b } else { a }, Some(e)));
+            }
+            None => {
+                stack.pop();
+                if let Some(e) = via {
+                    out.push(e);
+                }
+            }
+        }
+    }
+    out.reverse();
+    Ok((out.len() == members.len()).then_some(out))
 }
 
 /// Builds without the final `validate` and with planarity relaxed, for

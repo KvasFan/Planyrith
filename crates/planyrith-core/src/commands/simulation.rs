@@ -346,6 +346,12 @@ fn mesh_of(
     fit: bool,
 ) -> Result<TetMesh, CommandError> {
     let size = match size {
+        Some(s) if !(s.as_mm().is_finite() && s.as_mm() > 0.0) => {
+            return Err(CommandError::OutOfRange {
+                name: "mesh_size".into(),
+                reason: "must be a positive length".into(),
+            });
+        }
         Some(s) => s.as_mm(),
         None => {
             let v = b.mesh.volume()?.abs();

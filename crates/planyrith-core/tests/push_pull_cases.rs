@@ -205,3 +205,26 @@ fn a_landing_face_with_a_gap_under_the_cap_does_not_join() {
         .count();
     assert_eq!(border, 8);
 }
+
+/// A ground face with a triangular hole pulls into a closed solid with its
+/// cap (it lost the cap for some hole positions, docs/03 Decisions
+/// 2026-11-18).
+#[test]
+fn a_face_with_a_triangular_hole_pulls_into_a_solid() {
+    let mut e = engine();
+    rect(&mut e, [0.0, 0.0, 0.0], [1000.0, 1000.0, 0.0]);
+    let l = run(
+        &mut e,
+        "line",
+        json!({ "points": [[500, 200, 0], [700, 500, 0], [300, 500, 0], [500, 200, 0]] }),
+    );
+    let hole = l["faces_created"][0].clone();
+    run(&mut e, "delete", json!({ "targets": format!("@{hole}") }));
+    let r = run(
+        &mut e,
+        "push-pull",
+        json!({ "face": { "Query": "face" }, "distance": 100.0 }),
+    );
+    assert_eq!(r["solid_after"], true, "{r}");
+    assert_solid(&e, (1e6 - 0.5 * 400.0 * 300.0) * 100.0, "triangular hole");
+}

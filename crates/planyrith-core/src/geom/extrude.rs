@@ -293,10 +293,16 @@ fn extrude_generic(
             touched.extend(t);
         }
     }
-    for ring in &rings {
+    // Cap edges over hole rings: they bound the cap's holes, never a face
+    // of their own (Phase E).
+    let mut hole_tops: BTreeSet<EdgeId> = BTreeSet::new();
+    for (k, ring) in rings.iter().enumerate() {
         for i in 0..ring.len() {
             let (r, t) =
                 m.insert_edge_chain(ring[i] + w, ring[(i + 1) % ring.len()] + w, tol, log)?;
+            if k > 0 {
+                hole_tops.extend(r.edges.iter().copied());
+            }
             cap_edges.extend(r.edges);
             touched.extend(t);
         }
@@ -372,7 +378,16 @@ fn extrude_generic(
     }
     let side_touched: Vec<VertexId> = side_touched.into_iter().collect();
     m.find_faces_within(&side_touched, &sides, &sides, &allowed, tol, log)?;
-    m.find_faces_within(&touched_now, &plane_edges, &seeds, &allowed, tol, log)?;
+    // A face closing a hole ring's top would take the half-edges the cap's
+    // hole loop needs, and which of the two face finding reaches first
+    // depends on vertex positions; so no face may have a hole top as its
+    // outer boundary (docs/03 Decisions, 2026-11-18).
+    let cap_allowed: Vec<EdgeId> = allowed
+        .iter()
+        .copied()
+        .filter(|e| !hole_tops.contains(e))
+        .collect();
+    m.find_faces_within(&touched_now, &plane_edges, &seeds, &cap_allowed, tol, log)?;
     if join.is_some() {
         // A cap closed over the joined region is interior.
         for g in faces_bounded_by(m, &rings[0], w, tol)? {
@@ -1080,6 +1095,67 @@ mod tests {
         assert!(m.is_solid());
         assert!((m.volume().unwrap() - (10_000.0 - 400.0) * 10.0).abs() < 1e-6);
         assert_valid(&m);
+    }
+
+    /// Which of the cap and a face over a hole ring face finding reached
+    /// first depended on vertex positions; the cap lost with these
+    /// (docs/03 Decisions, 2026-11-18).
+    #[test]
+    fn a_face_with_any_hole_gets_its_cap() {
+        for n in [3usize, 5, 7] {
+            let mut m = HalfEdgeMesh::new();
+            rect(
+                &mut m,
+                [
+                    p(0.0, 0.0, 0.0),
+                    p(1000.0, 0.0, 0.0),
+                    p(1000.0, 1000.0, 0.0),
+                    p(0.0, 1000.0, 0.0),
+                ],
+            );
+            let pts: Vec<DVec3> = if n == 3 {
+                vec![
+                    p(500.0, 200.0, 0.0),
+                    p(700.0, 500.0, 0.0),
+                    p(300.0, 500.0, 0.0),
+                ]
+            } else {
+                let at = |c: f64| (c * 1000.0).round() / 1000.0;
+                (0..n)
+                    .map(|k| {
+                        let a = std::f64::consts::TAU * k as f64 / n as f64 + 0.3;
+                        p(
+                            at(500.0 + 200.0 * libm::cos(a)),
+                            at(500.0 + 200.0 * libm::sin(a)),
+                            0.0,
+                        )
+                    })
+                    .collect()
+            };
+            for i in 0..n {
+                m.add_edge(pts[i], pts[(i + 1) % n], &tol(), &mut NoDeltas)
+                    .unwrap();
+            }
+            let inner = m
+                .faces()
+                .find(|(id, _)| m.face_area(*id).unwrap() < 500_000.0)
+                .map(|(id, _)| id)
+                .unwrap();
+            m.erase_face(inner, false, &tol(), &mut NoDeltas).unwrap();
+            let ring = m.faces().next().unwrap().0;
+            let r = extrude_face(
+                &mut m,
+                ring,
+                Length::mm(100.0),
+                ExtrudeOptions::default(),
+                &tol(),
+                &mut NoDeltas,
+            )
+            .unwrap();
+            assert!(r.cap.is_some(), "{n}-gon hole: no cap");
+            assert!(m.is_solid(), "{n}-gon hole");
+            assert_valid(&m);
+        }
     }
 
     #[test]

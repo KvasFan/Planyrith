@@ -1,9 +1,13 @@
 //! Implements docs/05-modeling-tools.md §3.8 `text-3d`: faces from text
 //! glyph outlines (`ttf-parser`), optionally extruded into closed solids,
 //! in a new group. Curves are flattened; contours nested an odd number of
-//! times are holes. The bundled font is Inter (SIL Open Font License,
+//! times are holes, and a glyph whose contours cross (a crossbar drawn over
+//! its stems) is filled by the font's nonzero winding rule instead
+//! (docs/05 Decisions, 2026-11-18). The bundled font is Inter (SIL Open Font License,
 //! `assets/fonts/Inter-LICENSE.txt`); another TrueType or OpenType file can
 //! be read through the storage.
+
+use std::collections::BTreeSet;
 
 use glam::{DAffine3, DVec2, DVec3};
 use schemars::JsonSchema;
@@ -17,10 +21,10 @@ use crate::commands::{
 use crate::document::{ComponentDefinition, Document, Entities, EntityRecord, Group};
 use crate::geom::HalfEdgeMesh;
 use crate::geom::NoDeltas;
-use crate::geom::mesh::TriangleMergeOptions;
 use crate::geom::tessellate::tessellate_polygon_2d;
-use crate::ids::Pid;
+use crate::ids::{FaceId, Pid};
 use crate::io::StorageKey;
+use crate::tolerance::Tolerances;
 use crate::units::Length;
 
 use crate::fonts::INTER;
@@ -155,77 +159,179 @@ fn signed_area(c: &[DVec2]) -> f64 {
     (0..n).map(|i| c[i].perp_dot(c[(i + 1) % n])).sum::<f64>() / 2.0
 }
 
-fn inside(p: DVec2, c: &[DVec2]) -> bool {
-    let n = c.len();
-    let mut odd = false;
-    for i in 0..n {
-        let (a, b) = (c[i], c[(i + 1) % n]);
-        if (a.y > p.y) != (b.y > p.y) && p.x < a.x + (p.y - a.y) / (b.y - a.y) * (b.x - a.x) {
-            odd = !odd;
-        }
-    }
-    odd
+/// One glyph: its contours (curves flattened) and the boundary of what
+/// they fill.
+struct Glyph {
+    contours: Vec<Vec<DVec2>>,
+    boundary: Vec<(DVec2, DVec2)>,
 }
 
-/// Outer contours (counter-clockwise) with their holes (clockwise), by
-/// nesting depth.
-fn polygons(mut contours: Vec<Vec<DVec2>>) -> Vec<(Vec<DVec2>, Vec<Vec<DVec2>>)> {
-    // Drop repeated closing points and degenerate contours.
-    for c in &mut contours {
-        c.dedup_by(|a, b| (*a - *b).length() < 1e-9);
-        if c.len() > 1 && (c[0] - c[c.len() - 1]).length() < 1e-9 {
-            c.pop();
+/// The segments of each ring, closing back to its start.
+fn ring_segments(ring: &[DVec2]) -> impl Iterator<Item = (DVec2, DVec2)> + '_ {
+    (0..ring.len()).map(move |i| (ring[i], ring[(i + 1) % ring.len()]))
+}
+
+/// Flattened curve points within this many length tolerances of their
+/// neighbors' chord, or closer than this many planarity tolerances to the
+/// point before, are dropped: details below the kernel's resolution make
+/// faces it cannot tell apart (docs/05 Decisions, 2026-11-18).
+const SLIVER: f64 = 4.0;
+const SHORTEST: f64 = 2.0;
+
+/// `ring` without the points within `eps` of their neighbors' chord or
+/// within `shortest` of the point before.
+fn straighten(mut ring: Vec<DVec2>, eps: f64, shortest: f64) -> Vec<DVec2> {
+    let mut i = 0;
+    let mut kept = 0;
+    while ring.len() > 3 && kept < ring.len() {
+        let n = ring.len();
+        let (a, b, c) = (ring[(i + n - 1) % n], ring[i % n], ring[(i + 1) % n]);
+        if crate::math::polygon::distance_to_segment_2d(b, a, c) <= eps
+            || (b - a).length() <= shortest
+        {
+            ring.remove(i % n);
+            kept = 0;
+        } else {
+            i = (i + 1) % n;
+            kept += 1;
         }
     }
-    contours.retain(|c| c.len() >= 3 && signed_area(c).abs() > 1e-9);
-    let depth: Vec<usize> = contours
-        .iter()
-        .enumerate()
-        .map(|(i, c)| {
-            contours
-                .iter()
-                .enumerate()
-                .filter(|(j, o)| *j != i && inside(c[0], o))
-                .count()
+    ring
+}
+
+/// Winding number of `ring` around `p`.
+fn winding(p: DVec2, ring: &[DVec2]) -> i32 {
+    let mut w = 0;
+    for (a, b) in ring_segments(ring) {
+        let left = (b - a).perp_dot(p - a);
+        if a.y <= p.y {
+            if b.y > p.y && left > 0.0 {
+                w += 1;
+            }
+        } else if b.y <= p.y && left < 0.0 {
+            w -= 1;
+        }
+    }
+    w
+}
+
+/// A glyph from its contours: their segments bound what they fill unless
+/// two contours cross; then the boundary is that of the regions the
+/// contours fill by the nonzero winding rule.
+fn glyph(contours: Vec<Vec<DVec2>>, tol: &Tolerances) -> Glyph {
+    let mut contours: Vec<Vec<DVec2>> = contours
+        .into_iter()
+        .map(|mut c| {
+            c.dedup_by(|a, b| (*a - *b).length() < 1e-9);
+            if c.len() > 1 && (c[0] - c[c.len() - 1]).length() < 1e-9 {
+                c.pop();
+            }
+            straighten(c, SLIVER * tol.length, SHORTEST * tol.planarity)
         })
         .collect();
-    let mut outers: Vec<(usize, Vec<DVec2>, Vec<Vec<DVec2>>)> = Vec::new();
-    for (i, c) in contours.iter().enumerate() {
-        if depth[i].is_multiple_of(2) {
-            let mut c = c.clone();
-            if signed_area(&c) < 0.0 {
-                c.reverse();
-            }
-            outers.push((i, c, Vec::new()));
-        }
-    }
-    for (i, c) in contours.iter().enumerate() {
-        if depth[i] % 2 == 1 {
-            let mut hole = c.clone();
-            if signed_area(&hole) > 0.0 {
-                hole.reverse();
-            }
-            // The smallest outer around it.
-            if let Some(owner) = outers
-                .iter_mut()
-                .filter(|(_, o, _)| inside(hole[0], o))
-                .min_by(|a, b| signed_area(&a.1).total_cmp(&signed_area(&b.1)))
-            {
-                owner.2.push(hole);
-            }
-        }
-    }
-    outers.into_iter().map(|(_, o, h)| (o, h)).collect()
+    contours.retain(|c| c.len() >= 3 && signed_area(c).abs() > 1e-9);
+    let crossing = contours.iter().enumerate().any(|(i, a)| {
+        contours[i..]
+            .iter()
+            .any(|b| crate::math::polygon::rings_cross(a, b, tol))
+    });
+    let boundary = match crossing.then(|| nonzero_boundary(&contours, tol)) {
+        Some(Ok(Some(boundary))) => boundary,
+        _ => contours.iter().flat_map(|c| ring_segments(c)).collect(),
+    };
+    Glyph { contours, boundary }
 }
 
-/// Lines laid out: polygons in model units (baseline at y = 0 for the
+/// A point inside the polygon (`outer` and `holes` in any orientation):
+/// the centroid of its largest triangle.
+fn probe(outer: &[DVec2], holes: &[Vec<DVec2>]) -> Option<DVec2> {
+    let all: Vec<DVec2> = outer
+        .iter()
+        .chain(holes.iter().flatten())
+        .copied()
+        .collect();
+    tessellate_polygon_2d(outer, holes)
+        .ok()?
+        .into_iter()
+        .map(|t| t.map(|i| all[i as usize]))
+        .max_by(|a, b| {
+            let area = |t: &[DVec2; 3]| (t[1] - t[0]).perp_dot(t[2] - t[0]).abs();
+            area(a).total_cmp(&area(b))
+        })
+        .map(|t| (t[0] + t[1] + t[2]) / 3.0)
+}
+
+/// `true` when the contours fill `p` by the nonzero winding rule.
+fn fills(contours: &[Vec<DVec2>], p: DVec2) -> bool {
+    contours.iter().map(|c| winding(p, c)).sum::<i32>() != 0
+}
+
+/// The boundary of the bounded regions of the contours' arrangement that
+/// the contours fill: sides two filled regions share are left out.
+fn nonzero_boundary(
+    contours: &[Vec<DVec2>],
+    tol: &Tolerances,
+) -> Result<Option<Vec<(DVec2, DVec2)>>, crate::geom::GeometryError> {
+    let lift = |p: DVec2| DVec3::new(p.x, p.y, 0.0);
+    let segments: Vec<(DVec3, DVec3)> = contours
+        .iter()
+        .flat_map(|c| ring_segments(c))
+        .map(|(a, b)| (lift(a), lift(b)))
+        .collect();
+    let mut mesh = HalfEdgeMesh::new();
+    mesh.add_edges(&segments, tol, &mut NoDeltas)?;
+    let flat = |l| -> Result<Vec<DVec2>, crate::geom::GeometryError> {
+        Ok(mesh
+            .loop_positions(l)?
+            .iter()
+            .map(|p| p.truncate())
+            .collect())
+    };
+    let mut rings: Vec<Vec<DVec2>> = Vec::new();
+    for (_, face) in mesh.faces() {
+        let outer = flat(face.outer)?;
+        let holes = face
+            .holes
+            .iter()
+            .map(|&l| flat(l))
+            .collect::<Result<Vec<_>, _>>()?;
+        if probe(&outer, &holes).is_some_and(|p| fills(contours, p)) {
+            rings.push(outer);
+            rings.extend(holes);
+        }
+    }
+    if rings.is_empty() {
+        return Ok(None);
+    }
+    let key = |a: DVec2, b: DVec2| {
+        let (a, b) = (
+            [a.x.to_bits(), a.y.to_bits()],
+            [b.x.to_bits(), b.y.to_bits()],
+        );
+        if a <= b { (a, b) } else { (b, a) }
+    };
+    let mut uses: std::collections::BTreeMap<_, usize> = std::collections::BTreeMap::new();
+    for (a, b) in rings.iter().flat_map(|r| ring_segments(r)) {
+        *uses.entry(key(a, b)).or_default() += 1;
+    }
+    Ok(Some(
+        rings
+            .iter()
+            .flat_map(|r| ring_segments(r))
+            .filter(|&(a, b)| uses[&key(a, b)] == 1)
+            .collect(),
+    ))
+}
+
+/// Lines laid out: glyphs in model units (baseline at y = 0 for the
 /// first line).
 fn layout(
     face: &ttf_parser::Face<'_>,
     text: &str,
     height: f64,
     align: TextAlign,
-) -> Vec<(Vec<DVec2>, Vec<Vec<DVec2>>)> {
+    tol: &Tolerances,
+) -> Vec<Glyph> {
     let em = f64::from(face.units_per_em());
     let cap = face
         .capital_height()
@@ -267,7 +373,10 @@ fn layout(
                         .collect()
                 })
                 .collect();
-            out.extend(polygons(moved));
+            let g = glyph(moved, tol);
+            if !g.boundary.is_empty() {
+                out.push(g);
+            }
         }
     }
     out
@@ -320,101 +429,89 @@ impl Command for Text3d {
         };
         let face = ttf_parser::Face::parse(&font_bytes, 0)
             .map_err(|e| CommandError::invalid_param("font", format!("not a usable font: {e}")))?;
-        let polys = layout(&face, &p.text, p.height.as_mm(), p.align);
-        if polys.is_empty() {
+        let tol = *tx.tolerances();
+        let glyphs = layout(&face, &p.text, p.height.as_mm(), p.align, &tol);
+        if glyphs.is_empty() {
             return Err(CommandError::invalid_param(
                 "text",
                 "has no visible glyphs in this font",
             ));
         }
-        let tol = *tx.tolerances();
         let h = p.extrude.as_mm();
-        let mesh = if p.filled {
-            let mut positions: Vec<DVec3> = Vec::new();
-            let mut triangles: Vec<[u32; 3]> = Vec::new();
-            let mut keys: Vec<u32> = Vec::new();
-            let mut tri = |a: DVec3, b: DVec3, c: DVec3, key: u32| {
-                let base = positions.len() as u32;
-                positions.extend([a, b, c]);
-                triangles.push([base, base + 1, base + 2]);
-                keys.push(key);
-            };
-            for (k, (outer, holes)) in polys.iter().enumerate() {
-                let key = k as u32;
-                let Ok(cap) = tessellate_polygon_2d(outer, holes) else {
-                    continue;
-                };
-                let all: Vec<DVec2> = outer
+        // The kernel bounds faces by the glyph outlines, as drawing them
+        // would; faces the outlines do not fill (counters) go, and the
+        // rest are pulled up (docs/05 Decisions, 2026-11-18).
+        let segments: Vec<(DVec3, DVec3)> = glyphs
+            .iter()
+            .flat_map(|g| &g.boundary)
+            .map(|&(a, b)| (DVec3::new(a.x, a.y, 0.0), DVec3::new(b.x, b.y, 0.0)))
+            .collect();
+        let mut mesh = HalfEdgeMesh::new();
+        mesh.add_edges(&segments, &tol, &mut NoDeltas)?;
+        let all: Vec<FaceId> = mesh.faces().map(|(f, _)| f).collect();
+        let mut kept = Vec::new();
+        for f in all {
+            let face = mesh.face_ref(f)?;
+            let flat = |l| -> Result<Vec<DVec2>, crate::geom::GeometryError> {
+                Ok(mesh
+                    .loop_positions(l)?
                     .iter()
-                    .chain(holes.iter().flatten())
-                    .copied()
-                    .collect();
-                for t in cap {
-                    let [a, b, c] = t.map(|i| all[i as usize]);
-                    // Counter-clockwise seen from +Z.
-                    let (a, b, c) = if (b - a).perp_dot(c - a) < 0.0 {
-                        (a, c, b)
-                    } else {
-                        (a, b, c)
-                    };
-                    let at = |q: DVec2, z: f64| DVec3::new(q.x, q.y, z);
-                    if h > 0.0 {
-                        tri(at(a, h), at(b, h), at(c, h), key);
-                        tri(at(a, 0.0), at(c, 0.0), at(b, 0.0), key);
-                    } else {
-                        tri(at(a, 0.0), at(b, 0.0), at(c, 0.0), key);
-                    }
-                }
-                if h > 0.0 {
-                    // Sides: interior on the left of every ring's direction.
-                    for ring in std::iter::once(outer).chain(holes.iter()) {
-                        let n = ring.len();
-                        for i in 0..n {
-                            let (p0, q0) = (ring[i], ring[(i + 1) % n]);
-                            let (a0, b0) =
-                                (DVec3::new(p0.x, p0.y, 0.0), DVec3::new(q0.x, q0.y, 0.0));
-                            let (a1, b1) = (a0 + DVec3::Z * h, b0 + DVec3::Z * h);
-                            tri(a0, b0, b1, key);
-                            tri(a0, b1, a1, key);
-                        }
-                    }
-                }
+                    .map(|q| q.truncate())
+                    .collect())
+            };
+            let outer = flat(face.outer)?;
+            let holes = face
+                .holes
+                .iter()
+                .map(|&l| flat(l))
+                .collect::<Result<Vec<_>, _>>()?;
+            let filled = p.filled
+                && probe(&outer, &holes)
+                    .is_some_and(|q| glyphs.iter().any(|g| fills(&g.contours, q)));
+            if filled {
+                kept.push(f);
+            } else {
+                mesh.erase_face(f, false, &tol, &mut NoDeltas)?;
             }
-            HalfEdgeMesh::from_triangles_keyed(
-                &positions,
-                &triangles,
-                &keys,
-                TriangleMergeOptions {
-                    merge_coplanar: true,
-                    soften_angle: crate::units::Angle::ZERO,
-                },
-                &tol,
-            )
-            .map_err(|e| CommandError::Internal(e.to_string()))?
-            .mesh
-        } else {
-            let mut mesh = HalfEdgeMesh::new();
-            for (outer, holes) in &polys {
-                for ring in std::iter::once(outer).chain(holes.iter()) {
-                    let n = ring.len();
-                    for i in 0..n {
-                        let (a, b) = (ring[i], ring[(i + 1) % n]);
-                        let _ = mesh.add_edge(
-                            DVec3::new(a.x, a.y, 0.0),
-                            DVec3::new(b.x, b.y, 0.0),
-                            &tol,
-                            &mut NoDeltas,
-                        );
-                    }
-                }
+        }
+        // Filled faces that touch (letters run together at a small size)
+        // become one, so each side wall is built once.
+        let shared: Vec<_> = mesh.edges().map(|(e, _)| e).collect();
+        for e in shared {
+            if mesh.edge(e).is_some()
+                && let [Some(a), Some(b)] = mesh.edge_faces(e)?
+                && a != b
+            {
+                mesh.erase_edge(e, &tol, &mut NoDeltas)?;
             }
-            // Outlines only: the faces the closed contours formed go.
-            let faces: Vec<_> = mesh.faces().map(|(f, _)| f).collect();
-            for f in faces {
-                let _ = mesh.erase_face(f, false, &tol, &mut NoDeltas);
+        }
+        let kept: Vec<FaceId> = mesh.faces().map(|(f, _)| f).collect();
+        // Faces front up; pulled up by the extrusion height.
+        let down: BTreeSet<FaceId> = kept
+            .iter()
+            .copied()
+            .filter(|&f| mesh.face_normal(f).is_ok_and(|n| n.z < 0.0))
+            .collect();
+        if !down.is_empty() {
+            crate::geom::planar::reverse_faces(&mut mesh, &down, &tol, &mut NoDeltas)?;
+        }
+        if h > 0.0 {
+            let opts = crate::geom::extrude::ExtrudeOptions {
+                create_new_start_face: true,
+                merge_coplanar: false,
+                push_through: false,
+            };
+            for f in kept {
+                crate::geom::extrude::extrude_face(
+                    &mut mesh,
+                    f,
+                    p.extrude,
+                    opts,
+                    &tol,
+                    &mut NoDeltas,
+                )?;
             }
-            mesh
-        };
+        }
         let faces = mesh.face_count();
         let name = format!(
             "Group {}",

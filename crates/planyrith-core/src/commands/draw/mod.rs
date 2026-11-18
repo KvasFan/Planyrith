@@ -102,7 +102,11 @@ pub(crate) fn draw_chain(
             }
             // Edges a later segment split no longer exist; keep the live ones.
             edges.retain(|e| m.edge(*e).is_some());
-            if let Some(descriptor) = curve {
+            // A stroke whose edges no file could list as one curve (it
+            // branches) stays plain edges (docs/03 Decisions, 2026-11-18).
+            if let Some(descriptor) = curve
+                && m.curve_restorable(&edges)
+            {
                 m.add_curve(descriptor, &edges, d)?;
             }
             Ok((edges, created, split))
