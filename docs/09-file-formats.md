@@ -101,6 +101,7 @@ control via `planyrith export --format json`. It is **not** required to load the
 | STL (ASCII/binary) | ✔ | ✔ | triangles merged into coplanar faces on import (`--merge-coplanar`, default on); binary default on export. |
 | glTF 2.0 / GLB | ✔ | ✔ | nodes → groups/instances (meshes shared → components), PBR base color + texture, transforms, cameras → scenes. KHR_texture_transform supported. |
 | DXF (R12–2018 ASCII) | ✔ | ✔ (3D and 2D) | LINE, LWPOLYLINE/POLYLINE, ARC, CIRCLE, ELLIPSE (segmented), SPLINE (flattened), 3DFACE, POLYFACE mesh, INSERT/BLOCK → components, LAYER → tags, TEXT/MTEXT, DIMENSION (as text+lines on export). |
+| DWG (2000, 2004, 2010, 2013, 2018) | ✔ (milestone 1.52) | — | the same content as DXF import — layers as tags, block definitions as components placed by inserts (with arrays), model-space lines, arcs, circles, ellipses, splines, light and 2D/3D polylines, polyface and polygon meshes, 3D faces and solids — decoded from the drawing and brought in by the DXF importer; paper space, text, dimensions, hatches and objects defined by classes (tables, lights, leaders…) are skipped and counted. Release 2007 (`AC1021`) and releases before 2000 are refused naming the release to save in instead. Units are millimeters unless `--units`. |
 | STEP AP203/214/242 | ✔ | ✔ (AP214) | with product structure (milestone 1.17): every exported container is a product (name; part number as its id; description; properties as user-defined attributes; the model's current revision on its definition), each group or component occurrence a next-assembly-usage with its placement; planar faces with straight edges exact, closed shells as manifold solids, open ones as surface models; a placement that is not a rigid motion is applied to its branch's geometry; dimensions and anchored notes as graphical annotations (milestone 1.39, below), and each dimension also as data — a dimensional location or size with its nominal value, its plus/minus tolerance when its text states one, the measured points as shape aspects, tied to its presentation (milestone 1.45). Import reads the same structure back as components with their properties and annotations — a presented dimension's tolerance given as data joins its text; dimensions and geometric tolerances (with their datums) given only as data become notes at the point, edge or face they apply to — planar faces bounded by lines and circular arcs (sampled), voids included, millimeters, meters or inches; files with curved surfaces go to `truck-stepio` (feature `brep`) and are tessellated. |
 | IGES 5.3 | ✔ | ✔ | export: with `--solids`, each closed shell a manifold solid B-rep object (186: one shell 514 of faces 510 on planes 190, loops 508, edge 504 and vertex 502 lists, milestone 1.44); otherwise, and for faces outside closed shells, each planar face a trimmed surface (144) on a bilinear plane patch (128) bounded by composite curves of lines (142/102/110), in millimeters; loose geometry and groups in world coordinates, each component definition once as a subfigure (308, nested components flattened into it) placed by a subfigure instance (408) with its transformation matrix (124); import: trimmed and bounded surfaces (144, 143) on planar surfaces (108, 128, 190) and on curved ones — B-spline (128), revolution (120), tabulated cylinder (122) and ruled (118) — and freestanding curved surfaces, with lines, arcs (100), composite curves, copious data (106) and B-spline curves (126, sampled), transformation matrices (124) and the file's unit; subfigures become components placed by their instances (nested ones too); manifold solid B-rep objects (186) with their voids, faces on any of those surfaces and edges of any of those curves; curved surfaces become soft triangles within a chord tolerance (`W2008` notice). |
 | SKP / SKB | ✔ (desktop format module, target 2013+) | ✔ (edited 2017 / 2026; unchanged source version retained) | `.skb` is a backup with the same model encoding; direct open/save/import/export, native working-copy default; release certification and fidelity limits in Decisions. |
@@ -110,7 +111,7 @@ control via `planyrith export --format json`. It is **not** required to load the
 | SVG / PDF | — | ✔ | 2D export of a view (`--2d`) and of sheets (`docs/15`). Hidden-line removal in software; vector output. |
 | `.plyr/.plyrc` | ✔ | ✔ | merge another document as a group/component. |
 
-Out of scope (documented as future work): DWG; FBX before 6.0.
+Out of scope (documented as future work): FBX before 6.0; DWG releases 2007 and before 2000, and DWG export.
 Import of any unsupported entity yields `W2004` with counts, never a failure.
 
 ## 6. Importer/exporter contracts
@@ -792,3 +793,20 @@ save unless `--no-thumbnail`. `manifest.json` carries `title`, `author`, `descri
   cubes, cones, pivots, Unicode and quoted names) were read during development and are not
   kept; the repository holds a hand-written 6.1 file. Files before 6.0 are refused naming
   their version.
+- 2026-11-18 — **DWG import (milestone 1.52).** The drawing is decoded without a library and
+  turned into DXF group codes in memory, which the DXF importer brings in: one path for both
+  formats, so a drawing saved either way gives the same model. The decoder follows the format's
+  published description: release 2000 sections at offsets the file header lists; later
+  releases' encrypted header, page map and section map, pages compressed with the format's
+  LZ77 variant; the object map (handle and offset deltas as modular chars); objects as bit
+  streams with their handles in a second stream and, from 2010, their strings in a third.
+  Entities keep their own coordinates and extrusion directions, so the DXF importer's object
+  coordinate systems apply. Release 2007 encodes its pages differently (an error-correcting
+  interleave and another compression) and is refused, as are releases before 2000, each with
+  the advice to save in a supported release. The header variables are not read, so units come
+  from `--units` (millimeters otherwise). During development, the decoder read sample drawings
+  of each supported release from a public test collection with their DXF twins: every fixed
+  entity type matched in number, line ends matched to four decimals, and no object failed to
+  decode except, from 2010 on, one system layer for lights per drawing (it holds no geometry);
+  the samples are not kept,
+  and the repository holds a release 2000 drawing written by a test writer.

@@ -12,6 +12,7 @@
 pub mod build;
 pub mod collada;
 pub mod csv;
+pub mod dwg;
 pub mod dxf;
 pub mod fbx;
 pub mod gltf;
@@ -80,11 +81,13 @@ pub enum ImportFormat {
     /// 3DS chunked mesh files (milestone 1.49).
     #[serde(rename = "3ds")]
     ThreeDs,
+    /// DWG drawings, releases 2000 to 2018 except 2007 (milestone 1.52).
+    Dwg,
 }
 
 impl ImportFormat {
     /// Every import format.
-    pub const ALL: [ImportFormat; 17] = [
+    pub const ALL: [ImportFormat; 18] = [
         ImportFormat::Obj,
         ImportFormat::Stl,
         ImportFormat::Gltf,
@@ -102,6 +105,7 @@ impl ImportFormat {
         ImportFormat::Iges,
         ImportFormat::Usd,
         ImportFormat::ThreeDs,
+        ImportFormat::Dwg,
     ];
 
     /// Registered formats; SKP additionally requires a converter-capable backend.
@@ -132,6 +136,7 @@ impl ImportFormat {
             "igs" | "iges" => ImportFormat::Iges,
             "usda" | "usdz" | "usd" | "usdc" => ImportFormat::Usd,
             "3ds" => ImportFormat::ThreeDs,
+            "dwg" => ImportFormat::Dwg,
             _ => return None,
         })
     }
@@ -288,6 +293,7 @@ pub fn importer(format: ImportFormat) -> Option<Box<dyn Importer>> {
         ImportFormat::Iges => Some(Box::new(crate::io::iges::IgesImporter)),
         ImportFormat::Usd => Some(Box::new(usd::UsdImporter)),
         ImportFormat::ThreeDs => Some(Box::new(crate::io::three_ds::ThreeDsImporter)),
+        ImportFormat::Dwg => Some(Box::new(dwg::DwgImporter)),
     }
 }
 

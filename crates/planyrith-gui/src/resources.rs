@@ -90,7 +90,7 @@ impl FileRequest {
                 &[
                     "glb", "gltf", "obj", "stl", "3mf", "ply", "dae", "ifc", "fbx", "dxf", "skp",
                     "skb", "plyr", "plyrc", "png", "jpg", "jpeg", "webp", "csv", "step", "stp",
-                    "igs", "iges", "usda", "usdz", "usd", "usdc", "3ds",
+                    "igs", "iges", "usda", "usdz", "usd", "usdc", "3ds", "dwg",
                 ],
                 false,
             ),

@@ -614,6 +614,13 @@ Read FBX 6.x files, text and binary.
 - **Done (2026-11-18):** 6.x documents become the 7.x shape the importer reads (docs/09 §5 and
   Decisions).
 
+## 1.52.0 — DWG import
+
+Read DWG drawings of releases 2000, 2004, 2010, 2013 and 2018.
+
+- **Done (2026-11-18):** a decoder (`io::import::dwg`) turning drawings into the DXF importer's
+  input; File › Import offers `.dwg` (docs/09 §5 and Decisions).
+
 ## Post-1.0 candidates
 Other limits remain listed against their original milestones; no unrelated feature scope is
 added by the continuation milestones 1.19–1.32.

@@ -882,7 +882,23 @@ impl Importer for DxfImporter {
         }
         let text = String::from_utf8_lossy(&bytes);
         let all = pairs(&text)?;
-        let sections = sections(&all);
+        import_pairs(&all, &bytes, opts, tx, target, progress)
+    }
+}
+
+/// Brings drawing content given as group-code pairs into the target: a DXF
+/// file's, or a DWG drawing's turned into them (milestone 1.52). `digest`
+/// is the source's bytes, for the definition's identity.
+pub(crate) fn import_pairs(
+    all: &[(i32, &str)],
+    digest: &[u8],
+    opts: &ImportOptions,
+    tx: &mut Transaction<'_>,
+    target: &Target,
+    progress: &dyn Progress,
+) -> Result<ImportReport, IoError> {
+    {
+        let sections = sections(all);
         progress.report(0.3, "reading entities");
         let unit = opts
             .units
@@ -942,11 +958,8 @@ impl Importer for DxfImporter {
                         .set_tag(id, tag)
                         .map_err(|e| corrupt(e.to_string()))?;
                 }
-                let uuid = crate::commands::common::definition_uuid_of(
-                    tx.document(),
-                    &name,
-                    &[text.as_bytes()],
-                );
+                let uuid =
+                    crate::commands::common::definition_uuid_of(tx.document(), &name, &[digest]);
                 let mut def = ComponentDefinition::new(uuid, name);
                 def.is_internal_group = internal;
                 def.entities = entities;
