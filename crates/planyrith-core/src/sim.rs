@@ -747,6 +747,165 @@ impl Sparse {
     }
 }
 
+/// Envelope entries the direct solver may hold (about 320 MB); larger
+/// systems are solved by conjugate gradients.
+const MAX_ENVELOPE: usize = 40_000_000;
+
+/// A Cholesky factor `L` (`A = L Lᵀ`) of the free rows and columns of a
+/// symmetric positive definite [`Sparse`] matrix, stored by rows in its
+/// envelope after a reverse Cuthill–McKee ordering of the nodes keeps the
+/// envelope narrow. Factored once, it solves each right-hand side in two
+/// sweeps, which a modal analysis repeats hundreds of times.
+struct Envelope {
+    /// The unknown of each position in the ordering.
+    order: Vec<usize>,
+    /// First column stored for each row.
+    first: Vec<usize>,
+    /// Where each row starts in `vals`.
+    start: Vec<usize>,
+    /// Row `i` holds columns `first[i]..=i`.
+    vals: Vec<f64>,
+}
+
+impl Envelope {
+    /// Factors `a` restricted to `free` unknowns; `None` when the envelope
+    /// would exceed [`MAX_ENVELOPE`] or a pivot is not positive (the free
+    /// part is not held).
+    fn factor(a: &Sparse, free: &[bool]) -> Option<Envelope> {
+        let b = a.b;
+        let nodes = a.start.len() - 1;
+        // Reverse Cuthill–McKee on the node graph, from a lowest-degree node
+        // of each component; ties by index, so the order is deterministic.
+        let degree = |i: usize| a.start[i + 1] - a.start[i];
+        let mut by_degree: Vec<usize> = (0..nodes).collect();
+        by_degree.sort_by_key(|&i| (degree(i), i));
+        let mut seen = vec![false; nodes];
+        let mut node_order = Vec::with_capacity(nodes);
+        for &root in &by_degree {
+            if seen[root] {
+                continue;
+            }
+            seen[root] = true;
+            let mut head = node_order.len();
+            node_order.push(root);
+            while head < node_order.len() {
+                let v = node_order[head];
+                head += 1;
+                let mut next: Vec<usize> = a.cols[a.start[v]..a.start[v + 1]]
+                    .iter()
+                    .map(|&c| c as usize)
+                    .filter(|&c| !seen[c])
+                    .collect();
+                next.sort_by_key(|&c| (degree(c), c));
+                for c in next {
+                    seen[c] = true;
+                    node_order.push(c);
+                }
+            }
+        }
+        node_order.reverse();
+        let order: Vec<usize> = node_order
+            .iter()
+            .flat_map(|&v| (0..b).map(move |r| v * b + r))
+            .filter(|&u| free[u])
+            .collect();
+        let n = order.len();
+        let mut position = vec![usize::MAX; nodes * b];
+        for (i, &u) in order.iter().enumerate() {
+            position[u] = i;
+        }
+        let mut first: Vec<usize> = (0..n).collect();
+        for (i, &u) in order.iter().enumerate() {
+            let v = u / b;
+            for &c in &a.cols[a.start[v]..a.start[v + 1]] {
+                for r in 0..b {
+                    let j = position[c as usize * b + r];
+                    if j < first[i] {
+                        first[i] = j;
+                    }
+                }
+            }
+        }
+        let mut start = Vec::with_capacity(n + 1);
+        start.push(0usize);
+        for i in 0..n {
+            let size = start[i].checked_add(i - first[i] + 1)?;
+            if size > MAX_ENVELOPE {
+                return None;
+            }
+            start.push(size);
+        }
+        let mut vals = vec![0.0; start[n]];
+        for (i, &u) in order.iter().enumerate() {
+            let (v, r) = (u / b, u % b);
+            for k in a.start[v]..a.start[v + 1] {
+                let c = a.cols[k] as usize;
+                for cc in 0..b {
+                    let j = position[c * b + cc];
+                    if j <= i {
+                        vals[start[i] + j - first[i]] += a.vals[k * b * b + r * b + cc];
+                    }
+                }
+            }
+        }
+        // Row-by-row Cholesky within the envelope.
+        let mut largest = 0.0f64;
+        for i in 0..n {
+            largest = largest.max(vals[start[i] + i - first[i]].abs());
+        }
+        for i in 0..n {
+            for j in first[i]..=i {
+                let lo = first[i].max(first[j]);
+                let mut sum = vals[start[i] + j - first[i]];
+                let (ri, rj) = (start[i] - first[i], start[j] - first[j]);
+                for k in lo..j {
+                    sum -= vals[ri + k] * vals[rj + k];
+                }
+                if j < i {
+                    vals[ri + j] = sum / vals[rj + j];
+                } else {
+                    if sum.is_nan() || sum <= 1e-12 * largest {
+                        return None;
+                    }
+                    vals[ri + i] = sum.sqrt();
+                }
+            }
+        }
+        Some(Envelope {
+            order,
+            first,
+            start,
+            vals,
+        })
+    }
+
+    /// `x` on the free unknowns from `A x = rhs`; the others are zero.
+    fn solve(&self, rhs: &[f64], x: &mut [f64]) {
+        let n = self.order.len();
+        let mut y: Vec<f64> = self.order.iter().map(|&u| rhs[u]).collect();
+        for i in 0..n {
+            let row = self.start[i] - self.first[i];
+            let mut sum = y[i];
+            for k in self.first[i]..i {
+                sum -= self.vals[row + k] * y[k];
+            }
+            y[i] = sum / self.vals[row + i];
+        }
+        for i in (0..n).rev() {
+            let row = self.start[i] - self.first[i];
+            y[i] /= self.vals[row + i];
+            let yi = y[i];
+            for k in self.first[i]..i {
+                y[k] -= self.vals[row + k] * yi;
+            }
+        }
+        x.fill(0.0);
+        for (i, &u) in self.order.iter().enumerate() {
+            x[u] = y[i];
+        }
+    }
+}
+
 fn dot(a: &[f64], b: &[f64]) -> f64 {
     a.iter().zip(b).map(|(x, y)| x * y).sum()
 }
@@ -1244,6 +1403,8 @@ pub fn solve_modes(
     };
     let mut x: Vec<Vec<f64>> = (0..p).map(fresh).collect();
     orthonormalize(&mut x, 0);
+    // Factored once when it fits; every iteration then solves directly.
+    let direct = Envelope::factor(&k, &free);
     let mut values = vec![0.0; p];
     let mut previous = vec![f64::MAX; count];
     for iteration in 0..80 {
@@ -1256,11 +1417,16 @@ pub fn solve_modes(
             } else {
                 vec![0.0; n]
             };
-            solve_cg(&k, &rhs, &free, &mut yj, 1.0e-10).ok_or_else(|| {
-                GeometryError::NotApplicable(
-                    "the solver did not converge (is the part held?)".into(),
-                )
-            })?;
+            match &direct {
+                Some(l) => l.solve(&rhs, &mut yj),
+                None => {
+                    solve_cg(&k, &rhs, &free, &mut yj, 1.0e-10).ok_or_else(|| {
+                        GeometryError::NotApplicable(
+                            "the solver did not converge (is the part held?)".into(),
+                        )
+                    })?;
+                }
+            }
             y.push(yj);
         }
         orthonormalize(&mut y, 7919 * (iteration + 1));
@@ -1600,6 +1766,37 @@ mod tests {
             })
             .map(|(id, _)| id)
             .unwrap()
+    }
+
+    /// The direct envelope solver and conjugate gradients agree; a free
+    /// (unheld) part has no factor.
+    #[test]
+    fn the_envelope_factor_solves_as_conjugate_gradients_do() {
+        let tol = Tolerances::default();
+        let beam = block(DVec3::ZERO, DVec3::new(200.0, 20.0, 20.0));
+        let mesh = tet_mesh(&beam, 10.0, 100_000, &tol).unwrap();
+        let root = face_at(&beam, -DVec3::X, 0.0);
+        let k = stiffness(&mesh, &material("steel").unwrap());
+        let free = free_dofs(&mesh, &[root], 3).unwrap();
+        let rhs: Vec<f64> = (0..free.len())
+            .map(|i| {
+                if free[i] {
+                    ((i * 37) % 11) as f64 - 5.0
+                } else {
+                    0.0
+                }
+            })
+            .collect();
+        let mut by_cg = vec![0.0; rhs.len()];
+        solve_cg(&k, &rhs, &free, &mut by_cg, 1e-12).unwrap();
+        let l = Envelope::factor(&k, &free).unwrap();
+        let mut direct = vec![1.0; rhs.len()];
+        l.solve(&rhs, &mut direct);
+        let scale = by_cg.iter().fold(0.0f64, |m, v| m.max(v.abs()));
+        for (a, b) in by_cg.iter().zip(&direct) {
+            assert!((a - b).abs() <= 1e-8 * scale, "{a} vs {b}");
+        }
+        assert!(Envelope::factor(&k, &vec![true; free.len()]).is_none());
     }
 
     #[test]

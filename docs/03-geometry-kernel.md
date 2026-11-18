@@ -635,6 +635,15 @@ W and K.
 
 ## Decisions
 
+- 2026-11-18 — **A direct solver for natural frequencies (§12).** Subspace iteration solves
+  `K y = M x` for every vector of every iteration; by conjugate gradients that took a minute for
+  the default mesh of a 200 mm beam (6 399 nodes). The stiffness of the free unknowns is now
+  factored once (Cholesky in the envelope of a reverse Cuthill–McKee node ordering, plain Rust)
+  and each solve is two sweeps: 1.3 s for that beam, 3.7 s instead of 35 s for a 100 mm cube,
+  same frequencies to eleven digits. When the envelope would pass 40 million entries (about
+  320 MB) or a pivot is not positive, conjugate gradients solve as before. Static and thermal
+  analyses solve once and keep conjugate gradients, which there cost less than a factor.
+
 - 2026-11-18 — **Curves that survive a reload.** The native file stores which curve each edge
   belongs to, not the order of a curve's members; loading orders them into a chain. A stroke
   that runs back over itself or an earlier stroke branches (three members meet at a vertex),
