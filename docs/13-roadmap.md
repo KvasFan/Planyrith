@@ -558,6 +558,15 @@ Read and write IGES manifold solid B-rep objects (186), the form other modelers 
   solids; curved faces along sampled boundaries now close against their neighbors (docs/09
   Decisions).
 
+## 1.45.0 — STEP annotations as data
+
+Exchange dimensions and tolerances as data, beyond their graphical presentation.
+
+- **Done (2026-11-18):** export writes each dimension as a semantic dimension tied to its
+  callout, with its nominal value and plus/minus tolerance; import adds a data-only tolerance
+  to the dimension's text and turns data-only dimensions and geometric tolerances into notes
+  where they apply (docs/09 Decisions).
+
 ## Post-1.0 candidates
 Other limits remain listed against their original milestones; no unrelated feature scope is
 added by the continuation milestones 1.19–1.32.

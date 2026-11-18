@@ -17,7 +17,10 @@
 //!
 //! Dimensions and anchored notes travel as graphical annotations: one
 //! draughting model per product with a callout of polylines and text per
-//! annotation (milestone 1.39, docs/09 Decisions 2026-11-16).
+//! annotation (milestone 1.39, docs/09 Decisions 2026-11-16). Each
+//! dimension also travels as data: a semantic dimension with its nominal
+//! value and plus/minus tolerance, tied to its callout; data-only
+//! dimensions and geometric tolerances read back as notes (milestone 1.45).
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -462,6 +465,7 @@ pub fn write(
         .unwrap_or_default();
     // Products, in container order.
     let mut written: BTreeMap<ContainerRef, (usize, usize, usize)> = BTreeMap::new();
+    let mut shapes: BTreeMap<ContainerRef, usize> = BTreeMap::new();
     let mut solids = 0;
     for (c, data) in &products {
         let p = o.add(format!(
@@ -531,6 +535,7 @@ pub fn write(
             ));
         }
         written.insert(*c, (pd, sr, origin));
+        shapes.insert(*c, pds);
     }
     // Dimensions and notes as graphical annotations (milestone 1.39).
     let mut styles: Option<(usize, usize, usize)> = None;
@@ -553,6 +558,7 @@ pub fn write(
             (curve, text, font)
         });
         let mut items = Vec::new();
+        let mut semantic = Vec::new();
         for co in callouts {
             let mut parts = Vec::new();
             for line in &co.lines {
@@ -576,7 +582,11 @@ pub fn write(
                 .map(|i| format!("#{i}"))
                 .collect::<Vec<_>>()
                 .join(",");
-            items.push(o.add(format!("DRAUGHTING_CALLOUT({},({list}))", q(co.kind))));
+            let callout = o.add(format!("DRAUGHTING_CALLOUT({},({list}))", q(co.kind)));
+            items.push(callout);
+            if let Some(sd) = &co.semantic {
+                semantic.push((sd.clone(), callout));
+            }
         }
         let origin = placement(&mut o, DVec3::ZERO, DVec3::Z, DVec3::X);
         let list = items
@@ -589,6 +599,51 @@ pub fn write(
         o.add(format!(
             "REPRESENTATION_RELATIONSHIP('annotations','',#{dm},#{sr})"
         ));
+        // The dimensions as data, tied to their presentation (milestone
+        // 1.45).
+        let Some(&pds) = shapes.get(c) else { continue };
+        for (sd, callout) in semantic {
+            let aspects: Vec<usize> = sd
+                .points
+                .iter()
+                .map(|p| {
+                    let sa = o.add(format!("SHAPE_ASPECT('','',#{pds},.T.)"));
+                    let at = point(&mut o, *p);
+                    o.add(format!(
+                        "GEOMETRIC_ITEM_SPECIFIC_USAGE('','',#{sa},#{sr},#{at})"
+                    ));
+                    sa
+                })
+                .collect();
+            let dim = match aspects.as_slice() {
+                [a, b] => o.add(format!("DIMENSIONAL_LOCATION({},'',#{a},#{b})", q(sd.kind))),
+                [a] => o.add(format!("DIMENSIONAL_SIZE(#{a},{})", q(sd.kind))),
+                _ => continue,
+            };
+            let measure = |o: &mut Out, v: f64, role: &str| {
+                o.add(format!(
+                    "(LENGTH_MEASURE_WITH_UNIT()MEASURE_REPRESENTATION_ITEM()MEASURE_WITH_UNIT(LENGTH_MEASURE({}),#{len})REPRESENTATION_ITEM({}))",
+                    r(v),
+                    q(role)
+                ))
+            };
+            let nominal = measure(&mut o, sd.value, "nominal value");
+            let sdr = o.add(format!(
+                "SHAPE_DIMENSION_REPRESENTATION('',(#{nominal}),#{ctx})"
+            ));
+            o.add(format!(
+                "DIMENSIONAL_CHARACTERISTIC_REPRESENTATION(#{dim},#{sdr})"
+            ));
+            if let Some((lower, upper)) = sd.tolerance {
+                let lo = measure(&mut o, lower, "lower limit");
+                let hi = measure(&mut o, upper, "upper limit");
+                let tv = o.add(format!("TOLERANCE_VALUE(#{lo},#{hi})"));
+                o.add(format!("PLUS_MINUS_TOLERANCE(#{tv},#{dim})"));
+            }
+            o.add(format!(
+                "DRAUGHTING_MODEL_ITEM_ASSOCIATION('','',#{dim},#{dm},#{callout})"
+            ));
+        }
     }
     for ((parent, step), (child, t, name)) in &usages {
         let (Some((ppd, psr, _)), Some((cpd, csr, corigin))) =
@@ -647,6 +702,57 @@ pub struct Callout {
     pub lines: Vec<Vec<DVec3>>,
     /// The text and where it stands.
     pub text: Option<(String, DVec3)>,
+    /// The dimension as data (milestone 1.45); `None` for a note.
+    pub semantic: Option<SemanticDimension>,
+}
+
+/// A dimension as data (milestone 1.45): what it measures, its nominal
+/// value and tolerance, and the points it is measured between.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SemanticDimension {
+    /// `linear distance`, `radius` or `diameter`.
+    pub kind: &'static str,
+    /// The nominal value, mm.
+    pub value: f64,
+    /// Lower and upper deviations, mm.
+    pub tolerance: Option<(f64, f64)>,
+    /// The measured points: two for a distance, the point on the curve for
+    /// a radius or diameter.
+    pub points: Vec<DVec3>,
+}
+
+/// The deviations a dimension's text states after its measurement: `±t`,
+/// or `+u` and `-l` (`+0.2/-0.1`), in display units.
+pub fn tolerance_of(text: &str) -> Option<(f64, f64)> {
+    let tail = text.split_once("<>").map_or(text, |(_, t)| t);
+    let number = |rest: &str| -> Option<f64> {
+        let n: String = rest
+            .trim_start()
+            .chars()
+            .take_while(|c| c.is_ascii_digit() || *c == '.' || *c == ',')
+            .collect();
+        n.replace(',', ".").parse::<f64>().ok()
+    };
+    if let Some((_, rest)) = tail.split_once('±') {
+        let t = number(rest)?;
+        return Some((-t, t));
+    }
+    let (mut upper, mut lower) = (None, None);
+    let chars: Vec<(usize, char)> = tail.char_indices().collect();
+    for (k, &(i, c)) in chars.iter().enumerate() {
+        let before = k.checked_sub(1).map(|j| chars[j].1);
+        let starts = before.is_none_or(|b| b.is_whitespace() || b == '/' || b == '(');
+        if !starts {
+            continue;
+        }
+        let rest = &tail[i + c.len_utf8()..];
+        match c {
+            '+' if upper.is_none() => upper = number(rest),
+            '-' | '−' if lower.is_none() => lower = number(rest).map(|v| -v),
+            _ => {}
+        }
+    }
+    (upper.is_some() || lower.is_some()).then(|| (lower.unwrap_or(0.0), upper.unwrap_or(0.0)))
 }
 
 /// The dimensions and anchored notes of container `c` as callouts
@@ -665,6 +771,23 @@ pub fn callouts_of(doc: &Document, c: ContainerRef) -> Vec<Callout> {
         }
         let [a, b] = v.measured;
         let [l0, l1] = v.line;
+        let (style, text_override) = match dim {
+            Dimension::Linear {
+                style,
+                text_override,
+                ..
+            }
+            | Dimension::Radial {
+                style,
+                text_override,
+                ..
+            } => (style, text_override),
+        };
+        let unit = style.units.unwrap_or(doc.info.display_units).millimeters();
+        let tolerance = text_override
+            .as_deref()
+            .and_then(tolerance_of)
+            .map(|(l, u)| (l * unit, u * unit));
         out.push(match dim {
             Dimension::Linear { direction, .. } => Callout {
                 kind: if direction.is_some() {
@@ -674,6 +797,12 @@ pub fn callouts_of(doc: &Document, c: ContainerRef) -> Vec<Callout> {
                 },
                 lines: vec![vec![a, l0], vec![b, l1], vec![l0, l1]],
                 text: Some((v.text.clone(), v.text_at)),
+                semantic: Some(SemanticDimension {
+                    kind: "linear distance",
+                    value: v.value,
+                    tolerance,
+                    points: vec![a, b],
+                }),
             },
             Dimension::Radial { kind, .. } => Callout {
                 kind: match kind {
@@ -682,6 +811,15 @@ pub fn callouts_of(doc: &Document, c: ContainerRef) -> Vec<Callout> {
                 },
                 lines: vec![vec![l0, l1]],
                 text: Some((v.text.clone(), v.text_at)),
+                semantic: Some(SemanticDimension {
+                    kind: match kind {
+                        RadialKind::Radius => "radius",
+                        RadialKind::Diameter => "diameter",
+                    },
+                    value: v.value,
+                    tolerance,
+                    points: vec![b],
+                }),
             },
         });
     }
@@ -702,6 +840,7 @@ pub fn callouts_of(doc: &Document, c: ContainerRef) -> Vec<Callout> {
                 Vec::new()
             },
             text: Some((t.text.clone(), label)),
+            semantic: None,
         });
     }
     out
@@ -724,6 +863,9 @@ pub struct ReadProduct {
     pub shells: Vec<Vec<Vec<Vec<DVec3>>>>,
     /// Graphical annotations: kind, polylines and text (milestone 1.39).
     pub annotations: Vec<ReadCallout>,
+    /// Dimensions and geometric tolerances given only as data, as note
+    /// texts with the point they apply to (milestone 1.45).
+    pub notes: Vec<(String, DVec3)>,
 }
 
 /// A graphical annotation read back.
@@ -735,6 +877,10 @@ pub struct ReadCallout {
     pub lines: Vec<Vec<DVec3>>,
     /// Its text and where it stands, mm.
     pub text: Option<(String, DVec3)>,
+    /// The nominal value of the dimension it presents, mm (milestone 1.45).
+    pub nominal: Option<f64>,
+    /// That dimension's lower and upper deviations, mm.
+    pub tolerance: Option<(f64, f64)>,
 }
 
 /// A structure read back.
@@ -744,6 +890,9 @@ pub struct ReadModel {
     pub products: BTreeMap<u64, ReadProduct>,
     /// Usages: parent, child, placement (mm), name.
     pub usages: Vec<(u64, u64, DAffine3, String)>,
+    /// Dimensions and tolerances given as data that neither a presentation
+    /// nor a point in the geometry places.
+    pub unplaced: usize,
 }
 
 impl ReadModel {
@@ -1136,6 +1285,7 @@ pub fn read(text: &str) -> Result<ReadModel, IoError> {
         }
     }
     // Graphical annotations of the products' draughting models.
+    let mut callout_at: BTreeMap<u64, (u64, usize)> = BTreeMap::new();
     for (id, i) in &data {
         if i.kind != "DRAUGHTING_MODEL" {
             continue;
@@ -1144,6 +1294,7 @@ pub fn read(text: &str) -> Result<ReadModel, IoError> {
             continue;
         };
         let mut found = Vec::new();
+        let before = model.products.get(&pd).map_or(0, |p| p.annotations.len());
         for item in i.args.get(1).and_then(Value::as_list).unwrap_or_default() {
             let Ok(dc) = rd.get(item) else { continue };
             if dc.kind != "DRAUGHTING_CALLOUT" {
@@ -1187,6 +1338,9 @@ pub fn read(text: &str) -> Result<ReadModel, IoError> {
                 }
             }
             if !callout.lines.is_empty() || callout.text.is_some() {
+                if let Some(cid) = item.as_ref_id() {
+                    callout_at.insert(cid, (pd, before + found.len()));
+                }
                 found.push(callout);
             }
         }
@@ -1194,6 +1348,7 @@ pub fn read(text: &str) -> Result<ReadModel, IoError> {
             p.annotations.extend(found);
         }
     }
+    semantic(&rd, &data, &callout_at, &mut model);
     // Usages with their placements.
     for i in data.values() {
         if i.kind != "CONTEXT_DEPENDENT_SHAPE_REPRESENTATION" {
@@ -1261,6 +1416,218 @@ pub fn read(text: &str) -> Result<ReadModel, IoError> {
     Ok(model)
 }
 
+/// Dimensions and geometric tolerances given as data (milestone 1.45): a
+/// dimension presented by a callout lends it its nominal value and
+/// tolerance; one without a presentation, and a geometric tolerance without
+/// one, becomes a note at the point its shape aspect names.
+fn semantic(
+    rd: &Reader<'_>,
+    data: &BTreeMap<u64, Instance>,
+    callout_at: &BTreeMap<u64, (u64, usize)>,
+    model: &mut ReadModel,
+) {
+    // Presentations of semantic items, and the measures of dimensions.
+    let mut presented: BTreeMap<u64, u64> = BTreeMap::new();
+    let mut values: BTreeMap<u64, f64> = BTreeMap::new();
+    let mut tolerances: BTreeMap<u64, (f64, f64)> = BTreeMap::new();
+    let mut usages: BTreeMap<u64, u64> = BTreeMap::new();
+    let measure = |v: &Value| -> Option<f64> {
+        let m = rd.get(v).ok()?;
+        let args = m
+            .part("MEASURE_WITH_UNIT")
+            .or_else(|| m.part("LENGTH_MEASURE_WITH_UNIT"))?;
+        args.first()?.as_f64().map(|x| x * rd.unit)
+    };
+    for i in data.values() {
+        let id = |k: usize| i.args.get(k).and_then(Value::as_ref_id);
+        match i.kind.as_str() {
+            "DRAUGHTING_MODEL_ITEM_ASSOCIATION" => {
+                if let (Some(def), Some(item)) = (id(2), id(4)) {
+                    presented.insert(def, item);
+                }
+            }
+            "DIMENSIONAL_CHARACTERISTIC_REPRESENTATION" => {
+                if let (Some(dim), Ok(rep)) = (id(0), rd.get(i.args.get(1).unwrap_or(&Value::Null)))
+                    && let Some(v) = rep
+                        .args
+                        .get(1)
+                        .and_then(Value::as_list)
+                        .unwrap_or_default()
+                        .iter()
+                        .find_map(&measure)
+                {
+                    values.insert(dim, v);
+                }
+            }
+            "PLUS_MINUS_TOLERANCE" => {
+                if let (Ok(tv), Some(dim)) = (rd.get(i.args.first().unwrap_or(&Value::Null)), id(1))
+                    && tv.kind == "TOLERANCE_VALUE"
+                    && let (Some(lo), Some(hi)) = (
+                        tv.args.first().and_then(measure),
+                        tv.args.get(1).and_then(measure),
+                    )
+                {
+                    tolerances.insert(dim, (lo, hi));
+                }
+            }
+            "GEOMETRIC_ITEM_SPECIFIC_USAGE" => {
+                if let (Some(sa), Some(item)) = (id(2), id(4)) {
+                    usages.entry(sa).or_insert(item);
+                }
+            }
+            _ => {}
+        }
+    }
+    // The point a shape aspect names, and the product it belongs to.
+    let place = |sa: u64| -> Option<(u64, DVec3)> {
+        let aspect = data.get(&sa)?;
+        let pds = rd.get(aspect.args.get(2)?).ok()?;
+        let pd = pds.args.get(2)?.as_ref_id()?;
+        let item = data.get(usages.get(&sa)?)?;
+        let at = match item.kind.as_str() {
+            "CARTESIAN_POINT" => rd.point(&Value::Ref(*usages.get(&sa)?)).ok()?,
+            "VERTEX_POINT" => rd.point(item.args.get(1)?).ok()?,
+            "EDGE_CURVE" => {
+                (rd.vertex(item.args.get(1)?).ok()? + rd.vertex(item.args.get(2)?).ok()?) * 0.5
+            }
+            "ADVANCED_FACE" | "FACE_SURFACE" => {
+                let loops = rd.face(item).ok()?;
+                let outer = loops.first()?;
+                outer.iter().copied().sum::<DVec3>() / outer.len().max(1) as f64
+            }
+            _ => return None,
+        };
+        Some((pd, at))
+    };
+    let number = |v: f64| {
+        let s = format!("{v:.3}");
+        s.trim_end_matches('0').trim_end_matches('.').to_string()
+    };
+    for (id, i) in data {
+        let (text, aspect) = if i.kind.starts_with("DIMENSIONAL_LOCATION")
+            || i.kind.starts_with("DIMENSIONAL_SIZE")
+        {
+            let size = i.kind.starts_with("DIMENSIONAL_SIZE");
+            if let Some(&callout) = presented.get(id)
+                && let Some(&(pd, k)) = callout_at.get(&callout)
+                && let Some(c) = model
+                    .products
+                    .get_mut(&pd)
+                    .and_then(|p| p.annotations.get_mut(k))
+            {
+                c.nominal = values.get(id).copied();
+                c.tolerance = tolerances.get(id).copied();
+                continue;
+            }
+            let name = i
+                .args
+                .get(if size { 1 } else { 0 })
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let mut text = match name {
+                "radius" => "R".to_string(),
+                "diameter" => "Ø".to_string(),
+                _ => String::new(),
+            };
+            if let Some(v) = values.get(id) {
+                text.push_str(&number(*v));
+            }
+            match tolerances.get(id) {
+                Some((lo, hi)) if (lo + hi).abs() < 1e-12 => {
+                    text.push_str(&format!(" ±{}", number(*hi)))
+                }
+                Some((lo, hi)) => text.push_str(&format!(" +{}/-{}", number(*hi), number(-*lo))),
+                None => {}
+            }
+            let aspect = i
+                .args
+                .get(if size { 0 } else { 2 })
+                .and_then(Value::as_ref_id);
+            (text, aspect)
+        } else if let Some((kind, args)) = geometric_tolerance(i) {
+            if presented.contains_key(id) {
+                continue;
+            }
+            let mut text = format!(
+                "{} {}",
+                kind,
+                args.get(2).and_then(measure).map_or(String::new(), number)
+            );
+            for datum in datums(rd, i) {
+                text.push_str(&format!(" | {datum}"));
+            }
+            (text, args.get(3).and_then(Value::as_ref_id))
+        } else {
+            continue;
+        };
+        match aspect.and_then(place) {
+            Some((pd, at)) if model.products.contains_key(&pd) => {
+                if let Some(p) = model.products.get_mut(&pd) {
+                    p.notes.push((text.trim().to_string(), at));
+                }
+            }
+            _ => model.unplaced += 1,
+        }
+    }
+}
+
+/// A geometric tolerance's kind in words and its `GEOMETRIC_TOLERANCE`
+/// arguments (name, description, magnitude, toleranced shape aspect).
+fn geometric_tolerance(i: &Instance) -> Option<(String, &[Value])> {
+    let mut kinds = std::iter::once(i.kind.as_str()).chain(i.parts.iter().map(|(k, _)| k.as_str()));
+    let kind = kinds.rfind(|k| {
+        k.ends_with("_TOLERANCE")
+            && !k.starts_with("GEOMETRIC_TOLERANCE")
+            && *k != "PLUS_MINUS_TOLERANCE"
+    })?;
+    let args = i.part("GEOMETRIC_TOLERANCE").unwrap_or(&i.args);
+    let words = kind
+        .trim_end_matches("_TOLERANCE")
+        .replace('_', " ")
+        .to_lowercase();
+    Some((words, args))
+}
+
+/// The datum letters a geometric tolerance refers to, in order.
+fn datums(rd: &Reader<'_>, i: &Instance) -> Vec<String> {
+    let Some(refs) = i
+        .part("GEOMETRIC_TOLERANCE_WITH_DATUM_REFERENCE")
+        .and_then(|a| a.first())
+        .and_then(Value::as_list)
+    else {
+        return Vec::new();
+    };
+    let letter = |v: &Value| -> Option<String> {
+        let d = rd.get(v).ok()?;
+        (d.kind == "DATUM").then(|| d.args.get(4)?.as_str().map(str::to_string))?
+    };
+    let mut out = Vec::new();
+    for r in refs {
+        let Ok(system) = rd.get(r) else { continue };
+        match system.kind.as_str() {
+            "DATUM_SYSTEM" => {
+                for c in system
+                    .args
+                    .get(4)
+                    .and_then(Value::as_list)
+                    .unwrap_or_default()
+                {
+                    if let Ok(compartment) = rd.get(c)
+                        && let Some(l) = compartment.args.get(4).and_then(letter)
+                    {
+                        out.push(l);
+                    }
+                }
+            }
+            "DATUM_REFERENCE" => {
+                out.extend(system.args.get(1).and_then(letter));
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
 /// The dimension or note a callout read back stands for, attached to the
 /// geometry of `c` where its points meet it (milestone 1.39). Linear and
 /// aligned dimensions come back as dimensions, radial ones as radial
@@ -1287,7 +1654,11 @@ fn annotation_record(
                 None => (b - a).length(),
             };
             let measured = dimension_text(doc, &style, value, "", None);
-            let text_override = text.map(|t| t.0).filter(|t| *t != measured);
+            let text_override = with_tolerance(
+                doc,
+                text.map(|t| t.0).filter(|t| *t != measured),
+                callout.tolerance,
+            );
             return Some(EntityRecord::Dimension(Dimension::Linear {
                 start: find_anchor(doc, c, a),
                 end: find_anchor(doc, c, b),
@@ -1322,7 +1693,11 @@ fn annotation_record(
                     kind,
                     leader: end - p,
                     style,
-                    text_override: text.map(|t| t.0).filter(|t| *t != measured),
+                    text_override: with_tolerance(
+                        doc,
+                        text.map(|t| t.0).filter(|t| *t != measured),
+                        callout.tolerance,
+                    ),
                 }));
             }
         }
@@ -1340,6 +1715,36 @@ fn annotation_record(
         text: content,
         screen_offset: glam::DVec2::ZERO,
     }))
+}
+
+/// A dimension's text override with the tolerance given as data added
+/// after the measurement, unless the text already states one (milestone
+/// 1.45).
+fn with_tolerance(
+    doc: &Document,
+    text_override: Option<String>,
+    tolerance: Option<(f64, f64)>,
+) -> Option<String> {
+    let Some((lower, upper)) = tolerance else {
+        return text_override;
+    };
+    if text_override.as_deref().and_then(tolerance_of).is_some() {
+        return text_override;
+    }
+    let unit = doc.info.display_units.millimeters();
+    let number = |v: f64| {
+        let s = format!("{:.4}", v / unit);
+        s.trim_end_matches('0').trim_end_matches('.').to_string()
+    };
+    let tol = if (lower + upper).abs() < 1e-9 {
+        format!("±{}", number(upper))
+    } else {
+        format!("+{}/-{}", number(upper), number(-lower))
+    };
+    Some(match text_override {
+        Some(t) => format!("{t} {tol}"),
+        None => format!("<> {tol}"),
+    })
 }
 
 /// A shell's faces as a mesh.
@@ -1561,6 +1966,31 @@ fn build(
                     .map_err(err)?;
             }
         }
+        // Dimensions and tolerances given only as data (milestone 1.45).
+        for (text, at) in &product.notes {
+            let anchor = crate::document::annotations::find_anchor(
+                tx.document(),
+                ContainerRef::Definition(d),
+                *at,
+            );
+            let record = EntityRecord::Text(crate::document::Text {
+                layout: None,
+                anchor: Some(anchor),
+                text: text.clone(),
+                screen_offset: glam::DVec2::ZERO,
+            });
+            tx.insert_entity(ContainerRef::Definition(d), record)
+                .map_err(err)?;
+        }
+    }
+    if model.unplaced > 0 {
+        report.warnings.push(crate::diagnostics::Warning::new(
+            crate::diagnostics::WarningCode::W2004,
+            format!(
+                "{} STEP dimensions or tolerances given as data name no point of the geometry",
+                model.unplaced
+            ),
+        ));
     }
     let axes = if opts.swap_yz == Some(true) {
         DMat3::from_cols(DVec3::X, -DVec3::Z, DVec3::Y)
@@ -1772,6 +2202,165 @@ pub(crate) mod tests {
         assert_eq!(notes[1].text, "Corner");
         let offset = notes[1].layout.as_ref().unwrap().world_offset.unwrap();
         assert!(offset.distance(DVec3::splat(100.0)) < 1e-9, "{offset}");
+    }
+
+    #[test]
+    fn tolerances_read_from_dimension_texts() {
+        assert_eq!(tolerance_of("<> ±0.1"), Some((-0.1, 0.1)));
+        assert_eq!(tolerance_of("<> +0.2/-0.1"), Some((-0.1, 0.2)));
+        assert_eq!(tolerance_of("25 +0,2 -0,05"), Some((-0.05, 0.2)));
+        assert_eq!(tolerance_of("<> -0.3"), Some((-0.3, 0.0)));
+        assert_eq!(tolerance_of("<> diagonal"), None);
+        assert_eq!(tolerance_of("3-4 bolts"), None);
+    }
+
+    /// Milestone 1.45: dimensions also travel as data, tied to their
+    /// presentation, with their tolerances.
+    #[test]
+    fn dimensions_travel_as_data_with_tolerances() {
+        use crate::document::annotations::dimension_view;
+        let mut e = Engine::new(Document::new(), Arc::new(CommandRegistry::with_builtins()));
+        for (name, params) in [
+            (
+                "rectangle",
+                json!({ "corner_a": [0, 0, 0], "corner_b": [400, 200, 0] }),
+            ),
+            (
+                "push-pull",
+                json!({ "face": { "Query": "face" }, "distance": 100 }),
+            ),
+            (
+                "dimension",
+                json!({ "kind": "linear", "start": [0, 0, 0], "end": [400, 200, 0],
+                        "offset": [0, -80, 0], "direction": [1, 0, 0],
+                        "text_override": "<> ±0.1" }),
+            ),
+            (
+                "dimension",
+                json!({ "start": [0, 0, 100], "end": [400, 0, 100], "offset": [0, 0, 50] }),
+            ),
+        ] {
+            e.execute_erased(name, params).unwrap();
+        }
+        let (text, _) = write(e.document(), &ExportScope::default(), "a.step").unwrap();
+        assert_eq!(
+            text.matches("DIMENSIONAL_LOCATION('linear distance'")
+                .count(),
+            2
+        );
+        assert_eq!(text.matches("PLUS_MINUS_TOLERANCE(").count(), 1);
+        assert_eq!(
+            text.matches("DRAUGHTING_MODEL_ITEM_ASSOCIATION(").count(),
+            2
+        );
+        assert_eq!(text.matches("GEOMETRIC_ITEM_SPECIFIC_USAGE(").count(), 4);
+        let model = read(&text).unwrap();
+        assert_eq!(model.unplaced, 0);
+        let root = model
+            .products
+            .values()
+            .find(|p| !p.annotations.is_empty())
+            .unwrap();
+        let nominal: Vec<Option<f64>> = root.annotations.iter().map(|c| c.nominal).collect();
+        let tolerance: Vec<_> = root.annotations.iter().map(|c| c.tolerance).collect();
+        assert_eq!(nominal, [Some(400.0), Some(400.0)]);
+        assert_eq!(tolerance, [Some((-0.1, 0.1)), None]);
+        assert!(root.notes.is_empty(), "presented dimensions are not notes");
+        // A tolerance given only as data reaches the imported dimension.
+        let stripped = text.replace(r"'400.0mm \X2\00B1\X0\0.1'", "'400.0mm'");
+        assert!(stripped != text, "the shown tolerance is removed");
+        let mut back = Engine::new(Document::new(), Arc::new(CommandRegistry::with_builtins()));
+        let storage = Arc::new(crate::io::MemoryStorage::new());
+        back.set_storage(storage.clone());
+        crate::io::Storage::write(
+            storage.as_ref(),
+            &crate::io::StorageKey::new("a.step"),
+            stripped.as_bytes(),
+        )
+        .unwrap();
+        back.execute_erased("import", json!({ "path": "a.step" }))
+            .unwrap();
+        let doc = back.document();
+        let (d, def) = doc
+            .definitions
+            .iter()
+            .find(|(_, def)| def.entities.dimensions().next().is_some())
+            .unwrap();
+        let texts: Vec<String> = def
+            .entities
+            .dimensions()
+            .map(|(_, dim)| dimension_view(doc, ContainerRef::Definition(d), dim).text)
+            .collect();
+        assert_eq!(texts, ["400.0mm ±0.1", "400.0mm"]);
+    }
+
+    /// Milestone 1.45: dimensions and geometric tolerances that another
+    /// writer gives only as data become notes where they apply.
+    #[test]
+    fn tolerances_given_only_as_data_become_notes() {
+        let base = include_str!("../../tests/fixtures/step/box.step");
+        let measure = |id: u32, v: &str, role: &str| {
+            format!(
+                "#{id}=(LENGTH_MEASURE_WITH_UNIT()MEASURE_REPRESENTATION_ITEM()MEASURE_WITH_UNIT(LENGTH_MEASURE({v}),#12)REPRESENTATION_ITEM('{role}'));\n"
+            )
+        };
+        let mut extra = String::new();
+        extra += "#1001=SHAPE_ASPECT('top','',#4,.T.);\n";
+        extra += "#1002=GEOMETRIC_ITEM_SPECIFIC_USAGE('','',#1001,#10,#18);\n";
+        extra += &measure(1003, "0.05", "magnitude");
+        extra += "#1004=DATUM('','',#4,.F.,'A');\n";
+        extra += "#1005=DATUM_REFERENCE_COMPARTMENT('','',#4,.F.,#1004,$);\n";
+        extra += "#1006=DATUM_SYSTEM('','',#4,.F.,(#1005));\n";
+        extra += "#1007=(GEOMETRIC_TOLERANCE('pos','',#1003,#1001)GEOMETRIC_TOLERANCE_WITH_DATUM_REFERENCE((#1006))POSITION_TOLERANCE());\n";
+        extra += "#1008=FLATNESS_TOLERANCE('flat','',#1003,#1001);\n";
+        extra += "#1009=SHAPE_ASPECT('','',#4,.T.);\n";
+        extra += "#1010=DIMENSIONAL_SIZE(#1001,'diameter');\n";
+        extra += "#1011=SHAPE_DIMENSION_REPRESENTATION('',(#1012),#11);\n";
+        extra += &measure(1012, "12.5", "nominal value");
+        extra += "#1013=DIMENSIONAL_CHARACTERISTIC_REPRESENTATION(#1010,#1011);\n";
+        extra += "#1014=TOLERANCE_VALUE(#1015,#1016);\n";
+        extra += &measure(1015, "-0.1", "lower limit");
+        extra += &measure(1016, "0.2", "upper limit");
+        extra += "#1017=PLUS_MINUS_TOLERANCE(#1014,#1010);\n";
+        extra += "#1018=FLATNESS_TOLERANCE('','',#1003,#1009);\n";
+        let at = base.rfind("ENDSEC;").unwrap();
+        let text = format!("{}{extra}{}", &base[..at], &base[at..]);
+        let model = read(&text).unwrap();
+        assert_eq!(model.unplaced, 1, "the aspect without a point");
+        let notes: Vec<&str> = model
+            .products
+            .values()
+            .flat_map(|p| p.notes.iter().map(|(t, _)| t.as_str()))
+            .collect();
+        assert_eq!(
+            notes,
+            ["position 0.05 | A", "flatness 0.05", "Ø12.5 +0.2/-0.1"]
+        );
+        let mut back = Engine::new(Document::new(), Arc::new(CommandRegistry::with_builtins()));
+        let storage = Arc::new(crate::io::MemoryStorage::new());
+        back.set_storage(storage.clone());
+        crate::io::Storage::write(
+            storage.as_ref(),
+            &crate::io::StorageKey::new("b.step"),
+            text.as_bytes(),
+        )
+        .unwrap();
+        let out = back
+            .execute_erased("import", json!({ "path": "b.step" }))
+            .unwrap();
+        assert!(out.to_string().contains("W2004"), "{out}");
+        let doc = back.document();
+        let texts: Vec<String> = doc
+            .definitions
+            .iter()
+            .flat_map(|(_, def)| {
+                def.entities
+                    .texts()
+                    .map(|(_, t)| t.text.clone())
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        assert_eq!(texts.len(), 3);
     }
 
     #[test]

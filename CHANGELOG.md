@@ -7,6 +7,8 @@ All notable changes to Planyrith are recorded here. Versions follow
 ## Unreleased
 
 ### Added
+- 1.45: STEP dimensions also travel as data (nominal value, plus/minus tolerance) tied to
+  their presentation; dimensions and geometric tolerances given only as data come in as notes.
 - 1.44: IGES manifold solid B-rep objects (186) import, voids and curved faces included;
   `export --solids` writes closed shells as solids (the GUI's IGES export does).
 
