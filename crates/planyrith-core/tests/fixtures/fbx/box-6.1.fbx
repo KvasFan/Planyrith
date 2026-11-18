@@ -1,0 +1,61 @@
+; FBX 6.1.0 project file
+; A 10 mm cube under a node moved 100 along X, red, in centimeters.
+
+FBXHeaderExtension:  {
+	FBXHeaderVersion: 1003
+	FBXVersion: 6100
+}
+
+Objects:  {
+	Model: "Model::Holder", "Null" {
+		Version: 232
+		Properties60:  {
+			Property: "Lcl Translation", "Lcl Translation", "A+",10,0,0
+			Property: "Lcl Rotation", "Lcl Rotation", "A+",0,0,0
+			Property: "Lcl Scaling", "Lcl Scaling", "A+",1,1,1
+		}
+	}
+	Model: "Model::Box", "Mesh" {
+		Version: 232
+		Properties60:  {
+			Property: "Lcl Translation", "Lcl Translation", "A+",0,0,0
+		}
+		Vertices: 0,0,0,1,0,0,1,1,0,0,1,0,0,0,1,1,0,1
+,1,1,1,0,1,1
+		PolygonVertexIndex: 0,3,2,-2,4,5,6,-8,0,1,5,-5,1,2,6,-6,2,3,7,-7
+,3,0,4,-8
+		LayerElementMaterial: 0 {
+			Version: 101
+			Name: ""
+			MappingInformationType: "AllSame"
+			ReferenceInformationType: "IndexToDirect"
+			Materials: 0
+		}
+	}
+	Material: "Material::Red", "" {
+		Version: 102
+		ShadingModel: "phong"
+		Properties60:  {
+			Property: "DiffuseColor", "ColorRGB", "",1,0,0
+			Property: "Opacity", "double", "",1
+		}
+	}
+	GlobalSettings:  {
+		Version: 1000
+		Properties60:  {
+			Property: "UpAxis", "int", "",2
+			Property: "UpAxisSign", "int", "",1
+			Property: "FrontAxis", "int", "",1
+			Property: "FrontAxisSign", "int", "",-1
+			Property: "CoordAxis", "int", "",0
+			Property: "CoordAxisSign", "int", "",1
+			Property: "UnitScaleFactor", "double", "",1
+		}
+	}
+}
+
+Connections:  {
+	Connect: "OO", "Model::Holder", "Model::Scene"
+	Connect: "OO", "Model::Box", "Model::Holder"
+	Connect: "OO", "Material::Red", "Model::Box"
+}

@@ -7,6 +7,7 @@ All notable changes to Planyrith are recorded here. Versions follow
 ## Unreleased
 
 ### Added
+- 1.51: FBX 6.x files (text and binary) import with their hierarchy, materials and textures.
 - 1.50: binary USD layers (`.usdc`, and inside `.usdz` packages) import like text ones.
 - 1.49: 3DS import and export: objects, materials, texture coordinates and textures,
   smoothing groups as soft edges.

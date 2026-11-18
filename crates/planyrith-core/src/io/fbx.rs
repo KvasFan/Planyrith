@@ -1,7 +1,8 @@
 //! Implements docs/09-file-formats.md §5 FBX (docs/09 Decisions, FBX): the
-//! node tree both encodings share, a reader for the binary encoding (7.x,
-//! 32- and 64-bit records, zlib-compressed arrays) and the ASCII encoding
-//! (7.x), and a writer for the binary encoding 7.4.
+//! node tree both encodings share, a reader for the binary encoding (6.x
+//! and 7.x, 32- and 64-bit records, zlib-compressed arrays) and the ASCII
+//! encoding (6.x and 7.x, milestone 1.51), and a writer for the binary
+//! encoding 7.4.
 //!
 //! A node has a name, a list of typed properties and child nodes. The
 //! scene's meaning (objects, connections, settings) is read by
@@ -457,6 +458,16 @@ impl Ascii<'_> {
         }
     }
 
+    /// Whether the line after this one goes on with a comma (6.x
+    /// encoders start continuation lines of long lists with one).
+    fn continues(&self) -> bool {
+        let mut at = self.at;
+        while at < self.s.len() && self.s[at].is_ascii_whitespace() {
+            at += 1;
+        }
+        self.s.get(at) == Some(&b',')
+    }
+
     fn number_text(&mut self) -> String {
         self.skip();
         let start = self.at;
@@ -503,6 +514,7 @@ impl Ascii<'_> {
                 }
                 match self.s.get(self.at) {
                     Some(b'\n') | Some(b';') if comma => self.skip(),
+                    Some(b'\n') if self.continues() => self.skip(),
                     None | Some(b'\n') | Some(b';') => break,
                     Some(b'{') => {
                         self.at += 1;

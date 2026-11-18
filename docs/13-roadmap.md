@@ -607,6 +607,13 @@ Complete 1.43: binary (crate) USD layers, alone, in packages and referenced.
 - **Done (2026-11-18):** a crate decoder (`io::import::usdc`) feeding the USD importer;
   `.usdc` in File › Import (docs/09 §5 and Decisions).
 
+## 1.51.0 — FBX 6
+
+Read FBX 6.x files, text and binary.
+
+- **Done (2026-11-18):** 6.x documents become the 7.x shape the importer reads (docs/09 §5 and
+  Decisions).
+
 ## Post-1.0 candidates
 Other limits remain listed against their original milestones; no unrelated feature scope is
 added by the continuation milestones 1.19–1.32.

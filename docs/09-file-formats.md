@@ -97,7 +97,7 @@ control via `planyrith export --format json`. It is **not** required to load the
 | 3DS | ✔ (milestone 1.49) | ✔ | the chunked mesh format of older modelers: triangle objects with world-placed vertices, face material groups, texture coordinates and smoothing groups (faces sharing one meet along soft edges) on import, materials with diffuse (else ambient) color, transparency and a diffuse texture beside the file; export writes one object per occurrence (split at 65 535 vertices or faces), each face's corners with its texture coordinates, material groups and materials with color, transparency and texture (`<name>_textures/`), names cut to ten characters, Z up in `--units`. The keyframer (animation, hierarchy) is not read. |
 | IFC (IFC2X3, IFC4) | ✔ | ✔ (IFC4) | a building model for BIM tools: one storey holding an element per top-level group or component and the loose faces, triangulated face sets per material with surface colors, millimeters. |
 | COLLADA (`.dae`, 1.4/1.5) | ✔ | ✔ | geometry (triangles, polylists, polygons with holes), materials with colors, textures and transparency, the node tree with instanced nodes, unit and up axis; export shares a component's geometry among its instances. |
-| FBX (binary 7.x; ASCII 7.x import) | ✔ | ✔ (binary 7.4) | meshes (polygons of any size, texture coordinates, normals as soft edges, per-polygon materials), materials with colors, opacity and diffuse textures (embedded or beside the file), the model hierarchy with its full transform chain, unit and axes; export shares a component's geometry among its instances, embeds textures and writes Y up unless `--z-up`. Animation, skinning, cameras and lights are not read. |
+| FBX (binary 6.x and 7.x; ASCII 6.x and 7.x import) | ✔ | ✔ (binary 7.4) | meshes (polygons of any size, texture coordinates, normals as soft edges, per-polygon materials), materials with colors, opacity and diffuse textures (embedded or beside the file), the model hierarchy with its full transform chain, unit and axes; export shares a component's geometry among its instances, embeds textures and writes Y up unless `--z-up`. Animation, skinning, cameras and lights are not read. 6.x files (milestone 1.51) — geometry inside the model, objects connected by name, settings among the objects, lists as plain values continued on lines that start with a comma — are read the same way. |
 | STL (ASCII/binary) | ✔ | ✔ | triangles merged into coplanar faces on import (`--merge-coplanar`, default on); binary default on export. |
 | glTF 2.0 / GLB | ✔ | ✔ | nodes → groups/instances (meshes shared → components), PBR base color + texture, transforms, cameras → scenes. KHR_texture_transform supported. |
 | DXF (R12–2018 ASCII) | ✔ | ✔ (3D and 2D) | LINE, LWPOLYLINE/POLYLINE, ARC, CIRCLE, ELLIPSE (segmented), SPLINE (flattened), 3DFACE, POLYFACE mesh, INSERT/BLOCK → components, LAYER → tags, TEXT/MTEXT, DIMENSION (as text+lines on export). |
@@ -110,7 +110,7 @@ control via `planyrith export --format json`. It is **not** required to load the
 | SVG / PDF | — | ✔ | 2D export of a view (`--2d`) and of sheets (`docs/15`). Hidden-line removal in software; vector output. |
 | `.plyr/.plyrc` | ✔ | ✔ | merge another document as a group/component. |
 
-Out of scope (documented as future work): DWG; FBX 6 and earlier.
+Out of scope (documented as future work): DWG; FBX before 6.0.
 Import of any unsupported entity yields `W2004` with counts, never a failure.
 
 ## 6. Importer/exporter contracts
@@ -781,3 +781,14 @@ save unless `--no-thumbnail`. `manifest.json` carries `title`, `author`, `descri
   independent public sources (versions 0.7 and 0.8: cubes, a torus, a mug, a scanned jug, a
   scene with render and proxy meshes) were read during development; they are not kept in the
   repository, which holds a cube written by a test writer instead.
+- 2026-11-18 — **FBX 6 (milestone 1.51).** A 6.x file is turned into the 7.x shape the reader
+  already knows instead of getting a second reader: objects get numeric ids, a mesh model's
+  geometry becomes a geometry object connected to it, connections by name become connections
+  by id (`Model::Scene` is the root; binary files' `Name\0\x01Class` names are read as
+  `Class::Name`), a texture connected to a model goes to that model's materials (6.x attaches
+  textures to models), and the global settings, kept among the objects in 6.x, move to the top.
+  Plain value lists become arrays; the text reader also continues a list on a line that starts
+  with a comma, as 6.x writers break long lists. Eight public 6.1 test files (text and binary
+  cubes, cones, pivots, Unicode and quoted names) were read during development and are not
+  kept; the repository holds a hand-written 6.1 file. Files before 6.0 are refused naming
+  their version.

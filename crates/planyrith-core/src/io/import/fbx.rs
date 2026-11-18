@@ -340,6 +340,167 @@ fn unit_of(cm: f64) -> Option<LengthUnit> {
     .find(|u| (u.millimeters() / 10.0 - cm).abs() < 1e-9 * cm.max(1.0))
 }
 
+/// A node's numbers as one real array (6.x writes lists as plain values).
+fn reals(node: &Node) -> Prop {
+    match node.props.as_slice() {
+        [Prop::Reals(v)] => Prop::Reals(v.clone()),
+        [Prop::Ints(v)] => Prop::Reals(v.iter().map(|i| *i as f64).collect()),
+        props => Prop::Reals(numbers(props)),
+    }
+}
+
+/// A node's numbers as one integer array.
+fn ints(node: &Node) -> Prop {
+    match node.props.as_slice() {
+        [Prop::Ints(v)] => Prop::Ints(v.clone()),
+        props => Prop::Ints(
+            props
+                .iter()
+                .filter_map(|p| p.as_i64().or_else(|| p.as_f64().map(|f| f as i64)))
+                .collect(),
+        ),
+    }
+}
+
+/// A 6.x layer element with its lists as arrays.
+fn layer_element(node: &Node) -> Node {
+    let mut out = Node::new(&node.name, node.props.clone());
+    for c in &node.children {
+        out.children.push(match c.name.as_str() {
+            "Normals" | "UV" | "Colors" => Node::new(&c.name, vec![reals(c)]),
+            "NormalsIndex" | "UVIndex" | "Materials" | "TextureId" | "ColorIndex" => {
+                Node::new(&c.name, vec![ints(c)])
+            }
+            _ => c.clone(),
+        });
+    }
+    out
+}
+
+/// A 6.x document (milestone 1.51) in the 7.x shape the reader knows:
+/// objects get numeric ids, a mesh model's geometry (held in the model in
+/// 6.x) becomes a geometry object connected to it, connections by name
+/// become connections by id (`Model::Scene` is the root), a texture
+/// connected to a model goes to that model's materials, and the global
+/// settings move to the top.
+fn upgrade(doc: &fbx::Document) -> fbx::Document {
+    let empty = Node::default();
+    let objects = doc.node("Objects").unwrap_or(&empty);
+    let mut ids: BTreeMap<String, i64> = BTreeMap::new();
+    ids.insert("Model::Scene".into(), 0);
+    let mut out_objects = Node::new("Objects", Vec::new());
+    let mut connections = Node::new("Connections", Vec::new());
+    let mut settings = doc.node("GlobalSettings").cloned();
+    let mut next = 1000;
+    // Objects are named `Class::Name` (text) or `Name\0\x01Class` (binary).
+    let canonical = |raw: &str| match raw.split_once("\0\u{1}") {
+        Some((name, class)) => format!("{class}::{name}"),
+        None => raw.to_string(),
+    };
+    let full = |n: &Node| canonical(n.props.first().and_then(Prop::as_str).unwrap_or(""));
+    let mut geometry_of: BTreeMap<i64, i64> = BTreeMap::new();
+    for node in &objects.children {
+        if node.name == "GlobalSettings" {
+            settings = Some(node.clone());
+            continue;
+        }
+        let key = full(node);
+        let id = next;
+        next += 1;
+        ids.insert(key.clone(), id);
+        let kind = node
+            .props
+            .get(1)
+            .cloned()
+            .unwrap_or(Prop::Str(String::new()));
+        let mut object = Node::new(
+            &node.name,
+            vec![Prop::Int(id), Prop::Str(key.clone()), kind],
+        );
+        let mesh = node.name == "Model" && object_kind(&object) == "Mesh";
+        let mut geometry = Node::new(
+            "Geometry",
+            vec![
+                Prop::Int(0),
+                Prop::Str(format!("Geometry::{}", object_name(&object))),
+                Prop::Str("Mesh".into()),
+            ],
+        );
+        for c in &node.children {
+            match c.name.as_str() {
+                "Vertices" if mesh => geometry
+                    .children
+                    .push(Node::new("Vertices", vec![reals(c)])),
+                "PolygonVertexIndex" if mesh => geometry
+                    .children
+                    .push(Node::new("PolygonVertexIndex", vec![ints(c)])),
+                n if mesh && n.starts_with("LayerElement") => {
+                    geometry.children.push(layer_element(c));
+                }
+                _ => object.children.push(c.clone()),
+            }
+        }
+        out_objects.children.push(object);
+        if mesh && geometry.child("Vertices").is_some() {
+            let gid = next;
+            next += 1;
+            geometry.props[0] = Prop::Int(gid);
+            out_objects.children.push(geometry);
+            geometry_of.insert(id, gid);
+        }
+    }
+    // Materials of each model, for textures connected to models.
+    let mut links: Vec<(String, String, Option<String>)> = Vec::new();
+    if let Some(list) = doc.node("Connections") {
+        for c in list.all("Connect") {
+            let text = |k: usize| c.props.get(k).and_then(Prop::as_str).map(str::to_string);
+            if let (Some(child), Some(parent)) = (text(1), text(2)) {
+                links.push((canonical(&child), canonical(&parent), text(3)));
+            }
+        }
+    }
+    let materials_of = |model: &str| -> Vec<String> {
+        links
+            .iter()
+            .filter(|(c, p, _)| p == model && c.starts_with("Material::"))
+            .map(|(c, _, _)| c.clone())
+            .collect()
+    };
+    let mut link = |child: i64, parent: i64, property: Option<String>| {
+        let mut props = vec![Prop::Str("OO".into()), Prop::Int(child), Prop::Int(parent)];
+        if let Some(p) = property {
+            props[0] = Prop::Str("OP".into());
+            props.push(Prop::Str(p));
+        }
+        connections.children.push(Node::new("C", props));
+    };
+    for (model, geometry) in &geometry_of {
+        link(*geometry, *model, None);
+    }
+    for (child, parent, property) in &links {
+        let (Some(&c), Some(&p)) = (ids.get(child), ids.get(parent)) else {
+            continue;
+        };
+        if child.starts_with("Texture::") && parent.starts_with("Model::") {
+            for m in materials_of(parent) {
+                if let Some(&mid) = ids.get(&m) {
+                    link(c, mid, None);
+                }
+            }
+            continue;
+        }
+        link(c, p, property.clone());
+    }
+    let mut nodes = vec![out_objects, connections];
+    if let Some(s) = settings {
+        nodes.push(s);
+    }
+    fbx::Document {
+        version: 7000,
+        nodes,
+    }
+}
+
 /// Reads the scene of `doc`; `file` reads a file beside the source.
 fn read(
     doc: &fbx::Document,
@@ -348,11 +509,14 @@ fn read(
     swap: Option<bool>,
 ) -> Result<ImportedScene, IoError> {
     if doc.version < 7000 {
-        return Err(corrupt(format!(
-            "FBX {}.{} files are not supported (7.0 and later are)",
-            doc.version / 1000,
-            doc.version % 1000 / 100
-        )));
+        if doc.version < 6000 {
+            return Err(corrupt(format!(
+                "FBX {}.{} files are not supported (6.0 and later are)",
+                doc.version / 1000,
+                doc.version % 1000 / 100
+            )));
+        }
+        return read(&upgrade(doc), file, name, swap);
     }
     let empty = Node::default();
     let objects = doc.node("Objects").unwrap_or(&empty);
@@ -595,6 +759,64 @@ impl Importer for FbxImporter {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    /// Milestone 1.51: an FBX 6.1 text file (geometry in the model,
+    /// connections by name, continuation lines) comes in placed and
+    /// painted.
+    #[test]
+    fn fbx_6_text_files_come_in() {
+        let text = include_str!("../../../tests/fixtures/fbx/box-6.1.fbx");
+        let doc = fbx::parse(text.as_bytes()).unwrap();
+        assert_eq!(doc.version, 6100);
+        let scene = read(&doc, &mut |_| None, "box".into(), None).unwrap();
+        assert_eq!((scene.meshes.len(), scene.nodes.len()), (1, 1));
+        let mesh = &scene.meshes[0];
+        assert_eq!(mesh.triangles.len(), 12, "six quads");
+        assert_eq!(mesh.positions.len(), 24);
+        assert_eq!(scene.materials[0].name, "Red");
+        assert_eq!(scene.materials[0].color.r, 255);
+        assert!(mesh.materials.iter().all(|m| *m == Some(0)));
+        assert_eq!(scene.units, Some(LengthUnit::Centimeter));
+        // Moved 10 units along X by its parent, Z up as written.
+        let p = scene.nodes[0]
+            .transform
+            .transform_point3(DVec3::new(1.0, 1.0, 1.0));
+        assert!(p.distance(DVec3::new(11.0, 1.0, 1.0)) < 1e-9, "{p}");
+    }
+
+    /// Binary 6.x names objects `Name\0\x01Class`; the scene is the same.
+    #[test]
+    fn fbx_6_binary_names() {
+        let text = include_str!("../../../tests/fixtures/fbx/box-6.1.fbx");
+        let mut doc = fbx::parse(text.as_bytes()).unwrap();
+        let binary = |s: &str| match s.split_once("::") {
+            Some((class, name)) => format!("{name}\0\u{1}{class}"),
+            None => s.to_string(),
+        };
+        for node in &mut doc.nodes {
+            if node.name == "Objects" || node.name == "Connections" {
+                for c in &mut node.children {
+                    for p in &mut c.props {
+                        if let Prop::Str(s) = p {
+                            *s = binary(s);
+                        }
+                    }
+                }
+            }
+        }
+        let scene = read(&doc, &mut |_| None, "box".into(), None).unwrap();
+        assert_eq!(scene.meshes[0].triangles.len(), 12);
+        assert_eq!(scene.materials[0].name, "Red");
+        let p = scene.nodes[0].transform.transform_point3(DVec3::ZERO);
+        assert!(p.distance(DVec3::new(10.0, 0.0, 0.0)) < 1e-9, "{p}");
+        // Older files without objects are refused with the version.
+        let old = fbx::Document {
+            version: 4500,
+            nodes: Vec::new(),
+        };
+        let err = read(&old, &mut |_| None, "x".into(), None).unwrap_err();
+        assert!(err.to_string().contains("4.5"), "{err}");
+    }
 
     #[test]
     fn rotation_orders_and_pivots_follow_the_transform_chain() {
