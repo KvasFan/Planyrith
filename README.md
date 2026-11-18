@@ -96,8 +96,10 @@ macOS and the browser edition can be built from source.
 - **Presentation.** A realistic style with sky light, highlights after each
   material's roughness and metalness, ambient occlusion and soft shadows.
 - **Interchange.** SKP/SKB on desktop, OBJ, STL, 3MF, PLY, glTF/GLB, COLLADA,
-  FBX, DXF, STEP (with product structure and annotations), IGES, IFC, USD/USDZ,
-  images and CSV, plus the native `.plyr` container. Conversion limits are reported.
+  FBX (6 and 7), DXF, DWG (import, releases 2000–2018 except 2007), 3DS, STEP (with
+  product structure, annotations and dimensions as data), IGES (with B-rep solids), IFC,
+  USD/USDZ (text and binary layers), images and CSV, plus the native `.plyr` container.
+  Conversion limits are reported.
 - **Automation.** Every modeling tool is a typed core command. The GUI,
   CLI, JSON-RPC server, Rhai scripts and declarative extensions share those commands.
 - **Recovery.** Autosaves, crash recovery and native working copies preserve the
@@ -171,7 +173,7 @@ test suite. [Packaging instructions](docs/16-release-and-packaging.md) describe
 
 The modeling kernel, desktop/browser interfaces, organization, interchange,
 automation, solids and Sheets milestones are implemented, followed by the
-engineering milestones (1.7–1.43) in this preview. Open work: full SKP fidelity
+engineering milestones (1.7–1.52; 1.44–1.52 since the latest preview). Open work: full SKP fidelity
 and reader certification, a macOS build, testing the Windows packages on Windows
 itself, and the 1.0 stabilization criteria. See [the roadmap](docs/13-roadmap.md),
 [changes](CHANGELOG.md) and [project specification](docs/00-overview.md).

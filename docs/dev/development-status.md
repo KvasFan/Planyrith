@@ -5,7 +5,24 @@ implementation stands, what is done, what remains, and how to resume. Update it 
 every working session. Ground truth for *what to build* stays in `docs/00`–`docs/15`; this file
 is only *progress state*. Release packaging is specified in `docs/16`.
 
-_Last updated: 2026-11-17 (0.12.0-alpha.1 published: milestones 1.7–1.43, Windows and Linux packages, no macOS)._
+_Last updated: 2026-11-18 (milestones 1.44–1.52 on `main`, tagged 0.13.0-alpha.1; the published
+downloads are still 0.12.0-alpha.1)._
+
+**Completing every remaining feature (2026-11-18):** asked to complete all features, push and
+tag, the limits left after 1.43 and the formats docs/09 listed as future work became 1.44–1.52
+(docs/13 Decisions 2026-11-18), each a commit with tests and docs: 1.44 IGES manifold solid
+B-rep objects (read with voids and curved faces, `export --solids`); 1.45 STEP dimensions and
+tolerances as data (semantic PMI out and in); 1.46 side flanges on a flange's legs; 1.47 a
+filled circle tangent inside another (inner circle coarser, holes touching their outline kept
+by moves); 1.48 freeform mold parting surfaces and side actions; 1.49 3DS import/export; 1.50
+binary USD layers; 1.51 FBX 6; 1.52 DWG import (2000, 2004, 2010, 2013, 2018) through the DXF
+importer, plus `add_edges` so long outlines import in seconds. Formats were checked against
+public sample files kept outside the repository (binary USD, FBX 6.1, DWG with DXF twins;
+docs/09 Decisions); fixtures in the repository are written by test writers. The kernel and
+command fuzzers ran 20 000 cases each after 1.47's kernel change. Still refused, by design or
+needing the user: DWG 2007 (a different page coding) and before 2000, DWG/USD binary export,
+FBX before 6; the SKP items of skp-fidelity.md (target application, 2023/2024 files, styles
+calibration, browser conversion licensing); macOS packaging; Windows testing on Windows.
 
 **Completing reserved gaps (2026-11-16):** asked to resume and implement and test every
 missing feature, the limits recorded against earlier milestones became 1.33–1.43 (docs/13,
@@ -21,11 +38,10 @@ Revolve and Pattern viewport tools; 1.43 USD import of text layers and packages.
 `mold-undercuts` (batch, golden, native fixture, frozen API entry); the API and native corpus
 also gained the 1.18–1.20 commands that had been missed. `completed_features_match_cli_and_rpc`
 in `crates/planyrith-cli/tests/cli.rs` checks CLI/RPC parity for the new options.
-Remaining limits, by design or needing the user: internal tangency between filled circles in
-one plane (refused by the kernel, segments cross); flanges on a flange's side edges;
-freeform parting surfaces and side actions; IGES solids (186); STEP semantic PMI; binary USD;
-DWG/3DS; the 0.11 SKP items needing 2023/2024 fixtures or the target application; macOS
-packaging. A gate failure on 2026-11-16 was a test-isolation bug (wine reuses process ids and
+Remaining limits then (all but the user-dependent ones closed by 1.44–1.52 above): internal
+tangency between filled circles, flanges on a flange's side edges, freeform parting surfaces
+and side actions, IGES solids, STEP semantic PMI, binary USD, DWG/3DS, the 0.11 SKP items
+needing 2023/2024 fixtures or the target application, macOS packaging. A gate failure on 2026-11-16 was a test-isolation bug (wine reuses process ids and
 keeps its temp folder, so a scratch file survived): every scratch directory now starts empty.
 Gate passes recorded for `e0152f0` and `c574250` (both pushed); the last commits follow.
 The wine step then failed about one run in five: wine starts a program launched by another

@@ -4,7 +4,12 @@ All notable changes to Planyrith are recorded here. Versions follow
 [Semantic Versioning](https://semver.org/); before 1.0, minor versions are milestones of
 [`docs/13-roadmap.md`](docs/13-roadmap.md).
 
-## Unreleased
+## 0.13.0-alpha.1 — milestones 1.44–1.52 (2026-11-18)
+
+The remaining limits of the engineering milestones and the formats listed as future work:
+IGES solids, STEP dimensions as data, side flanges, circles tangent inside circles, freeform
+mold partings with side actions, 3DS, binary USD, FBX 6 and DWG. Tagged; the packages are made
+with `tools/release-local.sh v0.13.0-alpha.1 --publish`.
 
 ### Added
 - 1.52: DWG import (releases 2000, 2004, 2010, 2013, 2018): layers, blocks and model-space
