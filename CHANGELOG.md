@@ -7,7 +7,8 @@ All notable changes to Planyrith are recorded here. Versions follow
 ## 0.13.0-alpha.2 — fixes from a sweep of every command (2026-11-18)
 
 A functional sweep of every command (each command's batch, 5 345 runs with broken or extreme
-parameters, every export format imported back) found these.
+parameters, every export format imported back) found these. Published as a prerelease with
+Windows and Linux packages built locally (`tools/release-local.sh`); no macOS package.
 
 ### Fixed
 - `text-3d` filled letters whose glyph contours overlap ("A", "P", "Q", "R", "a", "e", "4",

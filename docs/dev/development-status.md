@@ -5,8 +5,9 @@ implementation stands, what is done, what remains, and how to resume. Update it 
 every working session. Ground truth for *what to build* stays in `docs/00`–`docs/15`; this file
 is only *progress state*. Release packaging is specified in `docs/16`.
 
-_Last updated: 2026-11-18 (0.13.0-alpha.2 on `main`: 1.44–1.52 plus the fixes of a sweep of
-every command; the published downloads are still 0.12.0-alpha.1)._
+_Last updated: 2026-11-20 (0.13.0-alpha.2 on `main`: 1.44–1.52 plus the fixes of a sweep of
+every command; published on 2026-11-20 as a prerelease with Windows and Linux packages from
+`tools/release-local.sh v0.13.0-alpha.2 --publish`, and the README's downloads point to it)._
 
 **Sweeping every command (2026-11-18):** asked to test every tool, each registered command ran
 its `tests/commands` batch with the built binary (document validated and summarised), then
