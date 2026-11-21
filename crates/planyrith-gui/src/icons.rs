@@ -554,3 +554,47 @@ pub fn button(ui: &mut egui::Ui, icon: Icon, selected: bool, tooltip: &str) -> e
     paint(ui.painter(), rect.shrink(6.0), icon, color);
     response.on_hover_text(tooltip)
 }
+
+/// A labeled menu action using the same vector icon as the quick toolbar.
+pub fn menu_button(ui: &mut egui::Ui, icon: Icon, selected: bool, label: &str) -> egui::Response {
+    let color = if selected {
+        Color32::WHITE
+    } else {
+        ui.visuals().text_color()
+    };
+    let galley = ui.painter().layout_no_wrap(
+        label.to_owned(),
+        egui::TextStyle::Button.resolve(ui.style()),
+        color,
+    );
+    let height = ui.spacing().interact_size.y.max(30.0);
+    let size = egui::vec2(galley.size().x + 48.0, height);
+    let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(
+            egui::WidgetType::SelectableLabel,
+            ui.is_enabled(),
+            selected,
+            label,
+        )
+    });
+    let fill = if selected {
+        crate::theme::accent(ui.visuals())
+    } else if response.hovered() {
+        ui.visuals().widgets.hovered.weak_bg_fill
+    } else {
+        Color32::TRANSPARENT
+    };
+    ui.painter().rect_filled(rect, 6.0, fill);
+    let icon_rect = Rect::from_center_size(
+        egui::pos2(rect.left() + 16.0, rect.center().y),
+        Vec2::splat(18.0),
+    );
+    paint(ui.painter(), icon_rect, icon, color);
+    ui.painter().galley(
+        egui::pos2(rect.left() + 34.0, rect.center().y - galley.size().y / 2.0),
+        galley,
+        color,
+    );
+    response
+}

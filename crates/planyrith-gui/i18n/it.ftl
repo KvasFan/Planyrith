@@ -1247,3 +1247,9 @@ t-spacing-afterwards-n-x-for-the-instances = spaziatura; dopo, N x per le istanz
 t-pick-the-profile-face = Scegli la faccia del profilo
 t-pick-a-point-of-the-axis = Scegli un punto dell'asse
 t-pick-a-second-point-of-the-axis = Scegli un secondo punto dell'asse
+
+# Organized modeling toolbar.
+t-modify = Modifica geometria
+t-annotate = Annota
+t-views = Viste
+t-drawing-tools = Disegno

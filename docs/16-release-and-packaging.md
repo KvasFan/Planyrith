@@ -117,6 +117,12 @@ taken by running the workflow, never a side effect of a push.
 
 ## Decisions
 
+- 2026-11-21 — **Workspace refresh preview.** `0.13.0-alpha.3` packages the organized
+  modeling interface for Windows and Linux using the existing verified local release
+  procedure. The README shows screenshots generated from the application and links to
+  this version's packages. Existing users can apply the new preset with Window → Reset
+  Layout; saved layouts and document semantics are retained.
+
 - 2026-11-17 — **The local release recipe is a script.** `v0.11.0-alpha.4` was built by hand
   (entry below). `tools/release-local.sh <tag>` now repeats those steps for any tag: it
   refuses a tag whose commit has not passed `tools/ci-local.sh` or whose version differs,

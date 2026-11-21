@@ -1,5 +1,5 @@
 //! The look of the shell (docs/07 §1, §12; Decisions, 2026-11-03): a dark
-//! and a light theme of neutral grey surfaces whose brightness, not their
+//! and a light theme of slate surfaces whose brightness, not their
 //! borders, separates them — a header band for the menus, toolbar and status
 //! bar, the window's panels, and darker views and fields. Controls are flat,
 //! with a soft fill that brightens on hover and when pressed; corners are
@@ -62,16 +62,16 @@ struct Palette {
 }
 
 const DARK: Palette = Palette {
-    header: rgb(0x2E2E32),
-    window: rgb(0x242428),
-    view: rgb(0x1C1C1F),
-    card: rgb(0x2C2C31),
-    control: rgb(0x38383D),
-    hover: rgb(0x434349),
-    pressed: rgb(0x505057),
-    border: rgb(0x38383C),
+    header: rgb(0x18212F),
+    window: rgb(0x202B3A),
+    view: rgb(0x111924),
+    card: rgb(0x263345),
+    control: rgb(0x303F52),
+    hover: rgb(0x3A4C63),
+    pressed: rgb(0x465D78),
+    border: rgb(0x35465B),
     text: rgb(0xEDEDF0),
-    weak_text: rgb(0x9C9CA4),
+    weak_text: rgb(0xACBBCD),
     accent: ACCENT_DARK,
     accent_text: rgb(0x78AEED),
     selection: rgb(0x2A5C99),
@@ -79,16 +79,16 @@ const DARK: Palette = Palette {
 };
 
 const LIGHT: Palette = Palette {
-    header: rgb(0xEBEBED),
-    window: rgb(0xFAFAFB),
+    header: rgb(0xE7EDF5),
+    window: rgb(0xF8FAFD),
     view: rgb(0xFFFFFF),
-    card: rgb(0xF2F2F4),
-    control: rgb(0xE3E3E7),
-    hover: rgb(0xD8D8DD),
-    pressed: rgb(0xCBCBD1),
-    border: rgb(0xDADADE),
-    text: rgb(0x2B2B30),
-    weak_text: rgb(0x6E6E76),
+    card: rgb(0xEFF3F9),
+    control: rgb(0xE1E8F2),
+    hover: rgb(0xD4E0EF),
+    pressed: rgb(0xC3D3E7),
+    border: rgb(0xD2DCE9),
+    text: rgb(0x25354B),
+    weak_text: rgb(0x5C708A),
     accent: ACCENT,
     accent_text: ACCENT,
     selection: rgb(0xC5DBF7),

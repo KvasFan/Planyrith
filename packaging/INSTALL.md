@@ -23,6 +23,10 @@ The native and default working format is `.plyr`.
   `./Planyrith --cli --help`. The build requires glibc 2.35 or newer and a working
   Vulkan driver. Wayland and X11 are supported.
 
+When upgrading to the refreshed workspace, choose **Window → Reset Layout** to
+use the wider canvas and grouped inspector. Your previous layout is kept until
+then; model files are unaffected.
+
 Verify downloads against `SHA256SUMS`. Third-party licenses are in `licenses/`
 (installed under `/usr/share/licenses/planyrith` in system Linux packages).
 Complete offline Cargo sources accompany the release, including the separate

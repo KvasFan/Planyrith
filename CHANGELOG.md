@@ -4,6 +4,19 @@ All notable changes to Planyrith are recorded here. Versions follow
 [Semantic Versioning](https://semver.org/); before 1.0, minor versions are milestones of
 [`docs/13-roadmap.md`](docs/13-roadmap.md).
 
+## 0.13.0-alpha.3 — refreshed modeling workspace (2026-11-21)
+
+### Changed
+- A larger default modeling canvas with one inspector: tool options and entity details,
+  material/component/style libraries, and the model hierarchy each have their own tab stack.
+- A shorter toolbar keeps frequent tools visible and groups the remaining tools under
+  Drawing tools, Modify and Annotate; Views and Face Style have labeled choices.
+- Slate light/dark palettes, clearer panel spacing and taller dock tabs. The menu bar scrolls
+  on narrow screens. Saved layouts remain available; Window → Reset Layout applies the new one.
+- Updated project screenshots, installation instructions and Windows/Linux downloads.
+- Reviewed the informational unmaintained advisory for the STEP writer's indirect `chrono`
+  dependency; no patched upstream version is available (docs/02 Decisions).
+
 ## 0.13.0-alpha.2 — fixes from a sweep of every command (2026-11-18)
 
 A functional sweep of every command (each command's batch, 5 345 runs with broken or extreme

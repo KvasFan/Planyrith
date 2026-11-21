@@ -7,26 +7,20 @@ document semantics; it collects parameters and dispatches commands (`docs/01 §3
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│ Menu bar: File Edit View Camera Draw Tools Window Extensions Help           │
+│ File  Edit  View  Camera  Draw  Tools  Window  Extensions  Help               │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│ Toolbars (dockable rows): Large tool set | Views | Styles | Sections | ...  │
-├──────────┬──────────────────────────────────────────────────────┬───────────┤
-│ Left     │                                                      │ Right     │
-│ dock     │                 3D Viewport (wgpu)                   │ dock      │
-│ (tiles)  │   ┌──────────────────────────────────────────────┐   │ (tiles):  │
-│ Tool     │   │ scene tabs: [Scene 1][Scene 2][+]            │   │ Entity    │
-│ options  │   └──────────────────────────────────────────────┘   │ Info      │
-│          │                                                      │ Materials │
-│          │                                                      │ Components│
-│          │                                                      │ Styles    │
-│          │                                                      │ Tags      │
-│          │                                                      │ Scenes    │
-│          │                                                      │ Shadows   │
-│          │                                                      │ Outliner  │
-│          │                                                      │ Fog       │
-│          │                                                      │ Tool Help│
-├──────────┴──────────────────────────────────────────────────────┴───────────┤
-│ Status bar: [context breadcrumb] [hint for current step] [value field label][value field ▭] │
+│ File / history / frequent tools │ Drawing tools │ Modify │ Annotate │ Views │
+├───────────────────────────────────────────────────────┬─────────────────────┤
+│                                                       │ Tool Options        │
+│                 3D Viewport (wgpu)                    │ Entity Info / Help  │
+│                                                       ├─────────────────────┤
+│  ┌───────────────────────────────────────────────┐    │ Materials           │
+│  │ Scene tabs: [Scene 1] [Scene 2] [+]             │    │ Components / Styles │
+│  └───────────────────────────────────────────────┘    ├─────────────────────┤
+│                                                       │ Outliner            │
+│                                                       │ Tags / Scenes       │
+├───────────────────────────────────────────────────────┴─────────────────────┤
+│ Context breadcrumb │ Current step hint │ Value label │ Value field           │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -122,7 +116,7 @@ option. Movement remains free; this is an advisory check of each displayed place
 | **Tool Help** | Tool help from metadata. |
 | **Soften Edges** | Angle slider, smooth normals, soften coplanar (operates on selection). |
 
-Left dock hosts **Tool Options** (dynamic fields for the active tool's params that are not
+The inspector hosts **Tool Options** (dynamic fields for the active tool's params that are not
 collected by clicks: e.g. segments for Circle, array count, copy toggle).
 
 ## 7. Menus (summary; items are commands)
@@ -229,6 +223,16 @@ View › Touch Layout chooses Automatic, On or Off (a user setting).
   animation.
 
 ## Decisions
+
+- 2026-11-21 — **Organized modeling workspace.** The default preset gives three quarters
+  of the window to the viewport. A single inspector holds three tab stacks: Entity Info,
+  Tool Options and Tool Help; Materials, Components and Styles; Outliner, Tags and Scenes.
+  Existing saved layouts are retained; Window › Reset Layout applies the new default.
+  The toolbar keeps frequent actions visible, with labeled Draw, Modify, Annotate, Views
+  and Face Style menus for the remaining choices. Inspector contents scroll so controls
+  stay reachable in shorter stacks. The menu bar scrolls horizontally on narrow
+  screens. Slate surfaces, clearer spacing and taller dock tabs distinguish controls from
+  the model. These are presentation changes over the existing command registry.
 
 - 2026-11-14 — **Preferences and previews (1.29–1.32).** Autosave snapshot intervals are
   per-user seconds (10–3600, default 120); journals remain immediate. Tool shortcuts are

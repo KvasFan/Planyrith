@@ -47,7 +47,7 @@ pub enum Pane {
     Scenes,
     /// Outliner.
     Outliner,
-    /// Tool Options (left dock).
+    /// Tool Options (inspector).
     ToolOptions,
     /// Tool Help.
     ToolHelp,
@@ -89,32 +89,32 @@ const DRAWER_PANES: [Pane; 9] = [
     Pane::ToolHelp,
 ];
 
-/// The default layout: tool options | viewport | info, materials,
-/// components, styles, tags, tool help | outliner, scenes.
+/// The modeling layout: a broad viewport and three inspector stacks.
 fn default_layout() -> Tree<Pane> {
     let mut tiles = Tiles::default();
-    let tools = tiles.insert_pane(Pane::ToolOptions);
     let view = tiles.insert_pane(Pane::Viewport);
     let info = tiles.insert_pane(Pane::EntityInfo);
-    let tags = tiles.insert_pane(Pane::Tags);
-    let scenes = tiles.insert_pane(Pane::Scenes);
-    let outliner = tiles.insert_pane(Pane::Outliner);
+    let tools = tiles.insert_pane(Pane::ToolOptions);
     let help = tiles.insert_pane(Pane::ToolHelp);
     let materials = tiles.insert_pane(Pane::Materials);
     let components = tiles.insert_pane(Pane::Components);
     let styles = tiles.insert_pane(Pane::Styles);
-    let upper = tiles.insert_tab_tile(vec![info, materials, components, styles, tags, help]);
-    let lower = tiles.insert_tab_tile(vec![outliner, scenes]);
-    let right = tiles.insert_vertical_tile(vec![upper, lower]);
+    let outliner = tiles.insert_pane(Pane::Outliner);
+    let tags = tiles.insert_pane(Pane::Tags);
+    let scenes = tiles.insert_pane(Pane::Scenes);
+    let details = tiles.insert_tab_tile(vec![tools, info, help]);
+    let libraries = tiles.insert_tab_tile(vec![materials, components, styles]);
+    let structure = tiles.insert_tab_tile(vec![outliner, tags, scenes]);
+    let right = tiles.insert_vertical_tile(vec![details, libraries, structure]);
     if let Some(Tile::Container(Container::Linear(linear))) = tiles.get_mut(right) {
-        linear.shares.set_share(upper, 0.65);
-        linear.shares.set_share(lower, 0.35);
+        linear.shares.set_share(details, 0.35);
+        linear.shares.set_share(libraries, 0.35);
+        linear.shares.set_share(structure, 0.30);
     }
-    let root = tiles.insert_horizontal_tile(vec![tools, view, right]);
+    let root = tiles.insert_horizontal_tile(vec![view, right]);
     if let Some(Tile::Container(Container::Linear(linear))) = tiles.get_mut(root) {
-        linear.shares.set_share(tools, 0.18);
-        linear.shares.set_share(view, 0.6);
-        linear.shares.set_share(right, 0.22);
+        linear.shares.set_share(view, 0.75);
+        linear.shares.set_share(right, 0.25);
     }
     Tree::new("planyrith-docks", root, tiles)
 }
@@ -2150,98 +2150,98 @@ impl App {
             {
                 self.redo();
             }
-            for group in [
-                &["select", "erase", "material-apply"][..],
-                &[
-                    "line",
-                    "freehand",
-                    "arc-bulge",
-                    "arc-2point",
-                    "arc-3point",
-                    "pie",
-                    "rectangle",
-                    "rotated-rectangle",
-                    "circle",
-                    "polygon",
-                ],
-                &["push-pull", "offset", "move", "rotate", "scale"],
-                &[
-                    "tape-measure",
-                    "protractor",
-                    "dimension",
-                    "text",
-                    "text-3d",
-                    "section-plane-add",
-                    "axes-set",
-                ],
-            ] {
-                group_gap(ui);
-                for command in group {
-                    let Some(i) = self.tools.iter().position(|(t, _)| t.command() == *command)
-                    else {
-                        continue;
-                    };
-                    let (tool, _) = &self.tools[i];
-                    let key = self.effective_shortcut(i);
-                    let Some(icon) = Icon::for_command(command) else {
-                        continue;
-                    };
-                    let tip = match key {
-                        Some(k) => format!("{} ({})", t(tool.label()), k.name()),
-                        None => t(tool.label()),
-                    };
-                    if icons::button(ui, icon, i == self.active, &tip).clicked() {
-                        self.activate(i);
+            group_gap(ui);
+            self.toolbar_tools(ui, &["select", "erase", "material-apply"]);
+            group_gap(ui);
+            self.toolbar_tools(ui, &["line", "rectangle", "circle", "push-pull", "move"]);
+            ui.menu_button(t("Drawing tools"), |ui| {
+                self.toolbar_tools(
+                    ui,
+                    &[
+                        "line",
+                        "freehand",
+                        "arc-bulge",
+                        "arc-2point",
+                        "arc-3point",
+                        "pie",
+                        "rectangle",
+                        "rotated-rectangle",
+                        "circle",
+                        "polygon",
+                    ],
+                );
+            });
+            ui.menu_button(t("Modify"), |ui| {
+                self.toolbar_tools(ui, &["push-pull", "offset", "move", "rotate", "scale"]);
+            });
+            ui.menu_button(t("Annotate"), |ui| {
+                self.toolbar_tools(
+                    ui,
+                    &[
+                        "tape-measure",
+                        "protractor",
+                        "dimension",
+                        "text",
+                        "text-3d",
+                        "section-plane-add",
+                        "axes-set",
+                    ],
+                );
+            });
+            ui.menu_button(t("Views"), |ui| {
+                for (icon, view, tip) in [
+                    (Icon::ViewIso, "iso", en("Iso view")),
+                    (Icon::ViewTop, "top", en("Top view")),
+                    (Icon::ViewFront, "front", en("Front view")),
+                    (Icon::ViewRight, "right", en("Right view")),
+                ] {
+                    if icons::menu_button(ui, icon, false, &t(tip)).clicked() {
+                        self.run("camera-standard", json!({ "view": view }));
+                        ui.close();
                     }
                 }
-            }
-            group_gap(ui);
-            for (icon, view, tip) in [
-                (Icon::ViewIso, "iso", en("Iso view")),
-                (Icon::ViewTop, "top", en("Top view")),
-                (Icon::ViewFront, "front", en("Front view")),
-                (Icon::ViewRight, "right", en("Right view")),
-            ] {
-                if icons::button(ui, icon, false, &t(tip)).clicked() {
-                    self.run("camera-standard", json!({ "view": view }));
+                if icons::menu_button(ui, Icon::ZoomExtents, false, &t("Zoom Extents (Shift+Z)"))
+                    .clicked()
+                {
+                    self.run("zoom-extents", json!({}));
+                    ui.close();
                 }
-            }
-            if icons::button(ui, Icon::ZoomExtents, false, &t("Zoom Extents (Shift+Z)")).clicked() {
-                self.run("zoom-extents", json!({}));
-            }
-            group_gap(ui);
-            let mode = self
-                .session
-                .doc()
-                .styles
-                .active_style()
-                .map(|s| s.faces.mode);
-            for (icon, m, key, tip) in [
-                (
-                    Icon::Wireframe,
-                    FaceMode::Wireframe,
-                    "wireframe",
-                    en("Wireframe"),
-                ),
-                (
-                    Icon::HiddenLine,
-                    FaceMode::HiddenLine,
-                    "hidden-line",
-                    en("Hidden Line"),
-                ),
-                (Icon::Shaded, FaceMode::Shaded, "shaded", en("Shaded")),
-                (
-                    Icon::Textured,
-                    FaceMode::ShadedTextured,
-                    "shaded-textured",
-                    en("Shaded with Textures"),
-                ),
-                (Icon::XRay, FaceMode::XRay, "x-ray", en("X-Ray")),
-            ] {
-                if icons::button(ui, icon, mode == Some(m), &t(tip)).clicked() {
-                    self.run("style-set", json!({ "faces": key }));
+            });
+            ui.menu_button(t("Face Style"), |ui| {
+                let mode = self
+                    .session
+                    .doc()
+                    .styles
+                    .active_style()
+                    .map(|s| s.faces.mode);
+                for (icon, m, key, tip) in [
+                    (
+                        Icon::Wireframe,
+                        FaceMode::Wireframe,
+                        "wireframe",
+                        en("Wireframe"),
+                    ),
+                    (
+                        Icon::HiddenLine,
+                        FaceMode::HiddenLine,
+                        "hidden-line",
+                        en("Hidden Line"),
+                    ),
+                    (Icon::Shaded, FaceMode::Shaded, "shaded", en("Shaded")),
+                    (
+                        Icon::Textured,
+                        FaceMode::ShadedTextured,
+                        "shaded-textured",
+                        en("Shaded with Textures"),
+                    ),
+                    (Icon::XRay, FaceMode::XRay, "x-ray", en("X-Ray")),
+                ] {
+                    if icons::menu_button(ui, icon, mode == Some(m), &t(tip)).clicked() {
+                        self.run("style-set", json!({ "faces": key }));
+                        ui.close();
+                    }
                 }
-            }
+            });
             if self.compact {
                 // Without a keyboard: the panels' drawer and modifier keys
                 // that stay down until tapped again (docs/07 §13.1).
@@ -2268,6 +2268,38 @@ impl App {
                 }
             }
         });
+    }
+
+    /// Tools shared by the quick toolbar and its categorized menus.
+    fn toolbar_tools(&mut self, ui: &mut egui::Ui, commands: &[&str]) {
+        for command in commands {
+            let Some(i) = self
+                .tools
+                .iter()
+                .position(|(tool, _)| tool.command() == *command)
+            else {
+                continue;
+            };
+            let tool = &self.tools[i].0;
+            let Some(icon) = Icon::for_command(command) else {
+                continue;
+            };
+            let tip = match self.effective_shortcut(i) {
+                Some(key) => format!("{} ({})", t(tool.label()), key.name()),
+                None => t(tool.label()),
+            };
+            let clicked = if ui.layout().is_vertical() {
+                icons::menu_button(ui, icon, i == self.active, &tip).clicked()
+            } else {
+                icons::button(ui, icon, i == self.active, &tip).clicked()
+            };
+            if clicked {
+                self.activate(i);
+                if ui.layout().is_vertical() {
+                    ui.close();
+                }
+            }
+        }
     }
 
     /// The active step's prompt and value field label (docs/07 §4).
@@ -3397,41 +3429,54 @@ impl egui_tiles::Behavior<Pane> for Docks<'_> {
             other => {
                 ui.painter()
                     .rect_filled(ui.max_rect(), 0.0, ui.visuals().panel_fill);
-                egui::Frame::new()
-                    .inner_margin(8.0)
-                    .show(ui, |ui| match other {
-                        Pane::EntityInfo => panels::entity_info(ui, self.session, &mut self.error),
-                        Pane::Tags => panels::tags(ui, self.session, self.panels, &mut self.error),
-                        Pane::Scenes => {
-                            panels::scenes(ui, self.session, self.panels, &mut self.error)
-                        }
-                        Pane::Outliner => {
-                            panels::outliner(ui, self.session, self.panels, &mut self.error)
-                        }
-                        Pane::ToolOptions => {
-                            let prompt = self
-                                .session
-                                .engine
-                                .registry()
-                                .get(self.tool.command())
-                                .and_then(|c| c.meta().steps.get(self.tool.step()).cloned())
-                                .map(|s| s.prompt)
-                                .unwrap_or_default();
-                            let cx = self.viewport.cx(self.session);
-                            panels::tool_options(ui, self.tool, &cx, &t(&prompt));
-                        }
-                        Pane::ToolHelp => panels::tool_help(ui, self.session, self.tool),
-                        Pane::Materials => {
-                            resources::materials(ui, self.session, self.resources, &mut self.error)
-                        }
-                        Pane::Components => {
-                            resources::components(ui, self.session, self.resources, &mut self.error)
-                        }
-                        Pane::Styles => {
-                            resources::styles(ui, self.session, self.resources, &mut self.error)
-                        }
-                        Pane::Viewport => {}
-                    });
+                egui::Frame::new().inner_margin(8.0).show(ui, |ui| {
+                    egui::ScrollArea::vertical()
+                        .id_salt(("inspector", _tile))
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| match other {
+                            Pane::EntityInfo => {
+                                panels::entity_info(ui, self.session, &mut self.error)
+                            }
+                            Pane::Tags => {
+                                panels::tags(ui, self.session, self.panels, &mut self.error)
+                            }
+                            Pane::Scenes => {
+                                panels::scenes(ui, self.session, self.panels, &mut self.error)
+                            }
+                            Pane::Outliner => {
+                                panels::outliner(ui, self.session, self.panels, &mut self.error)
+                            }
+                            Pane::ToolOptions => {
+                                let prompt = self
+                                    .session
+                                    .engine
+                                    .registry()
+                                    .get(self.tool.command())
+                                    .and_then(|c| c.meta().steps.get(self.tool.step()).cloned())
+                                    .map(|s| s.prompt)
+                                    .unwrap_or_default();
+                                let cx = self.viewport.cx(self.session);
+                                panels::tool_options(ui, self.tool, &cx, &t(&prompt));
+                            }
+                            Pane::ToolHelp => panels::tool_help(ui, self.session, self.tool),
+                            Pane::Materials => resources::materials(
+                                ui,
+                                self.session,
+                                self.resources,
+                                &mut self.error,
+                            ),
+                            Pane::Components => resources::components(
+                                ui,
+                                self.session,
+                                self.resources,
+                                &mut self.error,
+                            ),
+                            Pane::Styles => {
+                                resources::styles(ui, self.session, self.resources, &mut self.error)
+                            }
+                            Pane::Viewport => {}
+                        });
+                });
             }
         }
         UiResponse::None
@@ -3471,11 +3516,11 @@ impl egui_tiles::Behavior<Pane> for Docks<'_> {
     }
 
     fn tab_bar_height(&self, _style: &egui::Style) -> f32 {
-        26.0
+        32.0
     }
 
     fn gap_width(&self, _style: &egui::Style) -> f32 {
-        2.0
+        6.0
     }
 
     fn simplification_options(&self) -> egui_tiles::SimplificationOptions {
@@ -3572,7 +3617,11 @@ impl App {
                     .inner_margin(egui::Margin::symmetric(6, 2)),
             )
             .show_separator_line(false)
-            .show(ui, |ui| self.menu_bar(ui));
+            .show(ui, |ui| {
+                egui::ScrollArea::horizontal()
+                    .id_salt("menu-scroll")
+                    .show(ui, |ui| self.menu_bar(ui));
+            });
         egui::Panel::top("toolbar")
             .frame(
                 egui::Frame::new()
@@ -3855,6 +3904,29 @@ mod tests {
     use planyrith_core::inference::InferenceKind;
 
     use super::*;
+
+    /// Categorized toolbar actions stay reachable with desktop and touch sizes.
+    #[test]
+    fn toolbar_menus_activate_tools_at_both_widths() {
+        use egui_kittest::Harness;
+        use egui_kittest::kittest::Queryable;
+        for width in [1400.0, 700.0] {
+            let mut harness = Harness::builder()
+                .with_size(egui::vec2(width, 900.0))
+                .build_eframe(|cc| App::new(cc, None));
+            for (menu, label, command) in [
+                ("Drawing tools", "Polygon", "polygon"),
+                ("Modify", "Offset", "offset"),
+                ("Annotate", "Protractor", "protractor"),
+            ] {
+                harness.get_by_label(&t(menu)).click();
+                harness.run_steps(2);
+                harness.get_by_label_contains(&t(label)).click();
+                harness.run_steps(2);
+                assert_eq!(harness.state().tool().command(), command);
+            }
+        }
+    }
 
     /// Tools › Mirror, Revolve and Pattern activate the viewport tools
     /// (milestone 1.42).

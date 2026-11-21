@@ -178,6 +178,12 @@ deterministic profile; plugins trade speed for that, which suits command-driven 
 
 ## Decisions
 
+- 2026-11-21 — `cargo deny check` now reports RUSTSEC-2026-0543: `chrono`,
+  an indirect dependency of `truck-stepio`, is unmaintained, with no patched release.
+  Accept this informational advisory until the upstream STEP writer migrates; it reports
+  no vulnerability. Planyrith supplies the deterministic STEP header timestamp instead of
+  the dependency's current-time default. The exception is recorded in `deny.toml`.
+
 - 2026-11-09 — **tungstenite for browsers joining a server** (docs/08 §3.3), MIT/Apache-2.0,
   pure Rust, blocking and stream-based like the rest of the server. Only its `handshake`
   feature (no TLS: connections are encrypted by `snow`). The CLI depends on it; the GUI only in

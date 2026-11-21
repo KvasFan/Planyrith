@@ -463,7 +463,7 @@ pub fn materials(
     let query = state.material_search.clone();
     egui::ScrollArea::vertical()
         .id_salt("materials")
-        .max_height(ui.available_height() * 0.45)
+        .max_height((ui.available_height() * 0.45).min(220.0))
         .show(ui, |ui| {
             for ((name, color, textured, _), thumb) in list
                 .iter()
@@ -758,7 +758,7 @@ pub fn components(
     let query = state.component_search.clone();
     egui::ScrollArea::vertical()
         .id_salt("components")
-        .max_height(ui.available_height() * 0.5)
+        .max_height((ui.available_height() * 0.5).min(220.0))
         .show(ui, |ui| {
             for (name, description, count) in list.iter().filter(|(n, ..)| matches(&query, n)) {
                 let selected = state.selected_component.as_deref() == Some(name.as_str());
@@ -945,7 +945,7 @@ fn library(ui: &mut egui::Ui, state: &mut ResourceState) {
                 Some(Ok(entries)) => {
                     egui::ScrollArea::vertical()
                         .id_salt("component library")
-                        .max_height(ui.available_height() * 0.5)
+                        .max_height((ui.available_height() * 0.5).min(220.0))
                         .show(ui, |ui| {
                             let query = state.component_search.clone();
                             for entry in entries

@@ -20,7 +20,7 @@
   <img alt="Written in Rust" src="https://img.shields.io/badge/written%20in-Rust-2f3a45?style=flat-square&amp;logo=rust">
   <img alt="Windows and Linux downloads" src="https://img.shields.io/badge/downloads-Windows%20%C2%B7%20Linux-2f3a45?style=flat-square">
   <a href="#license-and-credits"><img alt="Applications: MIT or Apache-2.0" src="https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-2f3a45?style=flat-square"></a>
-  <a href="https://github.com/KvasFan/Planyrith/releases/tag/v0.13.0-alpha.2"><img alt="Preview 0.13.0-alpha.2" src="https://img.shields.io/badge/preview-0.13.0--alpha.2-e0a458?style=flat-square"></a>
+  <a href="https://github.com/KvasFan/Planyrith/releases/tag/v0.13.0-alpha.3"><img alt="Preview 0.13.0-alpha.3" src="https://img.shields.io/badge/preview-0.13.0--alpha.3-e0a458?style=flat-square"></a>
 </p>
 
 <p align="center">
@@ -29,7 +29,7 @@
     <img src="docs/images/modeling-light.png" alt="Planyrith modeling a room with a door and window, with modeling tools, Entity Info and the Outliner visible">
   </picture>
   <br>
-  <sub>A room made with Planyrith's own modeling acceptance scenario. Light and dark themes.</sub>
+  <sub>A larger modeling canvas, grouped tools and an organized inspector. Light and dark themes.</sub>
 </p>
 
 <p align="center">
@@ -45,23 +45,23 @@
 
 ## Downloads
 
-**[0.13.0-alpha.2 — engineering preview](https://github.com/KvasFan/Planyrith/releases/tag/v0.13.0-alpha.2)**
+**[0.13.0-alpha.3 — refreshed modeling workspace](https://github.com/KvasFan/Planyrith/releases/tag/v0.13.0-alpha.3)**
 
 | Platform | Download | Start |
 |---|---|---|
-| Windows 10/11, x64 | [Installer `.exe`](https://github.com/KvasFan/Planyrith/releases/download/v0.13.0-alpha.2/Planyrith-0.13.0-alpha.2-windows-x86_64-setup.exe) | Per-user installation with shortcuts and native file association. |
-| Windows 10/11, x64, managed installs | [Windows Installer `.msi`](https://github.com/KvasFan/Planyrith/releases/download/v0.13.0-alpha.2/Planyrith-0.13.0-alpha.2-windows-x86_64.msi) | `msiexec /i Planyrith-*.msi` |
-| Windows, portable x64 | [Portable `.zip`](https://github.com/KvasFan/Planyrith/releases/download/v0.13.0-alpha.2/planyrith-0.13.0-alpha.2-windows-x86_64-portable.zip) | Extract and run `planyrith-gui.exe`. |
-| Linux, x86_64 | [AppImage](https://github.com/KvasFan/Planyrith/releases/download/v0.13.0-alpha.2/Planyrith-0.13.0-alpha.2-x86_64.AppImage) | Make executable and run. |
-| Linux with Flatpak, x86_64 | [Flatpak bundle](https://github.com/KvasFan/Planyrith/releases/download/v0.13.0-alpha.2/Planyrith-0.13.0-alpha.2-x86_64.flatpak) | `flatpak install --user Planyrith-*.flatpak` |
-| Debian 12 / Ubuntu 22.04+, amd64 | [Debian package `.deb`](https://github.com/KvasFan/Planyrith/releases/download/v0.13.0-alpha.2/planyrith_0.13.0-alpha.2_amd64.deb) | `sudo apt install ./planyrith_*.deb` |
-| Arch Linux, x86_64 | [Arch package `.pkg.tar.zst`](https://github.com/KvasFan/Planyrith/releases/download/v0.13.0-alpha.2/planyrith-0.13.0alpha2-1-x86_64.pkg.tar.zst) | `sudo pacman -U ./planyrith-*.pkg.tar.zst` |
-| Arch / Linux, portable x86_64 | [Executable bundle `.tar.gz`](https://github.com/KvasFan/Planyrith/releases/download/v0.13.0-alpha.2/planyrith-0.13.0-alpha.2-linux-x86_64.tar.gz) | Extract and run `./Planyrith`. |
+| Windows 10/11, x64 | [Installer `.exe`](https://github.com/KvasFan/Planyrith/releases/download/v0.13.0-alpha.3/Planyrith-0.13.0-alpha.3-windows-x86_64-setup.exe) | Per-user installation with shortcuts and native file association. |
+| Windows 10/11, x64, managed installs | [Windows Installer `.msi`](https://github.com/KvasFan/Planyrith/releases/download/v0.13.0-alpha.3/Planyrith-0.13.0-alpha.3-windows-x86_64.msi) | `msiexec /i Planyrith-*.msi` |
+| Windows, portable x64 | [Portable `.zip`](https://github.com/KvasFan/Planyrith/releases/download/v0.13.0-alpha.3/planyrith-0.13.0-alpha.3-windows-x86_64-portable.zip) | Extract and run `planyrith-gui.exe`. |
+| Linux, x86_64 | [AppImage](https://github.com/KvasFan/Planyrith/releases/download/v0.13.0-alpha.3/Planyrith-0.13.0-alpha.3-x86_64.AppImage) | Make executable and run. |
+| Linux with Flatpak, x86_64 | [Flatpak bundle](https://github.com/KvasFan/Planyrith/releases/download/v0.13.0-alpha.3/Planyrith-0.13.0-alpha.3-x86_64.flatpak) | `flatpak install --user Planyrith-*.flatpak` |
+| Debian 12 / Ubuntu 22.04+, amd64 | [Debian package `.deb`](https://github.com/KvasFan/Planyrith/releases/download/v0.13.0-alpha.3/planyrith_0.13.0-alpha.3_amd64.deb) | `sudo apt install ./planyrith_*.deb` |
+| Arch Linux, x86_64 | [Arch package `.pkg.tar.zst`](https://github.com/KvasFan/Planyrith/releases/download/v0.13.0-alpha.3/planyrith-0.13.0alpha3-1-x86_64.pkg.tar.zst) | `sudo pacman -U ./planyrith-*.pkg.tar.zst` |
+| Arch / Linux, portable x86_64 | [Executable bundle `.tar.gz`](https://github.com/KvasFan/Planyrith/releases/download/v0.13.0-alpha.3/planyrith-0.13.0-alpha.3-linux-x86_64.tar.gz) | Extract and run `./Planyrith`. |
 
 Packages include the GUI, CLI and separate SKP/SKB module, with license notices.
 Windows setup lets you deselect the GPL format module. The installer is unsigned.
 Linux binaries require glibc 2.35+ and a working Vulkan driver. Wayland and X11 are supported.
-See [installation details](packaging/INSTALL.md), [checksums and complete sources](https://github.com/KvasFan/Planyrith/releases/tag/v0.13.0-alpha.2).
+See [installation details](packaging/INSTALL.md), [checksums and complete sources](https://github.com/KvasFan/Planyrith/releases/tag/v0.13.0-alpha.3).
 macOS and the browser edition can be built from source.
 
 ## Screenshots
@@ -106,6 +106,12 @@ macOS and the browser edition can be built from source.
   full document. Whole-model external sources remain available in `.plyr` copies.
 
 ## Quick start
+
+The modeling workspace keeps common tools on the toolbar; **Drawing tools**, **Modify**,
+**Annotate**, **Views** and **Face Style** open the remaining choices. The inspector groups
+tool options and entity details, material/component/style libraries, and model structure.
+If upgrading, choose **Window → Reset Layout** to apply the new arrangement; your saved
+layout is otherwise retained.
 
 Start **Planyrith**, draw a rectangle, use Push/Pull to give it height and save
 your model as `.plyr`. Open the included examples to explore the tools.
@@ -173,7 +179,8 @@ test suite. [Packaging instructions](docs/16-release-and-packaging.md) describe
 
 The modeling kernel, desktop/browser interfaces, organization, interchange,
 automation, solids and Sheets milestones are implemented, followed by the
-engineering milestones (1.7–1.52; 1.44–1.52 since the latest preview). Open work: full SKP fidelity
+engineering milestones (1.7–1.52). This preview refreshes the modeling workspace.
+Open work: full SKP fidelity
 and reader certification, a macOS build, testing the Windows packages on Windows
 itself, and the 1.0 stabilization criteria. See [the roadmap](docs/13-roadmap.md),
 [changes](CHANGELOG.md) and [project specification](docs/00-overview.md).
